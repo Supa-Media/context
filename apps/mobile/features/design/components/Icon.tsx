@@ -109,6 +109,16 @@ export const ICON_NAMES = [
    * confusion `docs/decisions/meetings.md` refuses for the microphone.
    */
   "copy",
+  /**
+   * Recent, drawn as a clock because every platform draws recency as one.
+   *
+   * Deliberately not an `undo`-style curved arrow: that mark means "put this
+   * back" everywhere else in this set, and the sheet it opens does not undo
+   * anything — it lists where you have been. It replaced the tab-count square,
+   * which was a number rather than a drawing; see `RecentSheet.tsx` for why the
+   * number went.
+   */
+  "clock",
   /** The Map pane: nodes with edges between them. */
   "constellation",
   /** The Connections pane: a two-way exchange, which is what a grant is. */
@@ -659,6 +669,20 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
       return [
         rect("back", u, w, c, { x0: 0.12, y0: 0.12, x1: 0.66, y1: 0.66, radius: 0.11 }),
         rect("front", u, w, c, { x0: 0.34, y0: 0.34, x1: 0.88, y1: 0.88, radius: 0.11 }),
+      ];
+
+    case "clock":
+      /*
+        Hands at 3:00 — the one setting where neither hand lies along the
+        other, so both are readable at 20pt, and the one every platform's clock
+        glyph settles on for the same reason. Each hand is a bar centred on its
+        own midpoint (see `bar`), so the arithmetic is "half its length out from
+        the middle of the face" rather than an endpoint.
+      */
+      return [
+        ring("face", u, w, c, { cx: 0.5, cy: 0.5, r: 0.37 }),
+        bar("minute", u, w, c, { cx: 0.5, cy: 0.39, length: 0.22, angle: 90 }),
+        bar("hour", u, w, c, { cx: 0.58, cy: 0.5, length: 0.16 }),
       ];
 
     case "constellation":

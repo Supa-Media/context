@@ -29,6 +29,8 @@ import { InboxView } from "../communications/InboxView";
 import { MAIL_CONNECT_ENABLED } from "../communications/flags";
 import { classifyCommsPath } from "../communications/paths";
 import { isGroupVisibility } from "../files/types";
+import { removalHandler } from "../files/access";
+import type { SettingsSectionKey } from "../settings/sections";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -78,7 +80,13 @@ export function BrowsePane({
   onOpenComms,
 }: {
   data: ConsoleData;
-  onOpenSettings?: () => void;
+  /**
+   * Optionally at a named section — which is what lets a control deep-link to
+   * the place its own answer lives: the share dialog's group row sends you to
+   * `groups`, because who is in a group is decided there and nowhere else.
+   * Called with nothing, it opens where the gear always did.
+   */
+  onOpenSettings?: (section?: SettingsSectionKey) => void;
   /**
    * The note this URL names, if it names one.
    *
@@ -895,11 +903,49 @@ export function BrowsePane({
               ? undefined
               : (group) => files.shareWithGroup(sharing, group)
           }
+          /*
+            Make one here, and point this note at it in the same press. The
+            group is created, populated, and then named as this note's rule —
+            which is the whole sequence somebody previously did by hand across
+            two screens.
+          */
+          entryKind={selected.kind}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) => files.setScope(sharing, selected.kind, from, to)
+              : undefined
+          }
+          groupSlug={current?.slug}
+          onCreateGroup={
+            data.groups?.actions === undefined
+              ? undefined
+              : (label, userIds) =>
+                  data
+                    .groups!.actions!.createWith(label, userIds)
+                    .then((name) => files.shareWithGroup(sharing, name))
+          }
           access={{
             visibility: selected.visibility,
             exception: selected.exception,
             members: data.members?.members,
           }}
+          /*
+            What a row can actually do about somebody. Each half is present
+            only where this caller holds it: `setPrivate` needs write access to
+            the manifest, `removeMember` is owner-only in `apps/convex`, and
+            `removalHandler` returns `undefined` when neither is — so a
+            non-owner's rows draw their role, exactly as they always did.
+          */
+          onRemovalRoute={removalHandler({
+            path: sharing,
+            kind: selected.kind,
+            setPrivate: (path, kind) => files.setVisibility(path, kind, "private"),
+            removeMember: data.members?.actions?.remove,
+            openGroups:
+              data.groups?.actions === undefined || onOpenSettings === undefined
+                ? undefined
+                : () => onOpenSettings("groups"),
+          })}
           /*
             Only when the editor is actually holding this note — the same
             guard the breadcrumb's title uses, for the same reason: the

@@ -1,9 +1,12 @@
 import { describe, expect, test } from "@jest/globals";
 import {
+  MAX_RECENT,
   canGoBack,
   canGoForward,
   currentPath,
   emptyHistory,
+  hasSomewhereToGo,
+  recentPaths,
   stepped,
   visited,
   type HistoryState,
@@ -92,5 +95,112 @@ describe("where you have been", () => {
     visited(before, "c.md");
     stepped(before, -1);
     expect(before.entries).toEqual(snapshot);
+  });
+});
+
+/**
+ * The list behind the phone's Recent sheet.
+ *
+ * `‹` reaches the previous note; this reaches the previous fifteen, which is
+ * the whole reason the sheet replaced the tab switcher that used to sit in that
+ * toolbar slot. It is **derived from the same array `‹` and `›` walk** rather
+ * than kept beside it: a second log would be a second model of "which notes am
+ * I working with" on a 390pt screen, which is exactly the thing being removed.
+ */
+describe("recent, for the sheet", () => {
+  test("most recent first, which is the reverse of the walk", () => {
+    expect(recentPaths(walk("a.md", "b.md", "c.md"))).toEqual(["c.md", "b.md", "a.md"]);
+  });
+
+  test("nowhere visited is an empty list rather than a null", () => {
+    expect(recentPaths(emptyHistory)).toEqual([]);
+  });
+
+  test("a note visited twice appears once, at its most recent position", () => {
+    /*
+      `entries` keeps both visits on purpose — collapsing them would make `‹`
+      skip the return trip (see "a revisit further back is a new entry"). A
+      *list* has no such need: two rows with the same name, one of which is
+      dead, is the sheet reading as broken.
+    */
+    expect(recentPaths(walk("a.md", "b.md", "a.md"))).toEqual(["a.md", "b.md"]);
+  });
+
+  test("the note you are on is in the list, because the sheet marks it", () => {
+    // Dropping it here would leave the sheet unable to say where you already
+    // are, and `RecentSheet` marks that row rather than hiding it.
+    const state = walk("a.md", "b.md");
+    expect(recentPaths(state)[0]).toBe(currentPath(state));
+  });
+
+  test("stepping back does not reorder the list under the thumb", () => {
+    /*
+      Back and forward are movement *within* this list, not new visits. If a
+      press reordered it, walking back through the sheet would shuffle the rows
+      you were reading — and no browser's history list does that either.
+    */
+    const three = walk("a.md", "b.md", "c.md");
+    expect(recentPaths(stepped(three, -1))).toEqual(recentPaths(three));
+  });
+
+  test("a branch drops the forward tail here too, because it is one array", () => {
+    // The cost of deriving rather than keeping a parallel log, stated: `c.md`
+    // is genuinely gone. It is the browser rule `entries` already lives by, and
+    // one model that forgets is better than two that disagree.
+    const branched = visited(stepped(walk("a.md", "b.md", "c.md"), -1), "d.md");
+    expect(recentPaths(branched)).toEqual(["d.md", "b.md", "a.md"]);
+  });
+
+  test("capped, keeping the newest", () => {
+    // An unbounded list is a sheet nobody scrolls to the bottom of, and the
+    // rows past the first dozen are somewhere you went this morning.
+    const many = walk(...Array.from({ length: MAX_RECENT + 8 }, (_, i) => `n${i}.md`));
+    const recent = recentPaths(many);
+    expect(recent).toHaveLength(MAX_RECENT);
+    expect(recent[0]).toBe(`n${MAX_RECENT + 7}.md`);
+  });
+
+  test("folders are in it, because a folder is somewhere you were", () => {
+    // History records the *selection*, which is a folder as often as a note —
+    // and "back to the folder I was in" is a real destination on a phone. The
+    // sheet draws those rows with a folder icon rather than filtering them.
+    expect(recentPaths(walk("1-projects", "1-projects/plan.md"))).toEqual([
+      "1-projects/plan.md",
+      "1-projects",
+    ]);
+  });
+
+  test("one entry, and it is where you already are, is nowhere to go", () => {
+    /*
+      The state the toolbar's Recent key is dimmed in, and the ordinary one on
+      the first note of a session. `length > 0` is the wrong question: the list
+      always holds the note on screen, so it is never empty once anything is
+      open, and a control offering to take somebody where they already stand is
+      one they learn to stop pressing.
+    */
+    const one = walk("a.md");
+    expect(recentPaths(one)).toEqual(["a.md"]);
+    expect(hasSomewhereToGo(one, "a.md")).toBe(false);
+  });
+
+  test("a second place lights it, and so does stepping off the only one", () => {
+    expect(hasSomewhereToGo(walk("a.md", "b.md"), "b.md")).toBe(true);
+    // Closing the note leaves the folder view with nothing selected, and the
+    // one entry becomes a destination again rather than a mirror.
+    expect(hasSomewhereToGo(walk("a.md"), null)).toBe(true);
+    expect(hasSomewhereToGo(emptyHistory, null)).toBe(false);
+  });
+
+  test("it asks about the selection, because a folder is a place too", () => {
+    // Standing *in* `1-projects` with `1-projects` the only entry is the same
+    // dead end as standing in the only note.
+    expect(hasSomewhereToGo(walk("1-projects"), "1-projects")).toBe(false);
+    expect(hasSomewhereToGo(walk("1-projects"), "1-projects/plan.md")).toBe(true);
+  });
+
+  test("a context switch empties it with everything else", () => {
+    // Paths are relative to a bucket; `clearedHistory` is the guard, and this
+    // is the assertion that the new list is behind it rather than beside it.
+    expect(recentPaths(emptyHistory)).toEqual([]);
   });
 });

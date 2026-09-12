@@ -200,10 +200,21 @@ function RailButton({
 export function PaneHead({
   title,
   description,
+  leading,
   trailing,
 }: {
   title: string;
   description?: string;
+  /**
+   * The way out, for a pane that needs one drawn.
+   *
+   * The app-level panes — Search, Map, Connections — are full-screen on a
+   * phone with no rail and no bottom toolbar behind them (`frame.ts`, and the
+   * `browsing` gate in the console layout), so a pane that does not draw an
+   * exit does not have one. A context's own panes leave it absent: the toolbar
+   * and the tree are their navigation.
+   */
+  leading?: ReactNode;
   trailing?: ReactNode;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -212,6 +223,7 @@ export function PaneHead({
 
   return (
     <View style={styles.paneHead}>
+      {leading}
       <View style={styles.paneHeadText}>
         <Text variant="paneTitle" role="heading" aria-level={2}>
           {title}

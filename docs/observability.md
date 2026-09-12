@@ -27,6 +27,13 @@ content.
 The executable privacy boundary is
 `apps/mobile/features/observability/privacy.ts`; changes to it require tests.
 
+PostHog's top-level `properties.token` is its public, write-only project routing
+key, not a user credential. The web transport scrubs every ordinary property,
+then restores only that one top-level field from `EXPO_PUBLIC_POSTHOG_KEY`.
+Never preserve the event's incoming value, and never exempt nested `token`
+fields from redaction: without the routing key PostHog silently drops the
+event, while a broader exemption could leak a real credential.
+
 ## Configuration
 
 Set these in the EAS environment used by each build/update. The sample rates
@@ -54,6 +61,17 @@ older binaries that receive a newer OTA bundle. A fresh EAS build is required
 before native crashes become available. PostHog analytics is cross-platform;
 masked replay is web-only and does not need a native bridge.
 
+Convex backend exceptions use Convex's native Sentry integration rather than
+the mobile SDK. Configure it independently for every Convex deployment in
+Deployment Settings → Integrations, using the same Sentry DSN and a static
+`service=context-control-plane` tag. The production integration is expected to
+be Active; mobile/EAS environment variables do not configure it.
+
+In PostHog, keep **Record user sessions** enabled, remove stale authorized-domain
+allowlists, select total-privacy masking, and leave console-log, canvas, network,
+header, and payload capture disabled. SDK masking remains the primary boundary;
+the project settings are defense in depth.
+
 ## Release verification
 
 For staging first:
@@ -64,19 +82,38 @@ For staging first:
    render error in a non-production build.
 4. In Sentry, confirm the issue has readable application frames, an internal
    user id, environment/release data, and a `posthog.session_id` tag.
-5. In PostHog web, confirm the matching session has screen events and a replay
+5. Trigger one controlled, non-mutating Convex authorization error and confirm
+   it arrives in the same Sentry project with `service=context-control-plane`,
+   the Convex function name/type, deployment, environment, and request id.
+6. In PostHog web, confirm the matching session has screen events and a replay
    in which text and images are masked. On native, confirm analytics only and no
    replay.
-6. Inspect both payloads and verify there is no email, context handle, note path,
+7. Inspect both payloads and verify there is no email, context handle, note path,
    note body, OAuth code, share token, or storage credential.
 
-## Initial alerts and dashboards
+## Quiet incident inbox and alerts
+
+Sentry remains the diagnostic source, but a signed internal-integration webhook
+also files each newly created issue as one compact note under the configured
+Context incident prefix. The note starts with a single `What is happening`
+sentence and links back to Sentry; raw events, stack traces, note content, and
+request payloads are not copied. A stable issue id produces a stable note path,
+so retries and recurrences do not create a stream of duplicate files.
+
+`infra/sentry-worker` owns this adapter. Its request cannot choose a workspace
+or path, and a foreign Sentry project is ignored. A singleton Durable Object
+serializes Context OAuth refresh-token rotation. A failed Context write returns
+`503`, allowing Sentry to retry.
+
+Routine per-issue email notifications for the production Context project are
+disabled. The Context incident folder is the quiet review queue; urgent
+notifications should be reserved for an explicit outage or sustained-impact
+monitor, not every new exception.
+
+## Dashboards
 
 Create these after the first staging events establish the project schema:
 
-- Sentry: alert immediately on a new fatal issue; alert when the same error
-  affects at least 3 users in 30 minutes; alert when crash-free sessions fall
-  below 99.5% over 24 hours.
 - Sentry dashboard: crash-free sessions, affected users, top issues, p95 app
   start, and p95 screen/navigation duration by release.
 - PostHog dashboard: unique signed-in users, screen sequence, onboarding start

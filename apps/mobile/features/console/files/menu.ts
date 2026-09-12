@@ -448,9 +448,19 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
   const archived = rows.every((row) => restoreTargetFor(row.path) !== null);
 
   return joinGroups([
-    // Opening. A folder has no document to put in a tab, and touch has a tab
-    // switcher rather than a pointer with a middle button, so the second item
-    // is web-and-file only.
+    /*
+      Opening. A folder has no document to put in a tab, so the second item is
+      file-only — and it is web-only because **tabs are a pointer instrument**.
+
+      That second half used to read "touch has a tab switcher rather than a
+      pointer with a middle button", which had the causation backwards: a
+      switcher *displays* a set of tabs, it does not produce one. This line was
+      the only verb that produces one, so withholding it here was what left the
+      phone's count button reading `1` for the life of the app — the switcher
+      the comment pointed at as the alternative was the thing this made empty.
+      It is gone (`files/RecentSheet.tsx`), and the gate is now saying what it
+      always did: a phone has no tab surface, so it is offered no tab verb.
+    */
     single === null
       ? []
       : [

@@ -398,11 +398,11 @@ const blendedResultsValidator = v.object({
   /**
    * How many contexts this viewer could search at all, whatever they selected.
    *
-   * Zero is its own state on screen — "no context has fast search on" is a
+   * Zero is its own state on screen — "you are not in a context yet" is a
    * different sentence from "nothing matched", and collapsing them would tell
    * somebody their notes are not there when nothing looked.
    */
-  eligibleCount: v.number(),
+  searchableCount: v.number(),
 });
 
 /**
@@ -1384,7 +1384,7 @@ type BlendedAnswer = {
     matchCount: number;
     matchCountIsFloor: boolean;
   }[];
-  eligibleCount: number;
+  searchableCount: number;
 };
 
 /**
@@ -1601,13 +1601,23 @@ export const notePaths = action({
  *
  * ## What it deliberately does not do
  *
- * **It schedules no index maintenance.** `searchContext` does, because a person
- * searching one context is the cheapest possible trigger for catching that
- * context's index up. Multiplying that by the width of a scope would put a full
+ * **It schedules index maintenance for one case only: a context with no index
+ * at all.** `searchContext` schedules a pass behind any lagging index, because
+ * a person searching one context is the cheapest possible trigger for catching
+ * that context up. Multiplying that by the width of a scope would put a full
  * bucket listing per context behind every keystroke on this page, billed to
- * every one of those customers — and it would buy nothing here, because every
- * context in scope has a projection the control plane already calls `ready`,
- * kept current by the gateway riding its own searches.
+ * every one of those customers, so a merely *incomplete* index is left to the
+ * passes that already ride the gateway's own searches.
+ *
+ * A **missing** one is different in kind and is the state this page created for
+ * itself the moment it started searching contexts without a projection: a
+ * context nobody has ever searched directly has no shard index, answers every
+ * query with `indexMissing`, and would report "still being indexed" on this
+ * page forever — a permanent apology that no amount of waiting resolves. So the
+ * first page of a search schedules one chain per such context and no more:
+ * later pages of the same query schedule nothing, and the condition is
+ * self-limiting, because a context that has been indexed once is never
+ * `indexMissing` again.
  *
  * **It logs no query text.** Nothing in this function writes the words
  * somebody typed anywhere: not to audit, not to a structured log, not into the
@@ -1619,8 +1629,8 @@ export const searchContexts = action({
   args: {
     query: v.string(),
     /**
-     * The scope, as workspace ids. Absent or empty means every eligible
-     * context. An id this caller may not search is **dropped**, identically to
+     * The scope, as workspace ids. Absent or empty means every context this
+     * caller can search. An id this caller may not search is **dropped**, identically to
      * one that never existed — see `resolveScope`.
      */
     contexts: v.optional(v.array(v.id("workspaces"))),
@@ -1630,16 +1640,16 @@ export const searchContexts = action({
   returns: blendedResultsValidator,
   handler: async (ctx, args): Promise<BlendedAnswer> => {
     const actorUserId = await callerId(ctx);
-    const eligible = await ctx.runQuery(
+    const searchable = await ctx.runQuery(
       internal.functions.fastSearch.searchableContextsFor,
       { actorUserId },
     );
 
     const query = args.query.trim();
-    const scope = resolveScope(eligible, args.contexts);
+    const scope = resolveScope(searchable, args.contexts);
     if (query === "" || scope.length === 0) {
       // An empty query and an empty scope are both "nothing was asked", and
-      // both answer with an empty page rather than an error. `eligibleCount`
+      // both answer with an empty page rather than an error. `searchableCount`
       // is what lets the page tell the two apart on screen.
       return {
         results: [],
@@ -1647,7 +1657,7 @@ export const searchContexts = action({
         matchCountIsFloor: false,
         cursor: null,
         sources: [],
-        eligibleCount: eligible.length,
+        searchableCount: searchable.length,
       };
     }
 
@@ -1672,7 +1682,7 @@ export const searchContexts = action({
         const settled = await withDeadline(
           (async () => {
             // The one authorization function, per context, per page. The
-            // eligible list already established membership; this re-establishes
+            // searchable list already established membership; this re-establishes
             // it through the same query every other file action uses, so a
             // blended search cannot come to disagree with a single one about
             // what role means what scope.
@@ -1684,23 +1694,38 @@ export const searchContexts = action({
                 minimum: "member" as const,
               },
             );
-            return (await ctx.runAction(internal.functions.files.runFileOperation, {
-              workspaceId: context.workspaceId as Id<"workspaces">,
-              scope: tier,
-              operation: {
-                kind: "search" as const,
-                query,
-                limit: asked,
-                // See `searchNotes`: a fan-out misses in most of its contexts
-                // by construction, and one listing per miss is the cost of a
-                // rule written for a single spinner.
-                refreshOnMiss: false,
+            const answer = (await ctx.runAction(
+              internal.functions.files.runFileOperation,
+              {
+                workspaceId: context.workspaceId as Id<"workspaces">,
+                scope: tier,
+                operation: {
+                  kind: "search" as const,
+                  query,
+                  limit: asked,
+                  // See `searchNotes`: a fan-out misses in most of its contexts
+                  // by construction, and one listing per miss is the cost of a
+                  // rule written for a single spinner.
+                  refreshOnMiss: false,
+                },
               },
-            })) as Extract<OperationResult, { kind: "searchResults" }>;
+            )) as Extract<OperationResult, { kind: "searchResults" }>;
+            // The tier rides back out with the answer so the maintenance pass
+            // below can be scheduled with the scope this search was authorized
+            // at, rather than re-deriving one outside the race — where a second
+            // `authorizeFileAccess` would be a second answer to the same
+            // question.
+            return { answer, tier };
           })(),
           SOURCE_DEADLINE_MS,
         );
-        return { context, offset, asked, settled };
+        return {
+          context,
+          offset,
+          asked,
+          settled: settled === null ? null : settled.answer,
+          tier: settled === null ? null : settled.tier,
+        };
       }),
     );
 
@@ -1756,6 +1781,32 @@ export const searchContexts = action({
       });
     }
 
+    /*
+      The one pass this page schedules — see "what it deliberately does not do".
+
+      A context with no shard index at all answers every query with
+      `indexMissing` and would say "still being indexed" on this page for as
+      long as nobody searched it from somewhere else. One chain per such
+      context, on the first page of a query only, and never for an index that
+      merely lags: that one catches up behind the searches the gateway and the
+      palette already ride.
+
+      **Scheduled, never called** (CLAUDE.md, "Scheduling is not calling"). A
+      `runAction` here would put a full listing of somebody's bucket in front of
+      the person waiting for this page, which is the defect the whole
+      no-maintenance rule exists to avoid.
+    */
+    if (args.cursor === undefined) {
+      for (const { context, settled, tier } of answered) {
+        if (settled === null || tier === null || !settled.indexMissing) continue;
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: context.workspaceId as Id<"workspaces">,
+          scope: tier,
+          operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
+        });
+      }
+    }
+
     const page = pageOf(fuse(sources), sources);
     const named = new Map(scope.map((context) => [context.workspaceId, context]));
     return {
@@ -1774,7 +1825,7 @@ export const searchContexts = action({
       matchCountIsFloor,
       cursor: page.next === null ? null : encodeCursor(fingerprint, page.next),
       sources: rows,
-      eligibleCount: eligible.length,
+      searchableCount: searchable.length,
     };
   },
 });
