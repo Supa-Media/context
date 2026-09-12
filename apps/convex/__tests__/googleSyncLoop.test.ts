@@ -167,6 +167,44 @@ describe("the sweep starts a pass only for a connection that is due", () => {
     expect((await sweep(t)).started).toBe(0);
   });
 
+  test("a Chat-only connection is started by the same account-level sweep", async () => {
+    const { t, connectionId } = await scenario();
+    await patchConnection(t, connectionId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: {
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        nonceSeed: "fixture-chat-nonce-seed",
+      },
+    });
+
+    expect((await sweep(t)).started).toBe(1);
+  });
+
+  test("a newly-added Chat product is due even when Gmail just finished", async () => {
+    const { t, connectionId } = await scenario();
+    const row = await readConnection(t, connectionId);
+    const now = Date.now();
+    await patchConnection(t, connectionId, {
+      products: ["gmail", "chat"],
+      gmail: { ...row.gmail!, lastSyncedAt: now },
+      chat: {
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        nonceSeed: "fixture-chat-nonce-seed",
+      },
+      lastSyncAt: now,
+      nextSyncAt: now,
+    });
+
+    expect((await sweep(t)).started).toBe(1);
+  });
+
   test("a pass that is still running is not overtaken", async () => {
     const { t, connectionId } = await scenario();
     const now = Date.now();
@@ -176,6 +214,33 @@ describe("the sweep starts a pass only for a connection that is due", () => {
       syncStartedAt: now - MINUTE,
     });
     expect((await sweep(t)).started).toBe(0);
+  });
+
+  test("two due accounts in one workspace are serialized before either can render shared notes", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    const siblingId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "sibling@example.invalid",
+    });
+    for (const [id, nonceSeed] of [
+      [connectionId, "fixture-chat-nonce-seed-a"],
+      [siblingId, "fixture-chat-nonce-seed-b"],
+    ] as const) {
+      await patchConnection(t, id, {
+        products: ["chat"],
+        gmail: undefined,
+        chat: {
+          scopes: [
+            "https://www.googleapis.com/auth/chat.messages.readonly",
+            "https://www.googleapis.com/auth/chat.spaces.readonly",
+          ],
+          nonceSeed,
+        },
+      });
+    }
+
+    expect((await sweep(t)).started).toBe(1);
   });
 
   test("...but one that has been silent for fifteen minutes is presumed lost and restarted", async () => {
@@ -783,6 +848,57 @@ describe("the pass re-asks every gate before it opens a credential", () => {
     expect(JSON.stringify(job)).not.toContain("refresh");
     expect(JSON.stringify(job)).not.toContain("example-google-refresh-token-not-real");
   });
+
+  test("a Chat-only connection is handed its state and every history-preserving contributor", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    const siblingId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "sibling@example.invalid",
+    });
+    await patchConnection(t, connectionId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: {
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        nonceSeed: "fixture-chat-nonce-seed-a",
+        cursors: { "spaces/alpha": "2026-09-12T10:00:00.000Z" },
+        spaceSettings: { "spaces/quiet": "paused" },
+      },
+    });
+    await patchConnection(t, siblingId, {
+      products: ["chat"],
+      gmail: undefined,
+      disconnectedAt: Date.now(),
+      chat: {
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        nonceSeed: "fixture-chat-nonce-seed-b",
+      },
+    });
+
+    const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+      workspaceId,
+      connectionId,
+    });
+    expect(job).toMatchObject({
+      kind: "run",
+      product: "chat",
+      address: "person@example.invalid",
+      destinationFolder: "2-areas/communications/daily",
+      cursors: { "spaces/alpha": "2026-09-12T10:00:00.000Z" },
+      spaceSettings: { "spaces/quiet": "paused" },
+    });
+    expect(job).toMatchObject({
+      contributorSourceIds: expect.arrayContaining([connectionId, siblingId]),
+    });
+    expect(JSON.stringify(job)).not.toContain("refresh");
+  });
 });
 
 describe("a pass that ran out of history pages", () => {
@@ -1164,6 +1280,49 @@ function googleAndBucket(options: {
   return { fetchImpl, calls };
 }
 
+function chatAndBucket(options: { backend: MemoryS3 }) {
+  const calls: string[] = [];
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  const fetchImpl = async (input: URL | RequestInfo, init: RequestInit = {}) => {
+    const url = new URL(typeof input === "string" ? input : String(input));
+    if (url.hostname !== "chat.googleapis.com") {
+      return await options.backend.fetchImpl(input, init);
+    }
+    calls.push(url.pathname);
+    if (url.pathname === "/v1/spaces") {
+      return json({
+        spaces: [
+          {
+            name: "spaces/alpha",
+            displayName: "Engineering",
+            spaceType: "SPACE",
+            spaceHistoryState: "HISTORY_ON",
+          },
+        ],
+      });
+    }
+    if (url.pathname === "/v1/spaces/alpha/messages") {
+      return json({
+        messages: [
+          {
+            name: "spaces/alpha/messages/msg-1",
+            createTime: "2026-09-12T10:00:00.000Z",
+            text: "Ship the live Chat bridge",
+            thread: { name: "spaces/alpha/threads/thread-1" },
+            sender: { name: "users/adam", displayName: "Adam Okonkwo" },
+          },
+        ],
+      });
+    }
+    return json({ error: { code: 404 } }, 404);
+  };
+  return { fetchImpl, calls };
+}
+
 async function endToEnd(options: {
   historyId?: string;
   quotaBytes?: number;
@@ -1329,6 +1488,97 @@ describe("one pass, end to end, through the credential barrier", () => {
     const day = "0-inbox/email/person-at-example-invalid/2026-09-08.md";
     expect(Object.keys(written)).toContain(day);
     expect(written[day]).toContain("Quarterly numbers");
+  });
+
+  test("a Chat cursor advances only after its shared day and organic Contact are written", async () => {
+    const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
+    await patchConnection(t, connectionId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: {
+        scopes: [
+          "https://www.googleapis.com/auth/chat.messages.readonly",
+          "https://www.googleapis.com/auth/chat.spaces.readonly",
+        ],
+        nonceSeed: "fixture-chat-nonce-seed",
+        cursors: { "spaces/alpha": "2026-09-12T09:00:00.000Z" },
+      },
+    });
+    const google = chatAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({
+      kind: "googleForwardSync",
+      status: "synced",
+      cursorAdvanced: true,
+    });
+    const row = await readConnection(t, connectionId);
+    expect(row.chat?.cursors?.["spaces/alpha"]).toBe("2026-09-12T10:00:00.000Z");
+    expect(row.chat?.lastSyncedAt).toBeTypeOf("number");
+    const view = (
+      await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      })
+    )[0]!;
+    expect(view.sync.everSynced).toBe(true);
+    expect(view.sync.cursorReady).toBe(true);
+    const written = backend.snapshot();
+    expect(written["2-areas/communications/daily/2026-09-12.md"]).toContain(
+      "Ship the live Chat bridge",
+    );
+    expect(Object.entries(written)).toContainEqual([
+      expect.stringMatching(/^0-inbox\/contacts\//),
+      expect.stringContaining("Adam Okonkwo"),
+    ]);
+    expect(google.calls).toEqual(["/v1/spaces", "/v1/spaces/alpha/messages"]);
+  });
+
+  test("a Chat cursor stays put until every active account has a complete contribution", async () => {
+    const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
+    const siblingId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "sibling@example.invalid",
+    });
+    const chat = (nonceSeed: string) => ({
+      scopes: [
+        "https://www.googleapis.com/auth/chat.messages.readonly",
+        "https://www.googleapis.com/auth/chat.spaces.readonly",
+      ],
+      nonceSeed,
+      cursors: { "spaces/alpha": "2026-09-12T09:00:00.000Z" },
+    });
+    await patchConnection(t, connectionId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: chat("fixture-chat-nonce-seed-a"),
+    });
+    await patchConnection(t, siblingId, {
+      products: ["chat"],
+      gmail: undefined,
+      chat: chat("fixture-chat-nonce-seed-b"),
+    });
+    const google = chatAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      cursorAdvanced: false,
+      errorCode: "CHAT_WAITING_FOR_ACCOUNT",
+    });
+    expect((await readConnection(t, connectionId)).chat?.cursors?.["spaces/alpha"]).toBe(
+      "2026-09-12T09:00:00.000Z",
+    );
+    expect(backend.snapshot()["2-areas/communications/daily/2026-09-12.md"]).toBeUndefined();
+    expect(
+      Object.keys(backend.snapshot()).some((path) =>
+        path.startsWith(".context/communications/google-chat/contributions/"),
+      ),
+    ).toBe(true);
   });
 
   test("re-running the same pass writes no new bytes and moves nothing", async () => {
