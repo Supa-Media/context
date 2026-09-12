@@ -22,6 +22,7 @@ import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
+import { runFormChecks } from "./forms.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
@@ -434,7 +435,7 @@ const tools = await rpc("priv-token", "tools/list");
 // one and that a model has to ask for them. 27 with `set_encryption`, which is
 // a write over one note's own bytes and, like `set_visibility` beside it, a
 // personal connection's.
-check("30 tools listed", tools.result?.tools.length === 30);
+check("34 tools listed", tools.result?.tools.length === 34);
 
 // -- list_plugins through the worker
 //
@@ -1213,7 +1214,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 30);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 34);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1439,7 +1440,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 30
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 34
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -4202,6 +4203,7 @@ await runOrientationChecks(check);
 // team folder with a group-scoped note inside it — the arrangement where a
 // guard that tests `=== "private"` instead of `!== "team"` actually leaks.
 await runPrivacyGroupChecks(check);
+await runFormChecks(check);
 
 // A path is not a place to write privacy rules. Its own bucket, because the
 // fixture is one named private note and one forged path that tries to publish

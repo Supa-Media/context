@@ -90,7 +90,7 @@ packages/hook/   `npx @supa-media/context-hook` — the session-end hook that sa
 Originally a single-tenant personal Brain worker; being generalized in place.
 Zero npm dependencies — keep it that way. It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
-an in-memory store stub: fast, offline, currently 1,757 checks. **Do not let it
+an in-memory store stub: fast, offline, currently 3,311 checks. **Do not let it
 regress** — change the test in the same commit as the behavior, and say why.
 
 The privacy engine (`privacy.md` parsing, `canSee`, `effectiveVisibility`,
@@ -196,6 +196,7 @@ it is reversed. Every section title is listed by area in
 [identity & access](./docs/decisions/identity-and-access.md),
 [privacy & sharing](./docs/decisions/privacy-and-sharing.md),
 [gateway protocol](./docs/decisions/gateway-protocol.md),
+[markdown forms](./docs/decisions/forms.md),
 [search](./docs/decisions/search.md),
 [app & console](./docs/decisions/app-and-console.md),
 [obsidian plugins](./docs/decisions/obsidian-plugins.md), and

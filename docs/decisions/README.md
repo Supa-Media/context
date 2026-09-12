@@ -105,6 +105,20 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Orientation is the front door, and `index.md` is the part we do not generate
 - `search` and `fetch` exist because ChatGPT's chats can call nothing else
 
+## [Markdown forms](./forms.md)
+
+- Responses live in a sister file, not on the form's own page
+- The block declares the path, never the visibility
+- Layout is declared, not derived
+- The gateway renders every row, and therefore parses every row
+- A `member` may submit, and that is the only write they get
+- You can only delete what you can see
+- Changing layout under existing responses is a breaking change
+- The response file is created by the author, never by the first submission
+- A form that does not parse is inert, never half-working
+- Forms need conditional writes, and say so when they cannot have them
+- What is deliberately not built
+
 ## [Search and the derived index](./search.md)
 
 - Search answers from a derived index, and the index is budgeted, filtered, and disposable

@@ -105,6 +105,33 @@ function roleCanWrite(role) {
   return role === "owner" || role === "editor";
 }
 
+/**
+ * May this connection take part in a form — submit, edit its own answer, vote?
+ *
+ * **This is the one write a `member` can make, and it is deliberately not a
+ * scope the role clamp can grant.** `effectiveScopes` drops `context:write`
+ * for every role below editor, which is right for note writing and is exactly
+ * what makes a view-only workspace useless for collecting a bug report. So the
+ * *role* clamp is relaxed here and the *grant* is not:
+ *
+ *  - the grant must itself have asked for write, so a client its person
+ *    deliberately connected read-only stays read-only — submitting a form
+ *    changes a file in their bucket, and "read-only" has to mean that;
+ *  - `context:capture` is not enough. Capture reaches `0-inbox` and nothing
+ *    else, and a form response is a write to a path an editor chose.
+ *
+ * What the relaxation cannot do is decide *which* form: that is the block's
+ * own `submit` policy, read from the note at call time, and the role is
+ * compared against it there. This answers only "may this connection use the
+ * form tools at all", which is why it is a boolean and not a scope.
+ */
+export function participatesInForms(session) {
+  const granted = new Set(session?.grantScopes || session?.scopes || []);
+  if (!granted.has(SCOPE_WRITE)) return false;
+  return typeof session?.role === "string" && session.role !== "";
+}
+
+
 /** A refusal the caller may see. Carries no tenant detail, ever. */
 export class SessionRefusal extends Error {
   constructor(status, code, description) {
