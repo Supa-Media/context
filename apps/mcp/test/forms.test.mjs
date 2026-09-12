@@ -397,6 +397,65 @@ export async function runFormChecks(check) {
       "changing layout under existing responses refuses and says to use a new file",
       /Point the form at a new response file/.test(parseResponsesFile(asSections, config).error || "")
     );
+
+    /*
+      A RESPONSE FILE IS A MARKDOWN NOTE, AND THE RENDERER REPRODUCES ONLY ROWS.
+
+      `renderResponsesFile` writes the marker and the table, nothing else, so a
+      heading the author put above their table — or a "## Notes from triage"
+      section below it — is not in what comes back out. The parser dropped both
+      silently and answered `{ responses }` with no error, which made the next
+      submission a rewrite that deleted them.
+
+      The person that write belongs to is a **member**, the lowest role in the
+      system, and where the response file is private (the survey case this
+      package's own decision document describes) they cannot see what they
+      destroyed and cannot read it back afterwards.
+
+      So the file is inert rather than half-working — the rule `forms.md`
+      already states for a form block, applied to the file it names.
+    */
+    const authored = [
+      renderResponsesFile(config, []).split("\n")[0],
+      "",
+      "# Feature requests",
+      "",
+      "Keep these short. Triage is on Fridays.",
+      "",
+      ...renderResponsesFile(config, []).split("\n").slice(1),
+      "## Notes from triage",
+      "",
+      "- 2026-09-01: closed three duplicates.",
+    ].join("\n");
+    check(
+      "prose the author keeps around the table refuses rather than being silently dropped",
+      /cannot be reproduced|only the table/.test(parseResponsesFile(authored, config).error || "")
+    );
+    check(
+      "...and a file holding only the marker, the table and blank lines still parses",
+      parseResponsesFile(renderResponsesFile(config, []), config).error === undefined
+    );
+
+    const sectionsConfig = { ...config, layout: "sections" };
+    const authoredSections = [
+      renderResponsesFile(sectionsConfig, []).split("\n")[0],
+      "",
+      "Answers are collected below. Please do not edit anybody else's.",
+      "",
+      "## r-0000000a · @maya · 2026-09-08T09:00Z",
+      "",
+      "### title",
+      "",
+      "a request",
+    ].join("\n");
+    check(
+      "the same is true of a sections file with a note before the first response",
+      /cannot be reproduced|only the responses/.test(parseResponsesFile(authoredSections, sectionsConfig).error || "")
+    );
+    check(
+      "...and an empty sections file still parses",
+      parseResponsesFile(renderResponsesFile(sectionsConfig, []), sectionsConfig).error === undefined
+    );
   }
 
   {
