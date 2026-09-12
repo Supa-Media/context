@@ -118,6 +118,26 @@ export async function runCalendarSyncChecks(check) {
     !firstLogLines.some((line) => line.includes(connection.accessToken))
   );
 
+  const discoveryServer = createFakeCalendarServer({ timeZone: "America/New_York" });
+  discoveryServer.addEvent({
+    id: "tz-1",
+    summary: "Early local event",
+    start: { dateTime: "2026-09-07T04:30:00.000Z" },
+    end: { dateTime: "2026-09-07T05:00:00.000Z" },
+  });
+  const discovery = await syncCalendarAccount({
+    connection: baseConnection({ timezone: undefined }),
+    store: createStore(),
+    fetchImpl: discoveryServer.fetch,
+    now: NOW,
+  });
+  check("a first live pass learns the primary calendar's IANA timezone", discovery.timezone === "America/New_York");
+  check(
+    "timezone discovery over-fetches a UTC day at both edges before pruning locally",
+    discoveryServer.requests[0].query.timeMin === "2026-09-06T00:00:00.000Z" &&
+      discoveryServer.requests[0].query.timeMax === "2026-09-22T00:00:00.000Z",
+  );
+
   const destinationStore = createStore();
   const destinationSync = await syncCalendarAccount({
     connection: baseConnection({ destinationFolder: "2-areas/schedule" }),

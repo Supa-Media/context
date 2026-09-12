@@ -98,13 +98,24 @@ function spreadMs(connectionId: string): number {
 /**
  * Which products the loop can actually advance today.
  *
- * Gmail, and the loop is deliberately built around the *account* rather than
- * around Gmail: one row, one grant, one claim, one report. Calendar and Chat
- * join by being added here and given a pass in `functions/files.ts` — they do
- * not need a second cron, a second claim, or a second set of status fields.
- * See `docs/decisions/communications.md` for what each of them still needs.
+ * The loop is built around the *account* rather than one Google product: one
+ * row, one grant, one claim, one report. Gmail, Calendar and Chat all run
+ * through it. They do not need separate crons, claims, or status fields.
  */
-export const ENGINE_PRODUCTS = ["gmail", "chat"] as const;
+export const ENGINE_PRODUCTS = ["gmail", "calendar", "chat"] as const;
+
+type SyncableProduct = (typeof ENGINE_PRODUCTS)[number];
+
+function lastSyncedAtFor(
+  connection: {
+    gmail?: { lastSyncedAt?: number };
+    calendar?: { lastSyncedAt?: number };
+    chat?: { lastSyncedAt?: number };
+  },
+  product: SyncableProduct,
+): number | undefined {
+  return connection[product]?.lastSyncedAt;
+}
 
 /** The interval in force for a row: the owner's choice, or the default, never below the floor. */
 export function syncIntervalMinutesOf(connection: { syncIntervalMinutes?: number }): number {
@@ -116,7 +127,7 @@ export function syncIntervalMinutesOf(connection: { syncIntervalMinutes?: number
 }
 
 /** Products on this row the loop can sync. Empty means there is nothing to poll for. */
-export function syncableProductsOf(connection: { products: string[] }): string[] {
+export function syncableProductsOf(connection: { products: string[] }): SyncableProduct[] {
   return ENGINE_PRODUCTS.filter((product) => connection.products.includes(product));
 }
 
@@ -134,6 +145,7 @@ export function isDue(
   connection: {
     products: string[];
     gmail?: { lastSyncedAt?: number };
+    calendar?: { lastSyncedAt?: number };
     chat?: { lastSyncedAt?: number };
     lastSyncAt?: number;
     syncIntervalMinutes?: number;
@@ -150,11 +162,7 @@ export function isDue(
   */
   if (connection.syncCatchUp === true) return true;
   const products = syncableProductsOf(connection);
-  const completedAt = products.map((product) =>
-    product === "gmail"
-      ? connection.gmail?.lastSyncedAt
-      : connection.chat?.lastSyncedAt,
-  );
+  const completedAt = products.map((product) => lastSyncedAtFor(connection, product));
   // A product newly added to an already-running Google account has never had
   // a chance to establish its own cursor. The account's recent Gmail pass
   // must not make that new Chat product look current.
@@ -188,9 +196,7 @@ export function syncStatusOf(connection: Doc<"googleConnections">): {
   const intervalMinutes = syncIntervalMinutesOf(connection);
   const products = syncableProductsOf(connection);
   const productLastSyncedAt = products.map((product) =>
-    product === "gmail"
-      ? connection.gmail?.lastSyncedAt
-      : connection.chat?.lastSyncedAt,
+    lastSyncedAtFor(connection, product),
   );
   return {
     intervalMinutes,
@@ -200,6 +206,8 @@ export function syncStatusOf(connection: Doc<"googleConnections">): {
        establishes its per-space baselines, including the valid zero-space case. */
     cursorReady:
       connection.gmail?.historyId !== undefined ||
+      connection.calendar?.syncToken !== undefined ||
+      connection.calendar?.lastSyncedAt !== undefined ||
       connection.chat?.lastSyncedAt !== undefined,
     catchingUp: connection.syncCatchUp === true,
     lastAttemptAt: connection.lastSyncAt,

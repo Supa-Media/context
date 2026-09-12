@@ -186,11 +186,19 @@ function contributionFromEnvelope(value, sourceId) {
     eventCache.set(key, { event: entry.event, dates });
   }
   return {
+    sourceId,
     account: value.account,
     timezone: value.timezone,
     destinationFolder: value.destinationFolder,
     eventCache,
   };
+}
+
+/** Load one source for its next provider pass. Missing means first sync. */
+export async function loadCalendarContribution({ store, sourceId }) {
+  const source = sourceIdOf(sourceId);
+  const stored = await readEnvelope(store, pathFor(source));
+  return stored === null ? null : contributionFromEnvelope(stored.value, source);
 }
 
 /** Load every active account cache, or fail before any shared day is rendered. */
@@ -201,9 +209,9 @@ export async function loadActiveCalendarContributions({ store, sourceIds }) {
   }
   const contributions = [];
   for (const sourceId of ids) {
-    const stored = await readEnvelope(store, pathFor(sourceId));
-    if (stored === null) throw new CalendarContributionIncompleteError();
-    contributions.push(contributionFromEnvelope(stored.value, sourceId));
+    const contribution = await loadCalendarContribution({ store, sourceId });
+    if (contribution === null) throw new CalendarContributionIncompleteError();
+    contributions.push(contribution);
   }
   return contributions;
 }

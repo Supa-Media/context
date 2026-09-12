@@ -501,6 +501,7 @@ export const applyCalendarConnectionBinding = internalMutation({
         // `disconnectGoogleConnection`, exactly like Gmail's `historyId`.
         destinationFolder: existing?.calendar?.destinationFolder,
         syncToken: existing?.calendar?.syncToken,
+        lastFullSyncDate: existing?.calendar?.lastFullSyncDate,
         lastSyncedAt: existing?.calendar?.lastSyncedAt,
       },
       chat: existing?.chat ? { ...existing.chat, scopes: grantedScopesFor("chat", args.scopes) } : undefined,

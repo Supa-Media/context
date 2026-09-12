@@ -1655,10 +1655,11 @@ It is not the strongest available shape, and the stronger one is already in the
 schema next door: Chat's `nonceSeed`, a random value minted at connect time and
 stored on the row (not a credential — leaking it weakens one connection's fence
 and nothing else). Gmail has no such field, and adding one now would rename the
-fence markers in every day already written. So: named as a follow-up, with the
-migration it needs — read the existing note's own nonce back and reuse it,
-minting a fresh random one only the first time a day is written — rather than
-done quietly here. Calendar's is the one that should move first.
+fence markers in every day already written. Calendar moved first: its live
+runner hashes the internal contributor ids with the date. That value is stable
+across account polling order and cannot be derived from the address printed in
+the note. Gmail still needs a migration that reads and reuses the existing
+note's nonce, then mints a random value only for a new day.
 
 **The cron holds no decision**, which is the rule `crons.ts` opens with and the
 one a job that *starts* work has to argue rather than assume. Whether a
@@ -1801,17 +1802,16 @@ a door rather than the only one — and it is the lock a self-hoster calling
 normalizes away is refused, never turned into a rootless key`.
 
 That shared file makes **account aggregation a write-time invariant**, not a
-presentation detail. A scheduled pass may update one account's private event
-cache, but it must render the day from the union of every active account cache
-that contributes to the destination; writing the just-synced account alone
-would make the last account polled erase the others. `mergeEventCaches` is the
-pure, fail-closed primitive for that join: account-qualified event keys can be
-unioned without collision, duplicate contributions are rejected, and removing
-one disconnected account removes only its own events. The control-plane runner
-still owns selecting active accounts before this invariant becomes live, but
-the persistence boundary it must use now exists: each connection atomically
-replaces one hash-addressed cache object under
-`.context/communications/calendar/contributions/`, and the loader refuses a
+presentation detail. A scheduled pass updates one account's private event
+cache and renders the day from every contribution assigned to that destination.
+Writing the just-synced account alone would make the last account polled erase
+the others. `mergeEventCaches` is the fail-closed join: account-qualified event
+keys can be unioned without collision and duplicate contributions are rejected.
+The control-plane runner now selects the contributors, keeps a disconnected
+account only when it has history to preserve, and ignores a disconnected
+account that never completed a sync. Each connection atomically replaces one
+hash-addressed cache object under
+`.context/communications/calendar/contributions/`; the loader refuses a
 missing, corrupt, duplicated, re-bound, or concurrently changed source before
 the join. Provider event content remains in the customer's bucket, never
 Convex.
@@ -2110,50 +2110,34 @@ thousand-page ceiling as the same fixed `PAGINATION_STALLED` failure rather
 than a partial result. The fixture repeats one token and throws if a third
 request is attempted.
 
-### What this does not build yet
+### The live Calendar pass
 
-**The control-plane connection and the sync engine landed as two separate,
-reconciled changes, and only their join point is left.** This section
-originally assumed a calendar connection would be its own OAuth grant, its
-own attempt table and its own row — a guess that did not survive contact with
-how Gmail's flow was actually generalized: `googleConnections` (see "The
-Gmail connection" above) is one row per Google account, one grant, a
-`products` set, and one nested settings-and-cursor object per product, built
-specifically so a sibling product could attach without a second migration.
-Calendar is that sibling: `functions/calendarConnect.ts` is the real
-connect/reconnect/disconnect flow — same PKCE-attempt-then-scheduled-exchange
-shape as Gmail's, its own `CALENDAR_CONNECT_ENABLED` flag (Calendar's scope
-is *sensitive*, not *restricted* — a real distinction in Google's policy, so
-it is not tied to Gmail's CASA-verification timeline), and it attaches
-`calendar` to whatever `googleConnections` row a workspace already has rather
-than inventing a table. What is **still** not built is the last mile: nothing
-yet reads a `googleConnections` row's `calendar` product, decrypts its token,
-and calls `apps/mcp/src/communications/calendar-sync.js` with the
-`CalendarConnection`-shaped object that function expects — the same live-
-trigger gap `gmailSync.js` has too (see the fence-nonce paragraph below).
-`calendar-sync.js` remains exercised entirely against a fake, stateful
-Calendar API server (`fakeCalendarServer.mjs`) and a fake store, deliberately
-the same "pure functions plus fixtures" shape the whole of this package
-already has — see "The Gmail restricted scope is Google's decision" above for
-the same argument about testing ahead of a credential nobody can grant an
-agent yet. Wiring a live sync trigger for either channel is one change,
-scoped the same way for both, and is named here rather than built silently
-because it is the kind of "while I'm in here" scope creep this file's own
-rule warns against.
+The account-level forward loop now runs Calendar through the same credential
+barrier, claim, retry ladder and owner-only status used by Gmail and Chat. A
+Calendar-only connection is due immediately. On a row with several products,
+the least recently synced product runs first so Gmail cannot starve Calendar.
+Calendar writers are serialized per workspace because they replace shared day
+notes.
 
-**The fence nonce is a placeholder, and the same gap already exists in the
-Gmail sync.** `calendar-sync.js` derives it from the connection's account and
-the day (`account:date`), which keeps regeneration idempotent but is weaker
-than the fence's own design goal — both values end up visible in the
-rendered note, so an inviter who knows which account they invited and what
-day their invite landed on could compute it. `gmailSync.js` has exactly the
-same gap: its nonce is caller-supplied (`options.nonce`) with nothing yet
-generating or persisting a real one, because neither sync is wired to a live
-trigger yet. The fix that keeps both properties — unpredictable, and stable
-across a regeneration — reads the *existing* note's own nonce back out and
-reuses it, minting a fresh random one only the first time a day is written;
-named here as a decision for whoever builds the live sync trigger for either
-channel, not a gap discovered after one lands.
+The first provider response supplies the primary calendar's IANA timezone under
+the existing `calendar.events.readonly` scope. Until that response arrives, the
+first request over-fetches one UTC day at each edge, then prunes the cache to the
+exact 14-day local horizon. Later passes use the stored contribution's timezone.
+Accounts sharing one destination must use one timezone; otherwise the pass
+fails with a sentence asking the owner to choose separate folders rather than
+filing an event under the wrong day.
+
+The runner writes the account contribution first, loads every contributor for
+the destination, renders only the affected days, and advances `syncToken` and
+`lastFullSyncDate` last. A missing sibling contribution is a warm-up skip, not
+an outage. The new note's fence nonce is a stable hash of internal connection
+ids and the date, so an event sender cannot derive it from the account address
+printed in the note.
+
+The remaining Calendar work is live-account proof. The fixture suite covers
+timezone discovery, shared rendering, cursor ordering, missing contributors,
+conditional writes and disconnect history, but a connected production account
+still has to complete a pass before Settings should claim delivery.
 
 Also not built, named so a future reader knows these were considered rather
 than missed: RSVP/response writes (v1 is read-only, matching the read-only

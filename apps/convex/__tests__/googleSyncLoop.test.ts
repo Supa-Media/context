@@ -55,6 +55,7 @@ const MINUTE = 60_000;
 
 function enableMailSync() {
   vi.stubEnv("MAIL_CONNECT_ENABLED", "true");
+  vi.stubEnv("CALENDAR_CONNECT_ENABLED", "true");
   vi.stubEnv("GOOGLE_OAUTH_CLIENT_ID", "test-google-client-id.apps.googleusercontent.com");
 }
 
@@ -161,10 +162,46 @@ describe("the sweep starts a pass only for a connection that is due", () => {
     expect((await readConnection(t, connectionId)).syncStartedAt).toBeUndefined();
   });
 
-  test("a connection with no product this engine can advance is not started", async () => {
+  test("a Calendar-only connection is started by the same account-level sweep", async () => {
     const { t, connectionId } = await scenario();
-    await patchConnection(t, connectionId, { products: ["calendar"] });
-    expect((await sweep(t)).started).toBe(0);
+    await patchConnection(t, connectionId, {
+      products: ["calendar"],
+      gmail: undefined,
+      calendar: {
+        scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      },
+    });
+    expect((await sweep(t)).started).toBe(1);
+  });
+
+  test("Calendar still runs when Gmail and Chat are disabled on the deployment", async () => {
+    const { t, connectionId } = await scenario();
+    vi.stubEnv("MAIL_CONNECT_ENABLED", "");
+    await patchConnection(t, connectionId, {
+      products: ["calendar"],
+      gmail: undefined,
+      calendar: {
+        scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      },
+    });
+    expect((await sweep(t)).started).toBe(1);
+  });
+
+  test("a newly-added Calendar product is due even when Gmail just finished", async () => {
+    const { t, connectionId } = await scenario();
+    const row = await readConnection(t, connectionId);
+    const now = Date.now();
+    await patchConnection(t, connectionId, {
+      products: ["gmail", "calendar"],
+      gmail: { ...row.gmail!, lastSyncedAt: now },
+      calendar: {
+        scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      },
+      lastSyncAt: now,
+      nextSyncAt: now,
+    });
+
+    expect((await sweep(t)).started).toBe(1);
   });
 
   test("a Chat-only connection is started by the same account-level sweep", async () => {
@@ -257,6 +294,7 @@ describe("the sweep starts a pass only for a connection that is due", () => {
   test("a deployment where Google mail is not enabled sweeps nothing", async () => {
     const { t, connectionId } = await scenario();
     vi.stubEnv("MAIL_CONNECT_ENABLED", "");
+    vi.stubEnv("CALENDAR_CONNECT_ENABLED", "");
     expect(await sweep(t)).toEqual({ started: 0, examined: 0 });
     expect((await readConnection(t, connectionId)).syncStartedAt).toBeUndefined();
   });
@@ -899,6 +937,81 @@ describe("the pass re-asks every gate before it opens a credential", () => {
     });
     expect(JSON.stringify(job)).not.toContain("refresh");
   });
+
+  test("a Calendar-only connection is handed its cursor and every contributor for the destination", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    const siblingId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "sibling@example.invalid",
+    });
+    for (const id of [connectionId, siblingId]) {
+      await patchConnection(t, id, {
+        products: ["calendar"],
+        gmail: undefined,
+        calendar: {
+          scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+          destinationFolder: "0-inbox/calendar",
+          ...(id === connectionId ? { syncToken: "calendar-sync-token" } : {}),
+        },
+      });
+    }
+
+    const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+      workspaceId,
+      connectionId,
+    });
+    expect(job).toMatchObject({
+      kind: "run",
+      product: "calendar",
+      address: "person@example.invalid",
+      destinationFolder: "0-inbox/calendar",
+      syncToken: "calendar-sync-token",
+      contributorSourceIds: expect.arrayContaining([connectionId, siblingId]),
+    });
+    expect(JSON.stringify(job)).not.toContain("refresh");
+  });
+
+  test("Calendar keeps disconnected history without waiting forever on an account that never synced", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    const historicalId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "history@example.invalid",
+    });
+    const emptyId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "never-synced@example.invalid",
+    });
+    for (const [id, lastSyncedAt] of [
+      [connectionId, undefined],
+      [historicalId, Date.now() - MINUTE],
+      [emptyId, undefined],
+    ] as const) {
+      await patchConnection(t, id, {
+        products: ["calendar"],
+        gmail: undefined,
+        disconnectedAt: id === connectionId ? undefined : Date.now(),
+        calendar: {
+          scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+          destinationFolder: "0-inbox/calendar",
+          lastSyncedAt,
+        },
+      });
+    }
+
+    const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+      workspaceId,
+      connectionId,
+    });
+    expect(job).toMatchObject({
+      kind: "run",
+      product: "calendar",
+      contributorSourceIds: expect.arrayContaining([connectionId, historicalId]),
+    });
+    expect((job as { contributorSourceIds: string[] }).contributorSourceIds).not.toContain(emptyId);
+  });
 });
 
 describe("a pass that ran out of history pages", () => {
@@ -1323,6 +1436,39 @@ function chatAndBucket(options: { backend: MemoryS3 }) {
   return { fetchImpl, calls };
 }
 
+function calendarAndBucket(options: { backend: MemoryS3 }) {
+  const calls: string[] = [];
+  const json = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { "content-type": "application/json" },
+    });
+  const fetchImpl = async (input: URL | RequestInfo, init: RequestInit = {}) => {
+    const url = new URL(typeof input === "string" ? input : String(input));
+    if (url.hostname !== "www.googleapis.com") {
+      return await options.backend.fetchImpl(input, init);
+    }
+    calls.push(url.pathname);
+    if (url.pathname === "/calendar/v3/calendars/primary/events") {
+      return json({
+        timeZone: "America/New_York",
+        nextSyncToken: "calendar-token-2",
+        items: [
+          {
+            id: "event-1",
+            status: "confirmed",
+            summary: "Design review",
+            start: { dateTime: "2026-09-13T14:00:00.000Z" },
+            end: { dateTime: "2026-09-13T14:30:00.000Z" },
+          },
+        ],
+      });
+    }
+    return json({ error: { code: 404 } }, 404);
+  };
+  return { fetchImpl, calls };
+}
+
 async function endToEnd(options: {
   historyId?: string;
   quotaBytes?: number;
@@ -1533,6 +1679,97 @@ describe("one pass, end to end, through the credential barrier", () => {
       expect.stringContaining("Adam Okonkwo"),
     ]);
     expect(google.calls).toEqual(["/v1/spaces", "/v1/spaces/alpha/messages"]);
+  });
+
+  test("a Calendar cursor advances only after its shared day is written", async () => {
+    const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
+    await patchConnection(t, connectionId, {
+      products: ["calendar"],
+      gmail: undefined,
+      calendar: {
+        scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+      },
+    });
+    const google = calendarAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({
+      kind: "googleForwardSync",
+      status: "synced",
+      cursorAdvanced: true,
+    });
+    const row = await readConnection(t, connectionId);
+    expect(row.calendar?.syncToken).toBe("calendar-token-2");
+    expect(row.calendar?.lastFullSyncDate).toBe("2026-09-12");
+    expect(row.calendar?.lastSyncedAt).toBeTypeOf("number");
+    const view = (
+      await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+        workspaceId,
+      })
+    )[0]!;
+    expect(view.sync.everSynced).toBe(true);
+    expect(view.sync.cursorReady).toBe(true);
+    expect(backend.snapshot()["0-inbox/calendar/2026-09-13.md"]).toContain(
+      "Design review",
+    );
+    expect(google.calls).toEqual(["/calendar/v3/calendars/primary/events"]);
+  });
+
+  test("a Calendar cursor stays put until every account for the folder has a contribution", async () => {
+    const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
+    const siblingId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "sibling@example.invalid",
+    });
+    for (const id of [connectionId, siblingId]) {
+      await patchConnection(t, id, {
+        products: ["calendar"],
+        gmail: undefined,
+        calendar: {
+          scopes: ["https://www.googleapis.com/auth/calendar.events.readonly"],
+          destinationFolder: "0-inbox/calendar",
+          ...(id === connectionId ? { syncToken: "calendar-token-1" } : {}),
+        },
+      });
+    }
+    const google = calendarAndBucket({ backend });
+    vi.stubGlobal("fetch", google.fetchImpl);
+
+    const result = await runPass(t, workspaceId, connectionId);
+
+    expect(result).toMatchObject({
+      status: "skipped",
+      cursorAdvanced: false,
+      errorCode: "CALENDAR_WAITING_FOR_ACCOUNT",
+    });
+    expect((await readConnection(t, connectionId)).calendar?.syncToken).toBe(
+      "calendar-token-1",
+    );
+    expect(backend.snapshot()["0-inbox/calendar/2026-09-13.md"]).toBeUndefined();
+    expect(
+      Object.keys(backend.snapshot()).some((path) =>
+        path.startsWith(".context/communications/calendar/contributions/"),
+      ),
+    ).toBe(true);
+
+    const keyset = requireKeyset();
+    await t.run(async (ctx) => {
+      await ctx.db.patch(siblingId, {
+        encryptedAccessToken: await encryptSecret("sibling-access-token-not-real", keyset, {
+          workspaceId,
+        }),
+        accessTokenExpiresAt: Date.now() + 30 * MINUTE,
+        syncStartedAt: Date.now(),
+      });
+    });
+    const siblingResult = await runPass(t, workspaceId, siblingId);
+    expect(siblingResult).toMatchObject({ status: "synced", cursorAdvanced: true });
+    const shared = backend.snapshot()["0-inbox/calendar/2026-09-13.md"]!;
+    expect(shared).toContain("person@example.invalid");
+    expect(shared).toContain("sibling@example.invalid");
   });
 
   test("a Chat cursor stays put until every active account has a complete contribution", async () => {

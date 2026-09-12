@@ -106,7 +106,7 @@ export class CalendarPaginationError extends Error {
  * @param {{fetchImpl: typeof fetch, accessToken: string, calendarId: string,
  *          syncToken?: string|null, windowStart?: string|null, windowEnd?: string|null,
  *          timezone?: string, pageToken?: string|null}} args
- * @returns {Promise<{items: object[], nextPageToken: string|null, nextSyncToken: string|null}>}
+ * @returns {Promise<{items: object[], nextPageToken: string|null, nextSyncToken: string|null, timeZone: string|null}>}
  */
 export async function fetchCalendarPage({
   fetchImpl,
@@ -146,6 +146,7 @@ export async function fetchCalendarPage({
     items: Array.isArray(body.items) ? body.items : [],
     nextPageToken: typeof body.nextPageToken === "string" ? body.nextPageToken : null,
     nextSyncToken: typeof body.nextSyncToken === "string" ? body.nextSyncToken : null,
+    timeZone: typeof body.timeZone === "string" && body.timeZone ? body.timeZone : null,
   };
 }
 
@@ -155,12 +156,13 @@ export async function fetchCalendarPage({
  * every page but the one that has it.
  *
  * @param {Parameters<typeof fetchCalendarPage>[0]} args
- * @returns {Promise<{items: object[], nextSyncToken: string|null}>}
+ * @returns {Promise<{items: object[], nextSyncToken: string|null, timeZone: string|null}>}
  */
 export async function fetchAllPages(args) {
   const items = [];
   let pageToken = null;
   let nextSyncToken = null;
+  let timeZone = null;
   let complete = false;
   const seenPageTokens = new Set();
   // A page cap, not a product limit: a fixture or a misbehaving server that
@@ -169,6 +171,12 @@ export async function fetchAllPages(args) {
     const result = await fetchCalendarPage({ ...args, pageToken });
     items.push(...result.items);
     if (result.nextSyncToken) nextSyncToken = result.nextSyncToken;
+    if (result.timeZone) {
+      if (timeZone !== null && timeZone !== result.timeZone) {
+        throw new CalendarPaginationError();
+      }
+      timeZone = result.timeZone;
+    }
     if (!result.nextPageToken) {
       complete = true;
       break;
@@ -183,7 +191,7 @@ export async function fetchAllPages(args) {
   // exists only on the terminal page, so returning the old/null token here
   // would make the next scheduled pass replay the same thousand pages forever.
   if (!complete) throw new CalendarPaginationError();
-  return { items, nextSyncToken };
+  return { items, nextSyncToken, timeZone };
 }
 
 /** An attendee or organizer resource, normalized. `null` fields stay absent rather than becoming `""`. */

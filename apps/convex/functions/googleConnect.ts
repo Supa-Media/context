@@ -1443,6 +1443,9 @@ export const disconnectGoogleConnection = mutation({
       encryptedAccessToken: undefined,
       accessTokenExpiresAt: undefined,
       gmail: connection.gmail ? { ...connection.gmail, historyId: undefined } : connection.gmail,
+      calendar: connection.calendar
+        ? { ...connection.calendar, syncToken: undefined }
+        : connection.calendar,
       health: "error" as const,
       disconnectedAt: Date.now(),
       updatedAt: Date.now(),
