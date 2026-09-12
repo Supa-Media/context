@@ -931,6 +931,16 @@ messages now uses its latest `sentAt`, matching Gmail's forward loop; an
 unavailable-only notice uses that day's midnight. The regression runs the same
 provider state at two different pass times and requires byte-identical output.
 
+**Neither Chat page walk trusts the provider to converge.** Both `spaces.list`
+and each space's `messages.list` remember every continuation
+token they have followed and stop with the fixed `PAGINATION_STALLED` code if
+one repeats; a thousand-page ceiling covers a provider that returns fresh junk
+forever. A stalled spaces walk fails the account pass for normal scheduler
+backoff. A stalled messages walk fails only that space, leaves its cursor
+untouched, and lets the other spaces finish. The fixture deliberately repeats
+one token and throws if a third request is made, so an unbounded loop fails
+quickly instead of hanging the suite.
+
 **On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
 same `googleConnections` row Gmail already writes** (2026-09-07) — no second
 table. A first draft of this file built exactly that: `chatConnections` and
