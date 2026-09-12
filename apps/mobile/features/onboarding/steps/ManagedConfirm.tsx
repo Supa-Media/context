@@ -48,11 +48,26 @@ import {
  */
 export type ManagedConfirmState = "choosing" | "opening" | "ready" | "failed";
 
+/**
+ * What happens after the payment, in a first run.
+ *
+ * Stripe returns to `/welcome`, so the flow the person is standing in is the
+ * flow they come back to, and saying "back here" is true. It is **not** true
+ * everywhere this screen is used — see `afterPay` below — which is why the
+ * sequence is a default rather than a literal in the JSX.
+ */
+export const FIRST_RUN_AFTER_PAY = [
+  "Stripe brings you back here.",
+  "We create your storage and lay out the standard folders.",
+  "Your context is ready — usually in a few seconds.",
+] as const;
+
 export function ManagedConfirm({
   status,
   contextName,
   state,
   failure,
+  afterPay = FIRST_RUN_AFTER_PAY,
   onToggle,
   onContinue,
   onBack,
@@ -64,6 +79,16 @@ export function ManagedConfirm({
   state: ManagedConfirmState;
   /** Our sentence for a failed attempt, never Stripe's and never a stack. */
   failure?: string;
+  /**
+   * Where the payment leads, in order — the one thing on this screen that is
+   * genuinely a function of the flow it is drawn in.
+   *
+   * A first run comes back to itself; creating a workspace does not, because
+   * that flow lives in component state and Stripe returns to a URL. Saying
+   * "back here" there would be a promise the redirect cannot keep, which is
+   * the class of copy this screen exists to get right.
+   */
+  afterPay?: readonly string[];
   onToggle: (value: string, next: boolean) => void;
   onContinue: () => void;
   onBack: () => void;
@@ -120,11 +145,7 @@ export function ManagedConfirm({
       <View style={styles.gap}>
         <Text variant="eyebrow">What happens after you pay</Text>
         <View style={styles.steps}>
-          {[
-            "Stripe brings you back here.",
-            "We create your storage and lay out the standard folders.",
-            "Your context is ready — usually in a few seconds.",
-          ].map((line, index) => (
+          {afterPay.map((line, index) => (
             <View key={line} style={styles.stepRow}>
               {/*
                 Numbered, because this genuinely is a sequence — three things
