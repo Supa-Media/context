@@ -91,13 +91,33 @@ import { hasNothingCaptured } from "./session";
  * half can move between a write whose answer was lost and its retry:
  *
  *  - **The path** carries the title's slug, so a rename in that window composes
- *    a second key. Nothing in the app offers one — and the reason first written
- *    here was wrong, which is worth more than the conclusion: it said the title
- *    is editable on `LiveMeetingScreen`, and that screen renders it as static
- *    text (`:130-131`). `controller.setTitle` exists and has no callers at all.
- *    So the guarantee is stronger than claimed and rests on a surface that does
- *    not exist, which is exactly the shape a future reader would reason from
- *    and get wrong.
+ *    a second key. **The app now offers a rename, and it is bounded to the
+ *    other side of that window rather than left to chance.**
+ *
+ *    The history is worth keeping, because it is the shape a reader would
+ *    reason from and get wrong twice. This paragraph first said the title was
+ *    editable on `LiveMeetingScreen` and that the residual was live; that was
+ *    false — the screen rendered static text and `controller.setTitle` had no
+ *    callers at all, so the guarantee was stronger than claimed and rested on a
+ *    surface that did not exist. It then said nothing in the app offers a
+ *    rename, which was true and is not any more.
+ *
+ *    What holds it now is a coincidence of two conditions rather than a rule
+ *    somebody has to remember: `MeetingTitleField` is drawn **only** on
+ *    `LiveMeetingScreen`, `app/(app)/meetings/[id].tsx` draws that screen for
+ *    exactly `recording` and `paused` (`isLive`), and the window this residual
+ *    is about opens at the *first finalize* — which is what `end()` queues on
+ *    the way out of both. A session that can be renamed has therefore never
+ *    been finalized, and `finalizing -> recording` is the one move that could
+ *    put a renameable session back inside the window: it is in
+ *    `MEETING_TRANSITIONS` and nothing in this app makes it, because `start()`
+ *    mints a fresh id and is the only caller of the `start` event.
+ *
+ *    So the bound is structural, and the thing that would break it is adding a
+ *    rename to `MeetingNoteScreen` or a way back from `finalizing` to
+ *    `recording`. `MeetingNoteScreen` deliberately has neither: its title opens
+ *    the note instead, which is `complete`'s own rule — the note is the meeting
+ *    and it is edited as a note.
  *  - **The workspace.** `resolveWorkspaceId` reads a ref that is re-assigned on
  *    every render, so a retry after the workspace list changed underneath —
  *    a membership landing, a brain claimed between a lost answer and the next

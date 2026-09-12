@@ -1,3 +1,7 @@
+import {
+  DEFAULT_TITLE as UNTITLED_MEETING,
+  normalizeTitle as normalizeMeetingTitle,
+} from "@context/meetings/session";
 import { MEETING_TRANSITIONS, WATCH_FLAG_LABEL_MAX } from "./protocol";
 import type { TranscribesAt } from "./capture";
 import type {
@@ -119,12 +123,27 @@ export function transcriptionFor(transcribesAt: TranscribesAt): TranscriptionEng
   return null;
 }
 
+/**
+ * A meeting's name, as `normalizeTitle` in `@context/meetings/session` makes it.
+ *
+ * Re-exported from the package rather than re-implemented, which is the rule
+ * this whole file is the exception to: the fold has to be here until
+ * `@context/meetings` exports `applyEvent`, and one line of string handling
+ * does not. Two copies of "what is a title" would be the drift that put an
+ * un-normalized one in this reducer in the first place.
+ *
+ * `UNTITLED_MEETING` travels with it because it is the *other* half of the same
+ * rule — what an empty title becomes — and a screen offering a title field has
+ * to be able to say so in a placeholder rather than guess at it.
+ */
+export { normalizeMeetingTitle, UNTITLED_MEETING };
+
 /** A session in `idle`, before anything has been recorded into it. */
 export function seedSession(input: SeedInput): MeetingSession {
   return {
     id: input.id,
     version: input.version,
-    title: input.title,
+    title: normalizeMeetingTitle(input.title),
     state: "idle",
     startedAt: input.startedAt,
     endedAt: null,
@@ -284,7 +303,27 @@ export function applyMeetingEvent(
       return { ...projection, session: { ...session, notes: event.markdown } };
 
     case "title":
-      return { ...projection, session: { ...session, title: event.title } };
+      /*
+        NORMALIZED, BECAUSE THE CANONICAL REDUCER NORMALIZES.
+
+        This fold used to store `event.title` verbatim, and nothing noticed
+        because `controller.setTitle` had no callers — the only title any
+        session ever had was the one `start` was given. `MeetingTitleField` is
+        the first caller, and it is a text field, so the empty string is now a
+        value a person can produce by holding backspace.
+
+        `applyEvent`'s `normalizeTitle` in `@context/meetings/session` is the
+        rule and the words are its own: whitespace collapses because "newlines
+        would break the `# <title>` heading the note is built around", and
+        nothing becomes `DEFAULT_TITLE` because a note headed `# ` and a row
+        with no name in the meetings list are not what somebody clearing a
+        field asked for. Two implementations of one fold is the duplication
+        this file's header is about; where they disagree, that one is right.
+      */
+      return {
+        ...projection,
+        session: { ...session, title: normalizeMeetingTitle(event.title) },
+      };
 
     case "attendee": {
       // Additive, and de-duplicated on the pair that identifies a person. Two

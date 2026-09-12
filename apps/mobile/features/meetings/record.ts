@@ -202,7 +202,28 @@ export function pendingSteps(record: MeetingRecord): SyncStep[] {
     everything you typed still syncs, because the acknowledgement then holds
     the old text and `"" !== "what I typed"`.
   */
-  if (session.notes !== (acked.notes ?? "")) {
+  /*
+    AND NOT ONCE THE NOTE EXISTS, for the same reason `finalize` is not offered
+    then — one line down, one step later, and the two guards are the same rule.
+
+    A `complete` session's notes have nowhere to go. The gateway refuses the
+    route outright — *"this session is already complete; edit the note
+    instead"* — and `createConvexGateway`'s `putNotes` acknowledges locally and
+    writes nothing, because on that path the note *is* the write and it has
+    already happened. So a `notes` step on a complete session is a request that
+    can only be refused or no-op'd, and one that never clears: `ackStep` would
+    settle it against a refusal that is not coming, so `isSynced` would answer
+    false forever and `MeetingNoteScreen` would print "the rest of this meeting
+    is still being sent from this device" under a note that is finished.
+
+    This was unreachable until the note screen let somebody type after a meeting
+    ended: `session.notes` stopped changing at `end()`, and the drain sends
+    `notes` before `finalize` in the same pass. It is reachable now — a
+    keystroke landing in the seconds between the two — and the honest answer is
+    that this text is on the device only. `MeetingNoteScreen` says exactly that
+    and points at the note, which is the one place it can still be added.
+  */
+  if (session.state !== "complete" && session.notes !== (acked.notes ?? "")) {
     steps.push({ kind: "notes", markdown: session.notes });
   }
 
@@ -219,6 +240,27 @@ export function pendingSteps(record: MeetingRecord): SyncStep[] {
 /** Whether anything about this record still has to reach the gateway. */
 export function isSynced(record: MeetingRecord): boolean {
   return pendingSteps(record).length === 0;
+}
+
+/**
+ * Typing that landed after the note did, and so is on this device and nowhere
+ * else.
+ *
+ * The other side of the `state !== "complete"` guard in `pendingSteps`. That
+ * guard stops this app asking a gateway to take words it will refuse; this says
+ * the consequence out loud, because a queue that quietly drops somebody's notes
+ * and a queue that quietly *keeps* them look identical from a screen.
+ *
+ * It is a narrow window by construction — the seconds between `end()` and the
+ * finalize coming back — and it is exactly the window somebody is in when they
+ * start adding what they meant to write down during the meeting. The note is
+ * where those words go from here, which is what `MeetingNoteScreen` says.
+ */
+export function notesOnlyOnDevice(record: MeetingRecord): boolean {
+  return (
+    record.session.state === "complete" &&
+    record.session.notes !== (record.acked.notes ?? "")
+  );
 }
 
 /** Record the gateway's acknowledgement of one step. */

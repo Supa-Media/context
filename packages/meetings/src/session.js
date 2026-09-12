@@ -283,8 +283,19 @@ export function normalizeTranscription(value) {
   );
 }
 
-/** @param {unknown} title */
-function normalizeTitle(title) {
+/**
+ * A meeting's name, as every client must store it.
+ *
+ * Exported because the phone folds its own events until this package exports
+ * `applyEvent` (`apps/mobile/features/meetings/session.ts` says so at length),
+ * and its `title` case has to agree with this one — a second copy of "what is
+ * a title" is how the phone came to store a raw string while this stored a
+ * normalized one.
+ *
+ * @param {unknown} title
+ * @returns {string}
+ */
+export function normalizeTitle(title) {
   // Newlines would break the `# <title>` heading the note is built around.
   const cleaned = typeof title === "string" ? title.replace(/\s+/g, " ").trim() : "";
   return cleaned || DEFAULT_TITLE;
