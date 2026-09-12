@@ -548,6 +548,8 @@ export function desktopBridge(ipc: PreloadIpc): DesktopBridge {
         ask(ipc, BRIDGE_CHANNELS.imessageStatus, undefined, imessageStatusFrom),
       setEnabled: (enabled: boolean): Promise<void> =>
         ask(ipc, BRIDGE_CHANNELS.imessageSetEnabled, { enabled: enabled === true }, () => undefined),
+      requestFullDiskAccess: (): Promise<void> =>
+        ask(ipc, BRIDGE_CHANNELS.imessageRequestFullDiskAccess, undefined, () => undefined),
       onChange: (handler: (status: ImessageStatus) => void): Unsubscribe =>
         subscribe(ipc, BRIDGE_CHANNELS.imessageChange, imessageStatusFrom, handler),
     }),

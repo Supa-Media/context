@@ -58,7 +58,7 @@ export type { TranscriptSegment };
  * the **UI** is the half that has to be backward compatible, because it is the
  * half that can be updated in an afternoon.
  */
-export const BRIDGE_VERSION = 5;
+export const BRIDGE_VERSION = 6;
 
 /**
  * The oldest bridge this bundle will still talk to.
@@ -629,6 +629,8 @@ export interface DesktopBridge {
     status(): Promise<ImessageStatus>;
     /** Turn import on or off. Never opens a system dialog — see `docs/decisions/communications.md`. */
     setEnabled(enabled: boolean): Promise<void>;
+    /** Explain Full Disk Access and open the exact System Settings pane when the person continues. */
+    requestFullDiskAccess(): Promise<void>;
     onChange(handler: (status: ImessageStatus) => void): Unsubscribe;
   };
 }
@@ -717,6 +719,8 @@ export const BRIDGE_CHANNELS = Object.freeze({
   /** Version 5. */
   imessageStatus: "context:imessage-status",
   imessageSetEnabled: "context:imessage-set-enabled",
+  /** Version 6. Show the native guide, then open Full Disk Access settings. */
+  imessageRequestFullDiskAccess: "context:imessage-request-full-disk-access",
 
   /** Main → page. Pushed; the page subscribes through the bridge. */
   segment: "context:on-segment",

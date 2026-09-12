@@ -2194,8 +2194,8 @@ the row otherwise, exactly as it already drops one whose target is outside the
 window. The check is `A TAPBACK FROM ANOTHER CONVERSATION IS NOT FOLDED onto a
 message it names by guid`; removing the comparison fails 2.
 
-**Full Disk Access is attempted, never requested — there is nothing to
-request.** Unlike the microphone or Screen Recording
+**Full Disk Access is attempted, never requested by an OS prompt — there is no
+such API.** Unlike the microphone or Screen Recording
 (`core/capture/permissions.ts`), macOS raises no dialog for this permission at
 all; the only way to learn whether it is granted is to try the read and see
 what happens. `core/imessage/permission.ts`'s `detectFullDiskAccess` is a pure
@@ -2213,6 +2213,10 @@ Access`, and offers the one deep link macOS honours,
 `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles` —
 never a sentence that could apply to the wrong permission, which is the same
 rule `docs/decisions/desktop.md`'s permission-notice work already established
+for capture. When an enabled import changes to `"denied"`, the Mac app now
+shows that explanation in a native sheet and offers to open the exact pane;
+the Chats settings card keeps the steps and button visible until a later read
+succeeds, including the required quit-and-reopen step after changing TCC.
 for the microphone.
 
 **There is no `chooseMailboxSlug` for iMessage, and there never will be.**

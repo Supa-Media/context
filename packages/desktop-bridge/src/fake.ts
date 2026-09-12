@@ -58,6 +58,8 @@ export interface FakeDesktopBridge {
   approvals: MachineApprovalResult[];
   /** Every `setEnabled` the page asked for, in order. */
   imessageSetEnabledCalls: boolean[];
+  /** How many times the page asked the shell to guide the person to Full Disk Access. */
+  imessageFullDiskAccessRequests: number;
   emitSegment(segment: TranscriptSegment): void;
   emitLevel(level: AudioLevel): void;
   emitCaptureState(update: CaptureStateUpdate): void;
@@ -160,6 +162,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const writes: MeetingWrite[] = [];
   const approvals: MachineApprovalResult[] = [];
   const imessageSetEnabledCalls: boolean[] = [];
+  let imessageFullDiskAccessRequests = 0;
   const pendingApprovals = new Set<(pending: PendingMachineApproval | null) => void>();
   const imessageListeners = new Set<(status: ImessageStatus) => void>();
   let pending: PendingMachineApproval | null = options.pendingApproval ?? null;
@@ -349,6 +352,10 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
               imessageSetEnabledCalls.push(enabled);
               imessageStatus = { ...imessageStatus, enabled };
             },
+            async requestFullDiskAccess(): Promise<void> {
+              calls.push("imessage.requestFullDiskAccess");
+              imessageFullDiskAccessRequests += 1;
+            },
             onChange: (handler: (status: ImessageStatus) => void) => subscribe(imessageListeners, handler),
           }),
         }),
@@ -360,6 +367,9 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     writes,
     approvals,
     imessageSetEnabledCalls,
+    get imessageFullDiskAccessRequests() {
+      return imessageFullDiskAccessRequests;
+    },
     get lastStart() {
       return lastStart;
     },
