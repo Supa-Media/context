@@ -35,7 +35,10 @@
 
 import {
   channelDestinationFolder,
+  contactDraftsFromCommunication,
+  contactPathForDraft,
   isCalendarDate,
+  mergeContactNote,
   planChannelDay,
 } from "../../../../packages/communications/src/index.js";
 
@@ -939,6 +942,40 @@ export async function writeDayPart(store, part, maxAttempts = 3) {
   throw new Error(`writeDayPart: gave up after ${maxAttempts} attempts on ${part.path}`);
 }
 
+/** Conflict-safe contact merge: every retry re-merges against the bytes that own the new etag. */
+export async function writeContactDraft(store, draft, options = {}, maxAttempts = 3) {
+  const build = async () => {
+    const path = contactPathForDraft(draft, { root: options.root });
+    if (path === null) return null;
+    const existing = await store.get(path);
+    const existingText = existing ? await existing.text() : "";
+    const update = mergeContactNote(existingText, draft, { root: options.root });
+    if (update === null) return null;
+    return { existing, existingText, update, bytes: new TextEncoder().encode(update.text).length };
+  };
+
+  if (!store.capabilities?.conditionalWrite) {
+    const next = await build();
+    if (next === null) return { wrote: false, bytes: 0, quotaExceeded: false };
+    if (next.bytes > options.remainingQuotaBytes) return { wrote: false, bytes: 0, quotaExceeded: true };
+    if (next.existing && next.existingText === next.update.text) return { wrote: false, bytes: 0, quotaExceeded: false };
+    await store.put(next.update.path, next.update.text);
+    return { wrote: true, bytes: next.bytes, quotaExceeded: false };
+  }
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const next = await build();
+    if (next === null) return { wrote: false, bytes: 0, quotaExceeded: false };
+    if (next.bytes > options.remainingQuotaBytes) return { wrote: false, bytes: 0, quotaExceeded: true };
+    if (next.existing && next.existingText === next.update.text) return { wrote: false, bytes: 0, quotaExceeded: false };
+    const result = next.existing
+      ? await store.put(next.update.path, next.update.text, { onlyIf: { etagMatches: next.existing.etag } })
+      : await store.put(next.update.path, next.update.text);
+    if (result) return { wrote: true, bytes: next.bytes, quotaExceeded: false };
+  }
+  throw new Error("writeContactDraft: contact did not settle after the bounded retry");
+}
+
 /**
  * Regenerate and write one day, quota-bound — note text AND, when
  * `fetchImpl`/`accessToken` are supplied, any attachments this day's
@@ -1019,7 +1056,28 @@ export async function syncOneDay(options) {
     }
     partsWritten += 1;
   }
-  return { bytesWritten, partsWritten, quotaExceeded: false };
+
+  let contactsWritten = 0;
+  const drafts = contactDraftsFromCommunication(options.events, {
+    root: options.root,
+    folder: options.folder,
+    selfAddresses: [options.address],
+  });
+  for (const draft of drafts) {
+    const result = await writeContactDraft(options.store, draft, {
+      root: options.root,
+      remainingQuotaBytes: remaining,
+    });
+    if (result.quotaExceeded) {
+      return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: true };
+    }
+    if (result.wrote) {
+      bytesWritten += result.bytes;
+      remaining -= result.bytes;
+      contactsWritten += 1;
+    }
+  }
+  return { bytesWritten, partsWritten, contactsWritten, quotaExceeded: false };
 }
 
 /** How long a fetched attachment stays before `sweepExpiredAttachments` deletes it, absent a connection-level choice. */

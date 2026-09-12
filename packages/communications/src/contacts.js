@@ -24,7 +24,8 @@
 // happened; this page is a view of them. So an unmerge is deleting and
 // regenerating one file rather than unpicking a year of edits.
 
-import { contactSlug } from "./paths.js";
+import { contactNotePath, contactSlug, channelDayNotePath } from "./paths.js";
+import { messageAnchor } from "./anchors.js";
 import { defangOutsideFence, singleLine } from "./note.js";
 
 /** The identifier kinds a contact can be recognised by. */
@@ -141,14 +142,111 @@ export function mergeContacts(preferred, other) {
     identifiers.push(identifier);
   }
 
+  const activity = [];
+  const activitySeen = new Set();
+  for (const entry of [...(preferred?.activity ?? []), ...(other?.activity ?? [])]) {
+    const path = String(entry?.path ?? "").replace(/\.md$/, "");
+    const key = `${path}\u0000${entry?.anchor ?? ""}\u0000${entry?.channel ?? ""}`;
+    if (activitySeen.has(key)) continue;
+    activitySeen.add(key);
+    activity.push(entry);
+  }
+
   return {
     ...other,
     ...preferred,
     identifiers,
     conflicts,
-    activity: [...(preferred?.activity ?? []), ...(other?.activity ?? [])],
+    activity,
     notes: singleLine(preferred?.notes) ? preferred.notes : (other?.notes ?? preferred?.notes ?? ""),
   };
+}
+
+/** The stable contact-page path for a draft, keyed by identity rather than a mutable display name. */
+export function contactPathForDraft(contact, options = {}) {
+  const keys = [...identifierSet(contact)].sort();
+  if (!keys.length) return null;
+  return contactNotePath(contactSlug(keys[0].replace(":", "-")), options);
+}
+
+function identifierForPerson(person) {
+  const address = singleLine(person?.address);
+  if (address) {
+    const kind = address.includes("@") ? "email" : "phone";
+    if (normalizeIdentifier({ kind, value: address }) !== null) return { kind, value: address };
+  }
+  const providerUserId = singleLine(person?.providerUserId);
+  if (providerUserId) return { kind: "provider-user", value: providerUserId };
+  return null;
+}
+
+/**
+ * Build contact activity directly from the messages a provider sync already read.
+ * No address-book API and no second crawl: contacts are a derived index of the
+ * same normalized events that produced the channel-day note.
+ */
+export function contactDraftsFromCommunication(events, options = {}) {
+  const own = new Set((options.selfAddresses ?? []).map((value) => String(value).trim().toLowerCase()));
+  const ownProviderUsers = new Set((options.selfProviderUserIds ?? []).map((value) => String(value ?? "").trim().toLowerCase()).filter(Boolean));
+  const drafts = [];
+  for (const event of events ?? []) {
+    const date = String(event?.sentAt ?? "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    const day = event.channel === "email"
+      ? { channel: event.channel, account: event.account, date }
+      : { channel: event.channel, date };
+    const path = channelDayNotePath(
+      day,
+      { root: options.root, folder: options.folder },
+    );
+    const people = [event?.from, ...(Array.isArray(event?.to) ? event.to : [])];
+    for (const person of people) {
+      const identifier = identifierForPerson(person);
+      if (identifier === null) continue;
+      const normalized = normalizeIdentifier(identifier);
+      if (normalized === null) continue;
+      if (identifier.kind === "email" && own.has(String(identifier.value).trim().toLowerCase())) continue;
+      if (identifier.kind === "provider-user" && ownProviderUsers.has(String(identifier.value).trim().toLowerCase())) continue;
+      if (singleLine(person?.name).toLowerCase() === "you" && !singleLine(person?.address)) continue;
+      drafts.push({
+        name: singleLine(person?.name) || singleLine(person?.address) || "(unnamed contact)",
+        identifiers: [identifier],
+        activity: [{
+          date,
+          path,
+          anchor: messageAnchor(event),
+          label: singleLine(event?.subject) || "(no subject)",
+          channel: event.channel,
+        }],
+        updatedAt: String(event?.sentAt ?? ""),
+      });
+    }
+  }
+  return drafts;
+}
+
+function existingUpdatedAt(text) {
+  const raw = /^updated:\s*(.+)$/m.exec(String(text ?? ""))?.[1]?.trim();
+  if (!raw) return "";
+  try {
+    return String(JSON.parse(raw));
+  } catch {
+    return "";
+  }
+}
+
+/** Merge one generated draft into an existing editable contact page and return stable bytes. */
+export function mergeContactNote(existingText, draft, options = {}) {
+  const existing = existingText ? parseContactView(existingText) : null;
+  const merged = existing === null ? draft : mergeContacts(existing, draft);
+  const path = contactPathForDraft(merged, options);
+  if (path === null) return null;
+  const slug = path.slice(path.lastIndexOf("/") + 1, -3);
+  const updated = [existingUpdatedAt(existingText), String(draft?.updatedAt ?? "")]
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? new Date(0).toISOString();
+  return { path, text: renderContactNote({ ...merged, slug, now: updated }) };
 }
 
 /**

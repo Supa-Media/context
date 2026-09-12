@@ -39,7 +39,15 @@
  *     bucket.
  */
 
-import { channelDayNotePath, planChannelDay, renderChannelDayNote, type CommunicationEvent } from "@context/communications";
+import {
+  channelDayNotePath,
+  contactDraftsFromCommunication,
+  contactPathForDraft,
+  mergeContactNote,
+  planChannelDay,
+  renderChannelDayNote,
+  type CommunicationEvent,
+} from "@context/communications";
 import type { ChannelDayPart } from "@context/communications/protocol";
 import { appleNsRangeForUtcDate, appleEpochNsToIso, utcDateOf } from "./appleTime.ts";
 import { advanceCursor, type ImessageCursor } from "./cursor.ts";
@@ -171,6 +179,26 @@ async function upsertPart(
   return { status: "error", message: retryWrite.message };
 }
 
+/** A contact can be updated by several channels; re-merge after every etag conflict. */
+async function upsertContactDraft(
+  deps: ImessageSyncDeps,
+  draft: ReturnType<typeof contactDraftsFromCommunication>[number],
+): Promise<{ status: "written" | "unchanged" | "error"; message?: string }> {
+  const path = contactPathForDraft(draft);
+  if (path === null) return { status: "unchanged" };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const existing = await deps.readNote(path);
+    if (!existing.ok) return { status: "error", message: existing.message };
+    const update = mergeContactNote(existing.found ? existing.content : "", draft);
+    if (update === null) return { status: "unchanged" };
+    if (existing.found && existing.content === update.text) return { status: "unchanged" };
+    const result = await deps.writeNote(update.path, update.text, existing.found ? existing.etag : null);
+    if (result.ok) return { status: "written" };
+    if (!result.conflict) return { status: "error", message: result.message };
+  }
+  return { status: "error", message: "Contact activity changed too many times; it will retry on the next sync." };
+}
+
 async function syncDay(
   deps: ImessageSyncDeps,
   date: string,
@@ -214,7 +242,14 @@ async function syncDay(
   const retired = await retireOrphanParts(deps, date, parts.length, nonce);
   const errored = [...outcomes, ...retired].find((outcome) => outcome.status === "error");
   if (errored) return { date, status: "error", parts: parts.length, message: errored.message };
-  const status = [...outcomes, ...retired].some((outcome) => outcome.status === "written") ? "written" : "unchanged";
+  const contactOutcomes = [];
+  for (const draft of contactDraftsFromCommunication(events, { selfAddresses: deps.selfAddresses })) {
+    contactOutcomes.push(await upsertContactDraft(deps, draft));
+    if (contactOutcomes.at(-1)?.status === "error") break;
+  }
+  const contactError = contactOutcomes.find((outcome) => outcome.status === "error");
+  if (contactError) return { date, status: "error", parts: parts.length, message: contactError.message };
+  const status = [...outcomes, ...retired, ...contactOutcomes].some((outcome) => outcome.status === "written") ? "written" : "unchanged";
   return { date, status, parts: parts.length };
 }
 

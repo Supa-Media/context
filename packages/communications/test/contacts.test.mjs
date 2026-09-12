@@ -13,7 +13,10 @@ import {
   NOTES_HEADING,
   activityLink,
   canAutoMerge,
+  contactDraftsFromCommunication,
+  contactPathForDraft,
   mergeContacts,
+  mergeContactNote,
   normalizeIdentifier,
   parseContactNote,
   parseContactView,
@@ -75,6 +78,46 @@ export function runContactChecks(check) {
   check("the person's own edit wins a merge", merged.name === "Adam O.");
   check("...and what the import said is recorded rather than dropped", merged.conflicts.some((line) => line.includes("Somewhere Else")));
   check("...and identifiers are unioned without duplicates", merged.identifiers.length === 2);
+  check("...and reprocessing the same message does not duplicate its activity", mergeContacts(adam, adam).activity.length === adam.activity.length);
+
+  // -- organic communication activity ------------------------------------
+  const mailEvent = {
+    channel: "email",
+    account: "owner-at-example-com",
+    messageId: "message-1",
+    threadId: "thread-1",
+    sentAt: "2026-09-07T18:04:11.221Z",
+    subject: "Quarterly numbers",
+    from: { name: "Adam Okonkwo", address: "Adam@Example.net" },
+    to: [{ name: "Owner", address: "owner@example.com" }],
+    body: "hello",
+  };
+  const organic = contactDraftsFromCommunication([mailEvent], { selfAddresses: ["OWNER@example.com"] });
+  check("an email sync derives its sender as a contact", organic.length === 1 && organic[0].name === "Adam Okonkwo");
+  check("the owner's own mailbox is not made into a contact", !organic.some((draft) => draft.name === "Owner"));
+  check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "0-inbox/email/owner-at-example-com/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
+  check("a contact path is stable on the identifier rather than the display name", contactPathForDraft(organic[0]) === contactPathForDraft({ ...organic[0], name: "A new display name" }));
+  const generated = mergeContactNote("", organic[0]);
+  const regenerated = mergeContactNote(generated.text, organic[0]);
+  check("reprocessing the same provider event produces the same contact bytes", regenerated.text === generated.text);
+  const edited = generated.text.replace("## Notes\n\n", "## Notes\n\nCall on Fridays.");
+  check("regeneration preserves the person's own contact notes", mergeContactNote(edited, organic[0]).text.includes("Call on Fridays."));
+
+  const chatDraft = contactDraftsFromCommunication([{
+    ...mailEvent,
+    channel: "google-chat",
+    account: "owner@example.com",
+    from: { name: "Priya", providerUserId: "users/123" },
+    to: [],
+  }])[0];
+  check("Google Chat uses its provider user id when it has no email address", chatDraft.identifiers[0].kind === "provider-user" && contactPathForDraft(chatDraft).includes("provider-user-users-123"));
+  check("Google Chat does not turn the connected user's own provider identity into a contact", contactDraftsFromCommunication([{
+    ...mailEvent,
+    channel: "google-chat",
+    account: "owner@example.com",
+    from: { name: "Owner", providerUserId: "users/me" },
+    to: [],
+  }], { selfProviderUserIds: ["users/me"] }).length === 0);
 
   // -- the page ------------------------------------------------------------
   const page = renderContactNote(adam);

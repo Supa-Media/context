@@ -588,6 +588,10 @@ export async function runGmailSyncChecks(check) {
   const dayNote = await dayStore.get("0-inbox/email/person-at-example-invalid/2026-09-07.md");
   const dayNoteParsed = parseChannelDayNote(await dayNote.text());
   check("the OTHER day's message is not in this day's note", dayNoteParsed.messages.length === 2);
+  const contactPaths = (await dayStore.list({ prefix: "0-inbox/contacts/" })).objects.map((item) => item.key);
+  check("Gmail sync organically creates one contact per correspondent", contactPaths.length === 2);
+  const firstContact = await dayStore.get(contactPaths[0]);
+  check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[0-inbox/email/person-at-example-invalid/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
 
   const resync = await syncDayFromGmail(dayOptions);
   check("RE-RUNNING THE SAME DAY CHANGES NO BYTES — idempotent upsert by message id", resync.bytesWritten === 0);

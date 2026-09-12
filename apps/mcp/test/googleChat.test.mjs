@@ -171,6 +171,12 @@ export async function runGoogleChatChecks(check) {
         result.contribution.days[0]?.date === "2026-09-06" &&
         JSON.parse(JSON.stringify(result.contribution)).days[0]?.events.length === 1,
     );
+    check(
+      "the same Chat sync organically contributes its sender to Contacts",
+      result.contactDrafts.length === 1 &&
+        result.contactDrafts[0].name === "Adam Okonkwo" &&
+        result.contactDrafts[0].identifiers[0].kind === "provider-user",
+    );
   });
 
   // -- shared daily notes: aggregate active account contributions ----------

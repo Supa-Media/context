@@ -15,6 +15,7 @@
 // injected client, never against Convex directly".
 
 import { planChannelDay } from "../../../../../packages/communications/src/note.js";
+import { contactDraftsFromCommunication } from "../../../../../packages/communications/src/contacts.js";
 import { channelDestinationFolder } from "../../../../../packages/communications/src/paths.js";
 import { fnv1a64 } from "../../../../../packages/communications/src/anchors.js";
 import { chatMessageToEvent, fallbackSpaceLabel, isHistoryOn, spaceDisplayName } from "./transform.js";
@@ -249,7 +250,7 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
  *   connection: {
  *     account: string, nonceSeed: string,
  *     cursors?: Record<string, string>, spaceSettings?: Record<string, "included"|"excluded"|"paused">,
- *     backfillDays?: number, destinationFolder?: string,
+ *     backfillDays?: number, destinationFolder?: string, selfUserName?: string,
  *   },
  *   now?: string, root?: string,
  * }} args
@@ -342,8 +343,15 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
   };
 
   const notes = [];
+  const contactDrafts = [];
 
   for (const { date, events, unavailableSpaces } of contribution.days) {
+    contactDrafts.push(...contactDraftsFromCommunication(events, {
+      root,
+      folder: connection?.destinationFolder,
+      selfAddresses: [account],
+      selfProviderUserIds: [connection?.selfUserName],
+    }));
     const parts = planChannelDay(
       {
         channel: "google-chat",
@@ -360,5 +368,5 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
     for (const part of parts) notes.push(part);
   }
 
-  return { notes, contribution, cursors, spaces: spacesSeen, errors };
+  return { notes, contactDrafts, contribution, cursors, spaces: spacesSeen, errors };
 }

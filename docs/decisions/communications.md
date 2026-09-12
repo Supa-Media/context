@@ -769,6 +769,18 @@ correspondence. **A merge never rewrites a channel-day note** — the messages
 are what happened, the contact page is a view of them — so an unmerge is
 deleting and regenerating one file rather than unpicking a year of edits.
 
+**Contacts grow organically from communication sync, not from a separate
+address-book import.** The normalized events already read for iMessage, Gmail
+and Google Chat yield the sender and recipients, their email/phone/provider
+identifiers, and a link back to the message anchor in the channel-day note.
+iMessage and Gmail materialize those drafts in the same durable pass that
+writes the day; a failed contact write holds the iMessage cursor rather than
+silently losing the relationship. Chat returns the same JSON-safe drafts with
+its account contribution so the shared-account runner can materialize them
+when scheduled Chat delivery is enabled. The owner's own email and provider
+identity are filtered at the connection boundary. No macOS Contacts permission,
+Google People scope, or second provider crawl is part of this path.
+
 The check is `a name-only match never merges two contacts`.
 
 ### The Gmail restricted scope is Google's decision, so v1 runs on fixtures
