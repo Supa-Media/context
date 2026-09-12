@@ -42,6 +42,7 @@
 
 import { EditorState, Range, RangeSet, StateField, type Extension } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
+import { FormWidget, formFences, formHost } from "./formBlock";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { css } from "@codemirror/lang-css";
@@ -1190,8 +1191,21 @@ export function decorationsFor(state: EditorState): DecorationSet {
     has both is the one that would find out.
   */
   const previews = htmlPreviews(state, frontEnd);
+  /*
+    A `form` fence is replaced the same way, and by the same rule about the two
+    passes below keeping out of it — see `formFences`. It is a separate list
+    rather than another kind of `HtmlPreview` because the two are opposites at
+    the point that matters: a diagram is drawn from markup the note supplies and
+    must be sandboxed away from this document, and a form is built from a parsed
+    declaration and has to live *in* it to be usable.
+
+    Empty unless the note is read-only, which is the whole of the reveal rule
+    for forms.
+  */
+  const forms = formFences(state, frontEnd);
   const insidePreview = (pos: number): boolean =>
-    previews.some((preview) => pos >= preview.from && pos < preview.to);
+    previews.some((preview) => pos >= preview.from && pos < preview.to) ||
+    forms.some((form) => pos >= form.from && pos < form.to);
 
   const styles: Range<Decoration>[] = [];
   tree.iterate({
@@ -1225,6 +1239,21 @@ export function decorationsFor(state: EditorState): DecorationSet {
         widget: new HtmlPreviewWidget(preview.html),
         block: true,
       }).range(preview.from, preview.to),
+    );
+  }
+
+  /*
+    The host is read off the state rather than passed in, so `decorationsFor`
+    stays a pure function of it — see `formHost`. A surface that configured none
+    yields `null`, and the widget draws with its button disabled.
+  */
+  const host = state.facet(formHost);
+  for (const form of forms) {
+    hides.push(
+      Decoration.replace({
+        widget: new FormWidget(form, host),
+        block: true,
+      }).range(form.from, form.to),
     );
   }
 
@@ -1486,4 +1515,137 @@ export const livePreviewStyles = `
 }
 .cm-lp-table-delim { color: var(--lp-muted); }
 .cm-lp-rule { color: var(--lp-muted); }
+/*
+  A FORM, DRAWN FROM ITS DECLARATION.
+
+  Every colour here is one of the --lp-* properties the host already sets from
+  the palette in force, so the form follows the theme without this file naming a
+  single value — the rule the rest of these styles follow. --lp-code-bg is the
+  one that does the most work: it is a translucent ink rather than a fixed grey,
+  so it darkens a light ground and lightens a dark one, which is exactly what a
+  field's fill and a card's hairline both want.
+
+  The card is the same object as the note around it rather than a panel floating
+  over it: one hairline, the page's own background, and the reading measure. A
+  raised surface would be a second document inside the note, which is what the
+  diagram frame beside it is and what a form is not.
+*/
+.cm-lp-form {
+  border: 1px solid var(--lp-code-bg);
+  border-radius: 12px;
+  padding: 14px 16px 16px;
+  margin: 0.6em 0;
+  font-family: var(--lp-body);
+  font-size: 0.94em;
+  line-height: 1.45;
+  color: var(--lp-content);
+}
+.cm-lp-form-row { margin-bottom: 12px; }
+/*
+  A field's name is its label verbatim, with underscores spaced out. Sentence
+  case is left alone rather than title-cased: the author wrote the name, and a
+  form that renames somebody's field on screen is a form whose error messages
+  are about a field they cannot find.
+*/
+.cm-lp-form-label {
+  display: block;
+  font-size: 0.85em;
+  font-weight: 600;
+  color: var(--lp-muted);
+  letter-spacing: 0.01em;
+  margin-bottom: 5px;
+}
+/*
+  The word rather than an asterisk. An asterisk has to be learned, is invisible
+  to a screen reader that announces punctuation differently, and at 0.85em is
+  three pixels of ink carrying the difference between a form that submits and
+  one that is refused.
+*/
+.cm-lp-form-required {
+  font-weight: 500;
+  font-size: 0.92em;
+  color: var(--lp-muted);
+  opacity: 0.8;
+}
+.cm-lp-form-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  color: var(--lp-content);
+  background: var(--lp-code-bg);
+  border: 1px solid transparent;
+  border-radius: 9px;
+  padding: 8px 10px;
+  /* Safari draws its own rounded fill over the one above without this. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+/* The two controls that are meaningless at full width and a target at 18px. */
+.cm-lp-form-input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--lp-link); }
+.cm-lp-form-input[type="date"], .cm-lp-form-input[type="number"] { width: auto; min-width: 10em; }
+.cm-lp-form-input:focus {
+  outline: none;
+  border-color: var(--lp-link);
+}
+textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
+/*
+  Right-aligned under the box it counts, in the muted ink: it is a fact about
+  the room left rather than a message, and reading order should reach the next
+  field before it.
+*/
+.cm-lp-form-count {
+  text-align: right;
+  font-size: 0.78em;
+  color: var(--lp-muted);
+  margin-top: 3px;
+}
+.cm-lp-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+/*
+  The app's primary button, in CSS: the accent fill, white ink, 11px corners and
+  a 15px label. It is the one filled thing in the note, which is what a button
+  in a document should be.
+*/
+.cm-lp-form-submit {
+  font: inherit;
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--lp-link);
+  border: none;
+  border-radius: 11px;
+  padding: 9px 18px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cm-lp-form-submit:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-status { font-size: 0.88em; color: var(--lp-muted); }
+.cm-lp-form-status-ok { color: var(--lp-link); font-weight: 600; }
+/*
+  A refusal is drawn in the muted ink at full weight rather than in red. There
+  is no --lp-danger, and inventing a hex here would be the one colour in this
+  file that does not follow the theme — the failure the file's own header names.
+  Weight carries it, and the words carry the rest.
+*/
+.cm-lp-form-status-bad { color: var(--lp-content); font-weight: 600; }
+.cm-lp-form-status-quiet { opacity: 0.75; }
+/*
+  "We can't display because the formatting is off", which is what the owner
+  asked for. Dashed rather than solid so it reads as a gap in the note that
+  something should fill, and muted rather than loud: a form that will not parse
+  is the author's problem to fix and nobody else's to be alarmed by.
+*/
+.cm-lp-form-broken {
+  border-style: dashed;
+  color: var(--lp-muted);
+}
+.cm-lp-form-broken-title { font-weight: 600; color: var(--lp-content); }
+.cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }
+.cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }
 `;

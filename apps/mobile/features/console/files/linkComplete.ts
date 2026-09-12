@@ -37,7 +37,8 @@
  * shows the basename; the path is what is written.
  */
 
-import { autocompletion, type Completion, type CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { autocompletion, type Completion, type CompletionContext, type CompletionResult, type CompletionSource } from "@codemirror/autocomplete";
+import { formCompletionSource } from "./formComplete";
 import { EditorView } from "@codemirror/view";
 import type { Extension } from "@codemirror/state";
 import type { NoteLinkRef } from "./noteLinks";
@@ -142,10 +143,8 @@ export function noteChoices(
  * completion is this one, and the Markdown language package registers its own
  * (HTML tags inside a fenced block) that has no business firing in a note.
  */
-export function noteCompletion(ref: NoteLinkRef): Extension {
-  return [
-    autocompletion({
-      override: [(context: CompletionContext): CompletionResult | null => {
+export function noteLinkSource(ref: NoteLinkRef): CompletionSource {
+  return (context: CompletionContext): CompletionResult | null => {
         const line = context.state.doc.lineAt(context.pos);
         const open = openWikilink(context.state.doc.sliceString(line.from, context.pos));
         if (open === null) return null;
@@ -189,7 +188,27 @@ export function noteCompletion(ref: NoteLinkRef): Extension {
           // Our own ranking, in bands a person can predict — see `noteChoices`.
           filter: false,
         };
-      }],
+  };
+}
+
+/**
+ * Every completion this editor offers, as one configuration.
+ *
+ * `override` is a single list on the `autocompletion` facet, so two calls each
+ * passing one source do not compose — the combined config keeps one, and which
+ * one is an ordering detail. That went unnoticed for exactly as long as there
+ * was one source. Both are built here instead, and a surface with nowhere to
+ * navigate to (the landing page's demo console passes no `links`) gets the form
+ * source alone rather than none.
+ *
+ * The form source is first because the two can never both answer: one fires
+ * only inside a `form` fence and the other only inside a `[[`, and a `[[` in a
+ * form block is a field value rather than a link.
+ */
+export function editorCompletion(ref: NoteLinkRef | null): Extension {
+  return [
+    autocompletion({
+      override: [formCompletionSource(), ...(ref === null ? [] : [noteLinkSource(ref)])],
       // The list is rebuilt from the note paths on every keystroke, so there is
       // nothing to keep open across one.
       closeOnBlur: true,

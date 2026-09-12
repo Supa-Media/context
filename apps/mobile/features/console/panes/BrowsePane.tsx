@@ -16,7 +16,7 @@ import { useNoteEncryption } from "../encryption/useNoteEncryption";
 import { useNoteLockPropagation } from "../encryption/lockPropagation";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
-import { useReadMode } from "../files/readMode";
+import { setReadMode, useReadMode } from "../files/readMode";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
@@ -646,6 +646,13 @@ export function BrowsePane({
         canEdit={files.canEdit}
         reading={reading}
         /*
+          The one write a `member` gets. `canEdit` above is false for that role
+          and this is still passed: a form block is how somebody who cannot
+          write notes files a bug in a workspace they are a read-only member
+          of, which is the case the feature was built for.
+        */
+        onSubmitForm={files.submitForm}
+        /*
           What the note's own frontmatter cannot say. `visibility:` in a note
           is prose — `privacy.md` decides access — so the Properties panel
           shows the manifest's answer under that key rather than the file's,
@@ -818,6 +825,31 @@ export function BrowsePane({
             box around one glyph would be the box-in-a-box the frame's own
             comment refuses at every density but the phone.
           */}
+          {/*
+            READING MODE, ON THE LAYOUT THAT HAD NO WAY INTO IT.
+
+            The eye was added to `AppFrame`'s trailing group, and that group is
+            **only drawn on a phone** — `_layout.tsx` passes `topTrailing` under
+            `phone ? … : …` and the pointer branch carries the tier and storage
+            chips instead. So reading mode shipped reachable on a 390pt screen
+            and unreachable in a browser, which is where it was asked for: "add
+            this to web as well because it doesn't show up on web".
+
+            Same bus, same state, same label rule as the phone's — one control
+            in two places rather than two controls, and `readable` there is the
+            same condition as `kind === "file"` here. A **folder** selects this
+            row too and gets no eye: there is no document to read, which is the
+            reason `_layout.tsx` gives for the same gate.
+          */}
+          {selected.kind === "file" ? (
+            <FrameIconButton
+              icon="eye"
+              label={reading ? "Edit this note" : "Read this note"}
+              selected={reading}
+              onPress={() => setReadMode(!reading)}
+              testID="browse-read"
+            />
+          ) : null}
           {files.canShare && !selected.readOnly ? (
             <FrameIconButton
               icon="share"

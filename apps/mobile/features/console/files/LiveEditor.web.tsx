@@ -50,6 +50,7 @@ import {
   type HandlerRef,
 } from "./editorSetup";
 import type { NoteLinkContext } from "./noteLinks";
+import type { FormHostContext, FormOutcome, FormSubmission } from "./formBlock";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
 
@@ -152,6 +153,14 @@ export interface LiveEditorProps {
   notePath?: string | null;
   /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */
   notePaths?: readonly string[];
+  /**
+   * Send one filled-in form block.
+   *
+   * Absent where this surface cannot — the landing page's demo console has no
+   * Convex identity — and the drawn form then says so instead of offering a
+   * button that does nothing.
+   */
+  onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
 }
 
 /**
@@ -267,6 +276,7 @@ export function LiveEditor({
   onPressNote,
   notePath,
   notePaths,
+  onSubmitForm,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -293,6 +303,18 @@ export function LiveEditor({
     onOpen: (path) => onOpenNote?.(path),
     onPress: (path) => onPressNote?.(path),
   };
+
+  /*
+    The same ref trick, for the same reason, on the path that needs it most: a
+    form widget is built once and kept across every transaction that does not
+    change its fence (see `FormWidget.eq`), so a closure captured when it was
+    built would still be aiming at whichever note was open then. Reading the
+    handler at press time is what makes "submit this form" mean the form in
+    front of you.
+  */
+  const forms = useRef<FormHostContext | null>(null);
+  forms.current =
+    onSubmitForm === undefined ? null : { submit: (submission) => onSubmitForm(submission) };
 
   /**
    * The note's colours, kept in step with the app's.
@@ -377,6 +399,7 @@ export function LiveEditor({
           // Absent when this surface has nowhere to navigate to; the extension
           // is then not installed at all and links are plain text.
           links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
+          forms,
           /*
             No `insetBottom`. A mobile browser shrinks the layout viewport when
             the keyboard opens rather than drawing over the page, so the

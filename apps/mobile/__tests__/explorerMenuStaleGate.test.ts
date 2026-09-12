@@ -75,6 +75,7 @@ function browser(canSetVisibility: boolean): FileBrowser {
   // `FileBrowser` silently, which is exactly what it had already done.
   return {
     canEdit: true,
+    submitForm: async () => ({ ok: true, message: "Sent." }),
     contextId: "w1",
     loading: false,
     busy: false,

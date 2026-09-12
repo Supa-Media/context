@@ -17,6 +17,7 @@ import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
+import type { FormOutcome, FormSubmission } from "./formBlock";
 import { NoteAccessory } from "./NoteAccessory";
 import type { Visibility } from "./types";
 
@@ -106,6 +107,7 @@ export function NoteEditor({
   onKeepMine,
   onOpenLink,
   notePaths,
+  onSubmitForm,
   encryption,
 }: {
   state: EditorState;
@@ -118,6 +120,20 @@ export function NoteEditor({
    * behaviour it had. The route is the only thing that turns it on.
    */
   reading?: boolean;
+  /**
+   * Send one filled-in ```form block on this note.
+   *
+   * Optional, and absent means the drawn form says it cannot send rather than
+   * not being drawn: a reader should still see what the form asks even on a
+   * surface that cannot answer it.
+   *
+   * It is **not** gated on `canEdit`, which is the whole point of the feature.
+   * A workspace `member` has `canEdit: false` and a read-only editor, and is
+   * exactly the person a form exists to collect from — see
+   * `docs/decisions/forms.md`, "A `member` may submit, and that is the only
+   * write they get".
+   */
+  onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
@@ -538,6 +554,7 @@ export function NoteEditor({
             */
             onOpenNote={onOpenLink === undefined ? undefined : (path) => onOpenLink(path)}
             onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
+            onSubmitForm={onSubmitForm}
           />
           {pressed === null || onOpenLink === undefined ? null : (
             <Confirm

@@ -118,6 +118,12 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
   return useMemo(
     () => ({
       canEdit: false,
+      /*
+        The landing page has no Convex identity, so a form drawn in the demo says
+        so instead of offering a button that fails. "An absent capability is
+        reported, never faked."
+      */
+      submitForm: async () => ({ ok: false, message: "Sign in to send a response." }),
       readOnlyReason: tree.readOnlyReason,
       /*
         The demo tree is built synchronously from literals, so this browser is

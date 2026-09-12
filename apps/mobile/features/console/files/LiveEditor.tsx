@@ -104,6 +104,7 @@ export function LiveEditor({
   onPressNote,
   notePath,
   notePaths,
+  onSubmitForm,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -161,6 +162,7 @@ export function LiveEditor({
     onScrollBy,
     onOpenNote,
     onPressNote,
+    onSubmitForm,
   });
   handlers.current = {
     onChange,
@@ -171,6 +173,7 @@ export function LiveEditor({
     onScrollBy,
     onOpenNote,
     onPressNote,
+    onSubmitForm,
   };
 
   /**
@@ -252,6 +255,23 @@ export function LiveEditor({
           */
           onOpenNote: (path) => handlers.current.onOpenNote?.(path),
           onPressNote: (path) => handlers.current.onPressNote?.(path),
+          /*
+            Also off the ref, and here the staleness would be worse than a
+            mis-aimed navigation: the host resolves a submission against the
+            note it currently has open, so a callback captured at mount would
+            write somebody's bug report into the note they had open when the
+            editor was created.
+
+            Always supplied rather than conditional on the prop: this bridge is
+            built once (`useMemo`, keyed on the caret helper alone), so a sink
+            chosen from the prop's value at mount would be the *first* render's
+            answer to "can this note submit" for the life of the editor. The
+            ref is read at press time and refuses then if there is nothing
+            there, which is the same message the host would have sent.
+          */
+          onSubmitForm: (submission) =>
+            handlers.current.onSubmitForm?.(submission) ??
+            Promise.resolve({ ok: false, message: "This note can’t send responses here." }),
         },
       ),
     [keepCaretClear],

@@ -32,7 +32,8 @@ import { startCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
-import { noteCompletion } from "./linkComplete";
+import { editorCompletion } from "./linkComplete";
+import { formHost, type FormHostRef } from "./formBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import type { EditorCommand } from "./webview/protocol";
 
@@ -404,8 +405,17 @@ export function editorExtensions(options: {
    * which is honest rather than a degraded feature.
    */
   links?: NoteLinkRef;
+  /**
+   * Where a filled-in form block sends its answers.
+   *
+   * Absent on a surface that cannot send one — the landing page's demo console
+   * again — and the form then draws with its button off and says so, rather
+   * than accepting a press it has nowhere to take. "An absent capability is
+   * reported, never faked."
+   */
+  forms?: FormHostRef;
 }): Extension[] {
-  const { editable, editableCompartment, handlers, insetBottom, links } = options;
+  const { editable, editableCompartment, handlers, insetBottom, links, forms } = options;
   return [
     markdownLanguage(),
     livePreview(),
@@ -417,7 +427,21 @@ export function editorExtensions(options: {
       to be the same set of paths, or the editor suggests destinations it then
       refuses to draw as links.
     */
-    ...(links === undefined ? [] : [noteLinks(links), noteCompletion(links)]),
+    ...(links === undefined ? [] : [noteLinks(links)]),
+    /*
+      Completion is unconditional where `noteLinks` is not: the `[[` half needs
+      a note list and a form block needs nothing but the text it is in. A
+      surface with no `links` — the landing page's demo console — still offers
+      the form vocabulary, which is the half a person writing one by hand cannot
+      do without.
+    */
+    editorCompletion(links ?? null),
+    /*
+      A facet rather than an argument to `livePreview()`, so the decorations
+      stay a pure function of the state and the widget can still reach its host
+      — see `formHost`.
+    */
+    ...(forms === undefined ? [] : [formHost.of(forms)]),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
@@ -505,6 +529,7 @@ export function editorStateFor(options: {
   handlers: HandlerRef;
   insetBottom?: () => number;
   links?: NoteLinkRef;
+  forms?: FormHostRef;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,
