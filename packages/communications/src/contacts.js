@@ -28,6 +28,9 @@ import { contactNotePath, contactSlug, channelDayNotePath } from "./paths.js";
 import { messageAnchor } from "./anchors.js";
 import { defangOutsideFence, singleLine } from "./note.js";
 
+/** The frontmatter `type` every contact page carries, and the only thing that identifies one. */
+export const CONTACT_TYPE = "contact";
+
 /** The identifier kinds a contact can be recognised by. */
 export const IDENTIFIER_KINDS = Object.freeze(["email", "phone", "chat", "provider-user"]);
 
@@ -235,8 +238,53 @@ function existingUpdatedAt(text) {
   }
 }
 
-/** Merge one generated draft into an existing editable contact page and return stable bytes. */
+/**
+ * Is this the text of a contact page *this package rendered*?
+ *
+ * A contact's key is `contactPathForDraft`'s answer, and its input is an
+ * identifier a **sender** supplied — so the note already at that key is not
+ * necessarily one this package wrote. `parseContactView` reads anything
+ * without complaining (it is a lenient reader by design), which would turn
+ * "merge into the page that is there" into "replace whatever is there", so
+ * the frontmatter `type` the renderer always emits is what decides.
+ *
+ * False for anything unreadable as a contact page, ciphertext included — the
+ * gateway's own rule that a note this pass cannot open is a note it must not
+ * write, arriving here rather than being restated at each call site.
+ *
+ * @param {unknown} text
+ * @returns {boolean}
+ */
+export function isContactNote(text) {
+  const source = String(text ?? "");
+  if (!source.startsWith("---\n")) return false;
+  const end = source.indexOf("\n---", 3);
+  if (end === -1) return false;
+  for (const line of source.slice(4, end).split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon === -1) continue;
+    if (line.slice(0, colon).trim() !== "type") continue;
+    const raw = line.slice(colon + 1).trim();
+    let value = raw;
+    if (raw.startsWith('"')) {
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        value = raw;
+      }
+    }
+    return String(value) === CONTACT_TYPE;
+  }
+  return false;
+}
+
+/**
+ * Merge one generated draft into an existing editable contact page and return
+ * stable bytes, or `null` to leave the key alone — which is the answer
+ * whenever the bytes there are not a contact page this package wrote.
+ */
 export function mergeContactNote(existingText, draft, options = {}) {
+  if (existingText && !isContactNote(existingText)) return null;
   const existing = existingText ? parseContactView(existingText) : null;
   const merged = existing === null ? draft : mergeContacts(existing, draft);
   const path = contactPathForDraft(merged, options);
@@ -301,7 +349,7 @@ export function renderContactNote(contact) {
     // layer, and a defence that is two layers in one renderer and one in the
     // other is one layer.
     `updated: ${JSON.stringify(singleLine(contact.now ?? new Date().toISOString()))}`,
-    'type: "contact"',
+    `type: ${JSON.stringify(CONTACT_TYPE)}`,
     `slug: ${JSON.stringify(singleLine(slug))}`,
     "---",
     "",

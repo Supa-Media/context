@@ -953,6 +953,25 @@ untouched, and lets the other spaces finish. The fixture deliberately repeats
 one token and throws if a third request is made, so an unbounded loop fails
 quickly instead of hanging the suite.
 
+**A contact's key is chosen by whoever wrote to the owner, so the note already
+there is not necessarily ours.** `contactPathForDraft` derives the key from an
+identifier a *sender* supplied, and the scheduled Gmail pass writes to it —
+`0-inbox/contacts/email-<them>.md` exists because they emailed. `parseContactView`
+reads anything without complaining, by design, so merging straight into whatever
+is at that key turned "merge into the page that is there" into "replace whatever
+is there": a note the owner keeps by hand in that folder was rewritten as a
+generated contact page, and an **encrypted** note was replaced with plaintext —
+stripping the owner's lock and taking the ciphertext under it with the write,
+which is exactly the "it would look like a successful write" `sealNoteContent`
+refuses in the gateway. So `isContactNote` reads the frontmatter `type` the
+renderer always emits, `mergeContactNote` answers `null` for anything else, and
+every caller already treats `null` as *leave the key alone*. The checks are
+`a hand-written note at a contact's key is left alone, not replaced by a
+generated page` and `an owner's note with frontmatter of its own is not mistaken
+for a contact page` — the second because a guard that only asked "does this open
+with `---`" would pass the first. `CONTACT_TYPE` is now a named constant the
+reader and the renderer share, so the two cannot drift.
+
 **A Chat pass now exposes a JSON-safe account contribution before anything
 writes the shared day.** `syncGoogleChat` still returns its legacy single-account
 notes for callers that already use them, but also returns the exact day slices

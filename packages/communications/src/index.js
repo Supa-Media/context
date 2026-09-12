@@ -51,6 +51,7 @@ export {
   contactDraftsFromCommunication,
   contactPathForDraft,
   identifierSet,
+  isContactNote,
   mergeContacts,
   mergeContactNote,
   normalizeIdentifier,
