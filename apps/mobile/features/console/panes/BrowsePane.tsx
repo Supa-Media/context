@@ -29,7 +29,6 @@ import { ContactPageView } from "../communications/ContactPageView";
 import { InboxView } from "../communications/InboxView";
 import { MAIL_CONNECT_ENABLED } from "../communications/flags";
 import { classifyCommsPath } from "../communications/paths";
-import { isGroupVisibility } from "../files/types";
 import { removalHandler } from "../files/access";
 import type { SettingsSectionKey } from "../settings/sections";
 
@@ -787,50 +786,30 @@ export function BrowsePane({
             exactly that to a note the owner had held back.
           */}
           {/*
-            The phone's glyphs, on the row that already names the note.
+            One control, and it is the phone's glyph.
 
-            These were two filled word-buttons — "Make private" and "Share…" —
-            and they were the widest thing in the bar: the pair took a third of
-            the row, sat proud of a line whose other content is one line of
-            monospace path and a chip, and on a real desktop they are exactly
-            where a floating widget from some other application lands.
+            This row carried two filled word-buttons — "Make private" and
+            "Share…" — which were the widest thing in the bar, and #461 turned
+            both into icons. That was half right and half a regression: the
+            *padlock* is a control `_layout.tsx` had already taken off the
+            phone, and its comment there says why — "two controls for one
+            question", overlapping on the dangerous state, with audience moved
+            inside the sheet as named positions and the public step confirmed in
+            words. Drawing it here as a 20pt icon reintroduced on a pointer
+            layout exactly what the phone removed, which is the opposite of
+            matching it.
 
-            The earlier note here argued the opposite — "a verb here and a
-            padlock on a phone … a button with room for words says what
-            pressing it will *do*". That argument was about which is more
-            *useful*, and it was answered by the owner looking at both surfaces
-            side by side: one product, two treatments, and the icon one is the
-            one that reads. The `accessibilityLabel` still carries the verb, so
-            nothing that could only see the words has lost them — which is the
-            half of the old argument that was load-bearing.
+            So visibility is gone from this row. `ShareDialog` below already
+            takes `onSetScope`, so nothing moved and nothing is unreachable —
+            audience is set where the phone sets it, and `scope.ts` is still the
+            one model every surface goes through.
 
-            Unfilled rather than in a capsule, deliberately. `AppFrame`'s
-            trailing group is a floating container over a document and is the
-            object; this bar already has a surface and a hairline of its own, so
-            a second rounded box around two glyphs would be the box-in-a-box the
-            frame's own comment refuses at every density but the phone.
+            Share stays, unfilled rather than in a capsule: `AppFrame`'s
+            trailing group is a floating container over a document and is itself
+            the object, while this bar has a surface and a hairline already, so a
+            box around one glyph would be the box-in-a-box the frame's own
+            comment refuses at every density but the phone.
           */}
-          {files.canSetVisibility &&
-          !selected.readOnly &&
-          !isGroupVisibility(selected.visibility) ? (
-            <FrameIconButton
-              /*
-                The icon draws the state and the label says the act. A shut
-                padlock *is* private, so the note that is `team` shows the open
-                one — `Icon.tsx`'s own rule — and pressing it shuts it.
-              */
-              icon={selected.visibility === "team" ? "lockOpen" : "lock"}
-              label={selected.visibility === "team" ? "Make private" : "Share with team"}
-              onPress={() =>
-                files.setVisibility(
-                  selected.path,
-                  selected.kind,
-                  selected.visibility === "team" ? "private" : "team",
-                )
-              }
-              testID="browse-visibility"
-            />
-          ) : null}
           {files.canShare && !selected.readOnly ? (
             <FrameIconButton
               icon="share"
