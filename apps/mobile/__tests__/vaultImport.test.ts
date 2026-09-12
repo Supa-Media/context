@@ -2,6 +2,8 @@ import { describe, expect, test } from "@jest/globals";
 import {
   batchVaultFiles,
   planVaultFiles,
+  vaultFingerprint,
+  vaultPlanForStrategy,
   type PickedVaultFile,
 } from "../features/onboarding/vaultImport";
 
@@ -58,5 +60,38 @@ describe("an Obsidian vault selection", () => {
     });
 
     expect(batches.map((batch) => batch.length)).toEqual([2, 1]);
+  });
+
+  test("makes the existing-data choice explicit without offering overwrite", () => {
+    const plan = planVaultFiles([
+      picked("My Vault/Projects/Launch.md", 12),
+      picked("My Vault/index.md", 8),
+    ]);
+
+    expect(vaultPlanForStrategy(plan, "merge").files.map((file) => file.path)).toEqual([
+      "Projects/Launch.md",
+      "index.md",
+    ]);
+    expect(vaultPlanForStrategy(plan, "folder").files.map((file) => file.path)).toEqual([
+      "Imports/My Vault/Projects/Launch.md",
+      "Imports/My Vault/index.md",
+    ]);
+  });
+
+  test("uses one stable fingerprint when the same vault is selected again", () => {
+    const first = vaultPlanForStrategy(
+      planVaultFiles([picked("My Vault/b.md", 3), picked("My Vault/a.md", 2)]),
+      "merge",
+    );
+    const second = vaultPlanForStrategy(
+      planVaultFiles([picked("My Vault/a.md", 2), picked("My Vault/b.md", 3)]),
+      "merge",
+    );
+
+    expect(vaultFingerprint(first, "merge")).toBe(vaultFingerprint(second, "merge"));
+    expect(vaultFingerprint(first, "merge")).not.toBe(vaultFingerprint(first, "folder"));
+    expect(batchVaultFiles(first.files).map((batch) => batch.map((file) => file.path))).toEqual(
+      batchVaultFiles(second.files).map((batch) => batch.map((file) => file.path)),
+    );
   });
 });

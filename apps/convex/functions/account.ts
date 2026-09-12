@@ -311,7 +311,7 @@ export const deleteAccount = mutation({
  *    `CONNECT_ATTEMPT_TABLES` (`functions/lib/connectAttempts.ts`), which is
  *    how `dropboxConnectAttempts` and `googleConnectAttempts` are both
  *    covered by one loop instead of one hand-maintained call per provider.
- *  - **`ingestionSettings`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
+ *  - **`ingestionSettings`**, **`vaultImportJobs`**, **`ingestionTickets`**, **`cloudflareProvisioning`**,
  *    **`workspaceKeyRotations`**, **`workspaceInvitations`** (every status),
  *    **`oauthGrants`**, **`noteShares`** (every status), **`auditEvents`**,
  *    **`workspaceMembers`**, **`names`** — swept below, each with its own
@@ -467,6 +467,18 @@ async function deleteWorkspaceCascade(
     .collect();
   for (const settings of ingestionSettings) {
     await ctx.db.delete(settings._id);
+  }
+
+  // Local vault bytes never enter Convex, but their resumable counters belong
+  // to this workspace and must not survive it. Several rows can exist because
+  // selecting a different vault pauses the earlier job rather than erasing its
+  // honest progress.
+  const vaultImportJobs = await ctx.db
+    .query("vaultImportJobs")
+    .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const job of vaultImportJobs) {
+    await ctx.db.delete(job._id);
   }
 
   // Outstanding ingestion tickets. Same shape as the connect attempts: keyed

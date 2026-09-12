@@ -249,13 +249,198 @@ describe("an owner can edit their context", () => {
 });
 
 describe("Obsidian vault import", () => {
+  test("persists resumable progress and counts a retried batch only once", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-1",
+      totalFiles: 2,
+      totalBytes: 12,
+      totalBatches: 2,
+    });
+    const batch = {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-fingerprint-1",
+      batchIndex: 0,
+      files: [{
+        path: "Imported/one.md",
+        bytes: new TextEncoder().encode("# One\n").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    };
+
+    const first = await owner.action(api.functions.files.importVaultJobBatch, batch);
+    const retry = await owner.action(api.functions.files.importVaultJobBatch, batch);
+
+    expect(first).toMatchObject({
+      status: "active",
+      completedFiles: 1,
+      totalFiles: 2,
+      createdFiles: 1,
+      skippedFiles: 0,
+      completedBatches: [0],
+    });
+    expect(retry).toEqual(first);
+    expect(f.backend.snapshot()["Imported/one.md"]).toBe("# One\n");
+
+    const durable = await owner.query(api.functions.files.latestVaultImportJob, {
+      workspaceId: f.workspaceId,
+    });
+    expect(durable).toMatchObject({
+      jobId: job.jobId,
+      status: "active",
+      completedFiles: 1,
+      totalFiles: 2,
+    });
+  });
+
+  test("resumes the same selected vault and completes after the missing batch", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const args = {
+      workspaceId: f.workspaceId,
+      strategy: "folder" as const,
+      sourceFingerprint: "vault-fingerprint-2",
+      totalFiles: 2,
+      totalBytes: 12,
+      totalBatches: 2,
+    };
+    const started = await owner.mutation(api.functions.files.startVaultImport, args);
+    await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: started.jobId,
+      sourceFingerprint: args.sourceFingerprint,
+      batchIndex: 0,
+      files: [{
+        path: "Imports/Vault/one.md",
+        bytes: new TextEncoder().encode("one").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+
+    await owner.mutation(api.functions.files.pauseVaultImport, {
+      workspaceId: f.workspaceId,
+      jobId: started.jobId,
+    });
+    const resumed = await owner.mutation(api.functions.files.startVaultImport, args);
+    expect(resumed).toMatchObject({
+      jobId: started.jobId,
+      status: "active",
+      completedFiles: 1,
+      completedBatches: [0],
+    });
+
+    const complete = await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: started.jobId,
+      sourceFingerprint: args.sourceFingerprint,
+      batchIndex: 1,
+      files: [{
+        path: "Imports/Vault/two.md",
+        bytes: new TextEncoder().encode("two").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+    expect(complete).toMatchObject({
+      status: "complete",
+      completedFiles: 2,
+      totalFiles: 2,
+      completedBatches: [0, 1],
+    });
+  });
+
+  test("keeps another user from seeing or advancing a vault import job", async () => {
+    const f = await fixture();
+    const job = await asUser(f.t, f.owner).mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-private",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    });
+
+    const queryError = await captureError(() =>
+      asUser(f.t, f.stranger).query(api.functions.files.latestVaultImportJob, {
+        workspaceId: f.workspaceId,
+      }),
+    );
+    const batchError = await captureError(() =>
+      asUser(f.t, f.stranger).action(api.functions.files.importVaultJobBatch, {
+        workspaceId: f.workspaceId,
+        jobId: job.jobId,
+        sourceFingerprint: "vault-fingerprint-private",
+        batchIndex: 0,
+        files: [{
+          path: "private.md",
+          bytes: new TextEncoder().encode("no").buffer,
+          contentType: "text/markdown; charset=utf-8",
+        }],
+      }),
+    );
+    expect(errorCode(queryError)).toBe("WORKSPACE_NOT_FOUND");
+    expect(errorCode(batchError)).toBe("WORKSPACE_NOT_FOUND");
+    expect(f.backend.snapshot()["private.md"]).toBeUndefined();
+  });
+
+  test("rejects a mismatched resume plan before any local bytes reach storage", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-mismatch",
+      totalFiles: 1,
+      totalBytes: 6,
+      totalBatches: 1,
+    });
+
+    const error = await captureError(() => owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-fingerprint-mismatch",
+      batchIndex: 0,
+      files: [
+        {
+          path: "one.md",
+          bytes: new TextEncoder().encode("one").buffer,
+          contentType: "text/markdown; charset=utf-8",
+        },
+        {
+          path: "two.md",
+          bytes: new TextEncoder().encode("two").buffer,
+          contentType: "text/markdown; charset=utf-8",
+        },
+      ],
+    }));
+
+    expect(errorCode(error)).toBe("IMPORT_PLAN_INVALID");
+    expect(f.backend.snapshot()["one.md"]).toBeUndefined();
+    expect(f.backend.snapshot()["two.md"]).toBeUndefined();
+  });
+
   test("preserves Markdown and attachment paths without retaining their bytes in Convex", async () => {
     const f = await fixture();
     const markdown = new TextEncoder().encode("# Imported\n\n![[diagram.png]]\n");
     const image = new Uint8Array([137, 80, 78, 71]);
-
-    const result = await asUser(f.t, f.owner).action(api.functions.files.importVaultBatch, {
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
       workspaceId: f.workspaceId,
+      strategy: "merge",
+      sourceFingerprint: "vault-fingerprint-no-content",
+      totalFiles: 2,
+      totalBytes: markdown.byteLength + image.byteLength,
+      totalBatches: 1,
+    });
+
+    const result = await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-fingerprint-no-content",
+      batchIndex: 0,
       files: [
         {
           path: "Imported/Note.md",
@@ -270,15 +455,16 @@ describe("Obsidian vault import", () => {
       ],
     });
 
-    expect(result.created).toEqual(["Imported/Note.md", "Imported/diagram.png"]);
+    expect(result).toMatchObject({ status: "complete", createdFiles: 2, completedFiles: 2 });
     expect(f.backend.snapshot()["Imported/Note.md"]).toContain("# Imported");
     expect([...f.backend.bytesOf("Imported/diagram.png")!]).toEqual([...image]);
 
     const database = await f.t.run(async (ctx) => {
-      const tables = ["auditEvents", "storageBindings", "workspaces", "users"] as const;
+      const tables = ["auditEvents", "storageBindings", "vaultImportJobs", "workspaces", "users"] as const;
       return JSON.stringify(await Promise.all(tables.map((table) => ctx.db.query(table).collect())));
     });
     expect(database).not.toContain("# Imported");
+    expect(database).not.toContain("137,80,78,71");
   });
 
   test("is create-only, so retrying cannot overwrite a file that already exists", async () => {
@@ -914,6 +1100,24 @@ describe("a stranger cannot reach another workspace's files", () => {
     const f = await fixture();
     const dangling = await danglingWorkspaceId(f.t);
     const as = asUser(f.t, f.stranger);
+    const importJobId = await f.t.run((ctx) =>
+      ctx.db.insert("vaultImportJobs", {
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        strategy: "merge",
+        sourceFingerprint: "vault-isolation",
+        totalFiles: 1,
+        totalBytes: 3,
+        totalBatches: 1,
+        completedBatches: [],
+        completedFiles: 0,
+        createdFiles: 0,
+        skippedFiles: 0,
+        status: "active",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
 
     const calls: Array<(workspaceId: Id<"workspaces">) => Promise<unknown>> = [
       (workspaceId) => as.action(api.functions.files.listFiles, { workspaceId, path: "" }),
@@ -938,6 +1142,31 @@ describe("a stranger cannot reach another workspace's files", () => {
       (workspaceId) =>
         as.action(api.functions.files.importVaultBatch, {
           workspaceId,
+          files: [{
+            path: "imported.md",
+            bytes: new TextEncoder().encode("# Imported\n").buffer,
+            contentType: "text/markdown; charset=utf-8",
+          }],
+        }),
+      (workspaceId) =>
+        as.mutation(api.functions.files.startVaultImport, {
+          workspaceId,
+          strategy: "merge",
+          sourceFingerprint: "vault-isolation",
+          totalFiles: 1,
+          totalBytes: 3,
+          totalBatches: 1,
+        }),
+      (workspaceId) =>
+        as.query(api.functions.files.latestVaultImportJob, { workspaceId }),
+      (workspaceId) =>
+        as.mutation(api.functions.files.pauseVaultImport, { workspaceId, jobId: importJobId }),
+      (workspaceId) =>
+        as.action(api.functions.files.importVaultJobBatch, {
+          workspaceId,
+          jobId: importJobId,
+          sourceFingerprint: "vault-isolation",
+          batchIndex: 0,
           files: [{
             path: "imported.md",
             bytes: new TextEncoder().encode("# Imported\n").buffer,

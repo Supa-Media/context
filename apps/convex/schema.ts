@@ -1600,6 +1600,33 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * Progress for a vault import whose bytes stay on the person's device.
+   *
+   * This table never stores file bytes or note bodies. A completed batch
+   * number is enough for the same locally selected vault to resume without
+   * sending finished batches again.
+   */
+  vaultImportJobs: defineTable({
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    strategy: v.union(v.literal("merge"), v.literal("folder")),
+    sourceFingerprint: v.string(),
+    totalFiles: v.number(),
+    totalBytes: v.number(),
+    totalBatches: v.number(),
+    completedBatches: v.array(v.number()),
+    completedFiles: v.number(),
+    createdFiles: v.number(),
+    skippedFiles: v.number(),
+    status: v.union(v.literal("active"), v.literal("paused"), v.literal("complete")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_workspace_createdAt", ["workspaceId", "createdAt"])
+    .index("by_actor_updatedAt", ["actorUserId", "updatedAt"]),
+
+  /**
    * Durable gateway work, never note content.
    *
    * A row is minted only while a live user token is present; later Cloudflare

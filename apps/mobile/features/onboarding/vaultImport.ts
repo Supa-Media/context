@@ -17,7 +17,10 @@ export interface VaultPlan {
   files: PlannedVaultFile[];
   skipped: number;
   totalBytes: number;
+  rootName: string;
 }
+
+export type VaultImportStrategy = "merge" | "folder";
 
 /** Kept below Convex's request ceiling, with space for validators and metadata. */
 export const MAX_VAULT_FILE_BYTES = 4_500_000;
@@ -70,8 +73,11 @@ export function planVaultFiles(selected: readonly PickedVaultFile[]): VaultPlan 
   let skipped = 0;
   let totalBytes = 0;
   const paths = new Set<string>();
+  let rootName = "Vault";
 
   for (const file of selected) {
+    const selectedRoot = file.path.replaceAll("\\", "/").replace(/^\/+/, "").split("/").filter(Boolean)[0];
+    if (files.length === 0 && selectedRoot !== undefined) rootName = safeFolderName(selectedRoot);
     const path = insideVault(file.path);
     if (path === null || file.size < 0 || file.size > MAX_VAULT_FILE_BYTES || paths.has(path)) {
       skipped++;
@@ -82,7 +88,61 @@ export function planVaultFiles(selected: readonly PickedVaultFile[]): VaultPlan 
     totalBytes += file.size;
   }
 
-  return { files, skipped, totalBytes };
+  return { files, skipped, totalBytes, rootName };
+}
+
+function safeFolderName(value: string): string {
+  const cleaned = [...value]
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code > 31 && code !== 127 && character !== "/" && character !== "\\";
+    })
+    .join("")
+    .trim();
+  if (cleaned === "" || cleaned === "." || cleaned === "..") return "Vault";
+  return cleaned.startsWith(".") ? `Vault ${cleaned.slice(1) || "notes"}` : cleaned;
+}
+
+/** Apply the owner's explicit existing-data choice without ever enabling replacement. */
+export function vaultPlanForStrategy(plan: VaultPlan, strategy: VaultImportStrategy): VaultPlan {
+  const prefix = `Imports/${safeFolderName(plan.rootName)}`;
+  return {
+    ...plan,
+    // A browser may enumerate the same directory in a different order after a
+    // reload. Stable ordering is what makes completed batch 12 mean the same
+    // files when that local vault is selected again.
+    files: plan.files
+      .map((file) => strategy === "merge" ? file : { ...file, path: `${prefix}/${file.path}` })
+      .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
+  };
+}
+
+/**
+ * Stable, non-secret identity for one local selection and destination plan.
+ * It lets the server match a reselected vault to progress without retaining a
+ * path list or any bytes in Convex.
+ */
+export function vaultFingerprint(plan: VaultPlan, strategy: VaultImportStrategy): string {
+  const manifest = [
+    strategy,
+    ...plan.files
+      .map((file) => `${file.path}\u0000${file.size}\u0000${file.contentType}`)
+      .sort((left, right) => left.localeCompare(right)),
+  ].join("\u0001");
+  // Two independent 32-bit passes keep this synchronous on every supported
+  // web/Mac runtime while making a false resume match vanishingly unlikely.
+  // A match controls which batches may be skipped, so a single 32-bit checksum
+  // is not enough even though this identifier is not an authentication token.
+  const hash = (seed: number, reverse: boolean) => {
+    let value = seed >>> 0;
+    for (let step = 0; step < manifest.length; step += 1) {
+      const index = reverse ? manifest.length - step - 1 : step;
+      value ^= manifest.charCodeAt(index);
+      value = Math.imul(value, 0x01000193) >>> 0;
+    }
+    return value.toString(16).padStart(8, "0");
+  };
+  return `vault-${hash(0x811c9dc5, false)}${hash(0x9e3779b9, true)}`;
 }
 
 export function batchVaultFiles(

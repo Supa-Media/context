@@ -289,6 +289,22 @@ describe("deleteAccount", () => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
+      await ctx.db.insert("vaultImportJobs", {
+        workspaceId,
+        actorUserId: owner,
+        strategy: "merge",
+        sourceFingerprint: "vault-account-delete",
+        totalFiles: 2,
+        totalBytes: 12,
+        totalBatches: 2,
+        completedBatches: [0],
+        completedFiles: 1,
+        createdFiles: 1,
+        skippedFiles: 0,
+        status: "paused",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
       // A rotated workspace: one retired generation, one live one, and the
       // rotation row that recorded the move. Asserted on BOTH sides below —
       // see "the two encryption tables part company at a teardown".
@@ -325,6 +341,7 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("googleConnectAttempts").collect()).toHaveLength(1);
       expect(await ctx.db.query("workspaceMembers").collect()).toHaveLength(1);
       expect(await ctx.db.query("ingestionSettings").collect()).toHaveLength(1);
+      expect(await ctx.db.query("vaultImportJobs").collect()).toHaveLength(1);
       expect(await ctx.db.query("names").collect()).toHaveLength(1);
       expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(1);
       expect(await ctx.db.query("authAccounts").collect()).toHaveLength(1);
@@ -352,6 +369,7 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("workspaceMembers").collect()).toHaveLength(0);
       expect(await ctx.db.query("storageBindings").collect()).toHaveLength(0);
       expect(await ctx.db.query("ingestionSettings").collect()).toHaveLength(0);
+      expect(await ctx.db.query("vaultImportJobs").collect()).toHaveLength(0);
       expect(await ctx.db.query("workspaceInvitations").collect()).toHaveLength(0);
       expect(await ctx.db.query("auditEvents").collect()).toHaveLength(0);
       expect(await ctx.db.query("dropboxConnectAttempts").collect()).toHaveLength(0);

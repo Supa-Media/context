@@ -75,10 +75,12 @@ import {
   type QueryCtx,
   action,
   internalAction,
+  internalMutation,
   internalQuery,
+  mutation,
   query,
 } from "../_generated/server";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 // The gateway's D1 wire, imported rather than ported, for the same reason
 // `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
@@ -304,6 +306,17 @@ const vaultImportResultValidator = v.object({
   created: v.array(v.string()),
   skipped: v.array(v.string()),
   bytesCreated: v.number(),
+});
+
+const vaultImportJobStatusValidator = v.object({
+  jobId: v.id("vaultImportJobs"),
+  strategy: v.union(v.literal("merge"), v.literal("folder")),
+  status: v.union(v.literal("active"), v.literal("paused"), v.literal("complete")),
+  totalFiles: v.number(),
+  completedFiles: v.number(),
+  createdFiles: v.number(),
+  skippedFiles: v.number(),
+  completedBatches: v.array(v.number()),
 });
 
 const fileValidator = v.object({
@@ -3003,6 +3016,304 @@ export const writeNote = action({
 
 const MAX_VAULT_IMPORT_BATCH_FILES = 20;
 const MAX_VAULT_IMPORT_BATCH_BYTES = 4_500_000;
+const MAX_VAULT_IMPORT_FILES = 100_000;
+const MAX_VAULT_IMPORT_BATCHES = 5_000;
+const VAULT_FINGERPRINT_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
+
+type VaultImportJobStatus = {
+  jobId: Id<"vaultImportJobs">;
+  strategy: "merge" | "folder";
+  status: "active" | "paused" | "complete";
+  totalFiles: number;
+  completedFiles: number;
+  createdFiles: number;
+  skippedFiles: number;
+  completedBatches: number[];
+};
+
+function vaultImportJobStatus(job: Doc<"vaultImportJobs">): VaultImportJobStatus {
+  return {
+    jobId: job._id,
+    strategy: job.strategy,
+    status: job.status,
+    totalFiles: job.totalFiles,
+    completedFiles: job.completedFiles,
+    createdFiles: job.createdFiles,
+    skippedFiles: job.skippedFiles,
+    completedBatches: [...job.completedBatches].sort((left, right) => left - right),
+  };
+}
+
+function validateVaultImportPlan(args: {
+  sourceFingerprint: string;
+  totalFiles: number;
+  totalBytes: number;
+  totalBatches: number;
+}): void {
+  if (!VAULT_FINGERPRINT_PATTERN.test(args.sourceFingerprint)) {
+    throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "Choose the vault again to start this import." });
+  }
+  if (
+    !Number.isSafeInteger(args.totalFiles) ||
+    args.totalFiles < 1 ||
+    args.totalFiles > MAX_VAULT_IMPORT_FILES ||
+    !Number.isSafeInteger(args.totalBytes) ||
+    args.totalBytes < 0 ||
+    !Number.isSafeInteger(args.totalBatches) ||
+    args.totalBatches < 1 ||
+    args.totalBatches > MAX_VAULT_IMPORT_BATCHES ||
+    args.totalBatches > args.totalFiles
+  ) {
+    throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "That vault is too large to import safely." });
+  }
+}
+
+/**
+ * Start or resume the metadata half of a local vault import.
+ *
+ * File bytes remain on the person's device. The row remembers only counts and
+ * completed batch numbers, so a closed tab can reselect the same vault and
+ * avoid sending batches that already finished.
+ */
+export const startVaultImport = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    strategy: v.union(v.literal("merge"), v.literal("folder")),
+    sourceFingerprint: v.string(),
+    totalFiles: v.number(),
+    totalBytes: v.number(),
+    totalBatches: v.number(),
+  },
+  returns: vaultImportJobStatusValidator,
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
+    validateVaultImportPlan(args);
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const recent = await ctx.db
+      .query("vaultImportJobs")
+      .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const matching = recent.find(
+      (job) =>
+        job.actorUserId === actorUserId &&
+        job.status !== "complete" &&
+        job.strategy === args.strategy &&
+        job.sourceFingerprint === args.sourceFingerprint &&
+        job.totalFiles === args.totalFiles &&
+        job.totalBytes === args.totalBytes &&
+        job.totalBatches === args.totalBatches,
+    );
+    const now = Date.now();
+    if (matching !== undefined) {
+      if (matching.status !== "active") {
+        await ctx.db.patch(matching._id, { status: "active", updatedAt: now });
+      }
+      return vaultImportJobStatus({ ...matching, status: "active", updatedAt: now });
+    }
+    for (const job of recent) {
+      if (job.actorUserId === actorUserId && job.status === "active") {
+        await ctx.db.patch(job._id, { status: "paused", updatedAt: now });
+      }
+    }
+    const jobId = await ctx.db.insert("vaultImportJobs", {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      strategy: args.strategy,
+      sourceFingerprint: args.sourceFingerprint,
+      totalFiles: args.totalFiles,
+      totalBytes: args.totalBytes,
+      totalBatches: args.totalBatches,
+      completedBatches: [],
+      completedFiles: 0,
+      createdFiles: 0,
+      skippedFiles: 0,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    const created = await ctx.db.get(jobId);
+    if (created === null) throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "The import could not start." });
+    return vaultImportJobStatus(created);
+  },
+});
+
+/** The latest unfinished import for this owner and workspace, without paths or content. */
+export const latestVaultImportJob = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const recent = await ctx.db
+      .query("vaultImportJobs")
+      .withIndex("by_workspace_createdAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const job = recent.find((candidate) => candidate.actorUserId === actorUserId && candidate.status !== "complete");
+    return job === undefined ? null : vaultImportJobStatus(job);
+  },
+});
+
+/** Record the local uploader stopping while keeping every completed batch resumable. */
+export const pauseVaultImport = mutation({
+  args: { workspaceId: v.id("workspaces"), jobId: v.id("vaultImportJobs") },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const job = await ctx.db.get(args.jobId);
+    if (job === null || job.workspaceId !== args.workspaceId || job.actorUserId !== actorUserId) return null;
+    if (job.status === "active") await ctx.db.patch(job._id, { status: "paused", updatedAt: Date.now() });
+    return vaultImportJobStatus(job.status === "active" ? { ...job, status: "paused" } : job);
+  },
+});
+
+export const vaultImportJobForBatch = internalQuery({
+  args: { jobId: v.id("vaultImportJobs") },
+  returns: v.union(v.null(), v.any()),
+  handler: async (ctx, args): Promise<Doc<"vaultImportJobs"> | null> => await ctx.db.get(args.jobId),
+});
+
+export const recordVaultImportBatch = internalMutation({
+  args: {
+    jobId: v.id("vaultImportJobs"),
+    actorUserId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    sourceFingerprint: v.string(),
+    batchIndex: v.number(),
+    filesProcessed: v.number(),
+    filesCreated: v.number(),
+    filesSkipped: v.number(),
+  },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const job = await ctx.db.get(args.jobId);
+    if (
+      job === null ||
+      job.workspaceId !== args.workspaceId ||
+      job.actorUserId !== args.actorUserId ||
+      job.sourceFingerprint !== args.sourceFingerprint
+    ) return null;
+    if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
+    const completedBatches = [...job.completedBatches, args.batchIndex].sort((left, right) => left - right);
+    const completedFiles = job.completedFiles + args.filesProcessed;
+    if (
+      !Number.isSafeInteger(args.batchIndex) ||
+      args.batchIndex < 0 ||
+      args.batchIndex >= job.totalBatches ||
+      !Number.isSafeInteger(args.filesProcessed) ||
+      args.filesProcessed < 1 ||
+      args.filesCreated < 0 ||
+      args.filesSkipped < 0 ||
+      args.filesCreated + args.filesSkipped !== args.filesProcessed ||
+      completedFiles > job.totalFiles
+    ) return null;
+    const complete = completedBatches.length === job.totalBatches && completedFiles === job.totalFiles;
+    const now = Date.now();
+    const patch = {
+      completedBatches,
+      completedFiles,
+      createdFiles: job.createdFiles + args.filesCreated,
+      skippedFiles: job.skippedFiles + args.filesSkipped,
+      status: complete ? "complete" as const : "active" as const,
+      updatedAt: now,
+      ...(complete ? { completedAt: now } : {}),
+    };
+    await ctx.db.patch(job._id, patch);
+    return vaultImportJobStatus({ ...job, ...patch });
+  },
+});
+
+/**
+ * Upload one numbered batch and atomically mark its progress after the bucket
+ * accepts it. Repeating the same number returns the stored result and never
+ * sends those bytes to storage twice.
+ */
+export const importVaultJobBatch = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    jobId: v.id("vaultImportJobs"),
+    sourceFingerprint: v.string(),
+    batchIndex: v.number(),
+    files: v.array(v.object({ path: v.string(), bytes: v.bytes(), contentType: v.string() })),
+  },
+  returns: vaultImportJobStatusValidator,
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
+    if (args.files.length === 0 || args.files.length > MAX_VAULT_IMPORT_BATCH_FILES) {
+      throw new ConvexError({
+        code: "IMPORT_BATCH_INVALID",
+        message: `Upload between 1 and ${MAX_VAULT_IMPORT_BATCH_FILES} files at a time.`,
+      });
+    }
+    const batchBytes = args.files.reduce((total, file) => total + file.bytes.byteLength, 0);
+    if (batchBytes > MAX_VAULT_IMPORT_BATCH_BYTES) {
+      throw new ConvexError({ code: "IMPORT_BATCH_INVALID", message: "That upload batch is too large." });
+    }
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const job = await ctx.runQuery(internal.functions.files.vaultImportJobForBatch, { jobId: args.jobId }) as Doc<"vaultImportJobs"> | null;
+    if (job === null || job.workspaceId !== args.workspaceId || job.actorUserId !== actorUserId) {
+      throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "That import is no longer available." });
+    }
+    if (
+      job.sourceFingerprint !== args.sourceFingerprint ||
+      !Number.isSafeInteger(args.batchIndex) ||
+      args.batchIndex < 0 ||
+      args.batchIndex >= job.totalBatches
+    ) {
+      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
+    }
+    if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
+    const completedFilesAfterBatch = job.completedFiles + args.files.length;
+    const completedBatchCountAfterBatch = job.completedBatches.length + 1;
+    if (
+      completedFilesAfterBatch > job.totalFiles ||
+      (completedBatchCountAfterBatch === job.totalBatches && completedFilesAfterBatch !== job.totalFiles) ||
+      (completedBatchCountAfterBatch < job.totalBatches && completedFilesAfterBatch >= job.totalFiles)
+    ) {
+      throw new ConvexError({ code: "IMPORT_PLAN_INVALID", message: "Choose the vault again to restart this import." });
+    }
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "importVault", files: args.files },
+    })) as Extract<OperationResult, { kind: "vaultImported" }>;
+    const recorded = await ctx.runMutation(internal.functions.files.recordVaultImportBatch, {
+      jobId: args.jobId,
+      actorUserId,
+      workspaceId: args.workspaceId,
+      sourceFingerprint: args.sourceFingerprint,
+      batchIndex: args.batchIndex,
+      filesProcessed: args.files.length,
+      filesCreated: result.created.length,
+      filesSkipped: result.skipped.length,
+    });
+    if (recorded === null) {
+      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
+    }
+    if (result.created.length > 0) {
+      await ctx.runMutation(internal.functions.audit.recordEvent, {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        action: "vault.import",
+        paths: result.created,
+        details: {
+          filesCreated: result.created.length,
+          filesSkipped: result.skipped.length,
+          bytesCreated: result.bytesCreated,
+          batchIndex: args.batchIndex,
+        },
+      });
+    }
+    return recorded;
+  },
+});
 
 /**
  * Upload one retryable batch from a locally selected Obsidian vault.

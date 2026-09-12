@@ -68,7 +68,16 @@ function render(node: ReturnType<typeof createElement>): Rendered {
 }
 
 function withConvex(node: ReturnType<typeof createElement>): ReturnType<typeof createElement> {
-  const client = { action: async () => ({}) } as never;
+  const watch = {
+    localQueryResult: () => null,
+    onUpdate: () => () => {},
+    journal: () => undefined,
+  };
+  const client = {
+    action: async () => ({}),
+    mutation: async () => ({}),
+    watchQuery: () => watch,
+  } as never;
   return createElement(ConvexProvider, { client }, node);
 }
 
@@ -272,7 +281,9 @@ describe("the Obsidian vault screen", () => {
     );
 
     expect(text).toContain("Have an Obsidian vault or existing Markdown notes?");
-    expect(text).toContain("Choose a vault or notes folder");
+    expect(text).toContain("How should this vault join your existing notes?");
+    expect(text).toContain("Merge without replacing");
+    expect(text).toContain("Keep it in its own folder");
   });
 });
 
