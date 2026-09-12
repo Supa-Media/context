@@ -41,11 +41,10 @@ import { tap } from "./helpers";
  * phone levels, draws list and panel side by side at a pointer width, and
  * lays its rows out the way the styles claim — inside a real engine, at a
  * real viewport, with real hit-testing. It does not prove anything about the
- * sections whose props the fixture does not supply: `onSignOut`,
- * `onOpenInvitation` and `onOpenSection` are absent there (no session, no
- * router — see `E2EFixtureScreen`'s header), so the sign-out row, the
- * invitation answer and the "Elsewhere in the console" card are not on this
- * screen to be pressed.
+ * sections whose props the fixture does not supply: `onSignOut` and
+ * `onOpenInvitation` are absent there (no session, no router — see
+ * `E2EFixtureScreen`'s header), so the sign-out row and the invitation answer
+ * are not on this screen to be pressed.
  *
  * ## Why the presses inside the overlay are `locator.tap()`
  *

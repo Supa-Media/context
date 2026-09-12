@@ -70,7 +70,6 @@ import {
   routeForPath,
   sameRoute,
   searchHref,
-  appSectionHref,
   settingsHref,
   settingsFromQuery,
   type ConsoleRoute,
@@ -921,7 +920,6 @@ export default function ConsoleLayout() {
             */
             returned={checkoutReturn}
             onSelect={(next) => router.setParams({ settings: next })}
-            onOpenSection={(key) => router.push(appSectionHref(key))}
             /*
               A context switch inside settings is a navigation, because the
               context a console is showing is a route rather than component
