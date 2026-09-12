@@ -11,6 +11,7 @@
 //   REGEN_LOOKBACK_DAYS = 0, so an edit soon after sync misses          -> 2 checks failed
 //   advance a denied space's cursor anyway                             -> 1 check failed
 //   let one space's unexpected error abort the whole sync              -> 1 check failed
+//   stamp a regenerated note with the pass clock instead of its data   -> 1 check failed
 //   derive the day nonce from account+date alone, dropping nonceSeed   -> 1 check failed
 //   isHistoryOn always returns true, ignoring HISTORY_OFF entirely     -> 3 checks failed
 //
@@ -251,6 +252,16 @@ export async function runGoogleChatChecks(check) {
     check(
       "re-running the same sync from the same (unpersisted) cursor is byte-identical",
       noteFor(again, "2026-09-06")?.text === firstDay?.text
+    );
+
+    const laterPass = await syncGoogleChat({
+      ...clientFor(createChatFixture(world)),
+      connection,
+      now: "2026-09-07T18:05:00.000Z",
+    });
+    check(
+      "a scheduled rerun at a later wall-clock time is still byte-identical when Chat did not change",
+      noteFor(laterPass, "2026-09-06")?.text === firstDay?.text,
     );
 
     // The caller persists `first.cursors` between runs; a resync starting

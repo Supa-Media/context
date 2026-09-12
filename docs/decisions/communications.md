@@ -921,6 +921,16 @@ client, so the whole transform-and-render path is tested end to end on
 fixtures, independent of how the control plane happens to store the
 credential that will eventually be handed to it.
 
+**A scheduled Chat pass stamps each regenerated day from the newest message
+in that day, never from the pass clock.** The fixture suite originally proved
+idempotence by running the same pass twice with the same injected `now`, which
+did not prove what a scheduler needs: the next pass runs five or fifteen
+minutes later. Passing that later wall clock into `updated` made an unchanged
+day byte-different and would have rewritten it on every poll. A day containing
+messages now uses its latest `sentAt`, matching Gmail's forward loop; an
+unavailable-only notice uses that day's midnight. The regression runs the same
+provider state at two different pass times and requires byte-identical output.
+
 **On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
 same `googleConnections` row Gmail already writes** (2026-09-07) — no second
 table. A first draft of this file built exactly that: `chatConnections` and
