@@ -62,7 +62,7 @@ describe("an Obsidian vault selection", () => {
     expect(batches.map((batch) => batch.length)).toEqual([2, 1]);
   });
 
-  test("makes the existing-data choice explicit without offering overwrite", () => {
+  test("keeps replacement paths at the root and isolates its resume fingerprint", () => {
     const plan = planVaultFiles([
       picked("My Vault/Projects/Launch.md", 12),
       picked("My Vault/index.md", 8),
@@ -75,6 +75,10 @@ describe("an Obsidian vault selection", () => {
     expect(vaultPlanForStrategy(plan, "folder").files.map((file) => file.path)).toEqual([
       "Imports/My Vault/Projects/Launch.md",
       "Imports/My Vault/index.md",
+    ]);
+    expect(vaultPlanForStrategy(plan, "replace").files.map((file) => file.path)).toEqual([
+      "Projects/Launch.md",
+      "index.md",
     ]);
   });
 
@@ -90,6 +94,7 @@ describe("an Obsidian vault selection", () => {
 
     expect(vaultFingerprint(first, "merge")).toBe(vaultFingerprint(second, "merge"));
     expect(vaultFingerprint(first, "merge")).not.toBe(vaultFingerprint(first, "folder"));
+    expect(vaultFingerprint(first, "merge")).not.toBe(vaultFingerprint(first, "replace"));
     expect(batchVaultFiles(first.files).map((batch) => batch.map((file) => file.path))).toEqual(
       batchVaultFiles(second.files).map((batch) => batch.map((file) => file.path)),
     );

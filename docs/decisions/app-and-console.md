@@ -3224,7 +3224,17 @@ the person already has.
 An import into storage that already has data starts with an explicit choice.
 **Merge without replacing** keeps the vault's paths and skips every collision.
 **Keep it in its own folder** puts the selected vault under
-`Imports/<vault name>/`. Neither choice can replace an existing object.
+`Imports/<vault name>/`. Those two choices cannot replace an existing object.
+The third choice, **Replace everything**, is deliberately destructive: it
+removes every object in the bucket before uploading the selected folder.
+
+Replacement has two gates. The screen names notes, attachments, access
+settings, audit files and Context plumbing explicitly, says Context cannot undo
+the operation, notes that provider-side object versioning may retain older
+versions, and requires the owner to type the exact phrase `I understand` before
+the folder picker appears. The server requires that same phrase when it creates
+the job. A client that hides or bypasses the warning therefore still cannot
+mint a replacement job.
 
 The import is bounded, batched and create-only. Convex stores the total counts,
 completed batch numbers, and a fingerprint of the local manifest. It never
@@ -3234,11 +3244,28 @@ request fails, they return, select the same vault, and resume after the last
 completed batch. Stable path ordering keeps batch numbers consistent when the
 browser enumerates the folder in a different order on the second selection.
 
+Replacement adds a durable counting-and-deletion prefix to that same job. It
+first counts every object, including dot-prefixed plumbing, then repeatedly
+deletes the first bounded page. It never persists a continuation cursor while
+mutating the listing, because several S3-compatible stores can skip keys when a
+cursor outlives the page it described. Convex records only total and deleted
+counts. If deletion succeeds and progress recording does not, retrying the
+shrinking first page is safe; the final empty page reconciles the count. Upload
+bytes are refused until the job says deletion is complete.
+
+The last replacement batch idempotently creates a new all-private `privacy.md`
+before the job may become complete. This happens server-side rather than in a
+client follow-up, so closing the tab between the last object write and the
+privacy repair cannot strand the replacement without an access map. The person
+still has to keep the tab open while local bytes are crossing; after a failure
+they reselect the same vault and resume the stored deletion or upload phase.
+
 The client shows the completed file count and percentage. Server audit records
 contain paths and counts only. After a fresh onboarding import, the existing
 all-private repair path creates a valid `privacy.md` from the uploaded top-level
-folders. A Settings import never rewrites an established workspace's access
-map.
+folders. A merge or folder Settings import never rewrites an established
+workspace's access map. Replacement deletes that map with everything else and
+creates a new private one from the replacement vault's folders.
 
 Obsidian application state and Context plumbing do not come along:
 `.obsidian/`, `.trash/`, `.git/`, `.context/`, `.audit/`, system metadata and a

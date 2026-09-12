@@ -34,3 +34,38 @@ test("a chosen directory reaches the ready state and uploads", async ({
     page.getByText(/Import complete\. 2 files uploaded/),
   ).toBeVisible();
 });
+
+test("replacement stays locked until the exact destructive acknowledgement", async ({
+  page,
+}, testInfo) => {
+  const vault = testInfo.outputPath("Replacement Vault");
+  await mkdir(vault, { recursive: true });
+  await writeFile(`${vault}/new.md`, "# New\n");
+
+  await page.goto("/e2e-fixture?screen=vault-import");
+  await page.getByTestId("fixture-vault-replace").click();
+
+  await expect(page.getByText(
+    "This permanently deletes every existing file in this bucket.",
+    { exact: true },
+  )).toBeVisible();
+  await expect(page.getByText(/Context cannot undo this/)).toBeVisible();
+  await expect(page.getByTestId("fixture-vault-choose")).toHaveCount(0);
+
+  const confirmation = page.getByTestId("fixture-vault-replace-confirmation");
+  await confirmation.fill("i understand");
+  await expect(page.getByTestId("fixture-vault-choose")).toHaveCount(0);
+  await confirmation.fill("I understand");
+  await expect(page.getByTestId("fixture-vault-choose")).toBeVisible();
+
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByTestId("fixture-vault-choose").click();
+  const chooser = await chooserPromise;
+  await chooser.setFiles(vault);
+  await expect(page.getByText(
+    "Destination: replaces every file in this bucket",
+    { exact: true },
+  )).toBeVisible();
+  await page.getByTestId("fixture-vault-upload").click();
+  await expect(page.getByText(/Import complete\. 1 file uploaded/)).toBeVisible();
+});

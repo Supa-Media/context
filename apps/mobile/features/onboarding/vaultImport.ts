@@ -20,7 +20,7 @@ export interface VaultPlan {
   rootName: string;
 }
 
-export type VaultImportStrategy = "merge" | "folder";
+export type VaultImportStrategy = "merge" | "folder" | "replace";
 
 /** Kept below Convex's request ceiling, with space for validators and metadata. */
 export const MAX_VAULT_FILE_BYTES = 4_500_000;
@@ -103,7 +103,7 @@ function safeFolderName(value: string): string {
   return cleaned.startsWith(".") ? `Vault ${cleaned.slice(1) || "notes"}` : cleaned;
 }
 
-/** Apply the owner's explicit existing-data choice without ever enabling replacement. */
+/** Apply the owner's explicit destination choice; replacement keeps source paths. */
 export function vaultPlanForStrategy(plan: VaultPlan, strategy: VaultImportStrategy): VaultPlan {
   const prefix = `Imports/${safeFolderName(plan.rootName)}`;
   return {
@@ -112,7 +112,7 @@ export function vaultPlanForStrategy(plan: VaultPlan, strategy: VaultImportStrat
     // reload. Stable ordering is what makes completed batch 12 mean the same
     // files when that local vault is selected again.
     files: plan.files
-      .map((file) => strategy === "merge" ? file : { ...file, path: `${prefix}/${file.path}` })
+      .map((file) => strategy === "folder" ? { ...file, path: `${prefix}/${file.path}` } : file)
       .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0),
   };
 }

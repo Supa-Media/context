@@ -153,6 +153,53 @@ export interface FileStore extends ScaffoldStore {
   capabilities?: { conditionalWrite: boolean };
 }
 
+/** Keys removed per retryable replacement pass. Small enough for every provider. */
+export const VAULT_CLEAR_BATCH_OBJECTS = 100;
+
+/**
+ * Count or remove a bounded piece of a bucket for an explicitly confirmed
+ * vault replacement. This deliberately sees plumbing: "replace everything"
+ * means notes, attachments, privacy, audit, and derived indexes alike.
+ *
+ * Deletion always lists from the beginning. Persisting a continuation cursor
+ * while mutating the same listing can skip keys on S3-compatible providers;
+ * shrinking the first page makes every retry safe, including a retry after
+ * the objects were deleted but before Convex recorded the count.
+ */
+export async function clearVaultBatch(
+  store: FileStore,
+  countOnly: boolean,
+): Promise<{ mode: "counted" | "deleted"; objects: number; complete: boolean }> {
+  if (countOnly) {
+    let cursor: string | undefined;
+    let objects = 0;
+    for (let pageNumber = 0; pageNumber < LIST_PAGE_CAP; pageNumber += 1) {
+      const page = await store.list({ cursor, limit: 1_000 });
+      objects += page.objects.length;
+      if (!page.truncated) return { mode: "counted", objects, complete: true };
+      if (!page.cursor || page.cursor === cursor) {
+        throw new FileOpError(
+          "LISTING_INCOMPLETE",
+          "Context could not finish counting this bucket. Try again before replacing it.",
+        );
+      }
+      cursor = page.cursor;
+    }
+    throw new FileOpError(
+      "FOLDER_TOO_LARGE",
+      "This bucket is too large to replace safely in this flow.",
+    );
+  }
+
+  const page = await store.list({ limit: VAULT_CLEAR_BATCH_OBJECTS });
+  for (const object of page.objects) await store.delete(object.key);
+  return {
+    mode: "deleted",
+    objects: page.objects.length,
+    complete: page.truncated !== true,
+  };
+}
+
 /**
  * What the imported search needs of a store: reads, listings and the
  * conditional write its index maintenance does. `FileStore` satisfies it —

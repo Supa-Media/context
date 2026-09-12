@@ -67,8 +67,84 @@ describe("the reusable notes importer", () => {
     expect(container.textContent ?? "").toContain("How should these notes be added?");
     expect(container.textContent ?? "").toContain("Merge without replacing");
     expect(container.textContent ?? "").toContain("Keep it in its own folder");
+    expect(container.textContent ?? "").toContain("Replace everything");
     expect(container.textContent ?? "").not.toContain("Keep this tab open while files upload");
     expect(container.textContent ?? "").not.toMatch(/overwrite existing/i);
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  test("requires the exact typed acknowledgement before a replacement vault can be chosen", async () => {
+    const startJob = jest.fn(async () => ({
+      ...jobStatus(),
+      strategy: "replace" as const,
+      replacement: { phase: "counting" as const, totalObjects: 0, deletedObjects: 0 },
+    }));
+    const clearReplacementBatch = jest.fn(async () => ({
+      ...jobStatus(),
+      strategy: "replace" as const,
+      replacement: { phase: "uploading" as const, totalObjects: 6, deletedObjects: 6 },
+    }));
+    const importBatch = jest.fn(async () => ({
+      ...jobStatus({ completedBatches: [0], completedFiles: 1, createdFiles: 1, status: "complete" }),
+      strategy: "replace" as const,
+      replacement: { phase: "uploading" as const, totalObjects: 6, deletedObjects: 6 },
+    }));
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(VaultImportBody, {
+        workspaceId: "w1" as never,
+        existingData: true,
+        startJob,
+        importBatch,
+        clearReplacementBatch,
+        testIDPrefix: "settings-vault",
+      }));
+    });
+
+    const replace = container.querySelector('[data-testid="settings-vault-replace"]') as HTMLElement;
+    await act(async () => replace.click());
+    expect(container.textContent ?? "").toContain("permanently deletes every existing file in this bucket");
+    expect(container.textContent ?? "").toContain("Context cannot undo this");
+    expect(container.querySelector('[data-testid="settings-vault-choose"]')).toBeNull();
+
+    const input = container.querySelector('[data-testid="settings-vault-replace-confirmation"]') as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "i understand");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="settings-vault-choose"]')).toBeNull();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "I understand");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="settings-vault-choose"]')).not.toBeNull();
+
+    const choose = container.querySelector('[data-testid="settings-vault-choose"]') as HTMLElement;
+    await act(async () => {
+      choose.click();
+      await Promise.resolve();
+    });
+    const upload = container.querySelector('[data-testid="settings-vault-upload"]') as HTMLElement;
+    await act(async () => {
+      upload.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(startJob).toHaveBeenCalledWith(expect.objectContaining({
+      strategy: "replace",
+      confirmation: "I understand",
+    }));
+    expect(clearReplacementBatch).toHaveBeenCalledTimes(1);
+    expect(importBatch).toHaveBeenCalledTimes(1);
+    expect(container.textContent ?? "").toContain("Import complete");
 
     act(() => root.unmount());
     container.remove();
@@ -195,6 +271,42 @@ describe("the reusable notes importer", () => {
     expect(container.textContent ?? "").toContain("Choose the same vault to resume");
     expect(container.textContent ?? "").toContain("Choose a vault or notes folder");
     expect(container.textContent ?? "").not.toContain("How should these notes be added?");
+
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  test("shows replacement deletion progress instead of pretending files already uploaded", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(createElement(VaultImportBody, {
+        workspaceId: "w1" as never,
+        existingData: true,
+        existingJob: {
+          strategy: "replace",
+          replacement: {
+            phase: "deleting",
+            totalObjects: 1800,
+            deletedObjects: 620,
+          },
+          completedFiles: 0,
+          createdFiles: 0,
+          skippedFiles: 0,
+          totalFiles: 1200,
+          status: "paused",
+        },
+        startJob: jest.fn(async () => jobStatus()),
+        importBatch: jest.fn(async () => jobStatus()),
+        testIDPrefix: "settings-vault",
+      }));
+    });
+
+    expect(container.textContent ?? "").toContain("620 of 1800 existing files removed");
+    expect(container.textContent ?? "").toContain("34%");
+    expect(container.textContent ?? "").not.toContain("0 of 1200 files finished");
 
     act(() => root.unmount());
     container.remove();
