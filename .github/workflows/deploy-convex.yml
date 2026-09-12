@@ -37,6 +37,11 @@ on:
     branches: [main]
     paths:
       - "apps/convex/**"
+      # Convex directly bundles the Gmail sync engine from apps/mcp and its
+      # shared communications package. Changes there must redeploy the
+      # scheduler even when no file under apps/convex changed.
+      - "apps/mcp/src/communications/**"
+      - "packages/communications/**"
       - "packages/shared/**"
       - ".github/workflows/deploy-convex.yml"
   workflow_dispatch:
