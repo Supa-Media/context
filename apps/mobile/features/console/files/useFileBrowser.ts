@@ -26,6 +26,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { onBucketWrite } from "./bucketWrites";
 import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
+import type { FormOutcome, FormSubmission } from "./formBlock";
 import type { NoteShare } from "./shares";
 import { shareUrl } from "./shares";
 import { stepsTo, type NoteScope } from "./scope";
@@ -183,6 +184,7 @@ export function useFileBrowser(options: {
   const searchContext = useAction(api.functions.files.searchContext);
   const notePathsAction = useAction(api.functions.files.notePaths);
   const writeNote = useAction(api.functions.files.writeNote);
+  const submitFormAction = useAction(api.functions.forms.submitForm);
   const createDirectory = useAction(api.functions.files.createDirectory);
   const moveEntry = useAction(api.functions.files.moveEntry);
   const copyEntry = useAction(api.functions.files.copyEntry);
@@ -362,6 +364,41 @@ export function useFileBrowser(options: {
       }
     },
     [workspaceId, writeNote],
+  );
+
+  /**
+   * Send one filled-in form block, and phrase what came back.
+   *
+   * The one write on this hook that does **not** go through
+   * `api.functions.files` — see `FileBrowser.submitForm` for why a `member`
+   * needs a path of its own. The note it names is the open one, read here
+   * rather than taken from the widget: the widget knows which *form* was
+   * pressed and this knows which note is on screen, and a widget that carried
+   * a path would be a caller naming the file its submission lands beside.
+   *
+   * Resolves in both directions. A refusal from the server is a sentence
+   * somebody wrote for exactly this case — "this form takes responses from
+   * editors and above", "that response file cannot be read" — so it is passed
+   * through rather than replaced with a generic one.
+   */
+  const submitForm = useCallback(
+    async (submission: FormSubmission): Promise<FormOutcome> => {
+      if (workspaceId === null) return { ok: false, message: "No context is open." };
+      const path = selectedPathRef.current;
+      if (path === null) return { ok: false, message: "No note is open." };
+      try {
+        await submitFormAction({
+          workspaceId,
+          path,
+          formId: submission.formId,
+          values: submission.values.map((entry) => ({ ...entry })),
+        });
+        return { ok: true, message: "Sent. Thank you!" };
+      } catch (error) {
+        return { ok: false, message: toFileError(error).message };
+      }
+    },
+    [workspaceId, submitFormAction],
   );
 
   /**
@@ -2367,6 +2404,7 @@ export function useFileBrowser(options: {
   return useMemo(
     () => ({
       canEdit: options.canEdit,
+      submitForm,
       readOnlyReason: options.readOnlyReason,
       contextId,
       loading,
@@ -2448,6 +2486,7 @@ export function useFileBrowser(options: {
       readRaw,
     }),
     [
+      submitForm,
       archive,
       busy,
       clipboard,

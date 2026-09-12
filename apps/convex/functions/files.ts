@@ -185,6 +185,13 @@ import {
 } from "./lib/fileOps";
 import type { Scope, Visibility } from "./lib/privacy";
 import {
+  ensureFormResponseFiles,
+  runFormAction,
+  type FormAction,
+  type FormResult,
+  type FormSeedResult,
+} from "./lib/formOps";
+import {
   type WorkspaceRole,
   requireWorkspaceAccess,
   requireWorkspaceRole,
@@ -318,11 +325,25 @@ const fileValidator = v.object({
   encrypted: v.boolean(),
 });
 
+/**
+ * What a form block's response files did on this write.
+ *
+ * Two lists of paths and reasons — never a body, never an etag of somebody
+ * else's note. It is reported back to the author because a `responses:` aimed
+ * at a file that already holds something is a form that will silently collect
+ * nothing, and they are the only person who can re-aim it.
+ */
+const formSeedValidator = v.object({
+  created: v.array(v.string()),
+  occupied: v.array(v.string()),
+});
+
 const writtenValidator = v.object({
   kind: v.literal("written"),
   path: v.string(),
   etag: v.string(),
   conflictCheck: v.union(v.literal("conditional"), v.literal("read-compare")),
+  forms: formSeedValidator,
 });
 
 const movedValidator = v.object({
@@ -546,6 +567,25 @@ const googleForwardSyncValidator = v.object({
   errorCode: v.optional(v.string()),
 });
 
+/**
+ * One answer to one field.
+ *
+ * A list of pairs rather than an object keyed by field name, because a form's
+ * fields are the author's and a Convex validator — like the gateway's tool
+ * schema — cannot close an object whose keys it does not know. An open one at
+ * this position accepts whatever a caller puts there, which is the hole both
+ * validators exist to shut.
+ */
+const formAnswerValidator = v.object({ field: v.string(), value: v.string() });
+
+const formResultValidator = v.object({
+  kind: v.literal("formApplied"),
+  responseId: v.string(),
+  formId: v.string(),
+  responsesPath: v.string(),
+  votes: v.optional(v.number()),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -564,6 +604,7 @@ const operationResultValidator = v.union(
   indexProjectedValidator,
   googleSyncRunValidator,
   googleForwardSyncValidator,
+  formResultValidator,
 );
 
 const operationValidator = v.union(
@@ -688,6 +729,31 @@ const operationValidator = v.union(
     path: v.string(),
     visibility: visibilityValidator,
   }),
+  v.object({
+    /**
+     * One markdown form action. See `lib/formOps.ts` for why this is a file
+     * operation rather than a second place that opens a bucket credential.
+     */
+    kind: v.literal("form"),
+    path: v.string(),
+    formId: v.optional(v.string()),
+    actorName: v.string(),
+    actorRole: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
+    action: v.union(
+      v.object({ kind: v.literal("submit"), values: v.array(formAnswerValidator) }),
+      v.object({
+        kind: v.literal("update"),
+        responseId: v.string(),
+        values: v.array(formAnswerValidator),
+      }),
+      v.object({ kind: v.literal("retract"), responseId: v.string() }),
+      v.object({
+        kind: v.literal("vote"),
+        responseId: v.string(),
+        vote: v.union(v.literal("up"), v.literal("none")),
+      }),
+    ),
+  }),
   v.object({ kind: v.literal("resetPrivacy") }),
 );
 
@@ -727,6 +793,14 @@ type FileOperation =
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
+  | {
+      kind: "form";
+      path: string;
+      formId?: string;
+      actorName: string;
+      actorRole: WorkspaceRole;
+      action: FormAction;
+    }
   | { kind: "resetPrivacy" };
 
 /**
@@ -740,6 +814,7 @@ type FileOperation =
  * `features/console/privacy/words.ts`.
  */
 type OperationResult =
+  | ({ kind: "formApplied" } & FormResult)
   | ({ kind: "searchResults" } & SearchResults)
   | { kind: "notePaths"; paths: string[] | null }
   | {
@@ -809,6 +884,16 @@ type OperationResult =
       path: string;
       etag: string;
       conflictCheck: "conditional" | "read-compare";
+      /**
+       * Response files this write created for form blocks on the note, and
+       * forms whose `responses:` points somewhere unusable.
+       *
+       * Reported to the author rather than kept quiet, for the reason
+       * `ensureFormResponseFiles` gives: a `responses:` aimed at an existing
+       * note is a form that will never collect anything, and the only person
+       * who can fix it is the one who just saved the block.
+       */
+      forms: FormSeedResult;
     }
   | { kind: "moved"; from: string; to: string; paths: string[] }
   | { kind: "deleted"; paths: string[] }
@@ -2167,7 +2252,32 @@ export async function executeOperation(
           scope,
           now,
         });
-        return { kind: "written", ...written };
+        /*
+          A note carrying a form block gets that form's response file created
+          here, on the **author's** write, because the author holds write access
+          and the submitter may not — see `ensureFormResponseFiles`.
+
+          After the note's own write and never before it, and its failures are
+          swallowed rather than raised: the note is the customer's content and
+          is already in the bucket. A response file that could not be seeded is
+          a form that is not collecting yet, and re-raising here would report a
+          save that succeeded as a save that failed.
+        */
+        const forms = await ensureFormResponseFiles(store, {
+          text: operation.text,
+          notePath: written.path,
+        }).catch(() => ({ created: [], occupied: [] }));
+        return { kind: "written", ...written, forms };
+      }
+      case "form": {
+        const applied = await runFormAction(store, {
+          scope,
+          path: operation.path,
+          formId: operation.formId,
+          actor: { name: operation.actorName, role: operation.actorRole },
+          action: operation.action,
+        });
+        return { kind: "formApplied", ...applied };
       }
       case "removeEncryption": {
         const written = await removeNoteEncryptionOp(store, {
@@ -2176,7 +2286,14 @@ export async function executeOperation(
           expectedEtag: operation.expectedEtag,
           scope,
         });
-        return { kind: "written", ...written };
+        /*
+          No form seeding on this path, and that is not an omission. Removing a
+          note's encryption replaces ciphertext with the plaintext its owner
+          just decrypted on their device; the response file for any form inside
+          it was seeded when the form was written, and re-running the seed here
+          would create one for a form that has been collecting for months.
+        */
+        return { kind: "written", ...written, forms: { created: [], occupied: [] } };
       }
       case "createFolder": {
         const created = await createFolder(store, { path: operation.path, scope, now });

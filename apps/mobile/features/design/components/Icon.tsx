@@ -627,6 +627,59 @@ function cradle(
 }
 
 /**
+ * One eyelid: a single arc that tapers to a point at each end.
+ *
+ * The eye used to be a `shackle` over a `cradle`, which is the padlock's arch
+ * and its mirror — and those carry **left and right borders**. Two 0.22-tall
+ * vertical strokes down each side turned the almond into a closed capsule with
+ * a dot in it, which is a toggle switch, and it read as one in the toolbar.
+ *
+ * So this draws the curved edge and nothing else: one border, and the two
+ * corner radii on that side. Where the arc meets the box's other edge the
+ * adjacent border is zero wide, and a corner between borders of different
+ * widths is drawn as a taper — which is exactly what an eyelid does at the
+ * canthus, and is why the shape is right rather than merely not-wrong.
+ *
+ * The radius is capped by the box's own height (a corner's vertical radius
+ * cannot exceed the side it sits on), so the arc's curvature is set by `y1-y0`
+ * and the width only decides how far it runs. An upper and a lower lid sharing
+ * one `y` meet in a point at each end and enclose an almond.
+ */
+function lid(
+  key: string,
+  u: number,
+  w: number,
+  color: string,
+  { x0, y0, x1, y1, side }: { x0: number; y0: number; x1: number; y1: number; side: "upper" | "lower" },
+) {
+  const radius = (y1 - y0) * u;
+  return (
+    <View
+      key={key}
+      style={{
+        position: "absolute",
+        left: x0 * u,
+        top: y0 * u,
+        width: (x1 - x0) * u,
+        height: (y1 - y0) * u,
+        ...(side === "upper"
+          ? {
+              borderTopWidth: w,
+              borderTopLeftRadius: radius,
+              borderTopRightRadius: radius,
+            }
+          : {
+              borderBottomWidth: w,
+              borderBottomLeftRadius: radius,
+              borderBottomRightRadius: radius,
+            }),
+        borderColor: color,
+      }}
+    />
+  );
+}
+
+/**
  * The keys of one icon's strokes, for the test that they are distinct.
  *
  * Exported for the same reason `ICON_NAMES` is a value: the thing that goes
@@ -927,14 +980,21 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
 
     case "eye":
       /*
+        An almond, and a pupil inside it.
+
+        The two lids share `y = 0.5`, so each one's arc runs out to the same
+        point at the same height and the pair closes at both canthi — a gap of
+        even a hundredth reads at 20pt as a broken outline rather than as a
+        soft corner. 0.84 wide over 0.44 tall is a little under 2:1, which is
+        the ratio an eye is drawn at everywhere; taller is a leaf and flatter is
+        a lens.
+
         The pupil is a ring rather than a dot: filled, it reads as a bullet
-        inside a bracket at small sizes, and the mark stops being an eye. The
-        arcs are shallow — 0.3 of the box each — so the two curves meet at the
-        sides instead of crossing, which is what a taller pair does.
+        inside a bracket at small sizes, and the mark stops being an eye.
       */
       return [
-        shackle("upper", u, w, c, { x0: 0.1, y0: 0.28, x1: 0.9, y1: 0.52 }),
-        cradle("lower", u, w, c, { x0: 0.1, y0: 0.48, x1: 0.9, y1: 0.72 }),
+        lid("upper", u, w, c, { x0: 0.08, y0: 0.28, x1: 0.92, y1: 0.5, side: "upper" }),
+        lid("lower", u, w, c, { x0: 0.08, y0: 0.5, x1: 0.92, y1: 0.72, side: "lower" }),
         ring("pupil", u, w, c, { cx: 0.5, cy: 0.5, r: 0.13 }),
       ];
 

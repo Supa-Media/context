@@ -222,6 +222,18 @@ export interface HostSink {
   onOpenNote?: (path: string) => void;
   /** One was long-pressed. **Ask first** — see the `press-link` message. */
   onPressNote?: (path: string) => void;
+  /**
+   * A form block on the note was filled in and submitted.
+   *
+   * Absent means this surface cannot send one, and the guest is told so rather
+   * than left waiting: see the `form-submit` case below, which replies with a
+   * refusal instead of dropping the message. A request with no reply is a
+   * button that stays on "Sending…" for the rest of the session.
+   */
+  onSubmitForm?: (submission: {
+    formId: string;
+    values: ReadonlyArray<{ field: string; value: string }>;
+  }) => Promise<{ ok: boolean; message: string }>;
 }
 
 export interface HostBridge {
@@ -450,6 +462,33 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
         case "press-link":
           sink.onPressNote?.(message.path);
           return;
+        /*
+          Also not gated on `editable`, and for a stronger reason than the two
+          above: a `member` is *always* on a read-only note, and a member
+          filling in a form is the case markdown forms exist for. Gating this
+          on `editable` would switch the feature off for everybody it is for.
+
+          The reply always goes back, on both branches and on a throw. The
+          guest has disabled its button and is showing "Sending…" until one
+          arrives, so a swallowed failure is a form that can never be sent
+          again without reloading the note.
+        */
+        case "form-submit": {
+          const { token, formId, values } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const submit = sink.onSubmitForm;
+          if (submit === undefined) {
+            reply(false, "This note can’t send responses here.");
+            return;
+          }
+          submit({ formId, values })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "That didn’t send."),
+            );
+          return;
+        }
       }
     },
   };

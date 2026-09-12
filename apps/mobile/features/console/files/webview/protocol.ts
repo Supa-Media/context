@@ -189,7 +189,22 @@ export type ToGuest =
    * `decodeCommand`, because the guest is a separate bundle that can be paired
    * with a host it does not know.
    */
-  | { v: number; type: "command"; command: EditorCommand };
+  | { v: number; type: "command"; command: EditorCommand }
+  /**
+   * The answer to one `form-submit`, matched to it by `token`.
+   *
+   * The only request/reply pair on this protocol, and the token is what makes
+   * it one: every other message is a fact one side is telling the other, and a
+   * fact needs no correlation. Two forms on a note can be in flight at once —
+   * they are separate widgets with separate buttons — so "the last reply is
+   * for the last request" is not true here, and the reply carries the id of
+   * the request rather than the guest assuming.
+   *
+   * `ok` decides how the message is drawn and nothing else. The host phrases
+   * both outcomes, because the words for a refusal come from the server that
+   * refused and the guest has no better one to offer.
+   */
+  | { v: number; type: "form-result"; token: string; ok: boolean; message: string };
 
 /** Guest → host. */
 export type ToHost =
@@ -250,7 +265,28 @@ export type ToHost =
    */
   | { v: number; type: "caret"; top: number; bottom: number }
   /** The guest failed to start. Surfaced rather than left as a blank rectangle. */
-  | { v: number; type: "failed"; message: string };
+  | { v: number; type: "failed"; message: string }
+  /**
+   * Somebody filled in a ```form block and pressed Submit.
+   *
+   * The values have already passed `validateSubmission` inside the guest, with
+   * the same function the control plane will check them with — so this is a
+   * well-formed submission rather than raw input. That is a courtesy and never
+   * the guard: the host does not re-check it either, because the **server**
+   * does, behind the credential barrier, where a caller that never loaded the
+   * guest still meets it.
+   *
+   * No `path`. The note this lands on is the one the host has open, and a
+   * message that could name a different one would be a WebView — the least
+   * trusted thing in this app — choosing which file a write touches.
+   */
+  | {
+      v: number;
+      type: "form-submit";
+      token: string;
+      formId: string;
+      values: ReadonlyArray<{ field: string; value: string }>;
+    };
 
 export function encode(message: ToGuest | ToHost): string {
   return JSON.stringify(message);
@@ -292,6 +328,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "inset",
   "command",
   "links",
+  "form-result",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -304,6 +341,7 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "failed",
   "open-link",
   "press-link",
+  "form-submit",
 ] as const);
 
 /**

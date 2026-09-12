@@ -25,6 +25,7 @@
 
 import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
+import type { FormOutcome, FormSubmission } from "./formBlock";
 import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
 import type { NoteScope } from "./scope";
@@ -426,6 +427,23 @@ export interface FileBrowser {
    * what this menu says.
    */
   canShare: boolean;
+
+  /**
+   * Send one filled-in ```form block on the open note.
+   *
+   * Here rather than on `NoteEditor` because it is a bucket write like every
+   * other member of this interface, and because of what makes it unlike them:
+   * it is the **only** one a `member` may call. `canEdit` is false for that
+   * role and stays false — `files.writeNote` requires `editor` and must — so a
+   * console that offered this through the editor's write path would either have
+   * to widen that path or would refuse every submission. It is its own action
+   * with its own `minimum: "member"`, and this is where it comes out.
+   *
+   * Resolves rather than throws: the outcome is drawn inside the form block
+   * that sent it, beside the button that was pressed, and a rejected promise
+   * there is a widget that has to phrase the failure itself.
+   */
+  submitForm(submission: FormSubmission): Promise<FormOutcome>;
 
   /**
    * Every live share on this context, or `undefined` while the query is in

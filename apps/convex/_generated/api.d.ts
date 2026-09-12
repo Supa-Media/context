@@ -26,6 +26,7 @@ import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
 import type * as functions_fastSearch from "../functions/fastSearch.js";
 import type * as functions_fastSearchProvision from "../functions/fastSearchProvision.js";
 import type * as functions_files from "../functions/files.js";
+import type * as functions_forms from "../functions/forms.js";
 import type * as functions_grants from "../functions/grants.js";
 import type * as functions_groups from "../functions/groups.js";
 import type * as functions_ingestion from "../functions/ingestion.js";
@@ -106,6 +107,7 @@ declare const fullApi: ApiFromModules<{
   "functions/fastSearch": typeof functions_fastSearch;
   "functions/fastSearchProvision": typeof functions_fastSearchProvision;
   "functions/files": typeof functions_files;
+  "functions/forms": typeof functions_forms;
   "functions/grants": typeof functions_grants;
   "functions/groups": typeof functions_groups;
   "functions/ingestion": typeof functions_ingestion;

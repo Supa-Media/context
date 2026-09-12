@@ -198,14 +198,70 @@ submission is refused with the reason** rather than taken and lost. That is the
 existing "degrade honestly" rule applied to the one feature where silence would
 destroy a customer's data rather than merely disappoint them.
 
+## The console submits through Convex, not through the gateway
+
+The four tools above are the gateway's. **The console cannot reach them**, and
+that is not an oversight to route around: it writes through Convex, and the web
+console holds no MCP grant — the auto-approved grant in
+[identity-and-access](./identity-and-access.md) is the desktop shell's alone,
+gated on a `127.0.0.1` redirect, and that decision explicitly refuses to make
+itself general. So somebody filling in a form on a page they are reading had no
+path at all, and the feature was unreachable from the surface most people use.
+
+`functions/forms.ts` is that path: four actions with `minimum: "member"`, one
+operation through `runFileOperation`, which stays the only function that opens a
+bucket. **The format is not reimplemented** — `lib/formOps.ts` imports
+`apps/mcp/src/forms.js` and so does the editor, so a form written by an AI client
+and one filled in from the console produce byte-identical rows. What is
+duplicated is the *authorization*, because the inputs genuinely differ: the
+gateway asks a grant's scopes, and Convex asks a signed-in identity's role. That
+is the same arrangement `lib/privacy.ts` already has with the privacy engine, and
+it is held to the same condition — the answers agree where a person would notice,
+and `__tests__/forms.test.ts` asserts it rather than a comment claiming it.
+
+`files.writeNote` seeds the response files too, for the reason above: two write
+paths, one rule, or a form authored in the console collects nothing.
+
+## The form is drawn when the note is read, and is source while it is written
+
+Everywhere else in the editor, markup comes back the instant the caret touches
+it — "you cannot edit syntax you cannot see". A form cannot follow that rule,
+because *filling in a field is putting a caret somewhere*: a form that revealed
+on selection would turn back into a code fence the moment anybody tried to use
+it.
+
+So `state.readOnly` is the whole of the switch, and the two rules stop competing
+rather than one being excepted from the other. That is the eye in the note's
+header — added to the pointer layout too, where it was missing and where it was
+asked for — and it is also **every note a `member` opens**, since the editor is
+already read-only for a role that cannot write. The people the feature exists
+for see a working form without touching a control.
+
+The widget is compared on the fence's **text**, never on the parsed config: the
+decoration set is rebuilt on every transaction, and a widget that reported itself
+new would be torn down with a half-written bug report still in it.
+
+## Autocomplete is the authoring help, and the grammar is the list
+
+The owner ruled out a builder — "it should all be text editable" — and asked for
+the editor to offer the accepted keys and values inside the fence. That is
+`formComplete.ts`, and it is allowed to hold a table of choices **only** because
+that table is checked against the grammar rather than trusted: every key, value,
+type and template it offers is parsed back through `parseFormBlocks` in its own
+test. An autocompletion that suggests something the gateway refuses is worse than
+none, because the person now believes they were told the answer.
+
+It offers without being summoned, which is the opposite of the `[[` completion
+beside it and deliberate: nobody knows this vocabulary yet, so the list has to
+appear. A fence that has just been opened offers a whole starter block, because
+somebody who has never seen one cannot complete their way in one key at a time.
+
 ## What is deliberately not built
 
-- **Editor autocomplete and the preview toggle.** The authoring help the owner
-  asked for — the editor offering the accepted keys and values inside the fence,
-  and an eye icon on the block rendering the form as a submitter will see it —
-  is app work, not gateway work. The grammar is a small strict subset precisely
-  so that what autocomplete offers and what the gateway accepts can be the same
-  list.
 - **A form builder screen.** Explicitly rejected: the file is what people edit.
+- **Reading the responses in the console.** The sister file is an ordinary note
+  and opens like one. A drawn table of responses under the form is the obvious
+  next thing and is not built, because it is a *read* of a file whose visibility
+  is `privacy.md`'s to answer, and the widget would have to learn that question.
 - **Notifications on submission**, response export, closing a form to new
   responses, and per-field conditional logic. None are foreclosed.

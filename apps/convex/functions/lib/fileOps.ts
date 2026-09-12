@@ -225,7 +225,22 @@ export type FileErrorCode =
   | "NOTE_ENCRYPTED"
   /** `removeNoteEncryption` asked to act on a note that was never encrypted. */
   | "NOTE_NOT_ENCRYPTED"
-  | "NOT_A_FOLDER";
+  | "NOT_A_FOLDER"
+  /**
+   * The five a markdown form refuses with. See `lib/formOps.ts`.
+   *
+   * Separate codes rather than one, because the console does something
+   * different with each: `FORM_NOT_FOUND` and `FORM_INVALID` are the author's
+   * to fix and name a block, `FORM_FORBIDDEN` is the reader's answer and must
+   * read as a refusal rather than a fault, `FORM_NOT_COLLECTING` is a form an
+   * editor has to save once more, and `FORM_STORAGE_UNSUITABLE` is a property
+   * of the customer's store that no retry will change.
+   */
+  | "FORM_NOT_FOUND"
+  | "FORM_INVALID"
+  | "FORM_FORBIDDEN"
+  | "FORM_NOT_COLLECTING"
+  | "FORM_STORAGE_UNSUITABLE";
 
 /**
  * A failure with a code the console can branch on and a message a person can

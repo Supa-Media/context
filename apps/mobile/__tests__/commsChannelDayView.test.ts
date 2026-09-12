@@ -39,6 +39,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
   const noop = () => {};
   return {
     canEdit: false,
+    submitForm: async () => ({ ok: true, message: "Sent." }),
     contextId: "w1",
     loading: false,
     busy: false,

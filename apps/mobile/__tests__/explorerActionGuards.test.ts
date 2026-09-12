@@ -298,6 +298,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     };
   return {
     canEdit,
+    submitForm: async () => ({ ok: true, message: "Sent." }),
     contextId: "w1",
     loading: false,
     busy: false,

@@ -35,6 +35,7 @@ import {
   type HandlerRef,
 } from "../editorSetup";
 import type { NoteLinkRef } from "../noteLinks";
+import type { FormHostRef } from "../formBlock";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
@@ -243,6 +244,45 @@ export function mountGuest(
     },
   };
 
+  /**
+   * Submissions in flight, by the token that will answer them.
+   *
+   * A map rather than a single pending promise because two forms on one note
+   * are two widgets with two buttons, and somebody can press both. The entry
+   * is deleted by whichever settles it, so a reply for a token that has already
+   * been answered — a duplicate delivery, a host that replied twice — finds
+   * nothing and changes nothing.
+   */
+  const pendingForms = new Map<string, (outcome: { ok: boolean; message: string }) => void>();
+  let formToken = 0;
+
+  /**
+   * Send one filled-in form to the host and wait for its answer.
+   *
+   * The promise is deliberately one that **can stay pending**: there is no
+   * timeout here, because the only thing a timeout could do is tell somebody
+   * their bug report failed when it may well have landed, and the response file
+   * has no idempotency key to make a retry safe. A host that never replies is a
+   * bug in the host, and the `form-submit` case there replies on every branch
+   * including the absent-capability one for exactly this reason.
+   */
+  const forms: FormHostRef = {
+    current: {
+      submit: (submission) =>
+        new Promise((resolve) => {
+          const token = `f${++formToken}`;
+          pendingForms.set(token, resolve);
+          bridge.post({
+            v: PROTOCOL_VERSION,
+            type: "form-submit",
+            token,
+            formId: submission.formId,
+            values: submission.values.map((entry) => ({ ...entry })),
+          });
+        }),
+    },
+  };
+
   const view = new EditorView({
     state: editorStateFor({
       doc: "",
@@ -250,6 +290,7 @@ export function mountGuest(
       editableCompartment,
       handlers,
       links,
+      forms,
       insetBottom: () => inset,
     }),
     parent: root,
@@ -326,6 +367,14 @@ export function mountGuest(
         // The palette carries the *measure* too — type size, leading, the note's
         // own padding — so a theme message reflows the document.
         heights.request();
+        return;
+      }
+      case "form-result": {
+        const settle = pendingForms.get(message.token);
+        // Deleted before the callback runs, so a resolver that somehow posts
+        // again cannot be answered by this same entry.
+        pendingForms.delete(message.token);
+        settle?.({ ok: message.ok, message: message.message });
         return;
       }
       case "links": {

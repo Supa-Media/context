@@ -188,3 +188,67 @@ describe("one stroke weight for the whole set", () => {
     icon.unmount();
   });
 });
+
+/**
+ * THE EYE IS AN EYE.
+ *
+ * It was drawn as a `shackle` over a `cradle` — the padlock's arch and its
+ * mirror — and those carry **left and right borders**. Two short vertical
+ * strokes down each side closed the almond into a capsule with a dot in it,
+ * which is a toggle switch, and it read as one in the console's toolbar: the
+ * owner's report was a screenshot of the row with "can you make the eye icon
+ * look more like an Eye".
+ *
+ * Appearance is not usually testable and this part of it is, because the thing
+ * that was wrong is a measurement: an eyelid is one curved edge, and a side
+ * border is what turns two of them into a box. So the assertion is that each
+ * lid draws exactly one border, and that the two meet.
+ */
+describe("the eye", () => {
+  const size = 24;
+
+  test("each lid is a single arc, with no side strokes to close it into a capsule", () => {
+    const icon = mount("eye", size);
+    const [upper, lower] = icon.strokes;
+
+    expect(px(upper, "border-top-width")).toBe(strokeFor(size));
+    expect(px(upper, "border-left-width")).toBe(0);
+    expect(px(upper, "border-right-width")).toBe(0);
+    expect(px(upper, "border-bottom-width")).toBe(0);
+
+    expect(px(lower, "border-bottom-width")).toBe(strokeFor(size));
+    expect(px(lower, "border-left-width")).toBe(0);
+    expect(px(lower, "border-right-width")).toBe(0);
+    expect(px(lower, "border-top-width")).toBe(0);
+
+    icon.unmount();
+  });
+
+  test("the lids meet, so the outline closes at both corners", () => {
+    const icon = mount("eye", size);
+    const [upper, lower] = icon.strokes;
+    // The upper lid's floor is the lower lid's ceiling. A gap of even a
+    // hundredth of the box reads at 20pt as a broken outline.
+    expect(px(upper, "top") + px(upper, "height")).toBeCloseTo(px(lower, "top"), 5);
+    expect(px(upper, "left")).toBeCloseTo(px(lower, "left"), 5);
+    expect(px(upper, "width")).toBeCloseTo(px(lower, "width"), 5);
+    icon.unmount();
+  });
+
+  test("and it is wider than it is tall, which is what makes it an eye rather than a leaf", () => {
+    const icon = mount("eye", size);
+    const [upper, lower] = icon.strokes;
+    const height = px(upper, "height") + px(lower, "height");
+    expect(px(upper, "width") / height).toBeGreaterThan(1.5);
+    icon.unmount();
+  });
+
+  test("the pupil is a ring inside the almond, not a filled dot", () => {
+    const icon = mount("eye", size);
+    const pupil = icon.strokes[2];
+    // Filled, it reads as a bullet in a bracket at small sizes.
+    expect(px(pupil, "border-width") || px(pupil, "border-top-width")).toBe(strokeFor(size));
+    expect(pupil.style.backgroundColor).toBe("");
+    icon.unmount();
+  });
+});
