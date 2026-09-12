@@ -991,7 +991,9 @@ manifest and every referenced day before rendering anything, and a missing,
 corrupt, duplicated, re-bound, or concurrently changed contribution aborts the
 join rather than letting the last account erase a sibling. The manifest keeps
 the newest 366 days and removes older plumbing only after its replacement is
-committed. The runner is still required before this is live — these helpers
+committed. A store whose connection probe found that it cannot enforce
+conditional writes is refused rather than given a false concurrency
+guarantee. The runner is still required before this is live — these helpers
 are the tested persistence and join boundary it must use, not a claim that
 scheduled Chat delivery is enabled.
 
@@ -1798,8 +1800,20 @@ would make the last account polled erase the others. `mergeEventCaches` is the
 pure, fail-closed primitive for that join: account-qualified event keys can be
 unioned without collision, duplicate contributions are rejected, and removing
 one disconnected account removes only its own events. The control-plane runner
-still owns selecting active accounts and persisting each cache in the customer
-store before this invariant becomes live.
+still owns selecting active accounts before this invariant becomes live, but
+the persistence boundary it must use now exists: each connection atomically
+replaces one hash-addressed cache object under
+`.context/communications/calendar/contributions/`, and the loader refuses a
+missing, corrupt, duplicated, re-bound, or concurrently changed source before
+the join. Provider event content remains in the customer's bucket, never
+Convex.
+
+**Shared contribution storage requires an observed conditional-write
+capability.** A stalled pass can be overtaken after the scheduler's safety
+window, so “the scheduler normally serializes this source” is not an atomicity
+guarantee. R2 and stores whose connection probe proved `If-Match` may use this
+path. A provider that ignores preconditions is refused rather than allowed to
+turn a manifest into last-writer-wins state. The same gate applies to Chat.
 
 ### An event anchor is `evt-` plus the same FNV-1a 64 a message anchor uses
 
