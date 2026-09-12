@@ -268,6 +268,85 @@ export async function runGoogleChatChecks(check) {
         }
       })(),
     );
+
+    // A destination is a *folder*, and `channelDestinationFolder` already
+    // decides what a folder string means: it trims, collapses separators and
+    // strips a trailing slash before the key is built. Grouping on the raw
+    // string instead makes two spellings of one folder two destinations that
+    // then render the same path twice, each holding only its own account's
+    // messages — the erasure this whole helper exists to prevent, reachable
+    // by a trailing slash in a settings field.
+    const spelledWithSlash = renderSharedGoogleChat({
+      contributions: [contributionA, { ...contributionB, destinationFolder: "0-inbox/google-chat/" }],
+      nonceSeed: "workspace-seed",
+    });
+    check(
+      "two spellings of one destination folder are one destination, not two notes at one path",
+      spelledWithSlash.length === new Set(spelledWithSlash.map(({ path }) => path)).size,
+    );
+    check(
+      "a destination spelled two ways still carries both accounts' messages",
+      (() => {
+        const day = noteFor({ notes: spelledWithSlash }, "2026-09-06");
+        return Boolean(day?.text.includes("from account A") && day.text.includes("from account B"));
+      })(),
+    );
+    check(
+      "an unset destination folder and the default folder spelled out are one destination",
+      (() => {
+        const notes = renderSharedGoogleChat({
+          contributions: [
+            { ...contributionA, destinationFolder: undefined },
+            { ...contributionB, destinationFolder: "0-inbox/google-chat" },
+          ],
+          nonceSeed: "workspace-seed",
+        });
+        return notes.length === 1 && notes[0].path === "0-inbox/google-chat/2026-09-06.md";
+      })(),
+    );
+
+    // Unavailable-space notices are ordered by the comparator, and
+    // `chronological` in `packages/communications/src/note.js` already says
+    // why that comparator must be codepoint order: `localeCompare` makes the
+    // bytes a property of the machine that rendered the day. It also treats
+    // U+0000 as ignorable, so the NUL joining label to reason — chosen
+    // precisely so the two fields cannot run together — buys nothing, and two
+    // notices whose joined keys collate equal fall back to the order the
+    // accounts happened to be polled in.
+    const noticeDay = (spaces) => ({
+      account: "a@example.com",
+      destinationFolder: "0-inbox/google-chat",
+      days: [{ date: "2026-09-06", events: [], unavailableSpaces: spaces }],
+    });
+    const noticeText = (first, second) =>
+      noteFor(
+        {
+          notes: renderSharedGoogleChat({
+            contributions: [noticeDay([first]), { ...noticeDay([second]), account: "b@example.com" }],
+            nonceSeed: "workspace-seed",
+          }),
+        },
+        "2026-09-06",
+      )?.text;
+    check(
+      "unavailable-space notices are ordered by codepoint, not by the machine's collation",
+      (() => {
+        const text = noticeText({ label: "alpha", reason: "history-off" }, { label: "Beta", reason: "no-access" });
+        return text !== undefined && text.indexOf("## Beta") < text.indexOf("## alpha");
+      })(),
+    );
+    check(
+      "notices whose label and reason run together under a collation still order the same either way",
+      (() => {
+        // Two keys that differ only across the NUL: identical once a
+        // collation that ignores it concatenates them.
+        const left = { label: "Alpha", reason: "history-off" };
+        const right = { label: "Alphahistory", reason: "-off" };
+        const forward = noticeText(left, right);
+        const backward = noticeText(right, left);
+        return forward !== undefined && forward === backward;
+      })(),
+    );
   });
 
   // -- per-space settings: excluded and paused sync nothing -----------------

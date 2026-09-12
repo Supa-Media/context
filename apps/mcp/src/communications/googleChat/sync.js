@@ -15,6 +15,7 @@
 // injected client, never against Convex directly".
 
 import { planChannelDay } from "../../../../../packages/communications/src/note.js";
+import { channelDestinationFolder } from "../../../../../packages/communications/src/paths.js";
 import { fnv1a64 } from "../../../../../packages/communications/src/anchors.js";
 import { chatMessageToEvent, fallbackSpaceLabel, isHistoryOn, spaceDisplayName } from "./transform.js";
 import { DAY_MS, REGEN_LOOKBACK_DAYS } from "./protocol.js";
@@ -87,6 +88,11 @@ export function dayNonce(nonceSeed, account, date) {
   return fnv1a64(`${String(nonceSeed ?? "")} ${String(account ?? "")} ${String(date ?? "")}`);
 }
 
+/** One notice's sort key: label and reason, NUL-joined so neither can run into the other. */
+function unavailableSpaceKey(space) {
+  return `${space?.label ?? ""}\u0000${space?.reason ?? ""}`;
+}
+
 /**
  * Render the shared Chat daily notes from every active account's persisted
  * contribution. The runner groups nothing implicitly: destination is part of
@@ -109,8 +115,18 @@ export function renderSharedGoogleChat({ contributions, nonceSeed, root }) {
     const account = String(contribution?.account ?? "");
     const accountKey = account.trim().toLowerCase();
     if (!accountKey) throw new TypeError("Chat contribution requires an account");
-    const folder = contribution?.destinationFolder;
-    const destinationKey = String(folder ?? "");
+    // A destination is the folder a key actually lands in, so the grouping
+    // key is the one `channelDayNotePath` will resolve to rather than the raw
+    // setting string. `channelDestinationFolder` already trims, collapses
+    // separators, strips a trailing slash and reads an empty value as the
+    // channel default — grouping on the string in front of it made
+    // `0-inbox/google-chat` and `0-inbox/google-chat/` two destinations that
+    // then rendered the same path twice, one note per account, and whichever
+    // the runner wrote last erased the other. That is the erasure this helper
+    // exists to prevent, reachable by a trailing slash in a settings field.
+    const folder = channelDestinationFolder("google-chat", undefined, contribution?.destinationFolder);
+    if (folder === null) throw new TypeError("Chat contribution has a destination this package will not file into");
+    const destinationKey = folder;
     if (!destinations.has(destinationKey)) {
       destinations.set(destinationKey, { folder, accounts: new Set(), days: new Map() });
     }
@@ -140,9 +156,21 @@ export function renderSharedGoogleChat({ contributions, nonceSeed, root }) {
     const destination = destinations.get(destinationKey);
     for (const date of [...destination.days.keys()].sort()) {
       const aggregate = destination.days.get(date);
-      const unavailableSpaces = [...aggregate.unavailableSpaces].sort((left, right) =>
-        `${left?.label ?? ""}\0${left?.reason ?? ""}`.localeCompare(`${right?.label ?? ""}\0${right?.reason ?? ""}`)
-      );
+      // Codepoint order, for the reason `chronological` in
+      // `packages/communications/src/note.js` already gives: this comparator
+      // decides which bytes land in the note, and a default-locale collation
+      // makes that a property of the machine that rendered the day. It is
+      // also what makes the NUL join mean anything — a collation treats
+      // U+0000 as ignorable, so `localeCompare` read label and reason as one
+      // run-together string and called two different notices equal, leaving
+      // their order to be decided by which account happened to be polled
+      // first.
+      const unavailableSpaces = [...aggregate.unavailableSpaces].sort((left, right) => {
+        const leftKey = unavailableSpaceKey(left);
+        const rightKey = unavailableSpaceKey(right);
+        if (leftKey === rightKey) return 0;
+        return leftKey < rightKey ? -1 : 1;
+      });
       const parts = planChannelDay(
         {
           channel: "google-chat",
