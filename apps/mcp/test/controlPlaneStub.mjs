@@ -479,6 +479,7 @@ export function createControlPlaneStub(options = {}) {
         if (job && job.status === "running" && body.result) {
           job.status = body.result.status;
           job.lastError = body.result.error;
+          job.progress = body.result.progress;
         }
         return ok({ ok: true });
       }

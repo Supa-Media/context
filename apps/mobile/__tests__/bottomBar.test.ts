@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { afterEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -76,6 +76,8 @@ const { BottomBar, MIN_TOUCH_TARGET } =
   require("../features/console/BottomBar") as typeof import("../features/console/BottomBar");
 const { layout, bottomBarGeometry } =
   require("../features/design/tokens") as typeof import("../features/design/tokens");
+const { LONG_PRESS_MS } =
+  require("../features/console/files/rowInteractionContract") as typeof import("../features/console/files/rowInteractionContract");
 import type { BottomBarAction } from "../features/console/BottomBar";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -95,6 +97,8 @@ interface Mounted {
   find: (testID: string) => HTMLElement | null;
   need: (testID: string) => HTMLElement;
   click: (testID: string) => void;
+  /** Press, wait past `delayLongPress`, release. Needs fake timers. */
+  hold: (testID: string) => void;
   text: () => string;
   unmount: () => void;
 }
@@ -150,6 +154,26 @@ function mount(element: ReactElement, width = 390): Mounted {
         node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
     },
+    /*
+      A hold is a press with time in the middle, and the time is the whole of
+      it: react-native-web's `Pressability` arms a timer on press-in and fires
+      `onLongPress` from it, then suppresses the `onPress` that the release
+      would otherwise produce. Both halves are asserted, so the clock has to be
+      advanced rather than mocked away — the caller installs fake timers.
+    */
+    hold: (testID: string) => {
+      const node = need(testID);
+      act(() => {
+        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      act(() => {
+        jest.advanceTimersByTime(LONG_PRESS_MS + 50);
+      });
+      act(() => {
+        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+        node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    },
     unmount,
   };
 }
@@ -180,7 +204,7 @@ function toolbar(): BottomBarAction[] {
     action({ id: "forward", label: "Go forward", icon: "arrowRight" }),
     action({ id: "search", label: "Search this context", icon: "search" }),
     action({ id: "new", label: "New note", icon: "plus" }),
-    action({ id: "tabs", label: "3 notes open", icon: "file", badge: 3 }),
+    action({ id: "recent", label: "Recently opened", icon: "clock" }),
     action({ id: "menu", label: "More actions", icon: "more" }),
   ];
 }
@@ -496,85 +520,123 @@ describe("an unavailable action", () => {
   });
 });
 
-describe("badges and markers", () => {
-  test("a count renders as a badge", () => {
-    const bar = mountBar([action({ id: "tabs", label: "3 notes open", icon: "file", badge: 3 })]);
-
-    expect(bar.need("bottom-bar-tabs-badge").textContent).toBe("3");
-    expect(bar.text()).toContain("3");
+/**
+ * The held gesture on `‹`.
+ *
+ * One control uses it — back, held, opens Recent, where every browser on every
+ * platform keeps its history list. It is a *second* route to a sheet that has
+ * its own key in this row, never the only one, and the reason it is worth a
+ * test rather than a comment is the half that is easy to drop silently: a
+ * gesture a screen reader is never told about is one only sighted people have.
+ */
+describe("a second, held gesture", () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
   });
 
-  test("zero renders no badge at all, rather than a badge saying 0", () => {
-    // "0" in a badge reads as a count worth looking at. Nothing open is nothing
-    // to show.
-    const bar = mountBar([action({ id: "tabs", label: "No notes open", icon: "file", badge: 0 })]);
-
-    expect(bar.find("bottom-bar-tabs-badge")).toBeNull();
-    // The icon is still drawn — what is gone is the badge, not the control.
-    expect(bar.need("bottom-bar-tabs").querySelector("[data-icon]")).not.toBeNull();
+  afterEach(() => {
+    jest.useRealTimers();
   });
 
-  test("a count is drawn as the control, not as a badge on one", () => {
-    /*
-      Obsidian's tab control on mobile is a rounded box with the number of open
-      notes inside it and no icon at all. Ours was a document icon with a filled
-      accent badge on its corner, which reads as a *notification* — something
-      has happened, go and look — rather than as a count of what is already
-      open. The number is the whole message, so it is the whole control.
-    */
-    const bar = mountBar([action({ id: "tabs", label: "3 notes open", icon: "file", count: 3 })]);
-
-    expect(bar.need("bottom-bar-tabs-count").textContent).toBe("3");
-    // Not both: an icon behind the box would be the old control with a new
-    // decoration in front of it.
-    expect(bar.find("bottom-bar-tabs-badge")).toBeNull();
-    expect(bar.need("bottom-bar-tabs").textContent).not.toContain("file");
-  });
-
-  test("a count still keeps its unsaved marker", () => {
-    // We do not autosave and Obsidian does, so the one thing our tab control
-    // carries that theirs does not is whether something in there is unsaved.
+  test("the hold is in the accessible name, not only in the handler", () => {
+    const onLongPress = jest.fn<() => void>();
     const bar = mountBar([
-      action({ id: "tabs", label: "3 notes open, 1 unsaved", icon: "file", count: 3, marker: true }),
+      action({ id: "back", label: "Go back", hint: "Hold for recent", onLongPress }),
     ]);
-    expect(bar.find("bottom-bar-tabs-count")).not.toBeNull();
-    expect(bar.find("bottom-bar-tabs-marker")).not.toBeNull();
+
+    expect(bar.need("bottom-bar-back").getAttribute("aria-label")).toBe(
+      "Go back. Hold for recent",
+    );
   });
 
-  test("an action with no badge field has no badge", () => {
-    const bar = mountBar([action({ id: "menu" })]);
-    expect(bar.find("bottom-bar-menu-badge")).toBeNull();
+  test("a hint without a hold is not announced, because nothing would happen", () => {
+    // The pair is one control with two verbs. Half of it is a promise the row
+    // does not keep — `hasRecent` drops the handler when the sheet is empty,
+    // and the phrase has to go with it.
+    const bar = mountBar([action({ id: "back", label: "Go back", hint: "Hold for recent" })]);
+    expect(bar.need("bottom-bar-back").getAttribute("aria-label")).toBe("Go back");
   });
 
+  test("holding fires the second verb and not the first", () => {
+    const onPress = jest.fn<() => void>();
+    const onLongPress = jest.fn<() => void>();
+    const bar = mountBar([
+      action({ id: "back", label: "Go back", hint: "Hold for recent", onPress, onLongPress }),
+    ]);
+
+    bar.hold("bottom-bar-back");
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
+    expect(onPress).not.toHaveBeenCalled();
+  });
+
+  test("a plain press still steps back", () => {
+    const onPress = jest.fn<() => void>();
+    const onLongPress = jest.fn<() => void>();
+    const bar = mountBar([
+      action({ id: "back", label: "Go back", hint: "Hold for recent", onPress, onLongPress }),
+    ]);
+
+    bar.click("bottom-bar-back");
+
+    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+
+  test("a disabled control holds no gesture at all", () => {
+    // At the start of a history there is nothing behind you, which is exactly
+    // when the sheet has nothing to offer either. Both verbs go together.
+    const onLongPress = jest.fn<() => void>();
+    const bar = mountBar([
+      action({ id: "back", label: "Go back", disabled: true, hint: "Hold for recent", onLongPress }),
+    ]);
+
+    bar.hold("bottom-bar-back");
+    expect(onLongPress).not.toHaveBeenCalled();
+  });
+});
+
+describe("the marker dot", () => {
+  /*
+    The last of three overlays this bar drew, and the only one still honest. A
+    `badge` on the corner and, later, a `count` drawn as the whole control both
+    existed for the tab key, which could never read anything but `1` on a phone
+    — see `files/RecentSheet.tsx` — and both went with it. Save still has
+    something momentary to say, so the dot stays.
+  */
   test("a marker renders a dot, and the label still carries the meaning", () => {
-    // The dot is a warning that leaving is lossy, and a warning only sighted
-    // people get is not a warning — so the caller puts it in the label too, the
-    // way `TabCountButton` does.
+    // A warning only sighted people get is not a warning, so the caller puts
+    // the same fact in `label`.
     const bar = mountBar([
-      action({
-        id: "tabs",
-        label: "2 notes open, 1 with unsaved changes",
-        icon: "file",
-        badge: 2,
-        marker: true,
-      }),
+      action({ id: "save", label: "Save this note, unsaved changes", icon: "check", marker: true }),
     ]);
 
-    const dot = bar.need("bottom-bar-tabs-marker");
+    const dot = bar.need("bottom-bar-save-marker");
     expect(px(dot, "width")).toBeGreaterThan(0);
     // `border-radius` is a shorthand, and jsdom resolves only the longhands —
     // the same expansion that makes `overflow` come back "". Ask for a corner.
     expect(px(dot, "border-top-left-radius")).toBeGreaterThan(0);
     // A dot is not text: it must not be announced as anything.
     expect(dot.textContent).toBe("");
-    expect(bar.need("bottom-bar-tabs").getAttribute("aria-label")).toBe(
-      "2 notes open, 1 with unsaved changes",
+    expect(bar.need("bottom-bar-save").getAttribute("aria-label")).toBe(
+      "Save this note, unsaved changes",
     );
   });
 
   test("no marker means no dot", () => {
-    const bar = mountBar([action({ id: "tabs", badge: 2 })]);
-    expect(bar.find("bottom-bar-tabs-marker")).toBeNull();
+    const bar = mountBar([action({ id: "save" })]);
+    expect(bar.find("bottom-bar-save-marker")).toBeNull();
+  });
+
+  test("the icon is always the control, never a number in its place", () => {
+    // What the `count` arm used to replace. Every key on this bar draws its
+    // icon; nothing substitutes text for one.
+    const bar = mountBar(toolbar());
+    for (const item of toolbar()) {
+      expect(
+        bar.need(`bottom-bar-${item.id}`).querySelector("[data-icon]"),
+      ).not.toBeNull();
+    }
   });
 });
 
@@ -642,7 +704,7 @@ describe("the trailing separator", () => {
       "bottom-bar-forward",
       "bottom-bar-search",
       "bottom-bar-new",
-      "bottom-bar-tabs",
+      "bottom-bar-recent",
       "bottom-bar-menu",
       "bottom-bar-separator",
       "bottom-bar-elsewhere",

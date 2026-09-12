@@ -958,9 +958,18 @@ describe("/gateway/binding — the search index", () => {
     },
   ): Promise<void> {
     const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("searchIndexes", {
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspacePlans", {
         workspaceId: options.workspaceId,
+        managedStorage: false,
+        fastSearch: true,
+        status: "active",
+        createdAt: now,
+        updatedAt: now,
+      });
+      await ctx.db.insert("searchIndexes", {
+        workspaceId: options.workspaceId,
+        generation: "premium-v1",
         optedIn: options.optedIn ?? true,
         optedInBy: options.optedInBy,
         optedInAt: now,
@@ -970,8 +979,8 @@ describe("/gateway/binding — the search index", () => {
           options.databaseId === undefined ? undefined : `context-search-${options.databaseId}`,
         createdAt: now,
         updatedAt: now,
-      }),
-    );
+      });
+    });
   }
 
   /** The deployment configured with both halves of the platform's credential. */
@@ -1737,7 +1746,7 @@ describe("/gateway/binding — workspace-key rotation", () => {
 
 describe("/gateway/jobs/*", () => {
   test("an owner-private grant mints a hashed ticket and opens one queued move", async () => {
-    const { t, aliceWs, grantA } = await twoConnectedTenants();
+    const { t, alice, bob, aliceWs, grantA } = await twoConnectedTenants();
     await t.run((ctx) =>
       ctx.db.patch(grantA, { scopes: ["context:read", "context:write", "context:private"] }),
     );
@@ -1770,6 +1779,54 @@ describe("/gateway/jobs/*", () => {
 
     const replay = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
     expect(replay).toEqual({ job: null });
+
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: {
+        status: "queued",
+        progress: { phase: "copying", completed: 502, total: 501 },
+      },
+    });
+    const invalidProgress = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(invalidProgress?.progressCompleted).toBeUndefined();
+
+    const reopened = await bodyOf(await gatewayPost(t, "/gateway/jobs/open", { ticket }));
+    expect(reopened.job).not.toBeNull();
+    await gatewayPost(t, "/gateway/jobs/report", {
+      ticket,
+      result: {
+        status: "queued",
+        progress: { phase: "copying", completed: 100, total: 501 },
+      },
+    });
+    const progressed = await t.run((ctx) => ctx.db.query("gatewayJobs").unique());
+    expect(progressed).toMatchObject({
+      status: "queued",
+      progressPhase: "copying",
+      progressCompleted: 100,
+      progressTotal: 501,
+    });
+
+    const visible = await asUser(t, alice).query(api.functions.files.listDurableMoves, {
+      workspaceId: aliceWs,
+    });
+    expect(visible).toEqual([
+      expect.objectContaining({
+        status: "queued",
+        phase: "copying",
+        completed: 100,
+        total: 501,
+      }),
+    ]);
+    expect(JSON.stringify(visible)).not.toContain("move-aaaaaaaaaaaa");
+    const editor = await createUser(t, "move-editor@example.test");
+    await addMember(t, aliceWs, editor, "editor", alice);
+    await expect(
+      asUser(t, editor).query(api.functions.files.listDurableMoves, { workspaceId: aliceWs }),
+    ).rejects.toThrow();
+    await expect(
+      asUser(t, bob).query(api.functions.files.listDurableMoves, { workspaceId: aliceWs }),
+    ).rejects.toThrow();
   });
 
   test("a job request cannot select a workspace outside the token's owner-private reach", async () => {
@@ -1853,9 +1910,24 @@ describe("/gateway/jobs/*", () => {
 describe("/gateway/search-index/progress", () => {
   async function enabledIndex(t: TestConvex, workspaceId: Id<"workspaces">, owner: Id<"users">) {
     const now = Date.now();
-    await t.run((ctx) =>
-      ctx.db.insert("searchIndexes", {
+    await t.run(async (ctx) => {
+      const plan = await ctx.db
+        .query("workspacePlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      if (plan === null) {
+        await ctx.db.insert("workspacePlans", {
+          workspaceId,
+          managedStorage: false,
+          fastSearch: true,
+          status: "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert("searchIndexes", {
         workspaceId,
+        generation: "premium-v1",
         optedIn: true,
         optedInBy: owner,
         optedInAt: now,
@@ -1864,8 +1936,8 @@ describe("/gateway/search-index/progress", () => {
         databaseName: "context-search-progress",
         createdAt: now,
         updatedAt: now,
-      }),
-    );
+      });
+    });
   }
 
   async function indexRow(t: TestConvex, workspaceId: Id<"workspaces">) {

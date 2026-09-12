@@ -242,6 +242,20 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    key: "groups",
+    /*
+      What people type when they have already done the thing a group is for:
+      handed the same two people the same folder twice. "team" and "everyone"
+      are in here because somebody looking for a way to share with *some* of
+      the workspace searches the words for all of it first.
+    */
+    keywords: "group groups team everyone some people set named leads owners folder share who",
+    scope: "context",
+    label: "Groups",
+    group: "Who can see it",
+    personalOnly: false,
+  },
+  {
     key: "shares",
     /*
       "revoke" also lives on `apps`'s keywords, for revoking a connected AI app

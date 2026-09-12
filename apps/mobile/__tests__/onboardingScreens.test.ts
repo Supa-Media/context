@@ -79,6 +79,10 @@ function controller(overrides: Partial<OnboardingController>): OnboardingControl
     canClaim: false,
     connect: async () => ({ status: "unverified" }),
     connectState: { kind: "idle" },
+    // No offer: the default for these screens is a deployment that cannot
+    // provide managed storage, which is every deployment until an account
+    // exists to put the buckets in.
+    managed: null,
     skipStorage: () => {},
     continuePastStorage: () => {},
     structureStep: { kind: "ask" },

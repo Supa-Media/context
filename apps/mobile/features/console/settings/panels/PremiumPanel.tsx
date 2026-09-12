@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useConvex } from "convex/react";
+import type { CheckoutOutcome } from "@context/shared";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../../design/components/Button";
 import { Card, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
-import { FormError, Notice, ToggleGroup } from "../../../design/components/Input";
+import {
+  FormError,
+  Notice,
+  ToggleGroup,
+} from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -14,13 +19,16 @@ import { leaveTo } from "../../../consent/leave";
 import { selectedContext, type ConsoleData } from "../../types";
 import { settingsSectionLabel } from "../sections";
 import {
+  CHECKOUT_SETTLING_SLOW_MS,
   EXPORT_PROMISE,
+  checkoutReturnCopy,
   demoPremiumView,
   describePremium,
   describeSessionFailure,
   entitlementRows,
   entitlementsHint,
   formatPrice,
+  managedMigrationCopy,
   premiumControl,
   premiumPill,
   premiumStateOf,
@@ -31,6 +39,7 @@ import {
   type PremiumView,
 } from "./premium";
 import { usePremium } from "./usePremium";
+import { useArming } from "../../useArming";
 
 /**
  * Premium, in a context's settings.
@@ -69,9 +78,19 @@ export function PremiumPanel({
   data,
   /** Absent is the old one-scroll settings pane; present is the overlay. */
   section,
+  /**
+   * What the return from Stripe said, handed down from the route.
+   *
+   * Read where the URL is already read rather than here. A leaf that imports
+   * `expo-router` needs a router mocked wherever it is mounted, and this one is
+   * mounted in six suites that have no business knowing about navigation —
+   * which is exactly what happened when it read the parameter itself.
+   */
+  returned = null,
 }: {
   data: ConsoleData;
   section?: string;
+  returned?: CheckoutOutcome | null;
 }) {
   /*
     `useConvex` returns `undefined` rather than throwing when there is no
@@ -88,29 +107,38 @@ export function PremiumPanel({
   */
   const client = useConvex();
   const current = selectedContext(data);
-  const workspaceId = data.demo || client === undefined ? null : (current?.id ?? null);
-
+  const workspaceId =
+    data.demo || client === undefined ? null : (current?.id ?? null);
   if (workspaceId === null) {
     return (
       <PremiumBody
         view={data.demo ? demoPremiumView() : unreadablePremiumView()}
         section={section}
+        returned={returned}
       />
     );
   }
-  return <PremiumLive workspaceId={workspaceId} section={section} />;
+  return (
+    <PremiumLive
+      workspaceId={workspaceId}
+      section={section}
+      returned={returned}
+    />
+  );
 }
 
 /** The half that subscribes. Rendered only where there is a client to do it. */
 function PremiumLive({
   workspaceId,
   section,
+  returned,
 }: {
   workspaceId: string;
   section?: string;
+  returned: CheckoutOutcome | null;
 }) {
   const view = usePremium({ workspaceId: workspaceId as Id<"workspaces"> });
-  return <PremiumBody view={view} section={section} />;
+  return <PremiumBody view={view} section={section} returned={returned} />;
 }
 
 /**
@@ -123,13 +151,35 @@ function PremiumLive({
 export function PremiumBody({
   view,
   section,
+  returned = null,
+  /** Test seam: the settling copy's later wording, without waiting for it. */
+  slowAfter = CHECKOUT_SETTLING_SLOW_MS,
 }: {
   view: PremiumView;
   section?: string;
+  /** What the return from Stripe said, or `null` for an ordinary visit. */
+  returned?: CheckoutOutcome | null;
+  slowAfter?: number;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [working, setWorking] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const testCleanup = useArming(async () => {
+    if (view.deleteTestWorkspace !== undefined) {
+      await view.deleteTestWorkspace();
+    }
+  });
+  /*
+    The settling copy changes once, on a timer, and the timer only runs while
+    there is something to wait for. Cleared on unmount and never restarted, so
+    a section somebody left open for an hour does not keep a handle alive.
+  */
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (returned !== "done") return undefined;
+    const handle = setTimeout(() => setSlow(true), slowAfter);
+    return () => clearTimeout(handle);
+  }, [returned, slowAfter]);
 
   const run = (action: (() => Promise<void>) | undefined) => {
     if (action === undefined) return;
@@ -140,7 +190,9 @@ export function PremiumBody({
         // Our sentence, never the backend's: a Convex error can carry a
         // function path, and a person reading a billing card is owed the next
         // step instead.
-        setFailure("That did not go through. Check your connection and try again."),
+        setFailure(
+          "That did not go through. Check your connection and try again.",
+        ),
       )
       .finally(() => setWorking(false));
   };
@@ -151,9 +203,12 @@ export function PremiumBody({
   const pill = premiumPill(state, status?.canManage ?? true);
   const control = premiumControl(view);
   const session = view.session;
+  const returning = checkoutReturnCopy(returned, state, { slow });
+  const migration = status === null ? null : managedMigrationCopy(status);
 
   const toggle = (value: string, next: boolean) => {
-    if (status === undefined || status === null || view.choose === undefined) return;
+    if (status === undefined || status === null || view.choose === undefined)
+      return;
     const chosen: PremiumEntitlements = { ...status.selected };
     if (value === "managedStorage") chosen.managedStorage = next;
     if (value === "fastSearch") chosen.fastSearch = next;
@@ -170,15 +225,50 @@ export function PremiumBody({
           the row and its heading drifted apart once already.
         */
         variant={section === undefined ? "eyebrow" : "paneTitle"}
-        style={section === undefined ? styles.sectionHeadLater : styles.sectionHead}
+        style={
+          section === undefined ? styles.sectionHeadLater : styles.sectionHead
+        }
       >
         {settingsSectionLabel("premium")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        What this brain or workspace pays for. Premium is per context rather than
-        per person, so upgrading this one leaves every other context you can reach
-        exactly as it is.
+        What this brain or workspace pays for. Premium is per context rather
+        than per person, so upgrading this one leaves every other context you
+        can reach exactly as it is.
       </Text>
+
+      {/*
+        A return that is still settling is drawn *as* the plan, not above it.
+
+        It was a notice over the card first, and looking at it in a browser is
+        what killed that: "Payment received — setting up this context" sat
+        directly above "This context is on the free plan", two statements about
+        somebody's money contradicting each other on one screen. The plan has
+        genuinely not changed yet — the webhook decides that — so the honest
+        move is to stop asserting the old state while we are telling them the
+        new one is coming, rather than to assert both.
+
+        A *cancelled* return is a notice, because "no payment was taken" and
+        "you are on the free plan" agree with each other.
+      */}
+      {returning === null || returning.working ? (
+        <></>
+      ) : (
+        <Notice
+          tone={returning.tone}
+          style={styles.notice}
+          testID="premium-checkout-return"
+        >
+          <View style={styles.returnText}>
+            <Text variant="rowTitle" role="status">
+              {returning.title}
+            </Text>
+            <Text variant="rowSub" style={styles.blurb}>
+              {returning.body}
+            </Text>
+          </View>
+        </Notice>
+      )}
 
       {status === null ? (
         <Card>
@@ -192,17 +282,26 @@ export function PremiumBody({
           </View>
         </Card>
       ) : (
-        <Card>
+        <Card
+          testID={
+            returning?.working === true ? "premium-checkout-return" : undefined
+          }
+        >
           <View style={styles.head}>
             <View style={styles.headText}>
-              <Text variant="rowTitle" testID="premium-title">
-                {copy.title}
+              <Text variant="rowTitle" testID="premium-title" role="status">
+                {returning?.working === true ? returning.title : copy.title}
               </Text>
               <Text variant="rowSub" style={styles.blurb}>
-                {copy.blurb}
+                {returning?.working === true ? returning.body : copy.blurb}
               </Text>
             </View>
-            {pill === null ? null : (
+            {returning?.working === true ? (
+              <View style={styles.settlingPill}>
+                <ActivityIndicator size="small" />
+                <Pill tone="neutral">Setting up</Pill>
+              </View>
+            ) : pill === null ? null : (
               <Pill tone={pill.tone} leading={<Dot tone={pill.tone} />}>
                 {pill.label}
               </Pill>
@@ -224,6 +323,40 @@ export function PremiumBody({
           {usageLine(status) === null ? null : (
             <Notice style={styles.notice} testID="premium-usage">
               <Text variant="rowSub">{usageLine(status)}</Text>
+            </Notice>
+          )}
+          {migration === null ? null : (
+            <Notice
+              tone={migration.failed ? "warn" : "neutral"}
+              style={styles.notice}
+              testID="managed-storage-migration"
+            >
+              <View style={styles.returnText}>
+                <Text variant="rowTitle" role="status">
+                  {migration.title}
+                </Text>
+                <Text variant="rowSub" style={styles.blurb}>
+                  {migration.body}
+                </Text>
+                {migration.percent === undefined ? null : (
+                  <Text
+                    variant="check"
+                    role="status"
+                    style={styles.migrationProgress}
+                  >
+                    {migration.percent}% through this step
+                  </Text>
+                )}
+                {migration.failed && view.retryManagedStorage !== undefined ? (
+                  <Button
+                    label={working ? "Trying again…" : "Try copy again"}
+                    variant="mini"
+                    disabled={working}
+                    onPress={() => run(view.retryManagedStorage)}
+                    testID="managed-storage-retry"
+                  />
+                ) : null}
+              </View>
             </Notice>
           )}
         </Card>
@@ -274,7 +407,11 @@ export function PremiumBody({
         </Card>
       )}
 
-      {failure === null ? <></> : <FormError headline={failure} style={styles.notice} />}
+      {failure === null ? (
+        <></>
+      ) : (
+        <FormError headline={failure} style={styles.notice} />
+      )}
       {session?.status === "failed" ? (
         <FormError
           headline={describeSessionFailure(session.errorCode)}
@@ -302,7 +439,11 @@ export function PremiumBody({
             else, is the kind a browser blocks and a person does not trust.
           */}
           <Button
-            label={session.kind === "portal" ? "Continue to billing" : "Continue to Stripe"}
+            label={
+              session.kind === "portal"
+                ? "Continue to billing"
+                : "Continue to Stripe"
+            }
             accessibilityLabel="Open the payment page, which is hosted by Stripe"
             variant="decision"
             trailing={<Text variant="rowSub">↗</Text>}
@@ -318,12 +459,16 @@ export function PremiumBody({
                 ? "Opening…"
                 : control === "manage"
                   ? "Manage billing"
-                  : "Upgrade this context"
+                  : status?.isTestAccount === true
+                    ? "Activate test Premium"
+                    : "Upgrade this context"
             }
             accessibilityLabel={
               control === "manage"
                 ? "Open the billing portal, where the card, invoices and cancellation live"
-                : "Start a subscription for this context"
+                : status?.isTestAccount === true
+                  ? "Activate Premium for this test context without a charge"
+                  : "Start a subscription for this context"
             }
             variant={control === "manage" ? "mini" : "decision"}
             disabled={working || session?.status === "pending"}
@@ -347,6 +492,34 @@ export function PremiumBody({
       <Notice style={styles.notice} testID="premium-export-promise">
         <Text variant="rowSub">{EXPORT_PROMISE}</Text>
       </Notice>
+
+      {view.deleteTestWorkspace !== undefined ? (
+        <Card testID="premium-test-cleanup">
+          <Row style={styles.actions}>
+            <View style={styles.testCleanupCopy}>
+              <Text variant="rowTitle">Delete this test context</Text>
+              <Text variant="rowSub">
+                Removes only this unshared test context and its managed bucket
+                and search index. Existing contexts and buckets are untouched.
+              </Text>
+            </View>
+            <Button
+              label={
+                testCleanup.stage === "working"
+                  ? "Deleting…"
+                  : testCleanup.stage === "armed"
+                    ? "Press again to delete"
+                    : "Delete test context"
+              }
+              accessibilityLabel="Delete this unshared production test context and its managed resources"
+              variant="danger"
+              disabled={testCleanup.stage === "working"}
+              onPress={testCleanup.press}
+              testID="premium-delete-test-workspace"
+            />
+          </Row>
+        </Card>
+      ) : null}
     </View>
   );
 }
@@ -367,6 +540,9 @@ const makeStyles = (colors: Colors) =>
     },
     hint: { marginTop: 12 },
     notice: { marginTop: 12 },
+    migrationProgress: { marginTop: 8 },
+    settlingPill: { flexDirection: "row", alignItems: "center", gap: 8 },
+    returnText: { flex: 1, minWidth: 0 },
     readOnlyRow: { marginTop: 14 },
     readOnlyHead: {
       flexDirection: "row",
@@ -375,6 +551,7 @@ const makeStyles = (colors: Colors) =>
       gap: 12,
     },
     actions: { marginTop: 12, gap: 8 },
+    testCleanupCopy: { flex: 1, minWidth: 0, gap: 4 },
     loadingRow: {
       flexDirection: "row",
       alignItems: "center",

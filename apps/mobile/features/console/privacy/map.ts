@@ -34,7 +34,7 @@
  *    over for free.
  */
 
-import type { FolderListing, Visibility } from "../files/types";
+import type { FolderListing, SettableVisibility, Visibility } from "../files/types";
 
 /** One folder, and the default every note in it follows unless named. */
 export interface PrivacyFolderRow {
@@ -117,8 +117,16 @@ export function privacyViewOf(
 
 /** The press a folder row offers, and how many presses it takes. */
 export interface FolderControl {
-  /** The other of the two words. There is no third. */
-  to: Visibility;
+  /**
+   * The other of the two words this control toggles between.
+   *
+   * `SettableVisibility`, not `Visibility`: a folder may now READ as a group
+   * rule, and this two-position toggle has no way to express one. It therefore
+   * never offers a group as a destination — `folderControl` returns `null` for
+   * a group-scoped folder rather than silently proposing `team`, which would
+   * be a control whose single press publishes what the owner held back.
+   */
+  to: SettableVisibility;
   /**
    * Whether it takes two presses.
    *
@@ -154,6 +162,12 @@ export function folderControl(
 ): FolderControl | null {
   if (!canSetVisibility) return null;
   if (row.path === "") return null;
+  // A group-scoped folder has no two-position answer: "the other word" is not
+  // defined when the current one is neither. Absent rather than disabled — the
+  // rule `StorageActions` and `MembersView` already follow — and absent rather
+  // than guessed, because the guess this control would otherwise make is
+  // `team`, the one press that publishes the folder.
+  if (row.visibility !== "team" && row.visibility !== "private") return null;
   return row.visibility === "team"
     ? { to: "private", arm: false }
     : { to: "team", arm: true };

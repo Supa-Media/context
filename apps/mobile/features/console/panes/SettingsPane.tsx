@@ -17,8 +17,10 @@ import { CalendarPanel } from "../settings/panels/CalendarPanel";
 import { ChatsPanel } from "../settings/panels/ChatsPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
+import type { CheckoutOutcome } from "@context/shared";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
+import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
@@ -67,6 +69,7 @@ export function SettingsPane({
   data,
   onClose,
   section,
+  returned = null,
 }: {
   data: ConsoleData;
   onClose: () => void;
@@ -80,6 +83,8 @@ export function SettingsPane({
    * only the block it was asked for.
    */
   section?: SettingsSectionKey;
+  /** What a return from Stripe said, from the route. Only Premium reads it. */
+  returned?: CheckoutOutcome | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -258,7 +263,9 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("premium") ? <PremiumPanel data={data} section={section} /> : null}
+      {show("premium") ? (
+        <PremiumPanel data={data} section={section} returned={returned} />
+      ) : null}
 
       {show("people") ? (
       <>
@@ -319,6 +326,19 @@ export function SettingsPane({
         the rows, the words and the one control all come from pure modules a
         test can drive — see `features/console/privacy/`.
       */}
+      {/*
+        Between People and Shared links, which is where it belongs: the three
+        answer "who is here", "who is named as a set", and "what did I hand
+        out one note at a time" in widening order.
+      */}
+      {show("groups") ? (
+        <GroupsPanel
+          view={data.groups}
+          members={data.members.members}
+          slug={current?.slug.replace(/^@/, "") ?? ""}
+        />
+      ) : null}
+
       {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
 
       {/*
@@ -370,7 +390,7 @@ export function SettingsPane({
         {settingsSectionLabel("advanced")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        Audit trail and key export. Most people never need this.
+        Background folder moves, audit trail, and key export. Most people never need this.
       </Text>
       <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>

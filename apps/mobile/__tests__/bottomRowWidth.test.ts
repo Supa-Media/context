@@ -666,7 +666,7 @@ describe("the console's own bottom row", () => {
       "bottom-bar-forward",
       "bottom-bar-search",
       "bottom-bar-new",
-      "bottom-bar-tabs",
+      "bottom-bar-recent",
       "bottom-bar-save",
       "bottom-bar-separator",
       "bottom-bar-meeting",

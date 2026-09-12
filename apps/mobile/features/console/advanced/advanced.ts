@@ -1,11 +1,11 @@
 /**
- * Advanced: this context's audit trail, and the key export that keeps
+ * Advanced: background storage work, this context's audit trail, and the key export that keeps
  * encryption honest about `CLAUDE.md`'s first non-negotiable.
  *
  * "Advanced" is kept as the word on purpose, for the reason it was chosen: it
  * reliably means "not for me" to most people, which is right for a section
- * whose two rows are a raw activity log and a control that hands somebody
- * AES key material in the clear.
+ * whose rows expose operational detail, a raw activity log, and a control that
+ * hands somebody AES key material in the clear.
  *
  * Pure and React-free, like `members.ts` and `shares.ts`.
  */
@@ -302,10 +302,60 @@ export function describeKeyExportFailure(error: unknown): KeyExportFailure {
 }
 
 export interface AdvancedView {
+  moves: DurableMoveView;
   audit: AuditView;
   /**
    * Absent where the server would refuse it — a non-owner, no context
    * selected, and the demo. See `KeyExportAction`.
    */
   keyExport?: KeyExportAction;
+}
+
+export interface DurableMoveJob {
+  jobId: string;
+  status: "queued" | "running" | "complete" | "failed";
+  phase?: "copying" | "deleting";
+  completed?: number;
+  total?: number;
+  updatedAt: number;
+}
+
+export interface DurableMoveView {
+  jobs: DurableMoveJob[];
+  loading: boolean;
+  failure: ConsoleFailure | null;
+  readOnlyReason?: string;
+}
+
+/** One short, path-free sentence for a background folder move. */
+export function describeMoveProgress(job: DurableMoveJob): {
+  headline: string;
+  detail: string;
+} {
+  if (job.status === "complete") {
+    return { headline: "Large folder move complete", detail: "Physical storage is in sync." };
+  }
+  if (job.status === "failed") {
+    return {
+      headline: "Large folder move paused",
+      detail: "Paused safely; try the move again when storage is reachable.",
+    };
+  }
+  if (
+    job.phase !== undefined &&
+    job.completed !== undefined &&
+    job.total !== undefined &&
+    job.total > 0
+  ) {
+    const percent = Math.min(99, Math.floor((job.completed / job.total) * 100));
+    const phase = job.phase === "copying" ? "Copying safely" : "Cleaning up the original";
+    return {
+      headline: "Moving a large folder",
+      detail: `${phase} · ${job.completed} of ${job.total} · ${percent}%`,
+    };
+  }
+  return {
+    headline: "Moving a large folder",
+    detail: job.status === "queued" ? "Waiting to start" : "Preparing safely",
+  };
 }

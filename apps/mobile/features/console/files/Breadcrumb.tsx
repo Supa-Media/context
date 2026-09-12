@@ -5,14 +5,15 @@ import {
   useWindowDimensions,
   type StyleProp,
   type TextStyle,
+  type ViewStyle,
 } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { CHAR_WIDTH_PX, crumbsFor, type Crumb } from "./crumbs";
-import type { Visibility } from "./types";
+import { crumbsFor, type Crumb } from "./crumbs";
+import { isGroupVisibility, type Visibility } from "./types";
 
 /**
  * Where the open note lives, and who can see it.
@@ -74,8 +75,7 @@ import type { Visibility } from "./types";
  *
  * - **The leaf, and the folders, and nothing else.** This is a *position*: the
  *   line answers "where am I" completely, or it does not answer it. See the
- *   header for what deleting the leaf cost, and `crumbs.ts` for the cap that
- *   keeps a deep path a bounded row rather than one that grows with the tree.
+ *   header for what deleting the leaf cost.
  * - **No visibility chip.** A note carries it as a Properties row and a folder
  *   states it in a sentence directly beneath. Both are fuller than the brief
  *   chip, and both are already on screen.
@@ -101,66 +101,26 @@ import type { Visibility } from "./types";
  * unchanged — **no label is ever shortened**, the row gets longer, the scroll
  * absorbs it.
  *
- * What the row cannot absorb is **depth**, and that is a different question the
- * same rule was answering badly. The segment that scrolls off the trailing edge
- * is the leaf, which is the one this line exists to state. So `crumbs.ts` caps
- * the **count** at `MAX_FOLDER_CRUMBS` and elides the middle to `…`; every
- * label that is drawn is drawn whole. The cap bounds the row rather than
- * guaranteeing a fit — names are the customer's, so no count is a width, and
- * `crumbs.ts` records what was measured at 390pt and what it actually buys.
+ * **What the row used to be unable to absorb was depth, and that expired.**
+ * The segment that scrolls off the trailing edge can be the leaf, and for a
+ * while that was answered by capping the folder count and eliding the middle
+ * to `…` — `crumbs.ts` carried `MAX_FOLDER_CRUMBS`, and a caller that needed
+ * the leaf's fit *guaranteed* rather than merely bounded passed it a character
+ * budget (`phoneRowBudget`, once below this comment). Both are gone: the row
+ * is already a `ScrollView`, so it answers "what fits" for free, correctly, at
+ * every width and every font size — a question the elision was only ever
+ * approximating. `crumbs.ts`'s header has the fuller argument and
+ * `docs/decisions/app-and-console.md`'s "Two, not three" and "A count cannot
+ * guarantee a fit" record what this supersedes and why it is not a reversal:
+ * every segment is reachable now, where a cap only kept two of them so.
  *
  * The scroller is one level up because the context button scrolls **with** these
  * segments: they are one line, and a button that stayed still while its own path
- * slid out from under it is two controls pretending to be one.
+ * slid out from under it is two controls pretending to be one. It starts at its
+ * leading edge — the pill and the ancestors nearest it — because the leaf is
+ * already stated a line below, as the note's own inline title; a control you
+ * cannot reach is worse than a fact you may have to scroll to.
  */
-/**
- * The characters `crumbsFor` may spend on the phone's row, given the screen
- * it is drawn on and the pill in front of it.
- *
- * A pixel budget rather than a character one is what the screen actually
- * offers, so this is the one place that converts — everything downstream of
- * it, in `crumbs.ts`, is plain arithmetic on a number of characters and has no
- * idea a screen exists. Every constant here is an estimate of a real style
- * elsewhere, kept in points and named for what it stands for rather than
- * folded into one guess, so the next person to retune it can tell which piece
- * moved:
- *
- * - **The band's own margin**, `layout.readingMargin` on both sides —
- *   `NavBand`'s `gutter` prop, which is what `BrowsePane` passes it.
- * - **The trailing fade**, 24pt — `NavBand`'s own number for the same falloff,
- *   duplicated with a comment rather than imported because it is a decoration
- *   this module has no other reason to depend on.
- * - **The pill**, estimated rather than measured: `space.x2` of padding on
- *   each side, the 6pt gap before its label, an 8pt dot, and the label itself
- *   at `wsSwitch`'s 13px body face. Body glyphs run wider than the row's own
- *   11px monospace, so this is deliberately generous — a budget that assumes
- *   a bigger pill than the real one leaves the row *more* room than it has,
- *   which is the wrong direction to be wrong in. Erring the other way here
- *   would spend characters `crumbs.ts` does not actually have.
- * - **A flat safety margin**, `SLACK_PX`. `breadcrumb-shots.ts` photographed
- *   this against the real font before that constant existed and the leaf was
- *   still fading out under `NavBand`'s gradient — every other number here was
- *   individually a fair estimate, and the row still ran 18pt over, which is
- *   what a flex row's own gaps cost between segments and none of these
- *   estimates were charged for. The margin is what stops the next rounding
- *   error from being a fade nobody sees coming; `crumbs.ts`'s `SEPARATOR_CHARS`
- *   is the corresponding correction on the *characters* side of the divide.
- *
- * Conservative is the only direction this is allowed to be wrong in: the
- * whole point is that the leaf fits, so a number that overestimates the room
- * available is the one defect this function must never have. `CHAR_WIDTH_PX`
- * carries the same bias for the row's own glyphs. `breadcrumb-shots.ts` is
- * where this gets checked against a real browser rather than arithmetic.
- */
-function phoneRowBudget(windowWidthPx: number, contextLabel: string): { chars: number } {
-  const gutterPx = layout.readingMargin * 2;
-  const fadePx = 24;
-  const pillChromePx = space.x2 * 2 + 6 + 8;
-  const pillLabelPx = contextLabel.length * 7.5; // ~13px body glyph, generously
-  const slackPx = 12;
-  const availablePx = windowWidthPx - gutterPx - fadePx - pillChromePx - pillLabelPx - slackPx;
-  return { chars: Math.max(0, Math.floor(availablePx / CHAR_WIDTH_PX)) };
-}
 
 export function Breadcrumb({
   path,
@@ -204,9 +164,8 @@ export function Breadcrumb({
    * Draw the path and nothing else — see the header. The phone's shape.
    *
    * The whole path — every ancestor **and** the place itself, whichever kind
-   * it names — capped in the middle at `MAX_FOLDER_CRUMBS` so the leaf is on
-   * screen without scrolling. What it drops is the context segment and the
-   * visibility chip, both of which the surfaces around it already carry.
+   * it names. What it drops is the context segment and the visibility chip,
+   * both of which the surfaces around it already carry.
    */
   pathOnly?: boolean;
 }) {
@@ -214,25 +173,13 @@ export function Breadcrumb({
   const windowWidth = useWindowDimensions().width;
   const compact = densityFor(windowWidth) === "compact";
   /*
-    The whole path, leaf included, and capped only where the width demands it.
-
-    `pathOnly` is the phone: a context pill, then this, on a 390pt row that
-    scrolls. `MAX_FOLDER_CRUMBS` keeps the leaf reachable without dragging —
-    see `crumbs.ts` for why scrolling is not an answer for the one segment that
-    says where you are. The pointer layout asks for no cap: it has the width for
-    the whole path and a visibility chip beside it.
-
-    A cap **bounds** the row; it does not fit it — a scroll is still how a long
-    but ordinary path is read. `budget` is the difference: on a phone the leaf's
-    fit is not left to a scroll and a fade, it is guaranteed, so it is passed
-    only here. `phoneRowBudget` turns the screen this is actually drawn on into
-    the characters `crumbsFor` spends.
+    The whole path, leaf included, on both densities. `pathOnly` is the phone:
+    a context pill, then this, on a `ScrollView` row — see the header for why
+    that scroller is the answer to "does the leaf fit" rather than a folder
+    count or a character budget. The pointer layout draws the same crumbs
+    beside a visibility chip it has the width for.
   */
-  const crumbs = crumbsFor(path, {
-    title,
-    maxFolders: pathOnly === true ? undefined : null,
-    budget: pathOnly === true ? phoneRowBudget(windowWidth, contextLabel) : null,
-  });
+  const crumbs = crumbsFor(path, { title });
 
   if (pathOnly === true) {
     /*
@@ -243,8 +190,8 @@ export function Breadcrumb({
     if (crumbs.length === 0) return null;
     return (
       <>
-        {crumbs.map((crumb, index) => (
-          <Fragment key={keyFor(crumb, index)}>
+        {crumbs.map((crumb) => (
+          <Fragment key={keyFor(crumb)}>
             {/*
               A separator in front of every crumb, the first included — because
               the thing to its left is the context button, and `@seyi 1-projects`
@@ -259,9 +206,16 @@ export function Breadcrumb({
                 The leaf is the only thing on a phone naming what is open once
                 the document has scrolled, so it carries the weight — and the
                 body face when it is a *title* somebody wrote rather than a file
-                name. See `leafText`.
+                name. See `Segment`'s own `titled` prop, below.
               */
               leafStyle={styles.pathLeaf}
+              /*
+                `NavBand`'s row is already `layout.minTouchTarget` tall —
+                `CurrentContextPill`'s own target holds it there — so growing a
+                folder segment's pressable to match costs nothing visible here.
+                See `segmentTouch` and `Segment`'s own `folderStyle` prop.
+              */
+              folderStyle={styles.segmentTouch}
               titled={title !== undefined}
             />
           </Fragment>
@@ -279,7 +233,7 @@ export function Breadcrumb({
       )}
 
       {crumbs.map((crumb, index) => (
-        <Fragment key={keyFor(crumb, index)}>
+        <Fragment key={keyFor(crumb)}>
           {/*
             A separator joins two things. With the context segment dropped at
             `compact` there is nothing to the left of the first crumb, and an
@@ -306,7 +260,9 @@ export function Breadcrumb({
             ? styles.chipGenerated
             : visibility === "team"
               ? styles.chipTeam
-              : styles.chipPrivate,
+              : isGroupVisibility(visibility)
+                ? styles.chipGroup
+                : styles.chipPrivate,
         ]}
       >
         <Text
@@ -316,7 +272,9 @@ export function Breadcrumb({
               ? styles.chipGeneratedLabel
               : visibility === "team"
                 ? styles.chipTeamLabel
-                : styles.chipPrivateLabel,
+                : isGroupVisibility(visibility)
+                  ? styles.chipGroupLabel
+                  : styles.chipPrivateLabel,
           ]}
         >
           {describe({ visibility, inherited, exception, readOnly, brief: compact })}
@@ -327,13 +285,11 @@ export function Breadcrumb({
 }
 
 /**
- * A React key that survives elision.
- *
- * The folder path is unique and stable, and the gap has no path of its own —
- * it stands for several — so it is keyed by position. There is at most one.
+ * A React key. The path is unique and stable, so there is no need for the
+ * index this once fell back to for a gap that stood for several at once.
  */
-function keyFor(crumb: Crumb, index: number): string {
-  return crumb.kind === "gap" ? `gap-${index}` : `${crumb.kind}:${crumb.path}`;
+function keyFor(crumb: Crumb): string {
+  return `${crumb.kind}:${crumb.path}`;
 }
 
 /**
@@ -341,43 +297,36 @@ function keyFor(crumb: Crumb, index: number): string {
  *
  * A folder is a control — pressing it lists that folder, which is what a
  * breadcrumb is *for*; a path you can only read is a label. The leaf is not:
- * pressing it would re-select what is already open. The gap is neither, and
- * says out loud which folders it stands for so a screen reader is not handed a
- * bare ellipsis.
+ * pressing it would re-select what is already open.
  */
 function Segment({
   crumb,
   onSelectFolder,
   leafStyle,
+  folderStyle,
   titled,
 }: {
   crumb: Crumb;
   onSelectFolder?: (folder: string) => void;
   leafStyle: StyleProp<TextStyle>;
-  /** Whether the leaf's label is a title somebody wrote. See `leafText`. */
+  /**
+   * Extra layout on top of `segment`, for the caller that needs the folder
+   * pressable's own box grown past what it draws — see `pathOnly`'s
+   * `segmentTouch` below. `undefined` everywhere else: the pointer bar's row
+   * is not `minTouchTarget` tall the way `NavBand`'s already is, so growing
+   * its folder segments to the floor would grow the *row*, not just the
+   * target — a visible regression this file has no reason to ship on a
+   * surface a mouse, not a thumb, presses.
+   */
+  folderStyle?: StyleProp<ViewStyle>;
+  /**
+   * Whether the leaf's label is a title somebody wrote rather than the note's
+   * filename — decides the body face below, where `crumb.kind === "leaf"` is
+   * drawn.
+   */
   titled: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
-
-  if (crumb.kind === "gap") {
-    return (
-      <Text
-        variant="mono"
-        style={styles.folder}
-        /*
-          Not `aria-hidden`. It is standing in for real folders and a reader
-          that skipped it would be told a path that is missing its middle with
-          nothing marking the join.
-        */
-        accessibilityLabel={`${crumb.hidden.length} more ${
-          crumb.hidden.length === 1 ? "folder" : "folders"
-        }: ${crumb.hidden.join(", ")}`}
-        testID="breadcrumb-gap"
-      >
-        …
-      </Text>
-    );
-  }
 
   if (crumb.kind === "leaf") {
     return (
@@ -392,14 +341,6 @@ function Segment({
         style={leafStyle}
         numberOfLines={1}
         testID="breadcrumb-leaf"
-        /*
-          Only set when a width budget shortened the label — a screen reader
-          gets the whole name, which the screen itself no longer has room for.
-          `undefined` rather than always passing `crumb.label` twice: a real
-          `accessibilityLabel` on a plain word is a second thing that can drift
-          from the visible one.
-        */
-        accessibilityLabel={crumb.fullLabel}
       >
         {crumb.label}
       </Text>
@@ -411,7 +352,7 @@ function Segment({
       accessibilityLabel={`Open ${crumb.path}`}
       onPress={() => onSelectFolder?.(crumb.path)}
       radius={radii.xs}
-      style={styles.segment}
+      style={[styles.segment, folderStyle]}
       hoverStyle={styles.segmentHover}
       testID={`breadcrumb-folder-${crumb.path}`}
     >
@@ -503,7 +444,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * `barCompact` reserves height for a `Button` because the full line used to
    * hold Share; there is no button here — the phone's actions are in the top
    * bar's group — so the row is type on both counts and the floor comes off.
-   * The touch targets are the segments' own, widened by `segment`.
+   * The touch targets are the segments' own, widened by `segmentTouch`.
    *
    * **And no horizontal padding**: `NavBand` pays it for both of its rows, so
    * the pills above this line and the segments on it start at the same
@@ -513,7 +454,49 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   barPath: { paddingTop: 0, paddingBottom: space.x2, paddingHorizontal: 0, minHeight: 0 },
   context: { color: colors.text2, fontSize: 11 },
   separator: { color: colors.heroDim, fontSize: 11 },
+  /**
+   * The folder segment's own visual box — `layout.crumbSegmentHeight` tall (an
+   * 11px mono label inside 1pt of vertical padding, 22.15pt), on **every**
+   * density. `segmentTouch`, below, is what a caller adds on top of this for
+   * the one row that can afford to grow the pressable to the touch floor.
+   */
   segment: { paddingHorizontal: 3, paddingVertical: 1, borderRadius: radii.xs },
+  /**
+   * What `NavBand`'s `pathOnly` row adds to `segment`, via `Segment`'s own
+   * `folderStyle` prop — `minHeight: layout.minTouchTarget`, centred, so the
+   * drawn label sits exactly where it did before.
+   *
+   * **This used to be `hitSlop`, and it stopped being that.** `hitSlop` is a
+   * `Pressable` prop, and react-native-web's `View` drops it from what it
+   * forwards to the DOM before it ever reaches an element the platform hit-tests
+   * against — checked live in a real Chromium build of this page:
+   * `document.elementFromPoint` a few pixels above a folder segment's visible
+   * box returned the row's plain container, never the segment, at every offset
+   * up to the box's own edge. `hitSlop` was real on native and a no-op on the
+   * one build this product actually ships to phones as — see
+   * `features/design/components/Menu.web.tsx`'s own header. `explorerRowSlop`
+   * (`FolderView.tsx`) has the identical hole and is not fixed here; this file
+   * only owns the breadcrumb.
+   *
+   * `minHeight` is a real layout property on both platforms, so hit-testing
+   * (native and web) is against the pressable's own actual box rather than a
+   * platform-specific extension of it — no asterisk. **It does not grow
+   * `NavBand`'s row**: `CurrentContextPill`'s own target (`ContextStrip.tsx`)
+   * is already `minTouchTarget` tall, so the row's cross-axis size — the
+   * tallest child of an `alignItems: "center"` flex row — was 44 before this
+   * segment ever grew to match it; this only stops being the one child
+   * shorter than the row it sits in.
+   *
+   * **Scoped to `pathOnly` on purpose** — checked live, the other way round,
+   * against the pointer bar's own row (`bar`/`barCompact`, below): that row is
+   * *not* already 44 tall, so an earlier version of this fix applied
+   * `minHeight` to `segment` itself and grew the pointer breadcrumb from
+   * 22.15pt to 44pt — a real, visible regression on a surface a mouse, not a
+   * thumb, presses, and one neither this PR nor the codebase before it ever
+   * shipped. `Segment`'s `folderStyle` prop is what keeps that row out of
+   * reach of this style.
+   */
+  segmentTouch: { minHeight: layout.minTouchTarget, justifyContent: "center" },
   segmentHover: { backgroundColor: colors.surface3 },
   folder: { color: colors.muted, fontSize: 11 },
   leaf: { color: colors.text, fontSize: 11 },
@@ -551,6 +534,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   chipTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
   chipTeamLabel: { color: colors.okText },
   chipPrivate: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
+  /*
+    A third tone, because the text beside it already names a group and a chip
+    wearing the private colour would argue with its own label. The violet is the
+    one this palette defines as "somebody else's access".
+  */
+  chipGroup: { backgroundColor: colors.sharedWash, borderColor: colors.sharedText },
+  chipGroupLabel: { color: colors.sharedText },
   chipPrivateLabel: { color: colors.text2 },
   chipGenerated: { backgroundColor: "transparent", borderColor: colors.line },
   chipGeneratedLabel: { color: colors.muted },

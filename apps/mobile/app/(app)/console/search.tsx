@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { SearchPane } from "../../../features/console/search/SearchPane";
-import { searchFromQuery, searchHref } from "../../../features/console/nav";
+import { CONSOLE_ROOT, searchFromQuery, searchHref } from "../../../features/console/nav";
 
 /**
  * `/console/search?q=review%20cycle&in=seyi,lk` — one search, every context.
@@ -34,6 +34,9 @@ export default function SearchRoute() {
     [router, query],
   );
   const onOpen = useCallback((href: string) => router.push(href), [router]);
+  // The way out, and deliberately not `router.back()` — see `SearchPane`'s
+  // `onClose` for why, and for why the page needs one drawn at all.
+  const onClose = useCallback(() => router.replace(CONSOLE_ROOT), [router]);
 
   return (
     <SearchPane
@@ -42,6 +45,7 @@ export default function SearchRoute() {
       onQuery={onQuery}
       onScope={onScope}
       onOpen={onOpen}
+      onClose={onClose}
     />
   );
 }

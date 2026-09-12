@@ -29,6 +29,9 @@ import { itemsFor, type MenuActionId } from "./menu";
 import { baseName, parentPath, restoreTargetFor } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
+import type { AccessMember, AccessRow, RemovalRoute } from "./access";
+import type { RecipientGroup } from "./recipients";
+import { isGroupVisibility } from "./types";
 import type { Visibility } from "./types";
 
 /**
@@ -91,8 +94,41 @@ export function Explorer({
   contextLabel,
   onOpenPinned,
   onOverlayChange,
+  access,
 }: {
   files: FileBrowser;
+  /** Handed straight to the share dialog. See `ExplorerDialogs`. */
+  access?: {
+    members: readonly AccessMember[];
+    groups?: readonly RecipientGroup[];
+    onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
+  };
   /** "@seyi" — named in the empty state so it is obvious whose tree this is. */
   contextLabel: string;
   /**
@@ -353,7 +389,17 @@ export function Explorer({
           // rather than writing a redundant line — see `setVisibility` in
           // `functions/lib/fileOps.ts`. So "follow folder" is expressible with
           // the interface as it stands, and there is nothing to add.
-          files.setVisibility(path, kind, inheritedOf(files, path));
+          {
+            // A folder whose rule names a group has no "follow" this control
+            // can express: `setVisibility` takes the two tiers, and writing
+            // `private` or `team` here would change what the note reaches
+            // rather than make it follow. Doing nothing is the honest answer
+            // until the group controls land.
+            const inherited = inheritedOf(files, path);
+            if (inherited === "private" || inherited === "team") {
+              files.setVisibility(path, kind, inherited);
+            }
+          }
           return;
         case "visibility":
           // The submenu's parent. It opens a submenu and dispatches nothing;
@@ -628,7 +674,12 @@ export function Explorer({
         />
       ) : null}
 
-      <ExplorerDialogs files={files} dialog={dialog} onClose={() => setDialog(null)} />
+      <ExplorerDialogs
+        files={files}
+        dialog={dialog}
+        onClose={() => setDialog(null)}
+        access={access}
+      />
     </View>
   );
 }
@@ -668,10 +719,52 @@ export function ExplorerDialogs({
   files,
   dialog,
   onClose,
+  access,
 }: {
   files: FileBrowser;
   dialog: Dialog;
   onClose: () => void;
+  /**
+   * What the share dialog needs to list who can read a note, and to offer
+   * groups as you type.
+   *
+   * Passed in rather than subscribed here: the console holds one membership
+   * and one groups subscription, and a second of either in this component
+   * would make every Explorer render test reach for a Convex provider it does
+   * not have. Optional, so a caller that has neither draws the dialog without
+   * them — which is what it did before this existed.
+   */
+  access?: {
+    members: readonly AccessMember[];
+    groups?: readonly RecipientGroup[];
+    onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * What a row in the people list can do about somebody, for one path.
+     *
+     * A factory rather than a handler, because narrowing a note names the
+     * note and this component is rendered once for a tree with many. Returns
+     * `undefined` for a caller that can do none of it — see `removalHandler`
+     * — and the dialog then draws roles rather than controls.
+     */
+    removalRouteFor?: (
+      path: string,
+      /** Decides which visibility mutation the narrow route means. */
+      kind: "file" | "folder",
+    ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
+    /** The workspace's slug, for showing the name a new group's label becomes. */
+    groupSlug?: string;
+    /**
+     * Make a group and point this path at it. Owner-only upstream.
+     *
+     * Answers, so the sheet can show a refusal from the control plane where
+     * the person can read it — the notice line sits behind the modal.
+     */
+    onCreateGroup?: (
+      path: string,
+      label: string,
+      userIds: readonly string[],
+    ) => Promise<unknown>;
+  };
 }) {
   if (dialog === null) return null;
 
@@ -773,6 +866,55 @@ export function ExplorerDialogs({
           // the first one makes them reopen it to check it worked — which is
           // also the moment they share it twice.
           onClose={onClose}
+          /*
+            The same two things Browse passes. The entry is looked up here
+            rather than threaded through `Dialog`, because the listing is the
+            authority on what this note currently reads as and the dialog is
+            opened from several places.
+          */
+          access={
+            access === undefined
+              ? undefined
+              : {
+                  visibility: findEntry(files.listings, dialog.path)?.visibility ?? "private",
+                  exception: findEntry(files.listings, dialog.path)?.exception ?? false,
+                  members: access.members,
+                }
+          }
+          groups={access?.groups}
+          /*
+            The audience control, wired straight from the browser rather than
+            threaded through `access`: `setScope` is already the single point
+            every surface goes through — its group guard lives there — and this
+            component holds `files` anyway. Owner-only, absent otherwise.
+          */
+          entryKind={findEntry(files.listings, dialog.path)?.kind ?? "file"}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) =>
+                  files.setScope(
+                    dialog.path,
+                    findEntry(files.listings, dialog.path)?.kind ?? "file",
+                    from,
+                    to,
+                  )
+              : undefined
+          }
+          onRemovalRoute={access?.removalRouteFor?.(
+            dialog.path,
+            findEntry(files.listings, dialog.path)?.kind ?? "file",
+          )}
+          groupSlug={access?.groupSlug}
+          onCreateGroup={
+            access?.onCreateGroup === undefined
+              ? undefined
+              : (label, userIds) => access.onCreateGroup!(dialog.path, label, userIds)
+          }
+          onShareWithGroup={
+            access?.onShareWithGroup === undefined
+              ? undefined
+              : (group) => access.onShareWithGroup!(dialog.path, group)
+          }
         />
       );
     case "archive":
@@ -846,6 +988,11 @@ function IconButton({
 function cycleVisibility(files: FileBrowser, row: TreeRow): void {
   if (row.readOnly) return;
   const current = row.marker ?? inheritedOf(files, row.path);
+  // There is no next position to cycle to from a group rule, and the one this
+  // would have picked is `team` — the single press that publishes it.
+  // `setVisibility` refuses this too; returning here keeps the control from
+  // producing a notice for a press that could never have been meaningful.
+  if (isGroupVisibility(current)) return;
   files.setVisibility(
     row.path,
     row.kind === "folder" ? "folder" : "file",

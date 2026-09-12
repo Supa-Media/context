@@ -13,6 +13,7 @@ import {
   auditActionLabel,
   auditActorLabel,
   describeKeyExportFailure,
+  describeMoveProgress,
   type AdvancedView,
   type AuditView,
   type KeyExportAction,
@@ -45,6 +46,48 @@ export function AdvancedPanel({
   const styles = useThemedStyles(makeStyles);
   return (
     <View>
+      <Text variant="rowTitle" style={styles.subHead}>
+        Folder moves
+      </Text>
+      <Text variant="rowSub" style={styles.subSub}>
+        Large moves continue safely in the background, even if you close the app.
+      </Text>
+      {view.moves.failure ? (
+        <FormError
+          headline={view.moves.failure.headline}
+          next={[view.moves.failure.next, view.moves.failure.detail].filter(Boolean).join(" ")}
+        />
+      ) : (
+        <Card>
+          {view.moves.jobs.length === 0 ? (
+            <Row divided>
+              <Grow>
+                <Text variant="rowSub">
+                  {view.moves.loading
+                    ? "Loading…"
+                    : (view.moves.readOnlyReason ?? "No large folder moves are running.")}
+                </Text>
+              </Grow>
+            </Row>
+          ) : null}
+          {view.moves.jobs.map((job) => {
+            const words = describeMoveProgress(job);
+            return (
+              <View key={job.jobId} testID="durable-move-progress">
+                <Row divided>
+                  <Grow>
+                    <Text variant="rowTitle">{words.headline}</Text>
+                    <Text variant="rowSub" style={styles.rowSub}>
+                      {words.detail}
+                    </Text>
+                  </Grow>
+                </Row>
+              </View>
+            );
+          })}
+        </Card>
+      )}
+
       <Text variant="rowTitle" style={styles.subHead}>
         Audit trail
       </Text>

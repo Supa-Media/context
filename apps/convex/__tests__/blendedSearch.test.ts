@@ -345,9 +345,18 @@ async function switchFastSearchOn(
   optedInBy: Id<"users">,
 ): Promise<void> {
   const now = Date.now();
-  await t.run((ctx) =>
-    ctx.db.insert("searchIndexes", {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspacePlans", {
       workspaceId,
+      managedStorage: false,
+      fastSearch: true,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("searchIndexes", {
+      workspaceId,
+      generation: "premium-v1",
       optedIn: true,
       optedInBy,
       optedInAt: now,
@@ -362,8 +371,8 @@ async function switchFastSearchOn(
       databaseName: "context-search-example",
       createdAt: now,
       updatedAt: now,
-    }),
-  );
+    });
+  });
 }
 
 /** Build the R2 shard index until it converges, so a search has one to read. */
@@ -437,7 +446,7 @@ describe("the blended search, across contexts", () => {
       expect(row.path).toContain("plan.md");
     }
     expect(answer.sources.map((row) => row.state)).toEqual(["ok", "ok"]);
-    expect(answer.eligibleCount).toBe(2);
+    expect(answer.searchableCount).toBe(2);
   });
 
   test("a context the caller is not in is never searched and never named", async () => {
@@ -469,15 +478,15 @@ describe("the blended search, across contexts", () => {
       query: SHARED_WORD,
       contexts: [],
     });
-    // `contexts: []` means "every eligible context", which for Alice is her
-    // own — so the comparison that matters is against a scope of ids she
+    // `contexts: []` means "every context she can search", which for Alice is
+    // her own — so the comparison that matters is against a scope of ids she
     // cannot use, which must come back empty rather than as an error.
     expect(theirs.results).toEqual([]);
     expect(theirs.sources).toEqual([]);
     expect(theirs.matchCount).toBe(0);
     // And the state that tells the page which sentence to draw is intact: she
-    // *has* an eligible context, she just did not select it.
-    expect(theirs.eligibleCount).toBe(1);
+    // *has* a context she could search, she just did not select it.
+    expect(theirs.searchableCount).toBe(1);
     expect(nowhere.results.length).toBeGreaterThan(0);
   });
 
@@ -529,7 +538,7 @@ describe("the blended search, across contexts", () => {
     expect(asBob.matchCount).toBe(1);
   });
 
-  test("a context whose fast search is off is not searched, and the page is told why", async () => {
+  test("a context whose fast search is off is still searched, from its own bucket", async () => {
     const f = await twoTenants();
     await f.t.run(async (ctx) => {
       const row = await ctx.db
@@ -542,15 +551,34 @@ describe("the blended search, across contexts", () => {
     const answer = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
       query: SHARED_WORD,
     });
-    // Zero eligible contexts is its own sentence on screen. An empty result
-    // list with `eligibleCount: 0` says "nothing looked"; the same list with a
-    // positive count says "nothing matched", and they are not the same claim.
-    expect(answer.results).toEqual([]);
-    expect(answer.eligibleCount).toBe(0);
-    expect(answer.sources).toEqual([]);
+    // THE REGRESSION THIS FILE EXISTS TO HOLD DOWN. This page used to answer a
+    // person with four contexts and a question with "no context you can reach
+    // has fast search switched on, so nothing was searched" — a dead end built
+    // out of a performance budget. `lib/fastSearch.ts` has always said what off
+    // means: "the existing R2 shard index serves the search, exactly as it does
+    // today… the fast path is an upgrade, and its absence is the product as it
+    // already is."
+    expect(answer.results.length).toBeGreaterThan(0);
+    expect(answer.searchableCount).toBe(1);
+    expect(answer.sources.map((row) => row.slug)).toEqual(["alice-context"]);
+
+    // And the scope says how it was answered, which is what the page's upsell
+    // is built from — never by dropping the context out of the list.
+    const scope = await asUser(f.t, f.alice).query(
+      api.functions.fastSearch.searchableContexts,
+      {},
+    );
+    expect(scope.contexts).toEqual([
+      expect.objectContaining({
+        slug: "alice-context",
+        search: "slow",
+        fastSearch: "off",
+        owner: true,
+      }),
+    ]);
   });
 
-  test("a context still filling its index is not searched either", async () => {
+  test("a context still filling its index is searched too, and says it is preparing", async () => {
     const f = await twoTenants();
     await f.t.run(async (ctx) => {
       const row = await ctx.db
@@ -563,22 +591,27 @@ describe("the blended search, across contexts", () => {
     const answer = await asUser(f.t, f.alice).action(api.functions.files.searchContexts, {
       query: SHARED_WORD,
     });
-    // `backfilling` is a database that exists and is not finished, which is the
-    // one state that would answer a query about a note it has not copied with
-    // a silence this page would render as "nothing here". `ready` is the only
-    // acceptable state and the guard is `!== "ready"` rather than `!== null`.
-    expect(answer.eligibleCount).toBe(0);
-    expect(answer.results).toEqual([]);
+    // `backfilling` used to be excluded, on the argument that a half-copied
+    // database answers a query about a note it has not copied with a silence
+    // this page would render as "nothing here". The silence was never real:
+    // the gateway's projection reader treats a miss as a reason to go and ask
+    // the R2 index the expensive way, and "only a *hit* short-circuits" — so a
+    // half-built index cannot lose a result the slow path would have found. It
+    // can only be slower, which is a sentence on the page, not a reason to
+    // leave somebody's context out of their own search.
+    expect(answer.searchableCount).toBe(1);
+    expect(answer.results.length).toBeGreaterThan(0);
     const scope = await asUser(f.t, f.alice).query(
       api.functions.fastSearch.searchableContexts,
       {},
     );
-    expect(scope.eligible).toEqual([]);
-    // Not merely dropped from the eligible list: it is a context this owner
-    // could act on, and the nudge is what tells them so — see below for the
-    // wording per state, this asserts only the state and the ownership.
-    expect(scope.notEligible).toEqual([
-      expect.objectContaining({ slug: "alice-context", owner: true, state: "preparing" }),
+    expect(scope.contexts).toEqual([
+      expect.objectContaining({
+        slug: "alice-context",
+        search: "slow",
+        fastSearch: "preparing",
+        owner: true,
+      }),
     ]);
   });
 
@@ -615,19 +648,19 @@ describe("the blended search, across contexts", () => {
     // A chip the fan-out would refuse is a control that does nothing, and a
     // context the fan-out searches without a chip is a scope nobody can turn
     // off. Both are the same equality.
-    expect(scope.eligible.map((row) => row.workspaceId).sort()).toEqual(
+    expect(scope.contexts.map((row) => row.workspaceId).sort()).toEqual(
       answer.sources.map((row) => row.workspaceId).sort(),
     );
     // And it names only contexts this caller belongs to.
-    expect(scope.eligible.map((row) => row.slug).sort()).toEqual([
+    expect(scope.contexts.map((row) => row.slug).sort()).toEqual([
       "alice-context",
       "bob-context",
     ]);
-    // Both are ready, so there is nothing left to nudge about.
-    expect(scope.notEligible).toEqual([]);
+    // Both are serving, so both are searched the fast way.
+    expect(scope.contexts.every((row) => row.search === "fast")).toBe(true);
   });
 
-  test("the nudge names a context by ownership, and a member never sees a switch to press", async () => {
+  test("a context off the fast path is in the scope, and says whose decision that is", async () => {
     const f = await twoTenants();
     // Bob turns his off; Alice, a plain member of it, cannot turn it back on.
     await addMember(f.t, f.bobWs, f.alice, "member", f.bob);
@@ -644,22 +677,39 @@ describe("the blended search, across contexts", () => {
       {},
     );
 
-    expect(bobsView.notEligible).toEqual([
-      expect.objectContaining({ slug: "bob-context", owner: true, state: "off" }),
+    // Bob owns it, so the page may offer him the press that changes it.
+    expect(bobsView.contexts).toEqual([
+      expect.objectContaining({
+        slug: "bob-context",
+        search: "slow",
+        fastSearch: "off",
+        owner: true,
+      }),
     ]);
-    expect(alicesView.notEligible).toEqual(
+    // Alice does not, so the page tells her whose decision it is and offers
+    // her nothing to press — a button that reaches a permission error is worse
+    // than no button.
+    expect(alicesView.contexts).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ slug: "bob-context", owner: false, state: "off" }),
+        expect.objectContaining({
+          slug: "bob-context",
+          search: "slow",
+          fastSearch: "off",
+          owner: false,
+        }),
       ]),
     );
-    // Alice still searches her own context; only Bob's dropped out.
-    expect(alicesView.eligible.map((row) => row.slug)).toEqual(["alice-context"]);
+    // And both of her contexts are searched, whatever their state.
+    expect(alicesView.contexts.map((row) => row.slug).sort()).toEqual([
+      "alice-context",
+      "bob-context",
+    ]);
   });
 
-  test("a context this caller is not a member of never appears in the nudge either", async () => {
+  test("a context this caller is not a member of never appears in the scope at all", async () => {
     const f = await twoTenants();
-    // Bob's context is opted out — the shape a nudge would name if it leaked —
-    // and Alice has never been a member of it.
+    // Bob's context is opted out — the shape the upsell would name if it
+    // leaked — and Alice has never been a member of it.
     await asUser(f.t, f.bob).mutation(api.functions.fastSearch.disable, {
       workspaceId: f.bobWs,
     });
@@ -668,11 +718,12 @@ describe("the blended search, across contexts", () => {
       api.functions.fastSearch.searchableContexts,
       {},
     );
-    // Same isolation bar as the search itself: a workspace the caller does not
-    // belong to must not be enumerable through the nudge any more than through
-    // `eligible` or the fan-out — see `searchScopeFor`'s header.
-    expect(scope.notEligible.some((row) => row.slug === "bob-context")).toBe(false);
-    expect(scope.eligible.some((row) => row.slug === "bob-context")).toBe(false);
+    // Same isolation bar as the search itself, and now a single list rather
+    // than two: a workspace the caller does not belong to must not be
+    // enumerable through the scope any more than through the fan-out — see
+    // `searchScopeFor`'s header. Widening the list to every membership is
+    // exactly the change that makes this assertion worth re-reading.
+    expect(scope.contexts.some((row) => row.slug === "bob-context")).toBe(false);
     expect(JSON.stringify(scope)).not.toContain(f.bobWs);
   });
 
@@ -774,7 +825,7 @@ describe("the blended search, across contexts", () => {
       }),
     });
     expect(next.sources.map((row) => row.slug)).toEqual(["alice-context"]);
-    expect(next.eligibleCount).toBe(1);
+    expect(next.searchableCount).toBe(1);
     expect(JSON.stringify(next)).not.toContain(f.bobWs);
     // Not merely absent from the answer — not read. A response that omits what
     // it touched is still a touch.

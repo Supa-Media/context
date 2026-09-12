@@ -19,7 +19,7 @@
  */
 
 import type { IconName } from "../../design/components/Icon";
-import type { Visibility } from "./types";
+import type { SettableVisibility, Visibility } from "./types";
 
 /** The three positions, widest last. */
 export type NoteScope = "private" | "team" | "anyone";
@@ -38,6 +38,11 @@ export type NoteScope = "private" | "team" | "anyone";
  * back is what pressing through to `private` already does.
  */
 export function scopeOf(visibility: Visibility, hasOpenLink: boolean): NoteScope {
+  // A group rule lands here as "private", which is the right POSITION for this
+  // three-way control — it is not team, and the step out of it is a deliberate
+  // widening the owner presses. It is not the right WORD, and this function
+  // does not produce one: `visibilityWord` names the group, and the two must
+  // not be confused. A control position is not a label.
   if (visibility !== "team") return "private";
   return hasOpenLink ? "anyone" : "team";
 }
@@ -102,7 +107,7 @@ export function scopeActionLabel(next: NoteScope): string {
  * detail; see below.
  */
 export type ScopeStep =
-  | { kind: "visibility"; to: Visibility }
+  | { kind: "visibility"; to: SettableVisibility }
   | { kind: "openLink"; on: boolean };
 
 /**
@@ -143,4 +148,47 @@ export function stepsTo(from: NoteScope, to: NoteScope): ScopeStep[] {
     ...(from === "private" ? ([{ kind: "visibility", to: "team" }] as ScopeStep[]) : []),
     { kind: "openLink", on: true },
   ];
+}
+
+/**
+ * What each position is called, and what it costs, in the words the control
+ * prints.
+ *
+ * The icon map above states the rule for an unlabelled 20pt target: it can only
+ * show what is *true*. These are the other half — a named control can afford to
+ * say what a position MEANS, which is the whole reason the audience moved out
+ * of the top bar and into the sheet. A padlock cannot tell you that the next
+ * position needs no account; a row saying so can.
+ *
+ * `detail` is deliberately about who ends up able to read it, never about the
+ * mechanism. "Creates an unlisted share row" is true and answers a question
+ * nobody asked.
+ */
+export const SCOPE_LABELS: Record<NoteScope, { label: string; detail: string }> = {
+  private: {
+    label: "Only me",
+    detail: "Owners of this context. Nobody else, however they reach it.",
+  },
+  team: {
+    label: "Workspace",
+    detail: "Everybody who is a member of this context, and nobody outside it.",
+  },
+  anyone: {
+    label: "Anyone with a link",
+    detail: "No account needed. Anybody holding the link can read it.",
+  },
+};
+
+/**
+ * The sentence somebody has to agree to before a note gets a public link.
+ *
+ * Its own export so the wording is testable and cannot drift from what
+ * `createLinkShare` does — the same reason `describeOpenLink` lives in
+ * `shares.ts`. This is the step the padlock used to take on one unlabelled tap.
+ */
+export function describeGoingPublic(name: string): string {
+  return (
+    `${name} will be readable by anybody who has the link, without signing in — ` +
+    "and so will the notes it links to. You can take the link back at any time."
+  );
 }

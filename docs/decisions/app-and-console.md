@@ -2153,6 +2153,86 @@ note (see **A URL is a context and a note**), so a press that clears `?note=`
 files the context at its root by construction, and the relaunch after it does
 not reopen what was just closed.
 
+**Amendment: the first fix did not hold, because `router.replace` to the same
+screen is a remount, not a no-op.** Everything above is right, `deselect` is
+still the missing verb, and it shipped with `onOpenRoot={() =>
+router.replace(browseHref(current.slug))}` in `_layout.tsx`. On a native
+build the pill still did nothing — reported again, this time filmed on an
+iPhone rather than described from a screenshot.
+
+`router.replace` dispatches a React Navigation `REPLACE` action, and
+`@react-navigation/routers`' `StackRouter` answers every `REPLACE` by calling
+`createRouteFromAction`, which mints a route key from `` `${name}-${nanoid()}` ``
+**unconditionally** — there is no branch that reuses the current key because
+the params did not change. A fresh key remounts whatever that key names, and
+what it names here is `ContextBrowseRoute` — not `_layout`, not
+`ConsoleDataProvider`, not the `FileBrowser` instance underneath it, all of
+which are mounted a layer up and do not move when a child's key changes.
+`useNoteAddress`'s `seen` ref lives on the side that remounts. So the press
+that was supposed to close the note instead: cleared the URL's `?note=`
+(correct), remounted the hook watching it (not requested by anything in the
+fix), reset `seen` to `null`, and handed `nextAddressStep` a "fresh" instance
+holding a leftover selection — which it read as a cold load whose URL simply
+had not caught up yet, and answered `address`, writing the note straight back
+before the closed screen was ever visible. The round trip landed exactly
+where it started, silently, once per press.
+
+Nothing about the first fix's *reasoning* was wrong: `deselect` is still
+exactly the missing verb, and the symmetric rule — a URL that changed is a
+navigation, honoured whichever way it went — is still the right rule for a
+URL that actually needs to *go* somewhere. What was wrong is that the pill's
+press never needed to be a navigation at all: there is no route to leave and
+none to arrive at, only a selection to clear in the browser standing above the
+route. So the call site changed to `onOpenRoot={() => { data.files.deselect();
+}}` — no `router` call, no `REPLACE` action, no remount, no `seen` reset,
+identical on web (where this was never visibly broken; see below) and native.
+`useNoteAddress` sees the selection change under an unchanged URL and takes
+the same "address" step a tapped-closed tab already takes, and the address
+lands one commit later with nothing in between for a remount to corrupt.
+
+Because the *reason* the shipped fix broke — a `seen` reset while the browser
+survives — is a property of `nextAddressStep` and not only of this one call
+site, `noteAddress.ts`'s `fresh` branch no longer trusts the assumption the
+remount violated ("the selection is empty by construction"). It now closes a
+leftover selection instead of re-addressing it, which is provably safe rather
+than merely reasonable: `useFileBrowser` clears `selectedPath` in the same
+commit it adopts a new `contextId`, so a *genuinely* fresh instance can never
+reach that branch holding a non-null selection in the first place — the
+combination is unreachable except through exactly the remount this amendment
+describes. `noteAddress.test.ts`'s "a fresh instance holding a leftover
+selection closes it rather than re-addressing it" pins the new answer, and
+`breadcrumbRoot.test.ts`'s "closes the open note even if the route remounts
+under the press" reproduces the composed bug directly — a route remounted in
+the same commit the URL drops its note — as a standing guard against a future
+call site making the same round trip for the same reason.
+
+**This is not native-only, and the source says so rather than a screenshot
+from the field.** `expo-router`'s `<Slot/>` (`views/Navigator.js`) renders the
+focused route as `descriptors[state.routes[state.index].key].render()`, and
+that `render` — `@react-navigation/core`'s `useDescriptors.js`, one
+implementation, no `.native.js`/`.web.js` split — wraps every screen's element
+in `key: route.key` before handing it back. `StackRouter`'s `REPLACE` handler
+mints that key from `` `${name}-${nanoid()}` `` unconditionally, with no
+branch that reuses the current key when the params it carries are otherwise
+identical. None of this is platform code: it is the same `@react-navigation/
+core` and `@react-navigation/routers` packages under both the native-stack
+view and the web bundle, and React's own reconciliation-by-`key` does not
+special-case a browser. A changed key is a new element on every renderer React
+has. So the remount is not a maybe to be masked by timing — it is a guaranteed
+consequence of calling `router.replace` on this route on **any** platform this
+app ships to, and the symptom it produces (the still-open note, because
+`nextAddressStep` writes it straight back) is not a race either, so there is
+no window in which a faster or slower browser would come out differently.
+
+What is genuinely unverified is only whether anybody happened to *notice*: no
+test in this repository mounts the real `expo-router` navigator against a
+real browser history, and the owner's report came from a native build. Given
+the mechanism, the honest expectation is that a web session pressing the same
+pill hit the identical silent round trip and nobody was looking — not that
+the web platform was ever exempt from it. Treat that absence of a web report
+as absence of evidence, and not as license to reintroduce a `router.replace`
+here on the reasoning that nobody saw it fail in a browser.
+
 #### 2. The path stopped one segment short of where you were
 
 **A phone gets a path bar** (above) argues the leaf away: the note names itself
@@ -2190,6 +2270,21 @@ row that is *bounded* instead of one that grows with the tree, and the segment
 it drops is the middle of the path, which is the part a breadcrumb is least read
 for.
 
+**Superseded, 2026-09-10.** The cap this argues for is gone — `MAX_FOLDER_CRUMBS`,
+the "first, gap, last" reshaping, `crumbs.ts`'s `{ kind: "gap" }` crumb — deleted
+along with the character budget it grew into (§4, below), because the constraint
+both existed to solve was *width*, and width stopped being a constraint the day
+row two of `NavBand` became a horizontal `ScrollView`: the owner's own words,
+once that scroller existed to make the question worth asking again, were "I feel
+like we shouldn't even show `...` ellipses, we should just show the full path but
+allow a horizontal scroll." Removing the cap makes strictly **more** of the path
+reachable than "two, not three" ever kept — every segment is its own pressable
+target now, not only the root and the immediate parent a cap kept live — so the
+reachability this section argues for is satisfied rather than reversed. What
+expired is only the reason a cap was thought necessary at all; the measurements
+below are kept as the record of why it once was one. See `crumbs.ts` and
+`features/console/files/Breadcrumb.tsx`.
+
 The row stays anchored at its **leading** edge when it does overflow, and that
 is a choice about what may go off screen. The pill is a control — the way up,
 and the thing this whole change is about — while the leaf is a statement the
@@ -2219,6 +2314,17 @@ which is honest and is where the switch is going. Restoring the other context's
 place is unchanged and is still the good half.
 
 #### 4. A count cannot guarantee a fit, so a width budget does
+
+**Superseded, 2026-09-10 — everything in this section is deleted.** `budget`,
+`phoneRowBudget`, `CHAR_WIDTH_PX`, `SEPARATOR_CHARS`, the leaf's `fullLabel`,
+`SLACK_PX` — all of it, along with the cap it topped up (§ above). The scroller
+this section spent its whole argument working around answers "does the leaf
+fit" for free, correctly, at every width and every font size, which a
+pixel-width estimate could only ever approximate from one browser's rendering
+of one font stack. Kept below as the record of why a budget seemed necessary at
+the time and what it cost to get right; the sabotage table at the end of this
+section is no longer a live guard, since the code and the tests it names do not
+exist any more.
 
 **Two, not three** (above) said the honest thing about `MAX_FOLDER_CRUMBS`: a
 cap bounds the row, it does not fit it, because segment names are the
@@ -2581,3 +2687,521 @@ activity links — reads whatever mailbox is already connected, by hand or on
 a fixture, whether or not this flag is on. Flipping it later changes nothing
 about any of those; it only changes whether the empty state's button does
 something.
+
+### The compact corner was two controls, and one of them was a silent sign-out
+
+"the setting button should be merged with the person icon, right now all it
+does is sign you out." `ConsoleRail.tsx`'s `AccountBlock` drew `compact` as a
+gear and the avatar, 4pt apart, each its own 44×44 `PressRow` — and the
+avatar's `onPress` was `onSignOut` directly. `useSignOutFlow.requestSignOut`
+only raises `Confirm` when the device holds unsent edits; on a clean queue it
+calls `signOutNow()` immediately. So the one control in that corner reachable
+with **no confirmation at all** was also the one a thumb was most likely to
+land on by a few points of error, next to a gear it looked just like.
+
+The fix is not a confirmation dialog bolted onto the avatar — that is a third
+answer to "what happens when I press this" competing with the two the corner
+already gave conflicting cues about. It is one control: the avatar opens a
+menu naming both actions, and choosing one is a second, separate press. Two
+deliberate presses *is* the missing confirmation for the clean-queue case,
+built out of the same mechanism the non-empty-queue case already uses
+(a second gesture before anything happens), rather than a second, different
+mechanism beside it. `useSignOutFlow`'s own `Confirm` dialog is untouched and
+still fires for the non-empty case — this closes the gap on the other side of
+that `if`, not the dialog itself.
+
+**Drawn with `features/design/components/Menu.tsx` / `Menu.web.tsx`, not a
+third menu idiom.** Those two files already are a disclosure menu component
+— a title, danger rows, a Cancel row, a sheet on touch and a popover on a
+pointer picked by `layout.narrowBreakpoint` — built for `Explorer.tsx`'s
+right-click and long-press. They were typed to `menu.ts`'s `MenuActionId`,
+the file tree's own closed action union, which made them look like "the file
+menu's renderer" rather than what they actually are. Widening
+`MenuActionId` itself to fit an account action was the tempting fix and the
+wrong one: `Explorer.tsx`'s `runAction` switches on every member of that
+union, so a case with nothing to do with files would have needed a branch
+there forever, for a menu that file never draws. `MenuItem`/`MenuProps` are
+generic in their own id (`Id extends string = MenuActionId`) instead —
+default-typed so every existing file-menu call site is unchanged, and open to
+a caller with its own two-item union. `MenuItem.testID` is the one other
+addition, because `account-settings` / `account-sign-out` predate this menu
+and are cited by name rather than by the `menu-item-<id>` convention every
+other row uses; `MenuProps.titleDetail` is the other, because the sheet's
+title had nowhere to put an email under a name until this needed one.
+
+**The harm the two-control layout caused, restated for the record, because
+it is also why `accountSettingsControl.test.ts`'s central claim did not
+reverse.** That file used to assert "signing out and opening settings are
+different intentions and must not share a control" — true, and it is still
+true of the *compact* form now that both live behind one press. What made the
+old layout dangerous was never that two things were reachable near each
+other; it was that a coloured disc's only disambiguation from its neighbour
+was an `aria-label` nobody speaking to a screen reads before landing a thumb
+on it — one control, two possible unannounced outcomes depending on four
+points of horizontal error. A menu with two rows that say "Settings…" and
+"Sign out" in words is strictly *more* explicit than that pair of circles
+ever was, which is why sharing a trigger is the fix rather than the
+regression the old sentence would suggest on a literal reading.
+
+**The full (non-`compact`) rail foot is untouched.** `rail-settings` and
+`rail-sign-out` stay exactly as they were — two 28pt targets beside a name,
+which is a rail foot with room, not a 44×44 corner with none. Merging them
+too would be solving a problem that surface does not have.
+
+#### The popover this menu draws had to learn to portal, on its first real caller
+
+`Menu.web.tsx` existed before the account menu — `Explorer.tsx`'s right-click
+and long-press were already drawing its `Sheet`/`Popover` pair, mounted the
+same way: as a child of the tree's own root `View`, which is itself an earlier
+sibling of the editor region in `AppFrame.tsx`'s `styles.body`. Nothing here
+rules out the same defect already being live there — a menu anchored near the
+right edge of a narrow explorer column has the same `MIN_WIDTH: 200` to spill
+past the boundary with — it is simply not the call site that happened to get
+measured against overlapping content first. `AccountMenuTrigger` is the one
+that did: it sits at the foot of the rail, itself an earlier sibling of the
+same editor region, and its popover has to spill out past the rail's own
+(narrower still) width to show ~200pt of menu — straight into the editor
+region's screen space, where this branch's own "Make private" / "Share…" pair
+happened to be sitting.
+
+That is exactly **Every react-native-web `View` is a stacking context** (above)
+with a new subject. `Popover`'s box carried `position: fixed` and `zIndex:
+1000` from the start, and both are true and irrelevant: they order this popover
+among the *descendants* of whichever `View` it renders inside, because that
+`View` carries RNW's base `position: relative; z-index: 0` like every other
+one, and the editor region is a later sibling competing at the *parent's*
+level, not this one's. `Sheet`, the touch presentation right above this in the
+same file, never had the problem — it is a `Modal`, and `react-native-web`'s
+`Modal` already portals to `document.body` for this exact reason, which is why
+`SettingsOverlay` and every touch case in `settings.spec.ts` were never at
+risk. `Popover` was the one presentation in this file that skipped `Modal`
+and grew its own `position: fixed` box instead, so it was the one presentation
+that still owed itself a portal.
+
+Found by `settings.spec.ts`'s pointer-width case, not by anything in
+`__tests__/`: jsdom lays nothing out, so no unit suite can see one region paint
+over another, and `menuRender.test.ts`'s own popover queries already read from
+`document.body` rather than the mount `container` — which happened to make
+that file agnostic to whether the popover was portaled, so it stayed green on
+both sides of this fix and proved nothing about it either way. Only a real
+engine, hit-testing a real click at a real coordinate, produced a Chromium
+timeout naming the actual culprit: "`<div>Make private</div>` … subtree
+intercepts pointer events." `Popover` now renders through `createPortal(...,
+document.body)`, the same escape `ModalPortal` already uses, so it stacks at
+the true top level rather than within whichever `View` happens to be its
+parent. `Sheet` is untouched — it already had this for free.
+
+What a "simplification" of this costs: reverting to an inline `Popover` puts
+this exact defect back — for the account menu, demonstrably, and possibly for
+`Explorer.tsx`'s own context menu too, which nothing here has gone back to
+verify one way or the other. The portal is a property of the component rather
+than a fact about any one caller, which is the point of fixing it here instead
+of working around it at the account menu's own call site.
+
+### The breadcrumb head stopped being a switcher pill when it moved rows
+
+"the button for @seyi is too big." Measured at 390×844: the head mark was
+68.1×34 — 43% of that width chrome (8+8 padding, 6 gap, 7 dot) — carrying a
+13px label beside an 11px leaf it sits on the same line as. It was also,
+literally, the identical object **A context pill's target is not its mark**
+(above) argues for: same `layout.stripPill` 34, same `radii.md`, same
+`shadows.floating`, same `wsSwitch` 13px label. That section is not reversed
+by this one — read again, it is an argument about the **switcher** pill,
+made when the switcher and the breadcrumb's head were the same object worn
+in two places, and it is still correct about that pill today. `stripPill`
+keeps its height and its shadow untouched; `contextStrip.test.ts`'s two
+positive controls for both stay green.
+
+What changed is that the two stopped being the same object the moment
+**The contexts moved into the scroller** (above) put them on two different
+rows meaning two different things: row one is a list of places to switch
+*to*, so each pill needs the full switcher target and a shadow to read as a
+floating control while somebody scrolls past whatever is under it. Row two's
+head is not a list — it is naming the one context you are already standing
+in, beside the path to the note you are reading — and a control drawn
+identically to the list above it reads as "this is also a place to switch
+to", in the wrong colour. Two facts ("go there" and "you are here") drawn as
+the same shape in two colours is weaker than the same shape used once and a
+colour carrying the second fact alone.
+
+So `Pill` gained a `head` variant rather than the breadcrumb growing a second
+pill implementation — that file's own rule is that a second implementation
+is how the strip and the breadcrumb come to disagree about what a context
+looks like, and it was right the first time this was built. `head` differs
+from the switcher mark in exactly the four ways that made it read as a
+second switcher: `layout.crumbPill` (26) rather than `stripPill` (34), no
+`boxShadow`, `radii.xs` rather than `radii.md`, and an 11px mono label
+matching the leaf's own size and weight rather than `wsSwitch`'s 13px body
+face — so colour (`accentDim`/`accentText`, unchanged) is what says "this is
+the context", and the row reads as one line rather than two chrome weights
+stacked on each other. The dot goes too: `toneForKind` exists to tell
+contexts apart *in a list*, and a list of the one context you are standing
+in has nothing left to tell apart.
+
+**Dropping the shadow is itself a small instance of the same lesson**, worth
+naming on its own: `pill`'s own docblock justified `shadows.floating` with
+"the top row has no surface of its own… so anything on it that is not drawn
+as an object has nothing behind it," which was true while this row floated in
+`AppFrame`'s `topBarCompact`. **The contexts moved into the scroller** made
+that premise stop being true for both rows — they now sit above the pane's
+own surface — and the switcher pill keeps the shadow anyway, because it is
+still read at a glance while scrolling past whatever is under it, which is
+exactly the case a floating mark is for. The head has no such case: it does
+not move independently of the text beside it, so the premise that used to
+justify the shadow everywhere on this row now justifies it for only one of
+the two pills on it.
+
+**The target does not move, and this is not a second exception to
+`minTouchTarget`.** `styles.target` stays `layout.minTouchTarget` on both
+axes for `head` exactly as for the switcher — the mark shrank, the pressable
+around it did not, which is `accountAvatar`'s rule applied to a case that
+already had it half right (a smaller mark, a target that was already at the
+floor because `styles.target` never depended on the mark's own size). A
+two-character slug's head is still held at 44 by `minWidth`.
+
+**The visible payoff is a few more characters of the note's own title.**
+`Breadcrumb.tsx`'s `phoneRowBudget` estimates the pill's footprint to decide
+how many characters the leaf may keep before it elides, and it was still
+budgeting for the switcher pill's chrome and label size after this fix —
+`pillChromePx` at `space.x2*2 + 6 + 8` (the padding, the gap, the dot) and
+`pillLabelPx` at a 13px body glyph. Left uncorrected the leaf would still
+truncate at the old, wider pill's width even though the real one had
+shrunk — safe (the bias is to overestimate the room the pill takes, so the
+error only ever costs a folder segment, never the leaf), but it would leave
+on the table exactly the room this fix bought. `pillChromePx` is `6 * 2` now
+(`layout.crumbPill`'s own padding, no dot, no gap for one) and `pillLabelPx`
+is `contextLabel.length * 7.0` (11px mono, the leaf's own face).
+`breadcrumbPath.test.ts`'s "a narrower head yields more leaf characters for
+the same path" pins the direction of that difference against the real
+`phoneRowBudget`, not a re-derived copy of it.
+
+What a simplification of any of this costs: restoring the switcher's
+`stripPill`/`shadows.floating`/`wsSwitch` sizing to the head puts the 68.1pt
+mark back over an 11px leaf; dropping the dot's removal or the label's size
+match puts the two-signals-for-one-fact problem back in a smaller box;
+reverting `phoneRowBudget`'s constants leaves the leaf truncating at the old
+pill's width forever, silently. `navBand.test.ts`'s "the head of the path is
+quieter than the switcher above it" and `breadcrumbPath.test.ts`'s new case
+each fail on their own piece of this and nothing else, and `contextStrip.
+test.ts:518` — the strip pill's own 34pt — is the positive control that
+proves the switcher itself was never touched.
+
+### A diagram lives in the note, and the browser is the only thing that makes it safe
+
+A fenced block tagged `html-preview` is drawn as the thing it describes, inside
+an iframe whose `sandbox` attribute is empty. **The fence tag is the entire
+convention** — no new file format, no frontmatter switch, no per-note setting,
+nothing in `privacy.md`. `cat`, `git diff`, GitHub and Obsidian all still show a
+labelled code block, which is non-negotiable #3 ("plain files stay canonical")
+applied to something richer than a paragraph: the diagram is *in* the file,
+portable and diffable, and the console merely draws it. The opposite of a
+proprietary canvas format.
+
+**The security model is one attribute, and it is not ours.** Anyone can email
+`<name>@context.lc` — that is the ingestion design, not a gap in it — so a note
+the console renders may have been written by a stranger, and the console holds a
+live authenticated Convex connection. The threat was never HTML or CSS; it is
+script execution inside that session. A bare `sandbox` denies everything the
+frame could do, script execution included. `allow-scripts` is never added (it
+runs the note's JavaScript, in an opaque origin that still reaches `fetch` and
+`postMessage` to the parent); `allow-same-origin` is never added; the two
+together are worse than either, because a frame that is both can reach
+`parent.document` and take its own `sandbox` off.
+
+**No sanitizer, deliberately.** Filtering tags and attributes ourselves is a
+list to maintain against everyone who has ever got past one, and it buys nothing
+the browser is not already enforcing for free, with no bypass surface of our
+making. A second mechanism nobody tests is not defence in depth. `previewDocument`
+therefore puts the fence's markup into the frame's document **verbatim**, and
+`htmlPreviewFrame.test.ts` asserts that it does, so a well-meaning filter cannot
+be added later without deleting a test that says why it must not be.
+
+**The CSP is on the frame for a different reason than script.**
+`default-src 'none'; style-src 'unsafe-inline'; img-src data:` is there because
+`background:url(https://…)` needs no JavaScript at all: a fetch out of a note
+somebody emailed you is a read receipt telling the sender the moment you opened
+it, and which note. That is a real privacy leak with no script anywhere in it.
+There is no `font-src`, because a webfont is a fetch like any other. Blocking
+inline script is a side effect of `default-src 'none'`, not its purpose.
+
+Two things the earlier draft of this design asked for are **deliberately not
+built**, and this is the reversal rather than an omission: a **separate origin**
+for the frame, and **owner-only rendering** (a note that arrived by ingestion
+never drawing). Both were priced against a frame that runs script. A frame that
+cannot run script has nothing to do with the console's origin — there is no code
+in it to be same-origin *with* — and "only render what the owner wrote" would
+have meant a provenance flag on every note, a rule in `privacy.md` that
+non-negotiable #5 does not have room for, and a diagram that silently refuses to
+draw with no way for the reader to tell why. Both come back the day scripts are
+allowed, which is a different project.
+
+**The reveal rule applies, and it needed `pointer-events: none` to.**
+`livePreview.ts`'s central argument is that you cannot edit syntax you cannot
+see, so a drawn diagram becomes its own fence again the instant the caret enters
+it, exactly as `## Heading` does. The frame is a separate document and swallows
+its own clicks, so without `pointer-events: none` on it there would be no
+pointer route back to the source at all — you could look at the diagram and
+never reach the markup that draws it, which is the "block editor with extra
+steps" failure that file exists to avoid. The preview has nothing to interact
+with anyway: no scripts, and a link in a bare-sandbox frame cannot navigate.
+
+**The frame's height is a number, and that is an honest gap.** Sizing an iframe
+to its content means script inside it reporting a height out, and script inside
+it is the one thing this never allows; the frame is cross-origin by
+construction, so the host cannot measure it either. So the box errs tall —
+`620px`, capped at `80vh` — because a diagram drawn short leaves empty space and
+a diagram drawn tall loses its bottom third, and only the second is a failure a
+reader notices. `overflow: hidden` on the wrapper is not tidying: markup from a
+stranger that escapes its box draws over the breadcrumb, the save state, a
+privacy control.
+
+**What the sabotage run actually showed**, recorded because it is not what was
+expected. Each guard was broken in turn against a real engine:
+`sandbox="allow-scripts"` with the CSP intact left "a script does not run"
+**green** — the CSP refused the inline script on its own; the CSP opened with
+`script-src 'unsafe-inline'` and `sandbox` left bare was **also green** — the
+sandbox refused it on its own, which is the claim this feature rests on and is
+now measured rather than assumed; **both broken together went red**, so that
+case is not vacuous. The reading is that each guard has a case that fails when
+*it* is removed — the attribute is asserted directly in
+`htmlPreviewFrame.test.ts` and in `e2e/webkit/htmlPreview.spec.ts`, the CSP
+directly beside it — rather than one case that stays green as long as either
+survives.
+
+What a simplification of any of this costs: adding `allow-scripts` puts a
+stranger's JavaScript in a session holding a live Convex connection, and
+`htmlPreviewFrame.test.ts`'s "carries a bare sandbox" plus the WebKit suite's
+"the frame's sandbox is bare in the shipped page" both go red on it; dropping
+the CSP restores the read receipt and takes "forbids every fetch a stylesheet
+could make" with it; rendering every `html` fence rather than only the tagged
+one makes every note that *quotes* markup start drawing it, and "a fence tagged
+`html` is not a preview" fails; dropping the reveal check makes the fence
+uneditable and "the caret entering the block gives the raw fence back" fails;
+dropping `overflow: hidden` or `pointer-events: none` fails "the preview stays
+inside the note's own column" and "tapping the diagram gives the raw fence back"
+respectively — both measured in a browser, because **two layout defects shipped
+past a fully green jsdom suite in the Premium work** and this is the same class.
+
+**jsdom cannot test the part that matters, and saying so is the point.** jsdom
+does not enforce iframe sandboxing at all and does not load `srcdoc`, so a jsdom
+test asserting "the note's `<script>` did not run" would pass with
+`allow-scripts` set. That is the exact false green
+[`testing.md`](./testing.md) exists to name. The execution case lives in
+`apps/mobile/e2e/webkit/htmlPreview.spec.ts` against a real engine; the jsdom
+suite asserts only what it can actually see, which is the markup that was built.
+
+### A phone gets Recent, because it could never get a second tab
+
+The console's bottom toolbar carried a **tab count** — Obsidian's, Safari's and
+Chrome's number in a rounded square — and a press raised an **Open notes**
+sheet. Both were built carefully. Both were unreachable, and the owner's report
+is the whole of the evidence: *"It's like there's only ever one open note. I've
+tried so many times to get more open notes, and there's just not a way to do
+it… how do you even close a note on mobile here?"*
+
+He was right on both counts, and neither was a polish problem.
+
+**Nothing on a phone could open a second tab.** The only verb that produces one
+is `openInNewTab`, and it was gated twice over: `menu.ts` offered it to
+`platform === "web"` only, and its sole host — the Explorer's row menu — is not
+drawn at compact at all, where `frame.ts` answers `explorer: "hidden"`. Every
+phone open therefore arrived through `useTabs` as a `preview`, and `tabs.ts`'s
+`open()` makes a new preview *replace* the preview slot. One in, one out. The
+count could only ever read `1`, which falsifies the control's own stated
+affordance — "the number is the affordance, it is the only thing on the toolbar
+that changes as you work". The single path to a second row was an accident:
+`edited` pins a tab, so "Open notes" on a phone meant *notes you happened to
+type into this session*.
+
+**And the comment defending the gate had the causation backwards.** It read:
+"touch has a tab switcher rather than a pointer with a middle button, so the
+second item is web-and-file only." A switcher *displays* a set of tabs; it does
+not produce one. The line withholding the only verb that produces one cited, as
+its justification, the surface it was thereby leaving empty.
+
+**Closing did nothing, and that was structural rather than a missing call.**
+`without` leaves `activePath` null when the last tab goes, and `useTabs`' effect
+only follows a non-null one — so the × emptied the strip and left the note in
+the editor. The chrome updated and the thing it claimed to close was still on
+screen; `‹` then brought it back, because history is a separate stack. This is
+not a forgotten line. On a phone the note **is** the page, so closing it is a
+navigation, and `tabs.ts` is deliberately built knowing nothing about
+navigation. Two models of "which notes am I working with" on a 390pt screen, one
+of which owned display without owning navigation.
+
+**So the phone keeps the model it already had, and that model gets a list.**
+`history.ts` was already there, already pure, already what `‹` and `›` read.
+`recentPaths` is the same array walked backwards — deduplicated, capped at
+`MAX_RECENT`, folders included, because history records the *selection* and
+"back to the folder I was in" is a destination a phone reaches constantly.
+`RecentSheet` draws it, marks where you are, and has no × on any row, because
+there is nothing to close.
+
+The decisive property is not parity with Obsidian: **a tab list on a phone is
+empty exactly when you need it**, since you have to have curated it first, and a
+recents list is never empty because using the app fills it.
+
+Two placements follow from rules already written here rather than from taste.
+The key is **dimmed in place, never absent** — `‹` and `›` live by that rule two
+positions up, and the tab count's own defence for being conditional ("it is the
+last item on the bar") was false: Save, a rule and the meeting key all sat after
+it, so every one of them slid sideways the first time a note opened. And `‹`
+**held** opens the same sheet, which is where every browser on every platform
+keeps its history list; the hold is in the accessible name, because a gesture a
+screen reader is never told about is one only sighted people have.
+
+**What went with it.** `TabSwitcher.tsx`, `TabCountButton`, `tabCountLabel`, and
+`BottomBarAction`'s `count` and `badge` — the number-in-a-square and the
+corner badge both existed for that one key and had no other caller. `marker`
+stays: Save still has something momentary to say. The unsaved dot is not
+reproduced on Recent, and that is deliberate — the console autosaves at 2s idle
+and a 15s ceiling, so "unsaved" resolves itself while you read it; what does not
+resolve is `needsDecision` (a conflict, a failed save), which speaks in the
+notice line. Desktop tabs are untouched, and `menu.ts`'s gate now says what it
+always meant: a phone has no tab surface, so it is offered no tab verb.
+
+**One latent bug fell out of the close fix.** `useTabs` opened a tab for any
+non-null `editor.path`, and `""` — the bucket root, a folder — is not null. In
+production `emptyEditor` uses `null` and nothing writes `""`, so the phantom
+nameless row was invisible: the prune deleted it a commit later. With the
+last-tab rule in place that flicker becomes a **deselect nobody asked for**, so
+the `opened` effect now refuses `""` at the source.
+
+What a simplification of any of this costs, and the test that fails:
+
+- Deriving Recent from a second, non-truncating log beside `entries` buys back
+  the rows a branch drops and re-creates the two-models problem this removed.
+  The cost is stated in `recentPaths`' own comment and pinned by "a branch drops
+  the forward tail here too, because it is one array".
+- Asking `recentPaths(state).length > 0` instead of `hasSomewhereToGo` lights
+  the key on the first note of every session, offering to take somebody where
+  they already stand — "one entry, and it is where you already are, is nowhere
+  to go" fails.
+- Reverting the last-tab deselect returns the control that does nothing:
+  "closing the last one deselects; closing one of two does not" fails. Writing
+  it as `length === 0` rather than as a transition throws away a cold load's
+  `?note=` — three tests fail, "a cold load with a note open does not deselect
+  it" first.
+- Dropping the `""` guard brings the phantom root tab back, and with it a
+  deselect on landing: "the bucket root is not a note, so it opens no tab to
+  close" fails.
+- Dropping `hint` from the held gesture's accessible name, or the 400ms
+  `delayLongPress`, fails "the hold is in the accessible name, not only in the
+  handler" and "holding fires the second verb and not the first".
+
+**The sabotage run.** Nine invariants broken one at a time against the real
+suite; every one went red, and each in the test that names it — the two
+`recentPaths` rules, `hasSomewhereToGo`, the last-tab deselect in both its
+wrong shapes, the `""` guard, both halves of the hold, and the sheet's marking
+of the current row. The one worth recording is #5: writing the deselect as
+`if (!has)` rather than as a transition failed **four** tests rather than one,
+which is the shape of a guard whose absence is load-bearing in more than the
+case it was written for.
+
+### The share sheet is one control, and the padlock beside it is gone
+
+The owner, looking at the sheet on a phone: *"the lock and the share icon can
+be collapsed, they're essentially the same thing… it's confusing how to make
+groups, it's confusing how to revoke access… when I type names there's not even
+an autocomplete."* Four complaints, one root cause, and one of them turned out
+to be a safety bug rather than an annoyance.
+
+**They were not merely similar — they overlapped on the dangerous state.** The
+padlock cycled `private → team → anyone-with-a-link`, and that third position
+minted exactly the share row (`audience: "anyone"`) the sheet's own "Create
+link" button minted. One object, two mints, and nothing on screen relating
+them. Because most notes are `team` already by folder inheritance, an ordinary
+note sat **one tap on an unlabelled 20pt icon** away from a link needing no
+account, with a glyph changing to a globe as the only feedback.
+
+`scope.ts` had argued that widening should be one deliberate step at a time and
+that `private → anyone` in a single press is "the accident worth making
+impossible". That is right about the rule and wrong about where the risk sits:
+`team → anyone` was also a single press, from the state nearly everything is
+in. The fix is not a fourth position or a longer cycle — it is that a decision
+this size does not belong on an unlabelled icon at all.
+
+So: one icon in the bar, and audience becomes named positions inside the sheet,
+with the public step confirmed in words. **`scope.ts` is untouched** —
+`scopeOf`, `nextScope` and `stepsTo` remain the pure model, and `setScope`
+remains the single point every surface goes through, group guard included.
+Only the control driving it changed.
+
+**A simplification of this would put the padlock back** for the keystroke it
+saves. What it would cost is the property the confirmation exists for: that
+nothing publishes a note without a sentence saying what publishing means. The
+test that fails is *going public asks first, and mints nothing until it is
+answered* in `noteChrome.test.ts`, which asserts on the absence of a `setScope`
+call, not on what the screen then shows.
+
+#### Revoking one person's access has two routes, and they differ by a context
+
+The sheet listed people with access as three strings — name, role, reason —
+with no control on any of them. It diagnosed ("the folder it is in is shared
+with the workspace") and left the cure three screens away in Settings.
+
+The reason it had no Remove button is real and worth stating, because it is the
+first thing a reasonable person would add: **`team` means every member, so one
+person cannot be peeled off a team-visible note.** There is no per-note role and
+no per-person exception — `privacy.md` is folder defaults plus exact-note
+overrides, and an override is still one of the two tiers or a group. "Stop Kola
+reading this" therefore has exactly two honest answers:
+
+- **Narrow the note** to `private` with an exact-note rule. Per-note,
+  reversible, and what most people mean.
+- **Remove Kola from the context** with `removeMember`, closing every note and
+  folder at once.
+
+A single Remove beside one name would have to silently pick one. The small one
+does not do what the button says; the big one closes an entire context from a
+control labelled with one note's name. So the row carries **routes**, each
+stating how far it reaches, ordered narrowest first, the wide one drawn
+destructive. A group row gets the one route the console can honestly offer —
+where the group is defined — because it cannot resolve group membership and
+`access.ts` opens by refusing to guess.
+
+**A simplification would collapse the routes into "Remove".** The test that
+fails is *each route says how far it reaches* in `noteAccess.test.ts`.
+
+#### A group is made where the group was needed
+
+`GroupsPanel`'s own header says "Nobody should have to come here first" — and
+it was the only door. Sharing one note with three people meant leaving the
+note, opening Settings, typing a label, adding three members one at a time,
+coming back, and typing the group's name. Eight steps for the thing groups
+exist to make cheap, which is why nobody made one. The sheet offers it now; the
+panel keeps what its header says it is for — renaming one, and dropping
+somebody from every folder at once.
+
+`GroupActions.createWith` exists because `createGroup` always returned the new
+group's id and the console threw it away, so populating a group you had just
+made meant re-reading a subscription that had not necessarily delivered.
+Deliberately not atomic: a partial failure leaves a real group with some of the
+people in it, which the panel shows and can finish — better than rolling back a
+group a folder may already point at.
+
+#### The autocomplete was shipped and unreachable
+
+`ShareDialog` handed `recipientsFor` an exclusion set containing **every member
+of the context**, so a matching colleague was filtered out of their own
+suggestion list. On a team note that is everybody, and since the invite row
+needs a *complete* address, typing a partial name produced an empty box. The
+type-ahead had shipped in #425 and had never been visible for the common case.
+
+Two separable mistakes. **What the set measured**: members of the *workspace*,
+where what matters is who reaches *this note* — opposites on a private note, so
+the field was blankest exactly where it had most to offer. It derives from
+`accessRows` now, so one function decides who reaches a note and both the list
+and the suggestions read it. **And hiding was the wrong answer anyway**: "no
+rows" cannot distinguish "they already have it" from "no such person" from
+"this field is broken", and those want different next moves. Somebody who
+already reaches the note is shown, marked, sorted below the offers, and drawn
+without a press behind it.
+
+**A simplification would restore the exclusion** on the grounds that offering
+somebody who already has access is offering to do nothing — true of the
+*press*, false of the *row*. The test that fails is *a note everybody reaches
+still answers the query* in `shareRecipients.test.ts`.
+
+Shots of every state: `docs/design/share-sheet/`.
+

@@ -105,6 +105,7 @@ const BEFORE_ANDROID_PREP = {
   },
   plugins: [
     "expo-router",
+    "@sentry/react-native/expo",
     "./plugins/with-context-widgets",
     [
       "expo-splash-screen",

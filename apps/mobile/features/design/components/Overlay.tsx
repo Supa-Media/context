@@ -37,7 +37,7 @@ import { useThemedStyles, type Colors, type Shadows } from "../theme";
  *
  * `Modal` rather than an absolutely-positioned view, because it is the one
  * overlay primitive already proven on all three platforms here — `Palette`,
- * `Menu`, `Dialogs` and `TabSwitcher` all use it — and because it traps focus
+ * `Menu`, `Dialogs` and `RecentSheet` all use it — and because it traps focus
  * on iOS and Android for free.
  *
  * The scrim literal matches those four rather than `colors.scrim`, which no
@@ -230,7 +230,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       backgroundColor: colors.surface,
       overflow: "hidden",
       // The token rather than a fourth copy of the same literal: `Palette`,
-      // `Dialogs` and `TabSwitcher` each hardcode this string today.
+      // `Dialogs` and `RecentSheet` each hardcode this string today.
       boxShadow: shadows.rising,
     },
     head: {

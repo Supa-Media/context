@@ -350,11 +350,35 @@ export function useDemoConsoleData(): ConsoleData {
       loading: false,
       failure: null,
     },
+    /*
+      One group, so the landing page's console shows the thing rather than an
+      empty card — and one dangling name in it, because that is the state the
+      section exists to explain and the one a screenshot would otherwise never
+      catch. `actions` absent: the demo presses nothing.
+    */
+    groups: {
+      groups: [
+        {
+          groupId: "demo-group",
+          name: "supa-leads",
+          label: "leads",
+          createdAt: 0,
+          members: [
+            { userId: "demo-1", name: "seyi", live: true },
+            { userId: "demo-2", name: "kola", live: true },
+            { userId: "demo-3", name: "dayo", live: false },
+          ],
+        },
+      ],
+      actions: undefined,
+      loading: false,
+    },
     // The trail is real data with nothing behind it, the same shape as every
     // other demo card; the key export is absent for the same reason
     // `storageActions` is — it hands somebody a credential and cannot be
     // offered where nothing would really act on it.
     advanced: {
+      moves: { jobs: [], loading: false, failure: null },
       audit: {
         events: demoAuditEvents(selectedContextId, Date.now()),
         loading: false,

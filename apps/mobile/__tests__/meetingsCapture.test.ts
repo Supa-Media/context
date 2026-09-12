@@ -174,6 +174,13 @@ interface MockDevice {
   records: number;
   stops: number;
   released: boolean;
+  /** Whether `record()` has been called and `stop()` has not. */
+  isRecording: boolean;
+  /** What `getStatus().metering` answers — dBFS, or absent for no meter. */
+  metering: number | undefined;
+  getStatus: () => { metering?: number };
+  /** What the module constructed it with, so a test can read the format asked for. */
+  options: { extension?: string } | null;
   /** Make `prepareToRecordAsync` throw — a device still held by a call. */
   refuse: boolean;
   emitStatus: (status: MockStatus) => void;
@@ -214,6 +221,73 @@ let mockLeftovers: string[] = [];
 let mockRecordingDirExists = true;
 /** A uri the file system refuses to make a `File` for. */
 let mockUnopenableUri: string | null = null;
+
+/** Sends parked by `harness({ hang: true })`, each resolvable by a test. */
+const mockHeldSends: (() => void)[] = [];
+
+/**
+ * The bytes on "disk", per uri.
+ *
+ * The rotating recorder never needed this: a chunk was a finished file and the
+ * only thing anyone asked of it was `base64()`. A continuous recorder reads a
+ * file **while it is being written**, so the fake has to have one — a growing
+ * array the device appends to and the module reads windows out of.
+ */
+const mockFileBytes = new Map<string, number[]>();
+
+/** 16 kHz mono 16-bit: 32 bytes per millisecond. */
+const MOCK_BYTES_PER_MS = 32;
+
+/** A canonical 44-byte WAVE header for that format, as CoreAudio writes one. */
+function mockWavHeader(): number[] {
+  const header = new Uint8Array(44);
+  const ascii = (at: number, text: string) => {
+    for (let i = 0; i < text.length; i += 1) header[at + i] = text.charCodeAt(i);
+  };
+  const u32 = (at: number, value: number) => {
+    header[at] = value & 0xff;
+    header[at + 1] = (value >>> 8) & 0xff;
+    header[at + 2] = (value >>> 16) & 0xff;
+    header[at + 3] = (value >>> 24) & 0xff;
+  };
+  const u16 = (at: number, value: number) => {
+    header[at] = value & 0xff;
+    header[at + 1] = (value >>> 8) & 0xff;
+  };
+  ascii(0, "RIFF");
+  u32(4, 0); // A file being written says nothing useful here. See `wav.ts`.
+  ascii(8, "WAVE");
+  ascii(12, "fmt ");
+  u32(16, 16);
+  u16(20, 1);
+  u16(22, 1);
+  u32(24, 16_000);
+  u32(28, 32_000);
+  u16(32, 2);
+  u16(34, 16);
+  ascii(36, "data");
+  u32(40, 0); // Likewise.
+  return [...header];
+}
+
+/**
+ * Let the microphone run for `ms`, writing audio into the open recording.
+ *
+ * A distinguishable value per millisecond, so a test can say *which* audio
+ * arrived in a slice rather than only how much — an offset that skips or
+ * repeats a window is otherwise invisible.
+ */
+let mockAudioWritten = 0;
+function mockWriteAudio(ms: number): void {
+  const open = mockDevices.find((device) => device.isRecording);
+  if (open?.uri == null) return;
+  const bytes = mockFileBytes.get(open.uri);
+  if (bytes === undefined) return;
+  for (let index = 0; index < ms * MOCK_BYTES_PER_MS; index += 1) {
+    bytes.push(mockAudioWritten % 256);
+    mockAudioWritten += 1;
+  }
+}
 /** How many turns of the microtask queue a file read takes. See `base64`. */
 const READ_HOPS = 12;
 
@@ -226,15 +300,20 @@ const READ_HOPS = 12;
   the factories are one line each.
 */
 
-function mockDeviceConstructor(this: unknown): MockDevice {
+function mockDeviceConstructor(this: unknown, options?: { extension?: string }): MockDevice {
   const listeners = new Set<(status: MockStatus) => void>();
   const index = mockDevices.length;
+  // What the module asked to record into. `.wav` is the continuous path.
+  const extension = typeof options?.extension === "string" ? options.extension : ".m4a";
   const api: MockDevice = {
     uri: null,
     prepares: 0,
     records: 0,
     stops: 0,
     released: false,
+    isRecording: false,
+    metering: undefined,
+    options: options ?? null,
     refuse: mockDeviceRefusesToPrepare,
     emitStatus: (status) => {
       for (const listener of listeners) listener(status);
@@ -242,19 +321,34 @@ function mockDeviceConstructor(this: unknown): MockDevice {
     prepareToRecordAsync: async () => {
       if (api.refuse) throw new Error("The microphone is in use.");
       api.prepares += 1;
-      api.uri = `file:///cache/chunk-${index}-${api.prepares}.m4a`;
+      api.uri = `file:///cache/chunk-${index}-${api.prepares}${extension}`;
       mockOpened.push(api.uri);
+      /*
+        A WAVE recorder writes its header when the file is opened and appends
+        samples from there — which is the property the whole continuous path
+        rests on, so the fake has it rather than assuming it.
+      */
+      mockFileBytes.set(api.uri, extension === ".wav" ? mockWavHeader() : []);
     },
     record: () => {
       api.records += 1;
+      api.isRecording = true;
     },
     stop: async () => {
       api.stops += 1;
+      api.isRecording = false;
       if (mockDeviceRefusesToStop) throw new Error("The recorder would not stop.");
     },
     release: () => {
       api.released = true;
     },
+    /*
+      The meter, which the module polls ten times a second. `metering` is
+      absent unless a test sets it — which is the real shape: `expo-audio`
+      omits the field for a recorder that was not asked for it and for one that
+      is not running.
+    */
+    getStatus: () => (api.metering === undefined ? {} : { metering: api.metering }),
     addListener: (_name, listener) => {
       listeners.add(listener);
       return { remove: () => listeners.delete(listener) };
@@ -297,11 +391,48 @@ const mockFileClass = class MockFile {
     if (mockDeleted.includes(this.uri)) throw new Error("The file is gone.");
     return mockBase64;
   }
+  get size(): number {
+    return mockFileBytes.get(this.uri)?.length ?? 0;
+  }
+  open(): { close(): void; readBytes(length: number): Uint8Array; offset: number | null } {
+    if (mockDeleted.includes(this.uri)) throw new Error("The file is gone.");
+    const uri = this.uri;
+    let cursor = 0;
+    mockOpenHandles += 1;
+    return {
+      get offset() {
+        return cursor;
+      },
+      set offset(value: number | null) {
+        cursor = value ?? 0;
+      },
+      readBytes(length: number): Uint8Array {
+        const bytes = mockFileBytes.get(uri) ?? [];
+        const slice = bytes.slice(cursor, cursor + length);
+        cursor += slice.length;
+        return Uint8Array.from(slice);
+      },
+      close(): void {
+        mockOpenHandles -= 1;
+      },
+    };
+  }
   delete(): void {
     mockLog.push(`delete:${this.uri}`);
     mockDeleted.push(this.uri);
+    mockFileBytes.delete(this.uri);
   }
 };
+
+/**
+ * Handles opened and not closed.
+ *
+ * A continuous recorder opens the file it is recording into once every twenty
+ * seconds for the length of a meeting. A descriptor leaked per tick is a
+ * meeting that stops being able to read its own recording somewhere around the
+ * twentieth minute — a failure no assertion about bytes would ever catch.
+ */
+let mockOpenHandles = 0;
 
 jest.mock("expo-audio", () => ({
   RecordingPresets: { HIGH_QUALITY: { extension: ".m4a" } },
@@ -340,6 +471,7 @@ const mockDirectoryClass = class MockDirectory {
   }
 };
 
+
 const mockPaths = {
   get cache() {
     return new mockDirectoryClass("file:///cache");
@@ -355,6 +487,14 @@ jest.mock("expo-file-system", () => ({
 /* eslint-disable @typescript-eslint/no-require-imports */
 const native =
   require("../features/meetings/capture/audio.ts") as typeof import("../features/meetings/capture/audio");
+/*
+  The channel the recorder publishes its meter on. Reached directly rather than
+  through a screen, because what is being checked is that the *recorder* reads
+  the device and says what it found — `meetingsLevel.test.ts` owns the other
+  half, which is that a leaf drawing a meter hears it.
+*/
+const { METER_FLOOR_DB, onRecorderLevel } =
+  require("../features/meetings/capture/level") as typeof import("../features/meetings/capture/level");
 /* eslint-enable @typescript-eslint/no-require-imports */
 
 const {
@@ -415,13 +555,38 @@ function harness(options: HarnessOptions = {}): Harness {
       mockLog.push(`send:${input.chunkId}`);
       if (options.hang === true) {
         base.chunks.push(input);
-        return new Promise<never>(() => {});
+        /*
+          Releasable, rather than a promise that never settles. A send that can
+          never finish proves a backlog is bounded; only a send that finishes
+          *later* proves the audio it was holding up still goes — which is the
+          difference between the rotating path (drops it, says so) and the
+          continuous one (leaves it on disk and takes it next tick).
+        */
+        return new Promise<{ segments: TranscriptSegment[]; refusedSegments: number }>((resolve) => {
+          mockHeldSends.push(() => resolve({ segments: [], refusedSegments: 0 }));
+        });
       }
       return base.transcribe(input);
     },
   };
   setTranscriber(options.noTranscriber === true ? null : transcriber);
-  const recorder = audioRecorder(options.platform ?? "ios");
+  /*
+    ANDROID BY DEFAULT, BECAUSE ROTATION IS ANDROID'S NOW.
+
+    This default was `"ios"` and every test below was written against the
+    rotating recorder — chunk ids, offsets laid end to end, a file deleted
+    before its bytes go out, a bounded backlog. iOS no longer rotates: it
+    records one continuous file and cuts slices out of it, because iOS refuses
+    to *start* a recording from the background and a rotation is a start every
+    twenty seconds (`capture/wav.ts` carries the citation).
+
+    Rotation is not dead code — it is what Android does, and Android does not
+    have the disease, because its foreground service keeps the process
+    scheduled. So these tests keep testing it, against the platform that runs
+    it, and `describe("one continuous recording")` below covers the other path.
+    A test that is genuinely about iOS passes `platform: "ios"` and says so.
+  */
+  const recorder = audioRecorder(options.platform ?? "android");
   const segments: TranscriptSegment[] = [];
   const errors: RecorderError[] = [];
   recorder.onSegment((segment) => segments.push(segment));
@@ -453,6 +618,10 @@ beforeEach(() => {
   mockLog.length = 0;
   mockDevices.length = 0;
   mockAudioModes.length = 0;
+  mockFileBytes.clear();
+  mockHeldSends.length = 0;
+  mockAudioWritten = 0;
+  mockOpenHandles = 0;
   mockOpened.length = 0;
   mockDeleted.length = 0;
   mockPermission = { granted: true, canAskAgain: true };
@@ -1642,5 +1811,469 @@ describe("giving capture up is not undone by the verbs", () => {
     expect(errors[0].message).toMatch(/not being transcribed/i);
     expect(recorder.state).toBe("stopped");
     expect(mockDevices).toHaveLength(1);
+  });
+});
+
+describe("one continuous recording, sliced while it is written", () => {
+  /*
+    THE DEFECT: A MEETING THAT ENDED WHEN THE PHONE LOCKED.
+
+    The owner recorded a meeting with the microphone enabled and got a
+    transcript that ran to 03:01 and stopped. The background-audio entitlement
+    was in the build — `UIBackgroundModes: ["audio"]` shipped on 2026-09-08 and
+    a successful native build went out the next day — and the audio session was
+    configured for it, so the plumbing everybody would check was correct.
+
+    What was wrong is that the recorder **stopped and restarted every twenty
+    seconds**. iOS refuses to *start* a recording from the background —
+    `AVAudioSessionErrorCodeCannotStartRecording`, a privacy restriction since
+    iOS 12.4 — while letting one that is already running continue. So a
+    rotation is a request for the one thing a backgrounded recorder is not
+    allowed to make, once per interval, and the first one after the screen
+    locked ended the meeting. `capture/wav.ts` carries the citation.
+
+    Every test here is about the same property from a different side: **the
+    device is started once and never again**, and the chunks come out of the
+    file rather than out of the device.
+  */
+
+  /** The transcription chunks, with their audio decoded back to bytes. */
+  function slicesOf(transcriber: FakeTranscriber): {
+    mimeType: string;
+    offsetMs: number;
+    durationMs: number;
+    bytes: Uint8Array;
+  }[] {
+    return transcriber.chunks.map((chunk) => ({
+      mimeType: chunk.mimeType,
+      offsetMs: chunk.offsetMs,
+      durationMs: chunk.durationMs,
+      bytes: Uint8Array.from(Buffer.from(chunk.audioBase64, "base64")),
+    }));
+  }
+
+  /** The samples out of a slice — everything past its own 44-byte header. */
+  function pcmOf(slice: { bytes: Uint8Array }): number[] {
+    return [...slice.bytes.slice(44)];
+  }
+
+  test("the microphone is started once, however long the meeting runs", async () => {
+    /*
+      THE WHOLE FIX, AS ONE NUMBER.
+
+      Six intervals of audio used to be six `record()` calls, five of them made
+      from whatever state the app was in twenty seconds later. It is one now,
+      made from the foreground by `start()`, and nothing on the rotation path
+      touches the device at all — so there is no call for a locked phone to
+      refuse.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    for (let tick = 0; tick < 6; tick += 1) {
+      mockWriteAudio(SEGMENT_MS);
+      await advance(SEGMENT_MS);
+    }
+
+    expect(mockDevices).toHaveLength(1);
+    expect(mockDevices[0].records).toBe(1);
+    expect(mockDevices[0].prepares).toBe(1);
+    expect(mockDevices[0].stops).toBe(0);
+    expect(mockDevices[0].isRecording).toBe(true);
+
+    await recorder.stop();
+  });
+
+  test("the recorder is asked for linear PCM, in the flat record the native side reads", async () => {
+    /*
+      THE TRAP UNDER THE FIX.
+
+      `RecordingPresets` are nested — common fields, then `ios`/`android`/`web`
+      — and `expo-audio`'s own hook flattens the right one before constructing
+      a recorder. This module constructs the recorder directly (a recording has
+      to outlive the screen that started it) and the native side decodes **one
+      flat record**, ignoring keys it does not know.
+
+      So `outputFormat` under an `ios:` key would be dropped in silence, and the
+      result would be a `.wav` extension over an AAC payload: unreadable while
+      growing, in exactly the way this change exists to stop, and wrong in no
+      log anywhere. The shape is pinned rather than trusted.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    expect(mockDevices[0].options).toMatchObject({
+      extension: ".wav",
+      outputFormat: "lpcm",
+      sampleRate: 16_000,
+      numberOfChannels: 1,
+      linearPCMBitDepth: 16,
+      linearPCMIsFloat: false,
+    });
+    // Nested, which the native record would ignore, is what this must not be.
+    expect(mockDevices[0].options).not.toHaveProperty("ios");
+
+    await recorder.stop();
+  });
+
+  test("the slices are the recording, in order, with nothing dropped or repeated", async () => {
+    /*
+      The check the individual assertions would let through. Three intervals of
+      distinguishable audio go in; what comes out, concatenated, has to be
+      exactly those bytes in that order — a window that skipped, overlapped or
+      re-sent would pass an assertion about counts and fail this one.
+    */
+    const { recorder, transcriber } = harness({ platform: "ios" });
+    await recorder.start();
+
+    /*
+      A second of audio per tick rather than a full interval. The slicer takes
+      whatever is on disk, so the ordering property is identical and the arrays
+      being compared are 32 KB instead of 640 KB — and `push(...bytes)` on the
+      larger one is the stack overflow `wav.ts` refuses to write into the
+      module itself. `concat` for the same reason.
+    */
+    let expected: number[] = [];
+    for (let tick = 0; tick < 3; tick += 1) {
+      const before = mockFileBytes.get(mockDevices[0].uri!)!.length;
+      mockWriteAudio(1_000);
+      expected = expected.concat(mockFileBytes.get(mockDevices[0].uri!)!.slice(before));
+      await advance(SEGMENT_MS);
+    }
+
+    const slices = slicesOf(transcriber);
+    expect(slices).toHaveLength(3);
+    expect(slices.flatMap(pcmOf)).toEqual(expected);
+
+    // Each one is a complete WAVE file, because a slice is decoded by something
+    // that has never seen the rest of the meeting.
+    for (const slice of slices) {
+      expect(slice.mimeType).toBe("audio/wav");
+      expect([...slice.bytes.slice(0, 4)]).toEqual([...Buffer.from("RIFF")]);
+      expect([...slice.bytes.slice(8, 12)]).toEqual([...Buffer.from("WAVE")]);
+    }
+
+    await recorder.stop();
+  });
+
+  test("a slice is as long as the audio it holds, not as long as the tick was", async () => {
+    /*
+      The rotating path charges a full interval to the offset because a rotation
+      really is one interval of audio. Here the recorder's buffer decides how
+      much exists when the tick fires, so the duration is derived from the bytes
+      and the offset moves by exactly that. A tick that finds half an interval
+      must not claim a whole one, or every timestamp after it is early —
+      the compounding error `an interruption's lost time lands in the offset`
+      was written about, arriving a different way.
+    */
+    const { recorder, transcriber } = harness({ platform: "ios" });
+    await recorder.start();
+
+    mockWriteAudio(8_000);
+    await advance(SEGMENT_MS);
+    mockWriteAudio(12_000);
+    await advance(SEGMENT_MS);
+
+    expect(slicesOf(transcriber).map((slice) => [slice.offsetMs, slice.durationMs])).toEqual([
+      [0, 8_000],
+      [8_000, 12_000],
+    ]);
+
+    await recorder.stop();
+  });
+
+  test("a backed-up queue leaves the audio on disk instead of dropping it", async () => {
+    /*
+      THE ONE PLACE THIS PATH IS STRICTLY BETTER THAN THE ONE IT REPLACES.
+
+      `closeChunk` drops a chunk it cannot send and says so, because the file it
+      holds is about to be deleted and there is nowhere to keep it — see
+      `a backlog is bounded, and what it drops it says`. The file *is* the
+      buffer here, so a full queue costs latency rather than audio: the slicer
+      simply does not advance, and the next tick takes the same bytes.
+    */
+    const { recorder, transcriber, errors } = harness({ platform: "ios", hang: true });
+    await recorder.start();
+
+    for (let tick = 0; tick < 6; tick += 1) {
+      mockWriteAudio(1_000);
+      await advance(SEGMENT_MS);
+    }
+
+    // Three in flight and stuck, and nothing said about a backlog — because
+    // nothing was lost to one.
+    expect(transcriber.chunks).toHaveLength(MAX_INFLIGHT_CHUNKS);
+    expect(errors.map((error) => error.message).join(" ")).not.toContain("backlog");
+
+    /*
+      AND NOW THE HALF THAT MATTERS. Letting the queue go must produce the audio
+      it was holding up — all six seconds of it, contiguous from zero. A slicer
+      that advanced its read offset while refusing to send would come back with
+      a gap here and with fewer seconds than were recorded, which is the whole
+      failure this branch exists to prevent and is invisible in the counts above.
+    */
+    for (const release of mockHeldSends.splice(0)) release();
+    for (let tick = 0; tick < 4; tick += 1) await advance(SEGMENT_MS);
+    for (const release of mockHeldSends.splice(0)) release();
+    await advance(SEGMENT_MS);
+
+    const slices = slicesOf(transcriber);
+    expect(slices.reduce((total, slice) => total + slice.durationMs, 0)).toBe(6_000);
+    let expectedOffset = 0;
+    for (const slice of slices) {
+      expect(slice.offsetMs).toBe(expectedOffset);
+      expectedOffset += slice.durationMs;
+    }
+  });
+
+  test("ending sends everything still on disk before the microphone goes back", async () => {
+    /*
+      `stop()` releases the device, which deletes the recording — so anything
+      the ticks had not taken is gone with it. On the rotating path there was
+      never more than one chunk outstanding; here a slow tick or a busy queue
+      can leave minutes, and they are the minutes nearest the end of the
+      meeting, which is the part somebody is waiting for.
+    */
+    const { recorder, transcriber } = harness({ platform: "ios" });
+    await recorder.start();
+
+    // More than one slice's worth, and never a tick to take it.
+    mockWriteAudio(SEGMENT_MS * 4);
+    await recorder.stop();
+
+    const slices = slicesOf(transcriber);
+    expect(slices.length).toBeGreaterThan(1);
+    expect(slices.reduce((total, slice) => total + slice.durationMs, 0)).toBe(SEGMENT_MS * 4);
+    expect(mockDevices[0].released).toBe(true);
+  });
+
+  test("pausing puts the microphone back, and resuming does not re-send what it heard", async () => {
+    /*
+      Two failures in one, and the second is the subtle one.
+
+      A continuous recorder is still running after a slice — that is the point
+      of it — so a pause that only sliced would leave the input open, the red
+      indicator up and the file growing for the length of the pause.
+
+      And `resume` opens a *new* file. A read offset carried over from the old
+      one would start the new recording part-way in, silently skipping however
+      much the last one had grown past it: the first words after every pause,
+      gone, with no error anywhere.
+    */
+    const { recorder, transcriber } = harness({ platform: "ios" });
+    await recorder.start();
+    mockWriteAudio(1_000);
+    await advance(SEGMENT_MS);
+
+    await recorder.pause();
+    expect(mockDevices[0].isRecording).toBe(false);
+    expect(mockDevices[0].released).toBe(true);
+
+    await recorder.resume();
+    expect(mockDevices).toHaveLength(2);
+    expect(mockDevices[1].records).toBe(1);
+
+    const before = transcriber.chunks.length;
+    const start = mockFileBytes.get(mockDevices[1].uri!)!.length;
+    mockWriteAudio(1_000);
+    const written = mockFileBytes.get(mockDevices[1].uri!)!.slice(start);
+    await advance(SEGMENT_MS);
+
+    const after = slicesOf(transcriber).slice(before);
+    expect(after).toHaveLength(1);
+    // The whole of the new recording, from its first sample.
+    expect(pcmOf(after[0])).toEqual(written);
+
+    await recorder.stop();
+  });
+
+  test("with nowhere to send, the microphone is let go here too", async () => {
+    /*
+      THE HOLE THIS CHANGE OPENED, FOUND BY READING THE DIFF.
+
+      `closeChunk` has given capture up on a session with no transcriber since a
+      meeting was found recording for nobody — *"recording somebody's meeting in
+      order to throw it away, behind a live indicator, is the shape this feature
+      exists to make impossible"*. That check sits below the continuous branch,
+      and the continuous branch returns first.
+
+      So the first version of this fix recorded an uncapped WAVE file for the
+      length of a meeting, behind a live indicator, and transcribed none of it —
+      a worse version of the bug it was written to cure. `a failure with nowhere
+      to send says so once` covers the rotating path and stayed green
+      throughout, because it now runs on Android.
+    */
+    const { recorder, errors } = harness({ platform: "ios", noTranscriber: true });
+    await recorder.start();
+
+    mockWriteAudio(1_000);
+    await advance(SEGMENT_MS);
+
+    expect(mockDevices[0].released).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(false);
+    expect(recorder.state).toBe("stopped");
+  });
+
+  test("the file it is recording into is not left open once per tick", async () => {
+    /*
+      A descriptor leaked per twenty seconds is a meeting that stops being able
+      to read its own recording somewhere around the twentieth minute — and it
+      would pass every assertion about bytes on the way there.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    for (let tick = 0; tick < 5; tick += 1) {
+      mockWriteAudio(SEGMENT_MS);
+      await advance(SEGMENT_MS);
+    }
+    expect(mockOpenHandles).toBe(0);
+
+    await recorder.stop();
+    expect(mockOpenHandles).toBe(0);
+  });
+
+  test("a recorder that has not flushed its header yet is waited for, not reported", async () => {
+    /*
+      The ordinary first tick of a meeting: the file exists and the header is
+      not in it. Saying anything to somebody about that would be the
+      crying-wolf half of the honesty this module is otherwise built on — so it
+      is silence, and the next tick picks it up.
+    */
+    const { recorder, transcriber, errors } = harness({ platform: "ios" });
+    await recorder.start();
+
+    mockFileBytes.set(mockDevices[0].uri!, []);
+    await advance(SEGMENT_MS);
+    expect(transcriber.chunks).toHaveLength(0);
+    expect(errors).toEqual([]);
+
+    await recorder.stop();
+  });
+});
+
+
+describe("the phone's own meter", () => {
+  /*
+    THE MARK THAT COULD NOT MOVE.
+
+    `capture/level.ts` said the phone's `expo-audio` cannot produce a level, so
+    `useAudioLevel` answered `null` on every phone and the meter beside the
+    clock drew its static silhouette for the length of every meeting. It was
+    wrong: `expo-audio` meters on both platforms behind `isMeteringEnabled`,
+    which nothing set.
+
+    The owner paid for that twice. Once concluding his microphone was dead —
+    *"the bar is still not moving. And I can't tell that it can hear me
+    talking"* — and once asking why the one that is supposed to move does not.
+    `Waveform`'s own header draws the conclusion: a decoration in the shape of
+    a meter is a capability claim, and it is one nobody can check.
+  */
+
+  /** Everything published to the level channel while `run` executes. */
+  async function levelsDuring(run: () => Promise<void>): Promise<(number | null)[]> {
+    const seen: (number | null)[] = [];
+    const off = onRecorderLevel((level) => seen.push(level));
+    try {
+      await run();
+    } finally {
+      off();
+    }
+    return seen;
+  }
+
+  test("the recorder is asked for a meter, on both platforms", async () => {
+    /*
+      One flag, and the whole defect. `AVAudioRecorder.averagePower` is only
+      updated for a recorder that asked, and Android's `maxAmplitude` is only
+      read for one — so without this the field is absent and every reading is
+      the honest `null` that draws an unmoving mark.
+
+      Flat, like everything else the native record reads: nested under `ios:`
+      or `android:` it would be dropped in silence, which is the trap
+      `PCM_RECORDING_OPTIONS` documents and the reason this asserts the shape
+      rather than trusting it.
+    */
+    const ios = harness({ platform: "ios" });
+    await ios.recorder.start();
+    expect(mockDevices[0].options).toMatchObject({ isMeteringEnabled: true });
+    await ios.recorder.stop();
+
+    const android = harness({ platform: "android" });
+    await android.recorder.start();
+    expect(mockDevices[1].options).toMatchObject({ isMeteringEnabled: true });
+    await android.recorder.stop();
+  });
+
+  test("what the microphone hears reaches the meter, as a fraction of the mark", async () => {
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    const levels = await levelsDuring(async () => {
+      mockDevices[0].metering = -20; // Speech at arm's length.
+      await advance(500);
+      mockDevices[0].metering = METER_FLOOR_DB; // A quiet room.
+      await advance(500);
+    });
+
+    // Loud first, quiet after, and the loud one is genuinely up the bar rather
+    // than a rounding error above the floor.
+    const loud = levels.find((level) => level !== null && level > 0);
+    expect(loud).toBeGreaterThan(0.5);
+    expect(levels[levels.length - 1]).toBe(0);
+
+    await recorder.stop();
+  });
+
+  test("a recorder with no reading publishes `null`, never a silent room", async () => {
+    /*
+      `Waveform` draws a different mark for "nothing can tell you" than for
+      "listening, and the room is quiet", and collapsing them is the
+      flat-bar-reads-as-dead-microphone defect this was rebuilt to fix. A
+      status with no `metering` in it is the first of those.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+
+    const levels = await levelsDuring(async () => {
+      mockDevices[0].metering = undefined;
+      await advance(500);
+    });
+
+    expect(levels.length).toBeGreaterThan(0);
+    expect(levels.every((level) => level === null)).toBe(true);
+
+    await recorder.stop();
+  });
+
+  test("the meter goes quiet when the microphone does, rather than keeping its last reading", async () => {
+    /*
+      A meter left standing at whatever the room was doing when somebody
+      pressed pause claims a closed microphone is hearing them — the same lie
+      as a mark that never moves, pointed the other way. So stopping the poll
+      publishes `null` rather than simply ceasing.
+    */
+    const { recorder } = harness({ platform: "ios" });
+    await recorder.start();
+    mockDevices[0].metering = -10;
+    await advance(300);
+
+    const onPause = await levelsDuring(async () => {
+      await recorder.pause();
+    });
+    expect(onPause[onPause.length - 1]).toBeNull();
+
+    // And nothing goes on being published for a meeting nobody is recording.
+    const afterPause = await levelsDuring(async () => {
+      await advance(1_000);
+    });
+    expect(afterPause.filter((level) => level !== null)).toEqual([]);
+
+    await recorder.stop();
+    const afterStop = await levelsDuring(async () => {
+      await advance(1_000);
+    });
+    expect(afterStop).toEqual([]);
   });
 });

@@ -21,6 +21,8 @@ import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
+import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
+import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
@@ -2880,6 +2882,20 @@ check(
     queuedGatewayMessages[0]?.moveId === queuedMoveId &&
     !JSON.stringify(queuedGatewayMessages[0]).includes("cat_test_owner")
 );
+const firstQueuedMessage = queuedGatewayMessages.shift();
+await worker.queue({ messages: [{ body: firstQueuedMessage }] }, env);
+const firstProgressReport = [...controlPlane.calls]
+  .reverse()
+  .find((entry) => entry.path === "/gateway/jobs/report");
+check(
+  "queue consumer reports bounded move progress without note paths",
+  firstProgressReport?.body?.result?.status === "queued" &&
+    firstProgressReport?.body?.result?.progress?.phase === "copying" &&
+    Number.isInteger(firstProgressReport?.body?.result?.progress?.completed) &&
+    firstProgressReport.body.result.progress.completed > 0 &&
+    firstProgressReport?.body?.result?.progress?.total === 501 &&
+    !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
+);
 for (let i = 0; i < 20 && objects.has(`.context/moves/${queuedMoveId}.json`); i += 1) {
   const message = queuedGatewayMessages.shift();
   if (!message) break;
@@ -4179,6 +4195,17 @@ runStoreFactoryChecks(check);
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
 await runOrientationChecks(check);
+
+// A privacy rule that names a group: what the tools do when they meet one.
+// Its own control plane and bucket, like orientation, because the fixture is a
+// team folder with a group-scoped note inside it — the arrangement where a
+// guard that tests `=== "private"` instead of `!== "team"` actually leaks.
+await runPrivacyGroupChecks(check);
+
+// A path is not a place to write privacy rules. Its own bucket, because the
+// fixture is one named private note and one forged path that tries to publish
+// it without ever naming it.
+await runPathInjectionChecks(check);
 
 // The two communications reads, against their own bucket for the same reason:
 // the fixture here is two mailboxes with different visibilities, which is the

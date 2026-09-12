@@ -94,7 +94,7 @@ the retry is refused by the bucket we made and never mentioned. That is the
 documented likely failure, not a corner: only R2's API-token template key is
 published, so a pasted credential can create a bucket and be refused at the
 mint. Every recorded failure therefore carries the stage it reached, and a 5xx
-or a dead socket at the create step says the outcome is *unknown* rather than
+or a dead socket at the create step says the outcome is _unknown_ rather than
 guessing in either direction.
 
 **Reuse is proved from Cloudflare's record, never from our memory.** A taken
@@ -109,7 +109,7 @@ the first time R2 returns success for a bucket that already existed.
 
 **And the attempt expires.** The invariant above says there is no steady state
 holding an account-level credential; without a deadline, a run lost to a deploy
-holds one forever *and* blocks the person from retrying, because a pending row
+holds one forever _and_ blocks the person from retrying, because a pending row
 refuses a second attempt. The row expires, an hourly sweep destroys the
 envelope, and a pending row past its deadline stops blocking.
 
@@ -258,16 +258,22 @@ not an assertion per path; sabotage `write_note` to snapshot again and it fails.
   arrangement. The console names the condition instead — it cannot see the
   setting, so it does not guess which side of it somebody is on.
 
-**What this does not solve.** A bulk move still copies every byte through the
-Worker, because the storage adapter has `get`/`put`/`delete`/`list` and no
-`copy`; a folder move still rewrites `privacy.md` once per note under a
-conditional-write retry loop, which serialises the batch; and both run inside one
-Worker invocation against a 50-subrequest budget, which is what `FOLDER_MOVE_CAP`
-of 500 and `BATCH_MOVE_CAP` of 100 are optimistic about. Removing the snapshot
-takes one round trip and one full body copy per object out of that, and no more.
-Server-side `CopyObject` behind a probed `copy` capability, one manifest write per
-operation, and a resumable job for anything larger than an invocation are the
-next three, in that order.
+**Large moves are durable; their physical copy is still provider-bound.** A
+large owner-scoped folder move now makes one logical cutover, persists its
+marker in the customer's bucket, and materializes bounded batches through the
+Cloudflare Queue. A queue ticket is hashed in the control plane and carries no
+credential, note path, or note content. The owner can see only its phase and
+measured object counts in Settings; source and destination names remain in the
+bucket marker because a folder name can itself be private. Completed rows stay
+visible for one day so progress does not disappear at 99 percent.
+
+The storage adapter still has `get`/`put`/`delete`/`list` and no portable
+server-side `copy`, so each backend pays its own read, write, verify, and delete
+cost. A provider-specific `CopyObject` capability can reduce that cost later,
+but it must preserve the same marker, conditional cleanup, retry, and progress
+contract. The console's direct Convex move action remains synchronous; this
+durable path and its progress describe gateway-triggered large moves until the
+console starts the same job rather than its separate 45-second request.
 
 ### Dropbox's client secret is optional hardening, not a second credential to guard
 
@@ -307,7 +313,7 @@ that connects fine.
 **Decided 2026-09.** The product no longer requires everybody to bring their
 own bucket. Managed storage is the paid option: we create the bucket, we pay
 for it, and the customer never opens a Cloudflare account. This changes the
-*mechanism* of the first non-negotiable and deliberately keeps its *promise* —
+_mechanism_ of the first non-negotiable and deliberately keeps its _promise_ —
 see the rewrite in `CLAUDE.md`. Nothing below is a softening of it; several
 things are stricter than the BYO path.
 
@@ -324,31 +330,41 @@ aimed at, that account is the wall.
 ### What must stay true, or the promise is gone
 
 1. **One workspace, one bucket. Never a prefix.** This is the second
-   non-negotiable, and managed storage changes what it is *for*: it used to be
+   non-negotiable, and managed storage changes what it is _for_: it used to be
    about connecting an existing brain without migration, and it is now also
    the thing that makes handing a bucket over possible at all. A bucket
    holding one customer's notes can be given to them; a shared bucket with a
-   prefix per customer can only ever be exported *from*. `managedBucketName()`
+   prefix per customer can only ever be exported _from_. `managedBucketName()`
    derives the name from the workspace id — immutable, unique, and structurally
    incapable of colliding — rather than from a slug that can be reserved,
    renamed, or typed by somebody else.
 2. **A separate Cloudflare account, holding customer data and nothing of
    ours.** R2 has a flat bucket namespace with no grouping, so the account
-   *is* the boundary: a blast radius, a billing line, and an API token that
+   _is_ the boundary: a blast radius, a billing line, and an API token that
    cannot reach our own infrastructure. It costs nothing to create now and is
    a multi-day migration with one cutover per tenant later, because R2 has no
    "move bucket between accounts" operation — only a copy (Super Slurper) and
    a repoint.
+
+   **That account exists (owner, 2026-09-10) and is empty by design.** Our own
+   Workers — the gateway, the edge router, the email and transcribe Workers —
+   stay in the Supa Media account, and they reach customer resources over the
+   API with a credential rather than through a binding: the gateway signs S3
+   requests with a per-bucket key, and Convex calls the Cloudflare API to
+   create buckets and D1 databases. Nothing about this rule requires a Worker
+   to sit beside the data, which is the thing that would otherwise pull our
+   infrastructure in.
 
    **"Customer data", deliberately, and not "buckets".** The per-context D1
    search databases (`context-search-<workspaceId>`, `lib/d1.ts`) are the same
    thing in a different Cloudflare product: one resource per workspace, built
    from the customer's own files, disposable and rebuildable. They are
    expected to move into this account too, and the rule is what the account is
-   *for* rather than which product it holds — one resource per workspace, all
+   _for_ rather than which product it holds — one resource per workspace, all
    of it derived from or holding one customer's content, none of it ours. What
    must never join it is anything of ours: a Worker, a queue, a bucket holding
    our own state.
+
 3. **Plain files, unchanged layout.** A managed bucket holds exactly what a
    BYO bucket holds: Markdown, PARA folders, `privacy.md`, attachments beside
    their notes. Nothing about the on-bucket format may become conditional on
@@ -383,31 +399,53 @@ dashboard stops being useful for browsing, and provisioning has to be code
 from the first bucket. That is the accepted cost of being able to hand
 somebody their storage.
 
-### One account id, not one per product
+### One customer-data account id, after the D1 migration
 
-Once D1 lives there too, `SEARCH_D1_ACCOUNT_ID` and `MANAGED_R2_ACCOUNT_ID`
-are the same value written down twice, in two different places — one in
-`appSecrets`, one an environment variable. Two copies of one fact drift, and
-the failure when they drift is silent: provisioning writes into whichever
-account its own copy names. Consolidating them onto a single
-customer-data account id is the follow-up, and the reason it is not done in
-this change is that moving `SEARCH_D1_ACCOUNT_ID` out of `appSecrets` is a
-migration for a live feature rather than a rename.
+The target state has one customer-data account id for both R2 and D1. Today the
+two values **must differ**: the four live search databases are still in the Supa
+Media compute account, so `SEARCH_D1_ACCOUNT_ID` still names that account while
+`MANAGED_R2_ACCOUNT_ID` names the empty Context.LC customer-data account.
 
-Until then, **they must be kept equal by hand**, and no test may assert they
-differ. That assertion looks obviously right — "our infrastructure account is
-not the customer-data account" — and it would be wrong here, because these two
-are both the customer-data account. The thing worth asserting is the opposite,
-once one id exists to assert it about.
+Changing the search account id or token before migrating the stored database
+ids would not move anything. It would strand every existing index behind a
+credential for the wrong account. Search is disposable, so the migration is a
+controlled reprovision and backfill rather than a data move: create replacement
+databases in Context.LC, apply the schema, rebuild them from the canonical
+files, switch the binding rows, and only then delete the old Supa Media
+databases with the legacy credential.
+
+After that cutover, keeping `SEARCH_D1_ACCOUNT_ID` in `appSecrets` and
+`MANAGED_R2_ACCOUNT_ID` in the environment would write the same fact down in
+two places. Consolidate them onto one customer-data account id then, not before.
+The failure mode for doing it early is a production search outage; the failure
+mode for never doing it is quiet configuration drift.
+
+### Cloudflare credentials follow the account boundary
+
+The Supa Media deploy credential and the Context.LC customer-data credential
+are not interchangeable:
+
+- `CLOUDFLARE_API_TOKEN` deploys Workers, queues and routes in the Supa Media
+  compute account. It must carry no D1 or R2 permission.
+- `SEARCH_D1_API_TOKEN` is the temporary legacy D1 credential for the Supa
+  Media account while the four existing indexes remain there.
+- The Context.LC customer-data operator credential needs D1 and R2 access plus
+  account-token management so managed provisioning can mint a key scoped to
+  one workspace bucket. It must carry no Workers, queues, Pages or routes.
+
+The last two can become one named customer-data credential only when D1 has
+moved and both consumers name the Context.LC account. Consolidating their names
+or values before the resource migration disguises two different account
+boundaries as one secret and fails only at runtime.
 
 ### One customer-data account per deployment, never shared
 
 Resource names are unique because Convex ids are — **within one deployment**,
 and this applies to a D1 database name exactly as it does to a bucket.
-The R2 bucket namespace is per *account*, so pointing a preview or dev
+The R2 bucket namespace is per _account_, so pointing a preview or dev
 deployment at the production managed account reintroduces exactly the
 collision this design exists to prevent, and the reuse path in
-`provisionCloudflareStorage` would then *adopt* a production customer's bucket
+`provisionCloudflareStorage` would then _adopt_ a production customer's bucket
 rather than fail. `MANAGED_R2_ACCOUNT_ID` copied between deployments is the
 obvious way to do it by accident. Provisioning must assert it is entitled to
 the account it is about to write into before it creates anything; until it
@@ -416,14 +454,14 @@ does, the rule is operational and this paragraph is the whole of it.
 ### The credential, which is more dangerous than the BYO one
 
 The managed account's API token can create buckets and mint further
-credentials across *every* customer bucket, which makes it categorically worse
+credentials across _every_ customer bucket, which makes it categorically worse
 than anything this codebase has held before: the BYO setup credential is one
 customer's, used for seconds, and never stored. This one is ours, standing,
 and long-lived.
 
 **So the two values live in two different places, and that split is load-bearing
 rather than tidy.** The account id is an identifier: it decides nothing alone,
-and the guards below need it on the *public* bind path — which rules `appSecrets`
+and the guards below need it on the _public_ bind path — which rules `appSecrets`
 out, because `__tests__/structure.test.ts` fails any public function whose call
 graph reaches `decryptSecret`. It is therefore an environment variable, synced
 like `APPLE_TEAM_ID` rather than committed. The token is a credential and goes
@@ -435,12 +473,45 @@ reaches the gateway, which continues to receive only the per-bucket S3 key that
 provisioning mints. A managed binding is indistinguishable downstream from one a
 customer pasted, which is the point: the adapter has no idea who is paying.
 
-A guard that needed *both* values would fail open the moment one of them was
+A guard that needed _both_ values would fail open the moment one of them was
 missing — during a token rotation, or on a deployment that had set only one —
 and it would do so silently, on precisely the deployment with an account worth
 protecting. Hence one value, read on its own, with "absent" and "malformed"
 kept as different answers: absent is a self-hoster and refuses nothing;
 malformed throws.
+
+### Moving an existing context into the managed bucket
+
+An existing S3/R2 or Dropbox binding remains the live binding while a paid
+move runs. The control plane parks the new managed bucket credential in
+`managedStorageMigrations`, encrypted with the same workspace-bound envelope
+as ordinary storage credentials, and copies objects in bounded resumable
+pages. A first copy is followed by source and destination reconciliation; any
+changed, added, or removed object repeats the verification cycle. Only a full
+quiet cycle permits cutover.
+
+Progress has a measured denominator rather than an estimate. A read-only
+census walks the live source first, then each copy and verification page records
+how many objects it processed. Settings names the current phase and shows its
+processed-versus-total count and percentage; it shows no percentage during the
+census because the denominator is not known yet. The source may change while
+the job runs, so each completed source walk replaces the earlier total with the
+new count. Existing migrations created before this field was added resume from
+their saved cursor and fall back to a cumulative checked count rather than
+restarting a potentially multi-day copy just to manufacture a percentage.
+
+Cutover is conditional on the exact source binding id recorded at the start.
+If the owner reconnects storage while the copy is running, the migration fails
+closed and the newly connected binding stays live. The source bucket is never
+deleted. A failed copy keeps its cursor and managed credential for a safe retry;
+that envelope participates in the normal key-rotation pass and workspace
+deletion cascade. Successful cutover moves the credential onto the ordinary
+binding and deletes the migration row.
+
+The settings panel reports files checked, says which storage remains
+authoritative, and offers an owner-only retry. This is still not the free exit
+path: exporting everything or handing the managed bucket to customer-owned
+storage remains a separate launch requirement.
 
 `bindStorage` also refuses an endpoint addressing the managed account, and the
 BYO provisioning path refuses its account id. A customer cannot reach that
@@ -471,7 +542,7 @@ a promise that is the reason the product exists.
 
 **The tests that fail if this is reversed.** `__tests__/managedStorage.test.ts`
 asserts that two workspaces can never derive the same bucket name — including
-that a case-differing id *refuses* rather than folding onto an existing bucket
+that a case-differing id _refuses_ rather than folding onto an existing bucket
 — that a malformed account id throws instead of silently disabling the guards,
 and that the normalised endpoint forms are refused while a path or query
 merely containing the id is not.
@@ -479,7 +550,7 @@ merely containing the id is not.
 Those are unit tests, and unit tests alone would let both call sites be
 deleted with the suite still green — the exact failure `testing.md` names. So
 the wiring is pinned separately, against the real actions:
-`__tests__/storage.test.ts` drives `bindStorage` and asserts the refusal *and*
+`__tests__/storage.test.ts` drives `bindStorage` and asserts the refusal _and_
 that no row was written, and `__tests__/cloudflare.test.ts` drives
 `provisionCloudflareR2` and asserts Cloudflare was never called. Deleting
 either guard call fails one of those two, which was checked by deleting them.

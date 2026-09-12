@@ -56,10 +56,31 @@ export interface PremiumStatus {
   currentPeriodEnd?: number;
   cancelAtPeriodEnd?: boolean;
   hasStripeCustomer?: boolean;
+  /** Dedicated production CUJ account; never trusted by the server. */
+  isTestAccount?: boolean;
   notes?: number;
   notesTruncated?: boolean;
   notesCountedAt?: number;
   storageIsManaged: boolean;
+  /**
+   * Whether this deployment can provide managed storage at all — a price to
+   * charge and somewhere to put the bucket.
+   *
+   * Optional so a console can talk to a control plane older than itself
+   * without every read failing. Absent reads as "no", which is the only safe
+   * direction: the failure it prevents is selling storage that cannot be
+   * created, and that one happens *after* the payment.
+   */
+  managedStorageAvailable?: boolean;
+  /** Where making this context's managed bucket got to, when it was asked for. */
+  managedProvisioning?: "running" | "ready" | "failed";
+  /** Ours, from a closed set. Owner only. */
+  managedProvisioningError?: string;
+  /** Files verified while moving from customer-owned storage. Owner only. */
+  managedMigrationObjectsCopied?: number;
+  managedMigrationObjectsTotal?: number;
+  managedMigrationObjectsProcessed?: number;
+  managedMigrationPhase?: "count" | "copy" | "verify_source" | "verify_target";
 }
 
 /** Where an opened Checkout or portal attempt has got to. */
@@ -78,6 +99,80 @@ export interface PremiumView {
   choose?: (next: PremiumEntitlements) => Promise<void>;
   upgrade?: () => Promise<void>;
   manageBilling?: () => Promise<void>;
+  retryManagedStorage?: () => Promise<void>;
+  /** Exact-account CUJ cleanup; absent everywhere else. */
+  deleteTestWorkspace?: () => Promise<void>;
+}
+
+export function managedMigrationCopy(status: PremiumStatus): {
+  title: string;
+  body: string;
+  failed: boolean;
+  percent?: number;
+} | null {
+  if (
+    status.status !== "active" ||
+    !status.selected.managedStorage ||
+    status.storageIsManaged
+  ) {
+    return null;
+  }
+  if (status.managedProvisioning === "failed") {
+    return {
+      title: "Your notes are still in your original storage",
+      body:
+        "The copy into managed storage stopped before we switched anything. " +
+        "Your original remains connected and untouched. You can safely try again.",
+      failed: true,
+    };
+  }
+  const phase = status.managedMigrationPhase;
+  const processed = status.managedMigrationObjectsProcessed;
+  const total = status.managedMigrationObjectsTotal;
+  const percent =
+    processed !== undefined &&
+    total !== undefined &&
+    Number.isFinite(processed) &&
+    Number.isFinite(total) &&
+    processed >= 0 &&
+    total > 0
+      // This row exists only while the step is still active. Reserve 100 for
+      // the phase transition so files added after the census cannot make an
+      // unfinished walk look complete.
+      ? Math.min(99, Math.floor((processed / total) * 100))
+      : undefined;
+  if (phase === "count") {
+    return {
+      title: "Measuring your storage",
+      body:
+        "Your original storage stays connected and untouched while we count what needs to move." +
+        (processed === undefined ? "" : ` ${processed} files found so far.`),
+      failed: false,
+    };
+  }
+  const title =
+    phase === "verify_source"
+      ? "Verifying your original storage"
+      : phase === "verify_target"
+        ? "Verifying the managed copy"
+        : "Copying into managed storage";
+  const progress =
+    processed !== undefined && total !== undefined
+      ? processed > total
+        ? ` ${processed} files checked; this step found more than the earlier count.`
+        : ` ${processed} of ${total} files checked in this step.`
+      : status.managedMigrationObjectsCopied === undefined
+        ? ""
+        : ` ${status.managedMigrationObjectsCopied} files checked so far.`;
+  return {
+    title,
+    body:
+      `Your original storage stays connected and untouched until the copy is verified.` +
+      progress +
+      " You can keep using this context; new edits may make verification take longer.",
+    failed: false,
+    percent,
+  };
 }
 
 /**
@@ -93,6 +188,124 @@ export const EXPORT_PROMISE =
   "Taking your notes with you is free, on both plans, and keeps working after " +
   "you cancel. Cancelling makes a context read-only and exportable — it never " +
   "deletes anything.";
+
+/**
+ * COMING BACK FROM STRIPE.
+ *
+ * The payment happens on a page we do not own, so the first thing the console
+ * can say about it is whatever the return URL carries. Three states, and the
+ * one in the middle is the one the product had no design for at all:
+ *
+ * - **done, and the plan is already active** — the webhook beat the browser
+ *   back. Say so once and get out of the way.
+ * - **done, and the plan is not active yet** — the ordinary case. Delivery is
+ *   at-least-once and out of order, so this can take a moment. It must never
+ *   read as a failure, must never spin without a sentence, and must give
+ *   permission to leave: the work finishes on the server whether or not this
+ *   tab is open.
+ * - **cancelled** — they came back without paying. Nothing was charged,
+ *   nothing changed, and there is no second pitch. There is no discount to
+ *   offer and offering one would be a different product.
+ *
+ * `slow` is the same settling state a little later. It changes the words and
+ * not the spinner, because the spinner is still telling the truth.
+ */
+export interface CheckoutReturnCopy {
+  tone: "ok" | "neutral";
+  title: string;
+  body: string;
+  /** Shown only while something is actually outstanding. */
+  working: boolean;
+}
+
+export function checkoutReturnCopy(
+  outcome: "done" | "cancelled" | null,
+  state: PremiumState,
+  options: { slow?: boolean; context?: string } = {},
+): CheckoutReturnCopy | null {
+  if (outcome === null) return null;
+  if (outcome === "cancelled") {
+    return {
+      tone: "neutral",
+      title: "No payment was taken",
+      body:
+        "You came back without finishing, which is fine — nothing was charged " +
+        "and nothing changed. This context is exactly as you left it.",
+      working: false,
+    };
+  }
+  if (state === "premium") {
+    return {
+      tone: "ok",
+      title: "Payment received",
+      body: "Premium is on for this context. What you chose is active now.",
+      working: false,
+    };
+  }
+  const where =
+    options.context === undefined ? "this context" : options.context;
+  if (options.slow === true) {
+    return {
+      tone: "neutral",
+      title: "Still working",
+      body:
+        "Stripe has your payment and we are waiting for the confirmation. This " +
+        "can take a minute. You can close this — we will finish on our own, and " +
+        `${where} will be ready when you come back.`,
+      working: true,
+    };
+  }
+  return {
+    tone: "neutral",
+    title: "Payment received",
+    body: `Setting up ${where}. This usually takes a few seconds.`,
+    working: true,
+  };
+}
+
+/** How long before the settling copy stops saying "a few seconds". */
+export const CHECKOUT_SETTLING_SLOW_MS = 20_000;
+
+/**
+ * Storage was paid for and could not be made.
+ *
+ * The worst state in the product — money taken, nothing delivered — and the
+ * three things this copy has to do, in order:
+ *
+ * 1. **Say the payment and the notes are safe**, before anything else.
+ * 2. **Say a retry cannot duplicate anything.** That is a fact rather than
+ *    reassurance: provisioning adopts the bucket named for this workspace, and
+ *    `apps/convex/__tests__/managedProvisioning.test.ts` holds it to that.
+ * 3. **Offer the free path out** — connect storage of your own — because it
+ *    always works, and somebody stuck here has already waited long enough.
+ *
+ * The error code is ours and is never rendered: a person reading this cannot
+ * act on which of our systems refused, and a provider's own text can name an
+ * account. It picks the sentence, and the sentence names the next safe action.
+ */
+export function managedFailureCopy(errorCode: string | undefined): {
+  title: string;
+  body: string;
+  canRetry: boolean;
+} {
+  if (errorCode === "NOT_CONFIGURED") {
+    return {
+      title: "We cannot set up storage on this deployment yet",
+      body:
+        "Your payment went through and nothing has been lost. This one is at our " +
+        "end and trying again will not fix it — get in touch and we will sort it " +
+        "out, or connect storage you own and we will stop the subscription.",
+      canRetry: false,
+    };
+  }
+  return {
+    title: "We could not finish setting up your storage",
+    body:
+      "Your payment went through and nothing has been lost. This is our end, not " +
+      "yours — trying again is safe and will not create a second copy of anything.",
+    canRetry: true,
+  };
+}
 
 /**
  * Read a plan status off the wire.
@@ -218,7 +431,8 @@ export function premiumPill(
     at the rendered screen. A member is told the state that affects them, which
     is that Premium is not on.
   */
-  if (state === "past_due" && !canManage) return { tone: "warn", label: "Not active" };
+  if (state === "past_due" && !canManage)
+    return { tone: "warn", label: "Not active" };
   switch (state) {
     case "premium":
       return { tone: "ok", label: "Premium" };
@@ -253,12 +467,15 @@ export function premiumControl(view: PremiumView): PremiumControl {
   const status = view.status;
   if (status === null) return "none";
   if (!status.canManage) return "none";
+  if (status.isTestAccount === true && status.status === "active")
+    return "none";
   if (status.hasStripeCustomer === true) {
     return view.manageBilling === undefined ? "none" : "manage";
   }
   if (!status.configured) return "none";
   if (view.upgrade === undefined) return "none";
-  if (!status.selected.managedStorage && !status.selected.fastSearch) return "choose";
+  if (!status.selected.managedStorage && !status.selected.fastSearch)
+    return "choose";
   return "upgrade";
 }
 
@@ -357,7 +574,10 @@ export function formatBytes(bytes: number): string {
     value /= 1000;
     unit += 1;
   }
-  const rendered = value >= 100 || Number.isInteger(value) ? Math.round(value) : Number(value.toFixed(1));
+  const rendered =
+    value >= 100 || Number.isInteger(value)
+      ? Math.round(value)
+      : Number(value.toFixed(1));
   return `${rendered} ${units[unit]}`;
 }
 
@@ -373,13 +593,17 @@ export function formatBytes(bytes: number): string {
  */
 export function usageLine(status: PremiumStatus): string | null {
   if (status.notes === undefined) return null;
-  const counted = status.notesTruncated === true ? `${status.notes}+` : `${status.notes}`;
+  const counted =
+    status.notesTruncated === true ? `${status.notes}+` : `${status.notes}`;
   const notes = `${counted} ${status.notes === 1 && status.notesTruncated !== true ? "note" : "notes"}`;
   return `${notes} in this context. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
 }
 
 /** When the current period ends, in a sentence, or `null`. */
-export function renewalLine(status: PremiumStatus, now = Date.now()): string | null {
+export function renewalLine(
+  status: PremiumStatus,
+  now = Date.now(),
+): string | null {
   if (status.currentPeriodEnd === undefined) return null;
   const at = new Date(status.currentPeriodEnd * 1000);
   if (Number.isNaN(at.getTime())) return null;
@@ -421,7 +645,9 @@ export function describeSessionFailure(errorCode: string | undefined): string {
  * id, so it never subscribes and renders the free-plan copy with no controls —
  * which is the honest picture of what somebody signing up would see.
  */
-export function shouldReadPremium(options: { workspaceId: string | null }): boolean {
+export function shouldReadPremium(options: {
+  workspaceId: string | null;
+}): boolean {
   return options.workspaceId !== null;
 }
 

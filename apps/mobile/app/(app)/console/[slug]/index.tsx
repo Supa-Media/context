@@ -101,7 +101,8 @@ export default function ContextBrowseRoute() {
       onOpenSettings={
         slug === null
           ? undefined
-          : () => router.setParams({ settings: DEFAULT_SETTINGS_SECTION })
+          : (section) =>
+              router.setParams({ settings: section ?? DEFAULT_SETTINGS_SECTION })
       }
       /*
         What the URL has asked for. The pane pairs it with the browser's own

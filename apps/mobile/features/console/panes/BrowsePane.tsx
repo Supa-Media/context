@@ -28,6 +28,9 @@ import { ContactPageView } from "../communications/ContactPageView";
 import { InboxView } from "../communications/InboxView";
 import { MAIL_CONNECT_ENABLED } from "../communications/flags";
 import { classifyCommsPath } from "../communications/paths";
+import { isGroupVisibility } from "../files/types";
+import { removalHandler } from "../files/access";
+import type { SettingsSectionKey } from "../settings/sections";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -77,7 +80,13 @@ export function BrowsePane({
   onOpenComms,
 }: {
   data: ConsoleData;
-  onOpenSettings?: () => void;
+  /**
+   * Optionally at a named section — which is what lets a control deep-link to
+   * the place its own answer lives: the share dialog's group row sends you to
+   * `groups`, because who is in a group is decided there and nowhere else.
+   * Called with nothing, it opens where the gear always did.
+   */
+  onOpenSettings?: (section?: SettingsSectionKey) => void;
   /**
    * The note this URL names, if it names one.
    *
@@ -407,6 +416,15 @@ export function BrowsePane({
         gives: only the caller knows what the band is sitting above.
       */
       gutter={layout.readingMargin}
+      /*
+        A fresh row, not a scrolled one, whenever "where you are" changes.
+        `files.contextId` as well as the path: a switch that happens to land on
+        a note or folder with the same name in the new context (`index.md`, an
+        `@lk`/`@seyi` `1-projects` folder) is still a different position, and
+        the row's own scroll offset has no way to tell those apart on its own.
+        See `NavBand`'s `trailKey` for what not doing this costs.
+      */
+      trailKey={`${files.contextId ?? ""}:${selected?.path ?? ""}`}
       path={
         selected === null || !settled ? null : (
           <Breadcrumb
@@ -761,7 +779,15 @@ export function BrowsePane({
             trailing group. What a share *means* still differs by kind, and
             that is `ShareDialog`'s to say rather than this button's.
           */}
-          {files.canSetVisibility && !selected.readOnly ? (
+          {/*
+            Absent for a group rule, the console's own rule for a control
+            somebody may not use. The two-word button has no true label for
+            `@supa-leads` — it said "Share with team", and pressing it did
+            exactly that to a note the owner had held back.
+          */}
+          {files.canSetVisibility &&
+          !selected.readOnly &&
+          !isGroupVisibility(selected.visibility) ? (
             <Button
               /*
                 A verb here and a padlock on a phone, which is the same control
@@ -844,6 +870,82 @@ export function BrowsePane({
             files.setSharePreviewTitle(sharing, share, on)
           }
           onClose={() => setSharing(null)}
+          /*
+            Only what the server already decided: `selected.visibility` came off
+            the listing's own `effectiveVisibility` at this caller's scope, and
+            `access.ts` joins it to the membership without evaluating anything.
+
+            `data.members` rather than a `useMembers` of this pane's own: the
+            console already holds one subscription for the People section, and a
+            second one here made every BrowsePane render test reach for a Convex
+            provider it does not have — 96 of them. One subscription, read in
+            two places.
+          */
+          /*
+            Only what this caller may actually do. `data.groups.actions` is
+            absent for anybody who is not an owner — `listGroups` and
+            `setNoteGroup` are both owner-only — so the field offers no group
+            rows rather than offering a pick that would be refused. Optional
+            all the way down: a data shape without groups at all offers none,
+            which is the same answer and the right one.
+          */
+          groups={
+            data.groups?.actions === undefined
+              ? undefined
+              : data.groups.groups.map((group) => ({
+                  name: group.name,
+                  label: group.label,
+                  liveCount: group.members.filter((member) => member.live).length,
+                }))
+          }
+          onShareWithGroup={
+            data.groups?.actions === undefined
+              ? undefined
+              : (group) => files.shareWithGroup(sharing, group)
+          }
+          /*
+            Make one here, and point this note at it in the same press. The
+            group is created, populated, and then named as this note's rule —
+            which is the whole sequence somebody previously did by hand across
+            two screens.
+          */
+          entryKind={selected.kind}
+          onSetScope={
+            files.canSetVisibility
+              ? (from, to) => files.setScope(sharing, selected.kind, from, to)
+              : undefined
+          }
+          groupSlug={current?.slug}
+          onCreateGroup={
+            data.groups?.actions === undefined
+              ? undefined
+              : (label, userIds) =>
+                  data
+                    .groups!.actions!.createWith(label, userIds)
+                    .then((name) => files.shareWithGroup(sharing, name))
+          }
+          access={{
+            visibility: selected.visibility,
+            exception: selected.exception,
+            members: data.members?.members,
+          }}
+          /*
+            What a row can actually do about somebody. Each half is present
+            only where this caller holds it: `setPrivate` needs write access to
+            the manifest, `removeMember` is owner-only in `apps/convex`, and
+            `removalHandler` returns `undefined` when neither is — so a
+            non-owner's rows draw their role, exactly as they always did.
+          */
+          onRemovalRoute={removalHandler({
+            path: sharing,
+            kind: selected.kind,
+            setPrivate: (path, kind) => files.setVisibility(path, kind, "private"),
+            removeMember: data.members?.actions?.remove,
+            openGroups:
+              data.groups?.actions === undefined || onOpenSettings === undefined
+                ? undefined
+                : () => onOpenSettings("groups"),
+          })}
           /*
             Only when the editor is actually holding this note — the same
             guard the breadcrumb's title uses, for the same reason: the

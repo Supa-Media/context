@@ -36,6 +36,15 @@ jobs:
     env:
       # Inlined into the OTA JS bundle at export time.
       EXPO_PUBLIC_CONVEX_URL: ${{ secrets.EXPO_PUBLIC_CONVEX_URL }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      EXPO_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: "0.1"
+      EXPO_PUBLIC_POSTHOG_KEY: ${{ secrets.EXPO_PUBLIC_POSTHOG_KEY }}
+      EXPO_PUBLIC_POSTHOG_HOST: ${{ secrets.EXPO_PUBLIC_POSTHOG_HOST }}
+      EXPO_PUBLIC_POSTHOG_REPLAY_SAMPLE_RATE: "0.1"
+      # Build-only source-map credentials; none has an EXPO_PUBLIC_ prefix.
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
       # Read by app.config.js to resolve extra.eas.projectId — see the header.
       EAS_PROJECT_ID: ${{ secrets.EAS_PROJECT_ID }}
     steps:

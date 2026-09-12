@@ -54,10 +54,15 @@ const THEIRS = "3-resources/gateway.md";
 const mockParams: { slug: string; note?: string } = { slug: "@seyi" };
 const mockAddressed: (string | undefined)[] = [];
 let mockSetNote: (note: string | undefined) => void = () => {};
+/** Every `router.replace`/`push` the route itself asked for, name and href. */
+const mockRouterCalls: { method: "push" | "replace"; href: string }[] = [];
 
 jest.mock("expo-router", () => ({
   useLocalSearchParams: () => mockParams,
-  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  useRouter: () => ({
+    push: (href: string) => mockRouterCalls.push({ method: "push", href }),
+    replace: (href: string) => mockRouterCalls.push({ method: "replace", href }),
+  }),
   useNavigation: () => ({
     setParams: ({ note }: { note?: string }) => {
       mockAddressed.push(note);
@@ -96,6 +101,19 @@ const CONTEXTS = [
 
 /** A navigation: the URL's slug and note move together, in one commit. */
 let go: (href: string) => void;
+/**
+ * The fixed press: `data.files.deselect()`, called directly rather than
+ * through a navigation. See `_layout.tsx`'s `onOpenRoot`.
+ */
+let press: () => void;
+/**
+ * Forces `ContextBrowseRoute` to remount, the way a `router.replace` to this
+ * same screen does on native — `StackRouter` mints a fresh route key for
+ * every `REPLACE` action regardless of whether its params actually changed.
+ * `ConsoleDataProvider` and the file browser live in `Harness`, one level up,
+ * and do not remount with it — only `useNoteAddress`'s own `seen` ref does.
+ */
+let remountRoute: () => void;
 /** What the file browser is holding, as the route sees it. */
 let selected: string | null;
 /** Every `deselect` the route asked for, and whether the guard allowed it. */
@@ -119,6 +137,7 @@ function mount(): () => void {
     const [selectedContextId, setSelected] = useState<string | null>("w1");
     const [contextId, setContextId] = useState<string | null>("w1");
     const [selectedPath, setSelectedPath] = useState<string | null>(HIS);
+    const [routeKey, setRouteKey] = useState(0);
 
     mockParams.slug = `@${slug}`;
     mockParams.note = note;
@@ -162,6 +181,8 @@ function mount(): () => void {
       setSelectedPath(null);
       return true;
     }, []);
+    press = deselect as unknown as () => void;
+    remountRoute = () => setRouteKey((key) => key + 1);
 
     const data = {
       contexts: CONTEXTS,
@@ -172,7 +193,13 @@ function mount(): () => void {
 
     return createElement(ConsoleDataProvider, {
       value: data,
-      children: createElement(ContextBrowseRoute),
+      /*
+        Keyed on `routeKey`, which nothing here bumps on its own — only a test
+        modelling a `router.replace` remount does. Every other test leaves it
+        at `0`, so `ContextBrowseRoute` stays the one instance the rest of
+        this file already assumes.
+      */
+      children: createElement(ContextBrowseRoute, { key: String(routeKey) }),
     });
   }
 
@@ -196,6 +223,7 @@ describe("pressing the context you are in", () => {
 
   beforeEach(async () => {
     mockAddressed.length = 0;
+    mockRouterCalls.length = 0;
     mockParams.slug = "@seyi";
     mockParams.note = HIS;
     closes = 0;
@@ -228,6 +256,72 @@ describe("pressing the context you are in", () => {
     expect(selected).toBeNull();
     // …and the URL stays at the root rather than being re-addressed back.
     expect(mockAddressed).toEqual([]);
+  });
+
+  /**
+   * The mechanism the diagnosis names, reproduced directly. `go()` alone (the
+   * test above) never remounts `ContextBrowseRoute`, so it could not have
+   * caught the actual bug: on native, `router.replace(browseHref(slug))` is a
+   * `REPLACE` action, and `StackRouter` mints a fresh route key for every
+   * `REPLACE` whether or not its params changed — remounting the very hook
+   * that was supposed to close the note, while `ConsoleDataProvider` and the
+   * file browser (both owned by `_layout`, modelled here by `Harness`) do
+   * not. `useNoteAddress`'s `seen` ref resets to `null` on the remounted side,
+   * so `nextAddressStep` reads the transition as a cold load rather than an
+   * instruction to close, and used to answer `address` — writing the still-
+   * open note straight back onto the URL that had just dropped it.
+   *
+   * `remountRoute()` and `go()` fire in the same `act`, because that is what
+   * one `router.replace` call actually produces: one commit carrying both the
+   * new params and the new route key together.
+   *
+   * SABOTAGE: reverting `nextAddressStep`'s `fresh` branch to
+   * `note === null ? { action: "address", note: selected } : …`. Fails here —
+   * `closes` stays `0`, `selected` stays `HIS`, and the note is re-addressed.
+   */
+  test("closes the open note even if the route remounts under the press", async () => {
+    unmount = mount();
+    await settle();
+    expect(selected).toBe(HIS);
+
+    await act(async () => {
+      remountRoute();
+      go(browseHref("seyi"));
+    });
+    await settle();
+
+    expect(closes).toBe(1);
+    expect(selected).toBeNull();
+    // The reopened note never makes it back into the address, even briefly.
+    expect(mockAddressed).toEqual([]);
+  });
+
+  /**
+   * The actual fix, isolated from the reconciliation machinery above: pressing
+   * the pill you are standing in is `data.files.deselect()` and nothing else.
+   * No `router.replace`, no `router.push` — so no `REPLACE` action, no fresh
+   * route key, and no way for `seen` to be reset by this press at all. The
+   * URL still ends up at the bare context (`mockAddressed` gets `undefined`),
+   * but it arrives one commit later, as a mirror of the selection change —
+   * the same "address" step a tapped-closed tab already takes — rather than
+   * as a round trip through the router.
+   *
+   * SABOTAGE: `onOpenRoot` in `_layout.tsx` calling
+   * `router.replace(browseHref(current.slug))` again. Not reachable from this
+   * file (which does not render `_layout.tsx`), which is exactly why the
+   * remount test above exists as the general-purpose guard.
+   */
+  test("the press calls deselect and makes no router call", async () => {
+    unmount = mount();
+    await settle();
+
+    await act(async () => press());
+    await settle();
+
+    expect(closes).toBe(1);
+    expect(selected).toBeNull();
+    expect(mockRouterCalls).toEqual([]);
+    expect(mockAddressed).toEqual([undefined]);
   });
 
   /**

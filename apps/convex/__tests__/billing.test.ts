@@ -76,11 +76,13 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { MANAGED_R2_ACCOUNT_ID_ENV_VAR } from "../functions/lib/managedStorage";
 import {
   STRIPE_API_KEY_SECRET,
   STRIPE_PRICE_ID_ENV_VAR,
 } from "../functions/lib/premium";
 import { STRIPE_SIGNATURE_HEADER } from "../functions/lib/stripe";
+import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
 
 /** Obviously fake. This repository is public. */
 const SIGNING_SECRET = "whsec_obviously_fake_test_secret";
@@ -704,6 +706,25 @@ describe("the webhook", () => {
         api.functions.billing.startCheckout,
         { workspaceId },
       );
+      // Existing free/BYO contexts are the migration journey. Payment must
+      // schedule managed provisioning even though a binding already exists;
+      // the provisioner copies it instead of overwriting it.
+      await t.run((ctx) =>
+        ctx.db.insert("storageBindings", {
+          workspaceId,
+          provider: "s3",
+          endpoint: "https://s3.example.invalid",
+          region: "us-east-1",
+          bucket: "existing-bucket",
+          accessKeyId: "existing-key",
+          encryptedSecretAccessKey: "sealed-existing",
+          status: "connected",
+          capabilities: { conditionalWrite: true },
+          boundBy: owner,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        }),
+      );
       const response = await postWebhook(t, checkoutCompleted(sessionId));
       expect(response.status).toBe(200);
 
@@ -713,6 +734,15 @@ describe("the webhook", () => {
       expect(view.status).toBe("active");
       expect(view.active).toEqual({ managedStorage: true, fastSearch: true });
       expect(view.hasStripeCustomer).toBe(true);
+      const scheduled = await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      );
+      expect(
+        scheduled.filter((job) => job.name.includes("syncPremiumSelection")),
+      ).toHaveLength(1);
+      expect(
+        scheduled.filter((job) => job.name.includes("provisionManagedStorage")),
+      ).toHaveLength(1);
     } finally {
       vi.unstubAllEnvs();
     }
@@ -795,7 +825,22 @@ describe("the webhook", () => {
 
       await postWebhook(t, checkoutCompleted(sessionId));
       const second = await t.run((ctx) => ctx.db.query("workspacePlans").unique());
-      expect(second!.updatedAt).toBe(first!.updatedAt);
+      /*
+        What "no-op" means here, stated as the fields the event writes rather
+        than as `updatedAt`.
+
+        It was `updatedAt`, which was a fair proxy while this event was the
+        only thing that ever touched the row — and stopped being one when a
+        paid plan started scheduling its own bucket, because recording where
+        *that* got to is a legitimate later write to the same row. Asserting
+        the applied event's own fields is both narrower and stronger: a second
+        application would move the status, the event id and the audit trail,
+        and none of them moves.
+      */
+      expect(second!.status).toBe(first!.status);
+      expect(second!.lastEventIds).toEqual(first!.lastEventIds);
+      expect(second!.lastEventAt).toBe(first!.lastEventAt);
+      expect(second!.stripeSubscriptionId).toBe(first!.stripeSubscriptionId);
       // And no second audit row claiming the plan changed twice.
       const audit = await t.run((ctx) => ctx.db.query("auditEvents").collect());
       expect(audit.filter((row) => row.action === "billing.plan_updated")).toHaveLength(1);
@@ -1307,5 +1352,300 @@ describe("nothing here gates the exit", () => {
       exits,
       "a plan must never decide whether somebody can leave with their notes",
     ).toEqual([]);
+  });
+});
+
+/**
+ * WHERE STRIPE SENDS SOMEBODY BACK TO.
+ *
+ * The one moment this product cannot afford to get wrong is the one it did:
+ * `success_url` was `/settings?settings=premium&checkout=done`, and
+ * `/settings` is not a route in the app — settings became an overlay over a
+ * context's own page. A completed payment landed on `+not-found`.
+ *
+ * These tests pin the exact strings sent to Stripe, because that is the only
+ * place the mistake was visible. The *other* half of the guard is in the app
+ * (`apps/mobile/__tests__/checkoutReturn.test.ts`): a path this file says is
+ * right and the router does not resolve is still a 404, and only that side can
+ * ask the router.
+ *
+ * ## Sabotage record
+ *
+ *   `createCheckoutSession` back to the literal `/settings?...` path        1
+ *   `sessionForAction` reporting "settings" for an onboarding attempt       1
+ *   `portalReturnPath` swapped for the old literal                         1
+ */
+describe("the return from Stripe", () => {
+  /** What Stripe was asked for, as the form parameters it received. */
+  function captureStripe(): {
+    params: () => URLSearchParams;
+    all: () => URLSearchParams[];
+    calls: () => number;
+  } {
+    const seen: URLSearchParams[] = [];
+    vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+      seen.push(new URLSearchParams(init.body));
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({ url: "https://checkout.invalid/session" }),
+      };
+    });
+    return { params: () => seen[seen.length - 1], all: () => seen, calls: () => seen.length };
+  }
+
+  async function sellingContext(t: TestConvex, slug: string) {
+    await seedAppSecret(t, STRIPE_API_KEY_SECRET, "sk_test_obviously_fake_key");
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv("APP_ORIGIN", "https://app.example.invalid");
+    return await context(t, slug);
+  }
+
+  test("a checkout from settings returns to that context's Premium section", async () => {
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-settings");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.calls()).toBe(1);
+      expect(stripe.params().get("success_url")).toBe(
+        "https://app.example.invalid/console/@return-settings?settings=premium&checkout=done",
+      );
+      expect(stripe.params().get("cancel_url")).toBe(
+        "https://app.example.invalid/console/@return-settings?settings=premium&checkout=cancelled",
+      );
+      // The path that shipped, and the reason this file has a section.
+      expect(stripe.params().get("success_url")).not.toContain("/settings?");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a checkout from first run returns to first run", async () => {
+    /*
+      Somebody thirty seconds into their first session has no context page to
+      be sent to — they are mid-flow, with a name claimed and no storage — so
+      sending them to a console that has neither is sending them to a dead end
+      wearing a different URL.
+    */
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-firstrun");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId, origin: "onboarding" },
+      );
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.params().get("success_url")).toBe(
+        "https://app.example.invalid/welcome?checkout=done",
+      );
+      expect(stripe.params().get("cancel_url")).toBe(
+        "https://app.example.invalid/welcome?checkout=cancelled",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a row written before origin existed is read as a settings attempt", async () => {
+    // The field is optional because rows predate it, and the fallback has to be
+    // the origin the product actually had — not a crash, and not first run.
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-legacy");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId, origin: "onboarding" },
+      );
+      await t.run((ctx) => ctx.db.patch(sessionId, { origin: undefined }));
+      await t.action(internal.functions.billingStripe.createCheckoutSession, { sessionId });
+
+      expect(stripe.params().get("success_url")).toContain("/console/@return-legacy?settings=premium");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a context deleted mid-checkout is not sent anywhere at all", async () => {
+    /*
+      The return URL is built from the context's name. Without this the slug
+      falls back to an empty string and Stripe is handed
+      `/console/@?settings=premium` — a URL that resolves to nothing — as the
+      place to send somebody after they have paid. There is nothing left to
+      upgrade, so the attempt is skipped instead.
+    */
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "vanished");
+      await chooseBoth(t, owner, workspaceId);
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startCheckout,
+        { workspaceId },
+      );
+      await t.run((ctx) => ctx.db.delete(workspaceId));
+      const result = await t.action(
+        internal.functions.billingStripe.createCheckoutSession,
+        { sessionId },
+      );
+
+      expect(result.status).toBe("skipped");
+      /*
+        Every call, not a count: `startCheckout` also schedules this action, and
+        the scheduled run happens with the workspace still present. What must
+        never happen is a URL naming no context reaching Stripe at all.
+      */
+      for (const params of stripe.all()) {
+        expect(params.get("success_url")).not.toContain("/@?");
+        expect(params.get("cancel_url")).not.toContain("/@?");
+      }
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("the billing portal returns to the section it was opened from", async () => {
+    const t = setupTest();
+    const stripe = captureStripe();
+    try {
+      const { owner, workspaceId } = await sellingContext(t, "return-portal");
+      await t.run(async (ctx) => {
+        await ctx.db.insert("workspacePlans", {
+          workspaceId,
+          managedStorage: true,
+          fastSearch: false,
+          status: "active",
+          stripeCustomerId: "cus_FAKE0000",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        });
+      });
+      const { sessionId } = await asUser(t, owner).mutation(
+        api.functions.billing.startPortal,
+        { workspaceId },
+      );
+      await t.action(internal.functions.billingStripe.createPortalSession, { sessionId });
+
+      expect(stripe.params().get("return_url")).toBe(
+        "https://app.example.invalid/console/@return-portal?settings=premium",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+/**
+ * WHAT THIS DEPLOYMENT CAN ACTUALLY GIVE SOMEBODY.
+ *
+ * Selling and delivering are different questions, and the console has to ask
+ * the second one before it draws a managed-storage option. A deployment with a
+ * Stripe price and no customer-data account can take $20 and has nowhere to
+ * put the bucket that money buys — which is the worst failure this flow has,
+ * because it happens *after* the payment.
+ *
+ * ## Sabotage record
+ *
+ *   `managedStorageAvailable` answering `deploymentSells()` alone         1
+ *   the malformed account id thrown rather than caught                    1
+ */
+describe("production CUJ Premium bypass", () => {
+  test("the exact verified test account activates without Stripe", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, TEST_ACCOUNT_EMAIL);
+    const workspaceId = await createWorkspace(t, owner, "test-premium");
+    await asUser(t, owner).mutation(api.functions.billing.setEntitlements, {
+      workspaceId,
+      managedStorage: false,
+      fastSearch: true,
+    });
+
+    await expect(
+      asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId }),
+    ).resolves.toEqual({ active: true });
+    const status = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    expect(status).toMatchObject({ status: "active", isTestAccount: true });
+    expect(status.hasStripeCustomer).toBe(false);
+  });
+
+  test("an ordinary owner cannot use the test upgrade", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await context(t, "not-test-premium");
+    await chooseBoth(t, owner, workspaceId);
+    await expect(
+      asUser(t, owner).mutation(api.functions.billing.activateTestPremium, { workspaceId }),
+    ).rejects.toMatchObject({ data: expect.objectContaining({ code: "FORBIDDEN" }) });
+  });
+});
+
+describe("whether managed storage can be offered at all", () => {
+  const ACCOUNT_ID = "0123456789abcdef0123456789abcdef";
+
+  async function availability(t: TestConvex, slug: string): Promise<boolean> {
+    const { owner, workspaceId } = await context(t, slug);
+    const row = await asUser(t, owner).query(api.functions.billing.status, { workspaceId });
+    return row.managedStorageAvailable;
+  }
+
+  test("a deployment that sells nothing offers nothing", async () => {
+    const t = setupTest();
+    expect(await availability(t, "offers-nothing")).toBe(false);
+  });
+
+  test("a price with nowhere to put a bucket is still not an offer", async () => {
+    // The case worth having a test for: everything Stripe needs is present and
+    // the thing being sold cannot be delivered.
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    try {
+      expect(await availability(t, "sells-only")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("both, and it is an offer", async () => {
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, ACCOUNT_ID);
+    try {
+      expect(await availability(t, "sells-and-holds")).toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  test("an operator's typo does not take the status query down for every member", async () => {
+    /*
+      `managedAccountId` throws on set-but-malformed, which is right where
+      provisioning reads it and wrong here: this query is called by every
+      member of every context, and one bad environment variable would answer
+      all of them with an exception. It reads as "cannot offer it", which is
+      both true and survivable.
+    */
+    const t = setupTest();
+    vi.stubEnv(STRIPE_PRICE_ID_ENV_VAR, FAKE_PRICE_ID);
+    vi.stubEnv(MANAGED_R2_ACCOUNT_ID_ENV_VAR, "not-an-account-id");
+    try {
+      expect(await availability(t, "typo")).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

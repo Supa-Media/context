@@ -46,12 +46,14 @@
  * sessions) deletes as cleanly as a fully onboarded one.
  */
 
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
 import { mutation, type MutationCtx } from "../_generated/server";
 import type { Id, TableNames } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
+import { isProductionTestAccount } from "./lib/testAccount";
+import { managedBucketName } from "./lib/managedStorage";
 
 /**
  * The minimal shape `deleteWorkspaceCascade` needs from a query over a table
@@ -83,6 +85,50 @@ const INVITATION_STATUSES = [
   "declined",
   "revoked",
 ] as const;
+
+/**
+ * Delete one disposable workspace owned by the production CUJ account.
+ *
+ * This is intentionally narrower than a general workspace-delete feature: the
+ * caller must be the exact verified test identity, must have created the
+ * workspace, and must be its only member. That gives the CUJ a safe teardown
+ * path without making an existing shared context—or any customer's storage—a
+ * valid target.
+ */
+export const deleteTestWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const user = await ctx.db.get(userId);
+    const workspace = await ctx.db.get(args.workspaceId);
+    const memberships = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .collect();
+    const ownsWorkspace = memberships.some(
+      (membership) =>
+        membership.userId === userId && membership.role === "owner",
+    );
+
+    if (
+      !isProductionTestAccount(user) ||
+      workspace === null ||
+      workspace.createdBy !== userId ||
+      !ownsWorkspace ||
+      memberships.some((membership) => membership.userId !== userId)
+    ) {
+      throw new ConvexError({
+        code: "FORBIDDEN",
+        message:
+          "Only an unshared workspace created by the production test account can use this cleanup.",
+      });
+    }
+
+    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    return { deleted: true };
+  },
+});
 
 /**
  * Delete the calling user's account, entirely.
@@ -252,6 +298,8 @@ export const deleteAccount = mutation({
  * alongside it, and what happens to each:
  *
  *  - **`storageBindings`** — swept below. Dropbox's grant is revoked first.
+ *  - **`managedStorageMigrations`** — swept before its source binding; it can
+ *    carry a second encrypted per-bucket credential while a copy is running.
  *  - **`searchIndexes`** — RELEASED below rather than deleted: marked
  *    `releasing` with `fastSearchProvision.releaseIndex` scheduled, which is
  *    the only path that deletes the remote D1 database holding this context's
@@ -310,6 +358,18 @@ async function deleteWorkspaceCascade(
   ctx: MutationCtx,
   workspaceId: Id<"workspaces">,
 ): Promise<void> {
+  const workspace = await ctx.db.get(workspaceId);
+  const creator =
+    workspace === null ? null : await ctx.db.get(workspace.createdBy);
+  const deleteManagedTestResources = isProductionTestAccount(creator);
+  // A managed-storage copy parks a second encrypted bucket credential. Remove
+  // it before its source binding so no orphan can survive account deletion.
+  const managedMigration = await ctx.db
+    .query("managedStorageMigrations")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (managedMigration !== null) await ctx.db.delete(managedMigration._id);
+
   // The storage binding, with the same Dropbox care `disconnectStorage`
   // takes: schedule the revocation first, envelope in the args, because the
   // row it lives on is deleted on the next line. Scheduled, not called — this
@@ -319,6 +379,17 @@ async function deleteWorkspaceCascade(
     .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
     .unique();
   if (binding !== null) {
+    if (
+      deleteManagedTestResources &&
+      binding.bucket === managedBucketName(workspaceId) &&
+      binding.accessKeyId !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.deleteManagedTestResources,
+        { workspaceId, bucket: binding.bucket, tokenId: binding.accessKeyId },
+      );
+    }
     if (
       binding.provider === "dropbox" &&
       binding.encryptedRefreshToken !== undefined
@@ -644,10 +715,15 @@ async function deleteWorkspaceCascade(
  * re-check half, and it is not redundant — it is what makes the next table
  * somebody forgets to add here inert instead of exploitable.
  */
-async function voidCapabilitiesAddressedTo(ctx: MutationCtx, name: string): Promise<void> {
+async function voidCapabilitiesAddressedTo(
+  ctx: MutationCtx,
+  name: string,
+): Promise<void> {
   const pending = await ctx.db
     .query("workspaceInvitations")
-    .withIndex("by_invitee", (q) => q.eq("inviteeKind", "name").eq("invitee", name))
+    .withIndex("by_invitee", (q) =>
+      q.eq("inviteeKind", "name").eq("invitee", name),
+    )
     .filter((q) => q.eq(q.field("status"), "pending"))
     .collect();
   for (const invitation of pending) {

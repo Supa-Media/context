@@ -7,6 +7,7 @@ import { StageBackdrop } from "../design/components/StageBackdrop";
 import { leading, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { canReload, reloadApp } from "./reload";
+import { reportError, trackEvent } from "../observability/client";
 
 /**
  * The one thing standing between a thrown render and a blank dark page.
@@ -64,6 +65,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    reportError(error, {
+      componentStack: info.componentStack,
+      mechanism: "react.error_boundary",
+    });
     this.props.onError?.(error, info);
   }
 
@@ -75,6 +80,7 @@ export class ErrorBoundary extends Component<Props, State> {
       <ErrorScreen
         error={error}
         onRetry={() => {
+          trackEvent("error_boundary_retried");
           this.setState({ error: null });
         }}
       />
@@ -126,7 +132,10 @@ export function ErrorScreen({ error, onRetry }: { error: Error; onRetry: () => v
                 label="Reload"
                 variant="ghost"
                 style={styles.reload}
-                onPress={reloadApp}
+                onPress={() => {
+                  trackEvent("error_boundary_reloaded");
+                  reloadApp();
+                }}
                 testID="error-reload"
               />
             ) : null}

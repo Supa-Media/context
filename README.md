@@ -170,6 +170,9 @@ anonymous tier.
 
 ## Development
 
+Production monitoring, privacy rules, release verification, and the incident
+runbook live in [docs/observability.md](docs/observability.md).
+
 ```sh
 pnpm install
 npx convex dev          # creates your Convex deployment

@@ -18,6 +18,7 @@ import {
   errorCode,
   setupTest,
 } from "./fixtures.helpers";
+import { TEST_ACCOUNT_EMAIL } from "../functions/lib/testAccount";
 
 describe("createWorkspace", () => {
   test("creates the workspace, its name claim, and its owner membership together", async () => {
@@ -215,6 +216,18 @@ describe("one account cannot claim the namespace", () => {
     const newcomer = await createUser(t, "newcomer@example.invalid");
     const workspaceId = await createWorkspace(t, newcomer, "atlas");
     expect(await t.run((ctx) => ctx.db.get(workspaceId))).not.toBeNull();
+  });
+
+  test("the verified production test account can create unlimited CUJ workspaces", async () => {
+    const t = setupTest();
+    const testUser = await createUser(t, TEST_ACCOUNT_EMAIL);
+    for (const slug of candidates(12)) {
+      await createWorkspace(t, testUser, `test-${slug}`);
+    }
+    const owned = await t.run((ctx) =>
+      ctx.db.query("workspaceMembers").withIndex("by_user", (q) => q.eq("userId", testUser)).collect(),
+    );
+    expect(owned).toHaveLength(12);
   });
 
   test("being invited into other people's contexts does not spend your own allowance", async () => {

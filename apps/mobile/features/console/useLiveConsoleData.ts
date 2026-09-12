@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuthActions } from "@convex-dev/auth/react";
 import {
   useAction,
@@ -18,6 +18,7 @@ import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { useFastSearch } from "./search/useFastSearch";
+import { useGroups } from "./groups/useGroups";
 import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
@@ -40,6 +41,10 @@ import {
   type StorageActions,
 } from "./types";
 import type { GoogleConnection } from "./google/GoogleConnectionsCard";
+import {
+  resetObservabilityUser,
+  setObservabilityUser,
+} from "../observability/client";
 
 /**
  * The live console.
@@ -231,7 +236,7 @@ export function useLiveConsoleData(): ConsoleData {
     () => ({
       workspaces: { query: api.functions.workspaces.listMyWorkspaces, args: {} },
       invitations: { query: api.functions.invitations.listMyInvitations, args: {} },
-      // Which contexts a blended search would actually reach. It rides in the
+      // Which contexts a blended search will reach. It rides in the
       // same spec for the reason `listMyInvitations` does — Convex dedupes
       // identical subscriptions, so the search page subscribing to it as well
       // is not a second round trip — and it is here rather than on the page
@@ -256,12 +261,14 @@ export function useLiveConsoleData(): ConsoleData {
     specResults.invitations,
   );
   const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
-  // `fastSearch.searchableContexts` answers `{ eligible, notEligible }` now
-  // (see `apps/convex/functions/fastSearch.ts`); this reader only ever wanted
-  // the count of the first half.
-  const searchableContexts = usable<{ eligible: Array<{ workspaceId: string }> }>(
+  // `fastSearch.searchableContexts` answers `{ contexts }` (see
+  // `apps/convex/functions/fastSearch.ts`); this reader only ever wanted how
+  // many there are. That is now every context the person belongs to rather
+  // than the fast-search ones, which is the honest condition for drawing a
+  // Search row: the page reads whatever it is given, quickly or slowly.
+  const searchableContexts = usable<{ contexts: Array<{ workspaceId: string }> }>(
     specResults.searchable,
-  )?.eligible.length;
+  )?.contexts.length;
   const failure =
     workspacesResult instanceof Error
       ? describeQueryFailure(workspacesResult, "your context")
@@ -538,6 +545,7 @@ export function useLiveConsoleData(): ConsoleData {
   // this hook decides for itself, from `role`, whether to subscribe at all.
   // See `useShares` for why that is stricter than `useMembers`'s own gate.
   const shares = useShares({ workspaceId: selectedContextId, role: selected?.role });
+  const groups = useGroups({ workspaceId: selectedContextId, role: selected?.role });
 
   // Both halves are owner-only in the console — see `useAdvanced` for why the
   // audit trail is stricter here than `listEvents` allows on the backend.
@@ -586,6 +594,12 @@ export function useLiveConsoleData(): ConsoleData {
     email: members.members.find((member) => member.isMe)?.email,
   });
 
+  const viewerUserId = members.members.find((member) => member.isMe)?.userId;
+  useEffect(() => {
+    if (viewerUserId === undefined) return;
+    setObservabilityUser(viewerUserId);
+  }, [viewerUserId]);
+
   return {
     demo: false,
     viewer,
@@ -631,6 +645,7 @@ export function useLiveConsoleData(): ConsoleData {
       // stance — it can report, and it can never block this.
       await forgetLocalCopies();
       await authActions?.signOut();
+      resetObservabilityUser();
     },
     // Three tiles, not the mockup's four. "in your own bucket" is still gone:
     // nothing measures a bucket's size, so there is no honest value to put in
@@ -694,6 +709,7 @@ export function useLiveConsoleData(): ConsoleData {
     files,
     members,
     shares,
+    groups,
     advanced,
     fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning

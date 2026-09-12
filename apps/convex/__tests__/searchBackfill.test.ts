@@ -445,9 +445,18 @@ async function opted(
   await seedAppSecret(t, D1_ACCOUNT_SECRET, FAKE_D1.accountId);
 
   const now = Date.now();
-  await t.run((ctx) =>
-    ctx.db.insert("searchIndexes", {
+  await t.run(async (ctx) => {
+    await ctx.db.insert("workspacePlans", {
       workspaceId,
+      managedStorage: false,
+      fastSearch: true,
+      status: "active",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ctx.db.insert("searchIndexes", {
+      workspaceId,
+      generation: "premium-v1",
       optedIn: options.optedIn ?? true,
       optedInBy: owner,
       optedInAt: now,
@@ -458,8 +467,8 @@ async function opted(
       notesIndexed: 0,
       createdAt: now,
       updatedAt: now,
-    }),
-  );
+    });
+  });
   return { t, workspaceId, owner, d1, bucket };
 }
 
@@ -504,6 +513,7 @@ describe("the trigger", () => {
 
     await t.action(internal.functions.fastSearchProvision.provisionIndex, {
       workspaceId,
+      generation: "premium-v1",
     });
 
     // The row says the schema is on and the copy is due...

@@ -1557,6 +1557,151 @@ this belongs to has its own guard —
 [app-and-console](./app-and-console.md), *a route with no way in is a route
 nobody has*.
 
+### The phone has a meter, and it always did
+
+**The claim that was never checked.** `capture/level.ts` argued that a level
+does not belong on `MeetingRecorder`, and gave three reasons. The second was
+that *"only one of the five recorders can produce one — the desktop shell holds
+an `AnalyserNode` on the stream it is recording; the phone's `expo-audio` and
+the browser's `MediaRecorder` do not"*.
+
+Half of it was false. `expo-audio` meters on both phone platforms: iOS from
+`AVAudioRecorder.averagePower`, Android by converting `MediaRecorder`'s
+`maxAmplitude`, both answering in dBFS on `getStatus()`. It is behind one flag
+— `isMeteringEnabled` — and nothing set it, so `useAudioLevel` answered `null`
+on every phone and the mark beside the clock drew its static silhouette for the
+length of every meeting.
+
+**It cost the owner two evenings, for the reason `Waveform`'s own header
+predicts.** That file records "a meter that responds to sound is a capability
+claim" and the first evening it was written about: *"the bar is still not
+moving. And I can't tell that it can hear me talking."* The fix then was to
+animate the desktop meter, and the phone was left drawing the same unmoving
+mark under the same claim. The second evening was the question that followed —
+why is there a mark shaped like a meter that does not move — and the answer was
+that nobody had asked the device.
+
+**So the recorder reads its own meter and publishes it, and the conclusion
+about the interface survives.** The channel is a module-level publisher in
+`capture/level.ts`, not an event on `MeetingRecorder` and not a field on the
+snapshot: the first reason in that header is intact and is the load-bearing
+one — a level moves ten times a second, everything that reaches the controller
+rebuilds the app's whole meetings snapshot, and six hundred rebuilds a minute
+for a number one leaf reads is a cost for nothing. `notesOnly` still has no
+input, a browser still has no meter, and a build with no shell still has no
+bridge, so an interface method would still oblige implementations to answer a
+question they cannot.
+
+**The shell stays preferred where there is one.** A phone's meter is the
+microphone; the shell's is the louder of the microphone and the machine's own
+audio, which is the honest answer to "is this recording hearing anything" on a
+call.
+
+**The floor is a display decision, not the format's.** -160 dBFS is digital
+silence, and a meter scaled across 160 dB leaves a human voice in the top
+eighth of the bar and everything quieter flat — the unmoving mark again,
+reached by arithmetic instead of by omission. `METER_FLOOR_DB` is -55, roughly
+a quiet room on a phone microphone, which puts speech at arm's length in the
+middle and upper half of the mark.
+
+**`null` is still not zero**, and that is the rule the whole meter rests on:
+`Waveform` draws a different mark for "nothing can tell you" than for
+"listening, and the room is quiet". An absent `metering`, a `NaN`, and the
+`-Infinity` Android's conversion produces for true silence are all published as
+no reading rather than as a silent room.
+
+The checks are `the recorder is asked for a meter, on both platforms`,
+`what the microphone hears reaches the meter, as a fraction of the mark`,
+`a recorder with no reading publishes \`null\`, never a silent room`,
+`the meter goes quiet when the microphone does, rather than keeping its last
+reading`, `decibels become a fraction of the mark, with a floor a voice sits
+above`, `no reading is \`null\`, and never zero`, `with no shell, the
+recorder's own readings reach the leaf`, and `the shell is preferred where
+there is one, because it hears more`.
+
+**Not proven here, and it is the same gap the section below has:** the meter is
+driven from a fake device. That a phone's bar moves when somebody speaks needs
+a native build and a voice.
+
+### One recording per meeting, because iOS will not let a locked phone start a second one
+
+**The defect.** A meeting recorded on an unlocked phone was fine. The same
+meeting with the screen off produced a transcript that stopped a few minutes in
+and no error anywhere — the owner's was 03:01 long, out of a meeting that was
+not.
+
+Everything anybody would check was already right. `UIBackgroundModes: ["audio"]`
+was in the binary, `allowsBackgroundRecording: true` was in the audio session,
+and a native build carrying both had shipped. The entitlement was never the
+problem, and neither were JavaScript timers, which is where this was first
+looked for.
+
+**The cause is that a rotation is a `record()`.** Capture rotated chunks by
+stopping the recorder every twenty seconds and starting a new one, and iOS
+refuses to *start* a recording from the background —
+`AVAudioSessionErrorCodeCannotStartRecording`, a privacy restriction since
+iOS 12.4. The exemption is narrow and is exactly the wrong shape for a rotation:
+a recording that is **already running** when the app is backgrounded may carry
+on, and one that is not may not begin. So every twenty seconds the app gave up
+the one thing a backgrounded recorder is allowed to keep and then asked for it
+back. In the foreground, granted. Locked, refused, and the meeting was over.
+
+**So the device is started once and the chunks come out of the file.**
+`record()` is called by `start`, by `resume` and by the interruption recovery,
+all of which are either in front of the person or already failing. The rotation
+tick touches the device not at all: it reads what the recorder has written since
+last time, cuts it on a sample boundary, wraps it in a WAVE header and sends it.
+This is what the meeting recorders that survive a lock screen do.
+
+**That forces linear PCM, and the cost is disk.** A growing `.m4a` cannot be
+read — AAC in an MPEG-4 container is not valid until `stop()` writes the `moov`
+atom, so a prefix of one is not a shorter recording, it is not a recording. A
+WAVE file writes its header up front and appends samples, so the bytes on disk
+at any moment are the audio so far. 16 kHz mono 16-bit costs about 115 MB an
+hour against roughly 8 MB for AAC, in a cache directory, for the length of one
+meeting — and 16 kHz mono is the transcription model's own input, so nothing
+downstream resamples.
+
+**iOS only.** Android's `MediaRecorder` has no linear-PCM output and does not
+have the disease: its foreground service keeps the process scheduled, so the
+rotation goes on working there. Rotation is therefore kept rather than ported,
+and the tests that were written for it now run against the platform that runs it.
+
+**Nothing trusts the options it asked for.** `parseWavHeader` reads the format
+out of the file the device actually produced. A device may substitute a sample
+rate, and a slice labelled 16 kHz that is really 44.1 kHz transcribes as
+nonsense at a third speed — which reads as a broken model rather than a broken
+header, and is the most expensive kind of wrong. The header is also not
+assumed to be 44 bytes: WAVE permits chunks before `data`, and slicing from a
+constant would feed header bytes into the transcript.
+
+**Two smaller things fell out of it, both of which were latent.** The recorder
+was being constructed with a *nested* `RecordingPresets` object, and the native
+side decodes one flat record — so everything under `ios:` had always been
+dropped in silence. It cost nothing while the answer was AAC either way, and it
+would have cost the whole change here, because `outputFormat` is the field that
+selects linear PCM. And a backed-up send queue no longer drops audio: the file
+is the buffer, so the slicer simply does not advance and the next tick takes the
+same bytes — where a rotation had to drop, because the file it held was about to
+be deleted.
+
+The checks are `the microphone is started once, however long the meeting runs`,
+`the recorder is asked for linear PCM, in the flat record the native side
+reads`, `the slices are the recording, in order, with nothing dropped or
+repeated`, `a slice is as long as the audio it holds, not as long as the tick
+was`, `a backed-up queue leaves the audio on disk instead of dropping it`,
+`ending sends everything still on disk before the microphone goes back`,
+`pausing puts the microphone back, and resuming does not re-send what it heard`,
+`the file it is recording into is not left open once per tick`, and the whole of
+`__tests__/meetingsWav.test.ts`, whose round trip is the one that catches what
+the individual assertions let through.
+
+**What is still not proven here.** Every check above runs against a fake device
+and a fake file system. That a locked iPhone now records for the length of a
+meeting is the claim this change is *for*, and it cannot be made by this suite —
+it needs a native build and a phone with its screen off. Until somebody has run
+that, the honest statement is that the call iOS refuses is no longer made.
+
 ### A meeting is written the way a note is, because that is what it is
 
 **The root cause of the vanished recording, and it is not what the sections
@@ -1614,12 +1759,25 @@ not destroying one.
 named one of them and called it the residual.**
 
  - **The path** carries the title's slug, so a rename between a lost answer and
-   a retry composes a second key. Nothing in the app offers one — and the reason
-   first given here was false, which matters more than the conclusion: it said
-   the title is editable on `LiveMeetingScreen`. That screen renders the title
-   as static text, and `controller.setTitle` has no callers at all. The
-   guarantee is safer than claimed and was argued from a surface that does not
-   exist.
+   a retry composes a second key. **The app offers a rename now, and the bound
+   moved from "nobody can" to "not from inside the window".**
+
+   Twice-wrong history, kept because it is the reasoning a reader repeats: this
+   first said the title was editable on `LiveMeetingScreen` and the residual
+   live, which was false — that screen rendered static text and
+   `controller.setTitle` had no callers, so the guarantee was safer than claimed
+   and argued from a surface that did not exist. It then said nothing in the app
+   offers one, which was true until `MeetingTitleField` existed.
+
+   The window opens at the **first finalize**. `MeetingTitleField` is drawn only
+   on `LiveMeetingScreen`; `[id].tsx` draws that screen for exactly `recording`
+   and `paused`; and the move out of both is `end()`, which queues the finalize.
+   A renameable session has therefore never been finalized. The one transition
+   that could put a renameable session back inside the window is
+   `finalizing -> recording`, which `MEETING_TRANSITIONS` allows and nothing in
+   this app makes — `start()` mints a fresh id and is the only caller of the
+   `start` event. Breaking the bound means adding a rename to
+   `MeetingNoteScreen`, or a route back from `finalizing` to `recording`.
  - **The workspace.** `resolveWorkspaceId` reads a ref re-assigned on every
    render, so a retry taken after the workspace list moved underneath resolves
    somewhere else — and a create in a *different* bucket meets no conflict to

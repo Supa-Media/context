@@ -84,11 +84,11 @@ owes and does not yet pay.
 
 ## Three values, three different places, and the split is load-bearing
 
-| value | where | why |
-| --- | --- | --- |
-| `STRIPE_PRICE_ID` | environment variable | An identifier, not a credential — it is visible in every checkout URL the product opens. The same placement `MANAGED_R2_ACCOUNT_ID` has. |
-| `STRIPE_SECRET_KEY` | `appSecrets` | A credential. Encrypted at rest, set in the staff console, fingerprinted, rotatable — the same placement `SEARCH_D1_API_TOKEN` has, and opened only by an `internalAction`. |
-| `STRIPE_WEBHOOK_SECRET` | environment variable, and **refused** by `appSecrets` | The check it performs has to happen before anything the request says is trusted. |
+| value                   | where                                                 | why                                                                                                                                                                         |
+| ----------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `STRIPE_PRICE_ID`       | environment variable                                  | An identifier, not a credential — it is visible in every checkout URL the product opens. The same placement `MANAGED_R2_ACCOUNT_ID` has.                                    |
+| `STRIPE_SECRET_KEY`     | `appSecrets`                                          | A credential. Encrypted at rest, set in the staff console, fingerprinted, rotatable — the same placement `SEARCH_D1_API_TOKEN` has, and opened only by an `internalAction`. |
+| `STRIPE_WEBHOOK_SECRET` | environment variable, and **refused** by `appSecrets` | The check it performs has to happen before anything the request says is trusted.                                                                                            |
 
 The third is the one worth arguing. `__tests__/structure.test.ts` pins the
 complete list of HTTP routes that may reach a decrypted credential at three,
@@ -214,7 +214,7 @@ the reader checked — the same way an account-level bump would.
 `ROUTE_FACTORIES`, because the two tests over the bearer factories ask
 questions a signed route cannot answer: its caller has no `Authorization`
 header and never will, so it cannot be checked against `requestCarriesSecret`,
-and it cannot be asserted to read a *different* bearer secret from its
+and it cannot be asserted to read a _different_ bearer secret from its
 siblings.
 
 What it owes instead is checked in its own test: an HMAC over the raw body,
@@ -223,14 +223,52 @@ rather than from `appSecrets`, and `unauthorized()` on failure. Folding the two
 kinds together would mean one of those questions being asked of a route it does
 not fit, which is how an enumeration stops meaning anything.
 
+## Fast Search is a paid, fresh derivative
+
+Fast Search is consumed from the plan: a workspace must be paying and its
+owner must have selected `fastSearch`. The paid selection is also the opt-in to
+keep derived note text in a database we operate; the old standalone endpoint
+cannot bypass billing.
+
+Rows created before this contract have no `generation` and are never served,
+even if they say `ready`. On the first paid opt-in the control plane clears the
+old database coordinates, records `premium-v1`, and provisions a fresh database
+from the canonical files. It deliberately does not send legacy coordinates to
+the current customer-data account's delete API: those coordinates name the
+retired account and must be retired there as an operator task.
+
+An owner changing an already-active plan schedules the same idempotent sync as
+the Stripe activation webhook. Selecting Fast Search starts the fresh index;
+deselecting it releases the current-generation database. A lapse removes the
+entitlement and schedules that same release. A webhook replay cannot create a
+second current-generation index.
+
+## Production CUJ account
+
+`agentseyi@agentmail.to` is the dedicated production journey-test identity.
+Its `000000` code runs through a separate exact-email provider contributed to
+`@supa-media/convex`; the ordinary email provider is unchanged for every other
+address. The same verified identity may own more than the ordinary workspace
+cap and activate its selected Premium entitlements without opening Stripe.
+
+This is test infrastructure, not a comped customer plan: the exception is
+checked server-side by normalized verified email and remains workspace-scoped.
+Deleting the test account through Settings removes its sole-owned contexts,
+releases their Fast Search databases, empties and deletes only their
+deterministically named managed R2 buckets, and revokes those buckets' scoped
+tokens. The Premium panel also offers a two-press **Delete this test context**
+action for an unshared context created by this identity, so one CUJ can be torn
+down without touching any other test context. Ordinary account deletion
+continues to leave customer-owned storage untouched.
+
 ## What is deliberately not built
 
-- **Enforcement.** The plan row records entitlements and nothing consumes them
-  yet: `fastSearchEntitled` still returns true for every context, managed
-  storage is not provisioned from a plan, and no write path is made read-only
-  by a lapse. Wiring any of those is a behaviour change to a live feature and
-  belongs in its own pull request — turning `fastSearchEntitled` into a plan
-  check would switch fast search off for everybody currently using it.
+- **Complete enforcement.** Fast Search consumes its paid entitlement and
+  managed storage is provisioned for both new and existing contexts, but no
+  write path is made read-only by a lapse yet. An existing binding is copied
+  and verified before an id-pinned cutover; it is never silently replaced.
+  The free export and bucket hand-off path remains unbuilt and is still the
+  managed-storage launch blocker.
 - **Metering.** `MANAGED_STORAGE_CEILING_BYTES` is stated and not measured.
   The console shows a note count and says in words that stored bytes are not
   metered yet, because a bar drawn against a denominator nobody measured is a
@@ -240,7 +278,7 @@ not fit, which is how an enumeration stops meaning anything.
   because `startPortal` is the only cancellation path in the product and it is
   reached from that context's own Premium section, so deleting the context
   otherwise billed the customer every month with no route to stop it. What is
-  *not* handled is that call failing: there is no row left to record a status
+  _not_ handled is that call failing: there is no row left to record a status
   on, so it is logged and lost, and a subscription Stripe refused to cancel
   stays live with nothing here naming it. Closing that needs a place to park the
   obligation that outlives the workspace, which is a table this design does not
@@ -248,7 +286,7 @@ not fit, which is how an enumeration stops meaning anything.
 - **Proration, plan changes, coupons, tax, multi-currency, invoices in the
   app.** All of them live at Stripe, which is where the payment UI deliberately
   went.
-- **An owner-only *section*.** `settingsSectionsFor` filters on the context's
+- **An owner-only _section_.** `settingsSectionsFor` filters on the context's
   kind and cannot express a role gate, so the Premium row is visible to
   members and the panel explains rather than offering. "Absent, not disabled"
   would be better and needs a change to the settings catalogue's shared

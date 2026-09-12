@@ -72,9 +72,11 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
+  type QueryCtx,
   action,
   internalAction,
   internalQuery,
+  query,
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
@@ -142,7 +144,7 @@ import {
   writeImage,
   readImage,
 } from "./lib/fileOps";
-import type { Scope } from "./lib/privacy";
+import type { Scope, Visibility } from "./lib/privacy";
 import {
   type WorkspaceRole,
   requireWorkspaceAccess,
@@ -195,14 +197,36 @@ export { DELETE_CONFIRMATION };
 /*                                 validators                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * What a console caller may ASK for. Two-valued, and it stays that way.
+ *
+ * A rule naming a group reaches `privacy.md` from the console's own group
+ * controls or a person's editor — never from `setNoteVisibility` or
+ * `setFolderVisibility`, whose whole job is the two tiers. Widening this
+ * would make every path that takes a visibility a way to mint a rule, which
+ * is the opposite of the gateway's position that no AI client can.
+ */
 const visibilityValidator = v.union(v.literal("private"), v.literal("team"));
+
+/**
+ * What a visibility may be on the way OUT.
+ *
+ * `v.string()` rather than the two literals, because a rule may name a group
+ * and a bucket can already hold one. The narrow validator did not merely
+ * mislabel such a note — it **threw at the boundary**, so one hand-edited rule
+ * took the whole console listing down. What a group name may contain is
+ * enforced where it is parsed (`GROUP_SCOPE_PATTERN` in `lib/privacy.ts`),
+ * which fails the manifest closed rather than per response; there is nothing
+ * left for this validator to check that the parser has not.
+ */
+const visibilityReadValidator = v.string();
 
 const entryValidator = v.object({
   kind: v.union(v.literal("file"), v.literal("folder")),
   path: v.string(),
   name: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
   size: v.optional(v.number()),
@@ -212,7 +236,7 @@ const entryValidator = v.object({
 const listingValidator = v.object({
   kind: v.literal("listing"),
   path: v.string(),
-  folderDefault: visibilityValidator,
+  folderDefault: visibilityReadValidator,
   entries: v.array(entryValidator),
   truncated: v.boolean(),
   manifestUsable: v.boolean(),
@@ -234,8 +258,8 @@ const fileValidator = v.object({
   path: v.string(),
   text: v.string(),
   etag: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
   readOnly: v.boolean(),
   /**
@@ -281,8 +305,8 @@ const deletedValidator = v.object({
 const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),
-  visibility: visibilityValidator,
-  inherited: visibilityValidator,
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
   exception: v.boolean(),
 });
 
@@ -392,11 +416,11 @@ const blendedResultsValidator = v.object({
   /**
    * How many contexts this viewer could search at all, whatever they selected.
    *
-   * Zero is its own state on screen — "no context has fast search on" is a
+   * Zero is its own state on screen — "you are not in a context yet" is a
    * different sentence from "nothing matched", and collapsing them would tell
    * somebody their notes are not there when nothing looked.
    */
-  eligibleCount: v.number(),
+  searchableCount: v.number(),
 });
 
 /**
@@ -594,6 +618,17 @@ const operationValidator = v.union(
     visibility: visibilityValidator,
   }),
   v.object({
+    kind: v.literal("setNoteGroup"),
+    path: v.string(),
+    /**
+     * The group's full name WITHOUT the `@`, already proven to belong to this
+     * workspace by `setNoteGroup` before the operation is dispatched. A plain
+     * string here rather than a group id: this is the value that lands in
+     * `privacy.md`, and the manifest holds names, not ids.
+     */
+    group: v.string(),
+  }),
+  v.object({
     kind: v.literal("setFolderVisibility"),
     path: v.string(),
     visibility: visibilityValidator,
@@ -629,11 +664,22 @@ type FileOperation =
   | { kind: "archive"; path: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
+  | { kind: "setNoteGroup"; path: string; group: string }
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "resetPrivacy" };
 
+/**
+ * What a file operation hands back to the console.
+ *
+ * `visibility`, `inherited` and `folderDefault` are `Visibility` rather than
+ * the two literals they used to be: a rule may name a group, and typing these
+ * narrowly meant the control plane silently re-tiered one on the way out —
+ * which is the same class of bug as the gateway writing `"private"` over a
+ * group rule on a move. The console renders the extra case explicitly; see
+ * `features/console/privacy/words.ts`.
+ */
 type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
   | { kind: "notePaths"; paths: string[] | null }
@@ -671,13 +717,13 @@ type OperationResult =
   | {
       kind: "listing";
       path: string;
-      folderDefault: "private" | "team";
+      folderDefault: Visibility;
       entries: Array<{
         kind: "file" | "folder";
         path: string;
         name: string;
-        visibility: "private" | "team";
-        inherited: "private" | "team";
+        visibility: Visibility;
+        inherited: Visibility;
         exception: boolean;
         readOnly: boolean;
         size?: number;
@@ -691,8 +737,8 @@ type OperationResult =
       path: string;
       text: string;
       etag: string;
-      visibility: "private" | "team";
-      inherited: "private" | "team";
+      visibility: Visibility;
+      inherited: Visibility;
       exception: boolean;
       readOnly: boolean;
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
@@ -709,8 +755,8 @@ type OperationResult =
   | {
       kind: "visibility";
       path: string;
-      visibility: "private" | "team";
-      inherited: "private" | "team";
+      visibility: Visibility;
+      inherited: Visibility;
       exception: boolean;
     }
   | { kind: "folderCreated"; path: string; readme: string }
@@ -1710,6 +1756,20 @@ export async function executeOperation(
         });
         return { kind: "deleted", ...deleted };
       }
+      case "setNoteGroup": {
+        // The same writer as `setVisibility`, with a group in place of a tier:
+        // `fileOps.setVisibility` has taken a `Visibility` since #418 and a
+        // group is one. A separate operation rather than a widened
+        // `setVisibility` because the ARGUMENT validator must stay two-valued —
+        // widening it would make every path that takes a visibility a way to
+        // mint a rule, which is exactly what the gateway refuses AI clients.
+        const result = await setVisibility(store, {
+          path: operation.path,
+          visibility: `@${operation.group}` as Visibility,
+          scope,
+        });
+        return { kind: "visibility" as const, ...result };
+      }
       case "setVisibility": {
         const result = await setVisibility(store, {
           path: operation.path,
@@ -1811,7 +1871,7 @@ type BlendedAnswer = {
     matchCount: number;
     matchCountIsFloor: boolean;
   }[];
-  eligibleCount: number;
+  searchableCount: number;
 };
 
 /**
@@ -1848,13 +1908,61 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> 
  * in the root error boundary with nothing to do about it — see the note at the
  * top of `lib/workspaceAuth.ts`.
  */
-async function callerId(ctx: ActionCtx): Promise<Id<"users">> {
+async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
     throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
   }
   return userId as Id<"users">;
 }
+
+const durableMoveValidator = v.object({
+  jobId: v.id("gatewayJobs"),
+  status: v.union(
+    v.literal("queued"),
+    v.literal("running"),
+    v.literal("complete"),
+    v.literal("failed"),
+  ),
+  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+  completed: v.optional(v.number()),
+  total: v.optional(v.number()),
+  updatedAt: v.number(),
+});
+
+/**
+ * Recent durable folder moves, owner-only and deliberately path-free.
+ *
+ * A move can name a private folder. Settings needs its state and measured
+ * counts, never the source, destination, marker id, provider error, grant, or
+ * acting client. Completed rows stay visible briefly so 99% does not turn
+ * directly into an empty card before the owner sees the outcome.
+ */
+export const listDurableMoves = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(durableMoveValidator),
+  handler: async (ctx, args) => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const rows = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_workspace_updatedAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const completedCutoff = Date.now() - 24 * 60 * 60 * 1_000;
+    return rows
+      .filter((row) => row.status !== "complete" || row.updatedAt >= completedCutoff)
+      .slice(0, 10)
+      .map((row) => ({
+        jobId: row._id,
+        status: row.status,
+        ...(row.progressPhase === undefined ? {} : { phase: row.progressPhase }),
+        ...(row.progressCompleted === undefined ? {} : { completed: row.progressCompleted }),
+        ...(row.progressTotal === undefined ? {} : { total: row.progressTotal }),
+        updatedAt: row.updatedAt,
+      }));
+  },
+});
 
 /** One folder's contents. Any member may read. */
 export const listFiles = action({
@@ -2028,13 +2136,23 @@ export const notePaths = action({
  *
  * ## What it deliberately does not do
  *
- * **It schedules no index maintenance.** `searchContext` does, because a person
- * searching one context is the cheapest possible trigger for catching that
- * context's index up. Multiplying that by the width of a scope would put a full
+ * **It schedules index maintenance for one case only: a context with no index
+ * at all.** `searchContext` schedules a pass behind any lagging index, because
+ * a person searching one context is the cheapest possible trigger for catching
+ * that context up. Multiplying that by the width of a scope would put a full
  * bucket listing per context behind every keystroke on this page, billed to
- * every one of those customers — and it would buy nothing here, because every
- * context in scope has a projection the control plane already calls `ready`,
- * kept current by the gateway riding its own searches.
+ * every one of those customers, so a merely *incomplete* index is left to the
+ * passes that already ride the gateway's own searches.
+ *
+ * A **missing** one is different in kind and is the state this page created for
+ * itself the moment it started searching contexts without a projection: a
+ * context nobody has ever searched directly has no shard index, answers every
+ * query with `indexMissing`, and would report "still being indexed" on this
+ * page forever — a permanent apology that no amount of waiting resolves. So the
+ * first page of a search schedules one chain per such context and no more:
+ * later pages of the same query schedule nothing, and the condition is
+ * self-limiting, because a context that has been indexed once is never
+ * `indexMissing` again.
  *
  * **It logs no query text.** Nothing in this function writes the words
  * somebody typed anywhere: not to audit, not to a structured log, not into the
@@ -2046,8 +2164,8 @@ export const searchContexts = action({
   args: {
     query: v.string(),
     /**
-     * The scope, as workspace ids. Absent or empty means every eligible
-     * context. An id this caller may not search is **dropped**, identically to
+     * The scope, as workspace ids. Absent or empty means every context this
+     * caller can search. An id this caller may not search is **dropped**, identically to
      * one that never existed — see `resolveScope`.
      */
     contexts: v.optional(v.array(v.id("workspaces"))),
@@ -2057,16 +2175,16 @@ export const searchContexts = action({
   returns: blendedResultsValidator,
   handler: async (ctx, args): Promise<BlendedAnswer> => {
     const actorUserId = await callerId(ctx);
-    const eligible = await ctx.runQuery(
+    const searchable = await ctx.runQuery(
       internal.functions.fastSearch.searchableContextsFor,
       { actorUserId },
     );
 
     const query = args.query.trim();
-    const scope = resolveScope(eligible, args.contexts);
+    const scope = resolveScope(searchable, args.contexts);
     if (query === "" || scope.length === 0) {
       // An empty query and an empty scope are both "nothing was asked", and
-      // both answer with an empty page rather than an error. `eligibleCount`
+      // both answer with an empty page rather than an error. `searchableCount`
       // is what lets the page tell the two apart on screen.
       return {
         results: [],
@@ -2074,7 +2192,7 @@ export const searchContexts = action({
         matchCountIsFloor: false,
         cursor: null,
         sources: [],
-        eligibleCount: eligible.length,
+        searchableCount: searchable.length,
       };
     }
 
@@ -2099,7 +2217,7 @@ export const searchContexts = action({
         const settled = await withDeadline(
           (async () => {
             // The one authorization function, per context, per page. The
-            // eligible list already established membership; this re-establishes
+            // searchable list already established membership; this re-establishes
             // it through the same query every other file action uses, so a
             // blended search cannot come to disagree with a single one about
             // what role means what scope.
@@ -2111,23 +2229,38 @@ export const searchContexts = action({
                 minimum: "member" as const,
               },
             );
-            return (await ctx.runAction(internal.functions.files.runFileOperation, {
-              workspaceId: context.workspaceId as Id<"workspaces">,
-              scope: tier,
-              operation: {
-                kind: "search" as const,
-                query,
-                limit: asked,
-                // See `searchNotes`: a fan-out misses in most of its contexts
-                // by construction, and one listing per miss is the cost of a
-                // rule written for a single spinner.
-                refreshOnMiss: false,
+            const answer = (await ctx.runAction(
+              internal.functions.files.runFileOperation,
+              {
+                workspaceId: context.workspaceId as Id<"workspaces">,
+                scope: tier,
+                operation: {
+                  kind: "search" as const,
+                  query,
+                  limit: asked,
+                  // See `searchNotes`: a fan-out misses in most of its contexts
+                  // by construction, and one listing per miss is the cost of a
+                  // rule written for a single spinner.
+                  refreshOnMiss: false,
+                },
               },
-            })) as Extract<OperationResult, { kind: "searchResults" }>;
+            )) as Extract<OperationResult, { kind: "searchResults" }>;
+            // The tier rides back out with the answer so the maintenance pass
+            // below can be scheduled with the scope this search was authorized
+            // at, rather than re-deriving one outside the race — where a second
+            // `authorizeFileAccess` would be a second answer to the same
+            // question.
+            return { answer, tier };
           })(),
           SOURCE_DEADLINE_MS,
         );
-        return { context, offset, asked, settled };
+        return {
+          context,
+          offset,
+          asked,
+          settled: settled === null ? null : settled.answer,
+          tier: settled === null ? null : settled.tier,
+        };
       }),
     );
 
@@ -2183,6 +2316,32 @@ export const searchContexts = action({
       });
     }
 
+    /*
+      The one pass this page schedules — see "what it deliberately does not do".
+
+      A context with no shard index at all answers every query with
+      `indexMissing` and would say "still being indexed" on this page for as
+      long as nobody searched it from somewhere else. One chain per such
+      context, on the first page of a query only, and never for an index that
+      merely lags: that one catches up behind the searches the gateway and the
+      palette already ride.
+
+      **Scheduled, never called** (CLAUDE.md, "Scheduling is not calling"). A
+      `runAction` here would put a full listing of somebody's bucket in front of
+      the person waiting for this page, which is the defect the whole
+      no-maintenance rule exists to avoid.
+    */
+    if (args.cursor === undefined) {
+      for (const { context, settled, tier } of answered) {
+        if (settled === null || tier === null || !settled.indexMissing) continue;
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: context.workspaceId as Id<"workspaces">,
+          scope: tier,
+          operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
+        });
+      }
+    }
+
     const page = pageOf(fuse(sources), sources);
     const named = new Map(scope.map((context) => [context.workspaceId, context]));
     return {
@@ -2201,7 +2360,7 @@ export const searchContexts = action({
       matchCountIsFloor,
       cursor: page.next === null ? null : encodeCursor(fingerprint, page.next),
       sources: rows,
-      eligibleCount: eligible.length,
+      searchableCount: searchable.length,
     };
   },
 });
@@ -2561,6 +2720,75 @@ export const setNoteVisibility = action({
         path: args.path,
         visibility: args.visibility,
       },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "visibility.note",
+      paths: [result.path],
+      details: { visibility: result.visibility, exception: result.exception },
+    });
+    return result;
+  },
+});
+
+/**
+ * Hand one note to a group, by name.
+ *
+ * The share dialog's verb. `setNoteVisibility` takes the two tiers and stays
+ * that way — widening its validator would make every caller that sets a
+ * visibility a way to mint a rule — so pointing a note at a group is its own
+ * action, with its own audit line and its own proof that the group is real.
+ *
+ * **The name is resolved against THIS workspace before anything is written.**
+ * Group names are globally unique but the authority is not: a name that exists
+ * in somebody else's context must be as unusable here as one that exists
+ * nowhere, and `groupByName` answers `null` for both. Writing an unresolvable
+ * name would not leak — the engines read it as reaching nobody — but it would
+ * put a rule in the customer's manifest that no owner can account for.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
+export const setNoteGroup = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The group's full name, with or without its leading `@`. */
+    group: v.string(),
+  },
+  returns: visibilityResultValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+
+    // Tolerated on the way in and stripped once: the console renders the `@`
+    // because that is what the manifest shows, and a caller pasting what they
+    // see should not be a refusal. Stored without it, because the manifest's
+    // own grammar supplies the `@`.
+    const name = args.group.trim().replace(/^@/, "");
+    const group = await ctx.runQuery(internal.functions.groups.groupByName, {
+      workspaceId: args.workspaceId,
+      name,
+    });
+    if (group === null) {
+      throw new ConvexError({
+        code: "GROUP_NOT_FOUND",
+        message: "That group is not one of this context's.",
+      });
+    }
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "setNoteGroup", path: args.path, group: group.name },
     })) as Extract<OperationResult, { kind: "visibility" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {

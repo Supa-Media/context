@@ -37,6 +37,7 @@ import {
   entitlementsHint,
   formatBytes,
   formatPrice,
+  managedMigrationCopy,
   premiumControl,
   premiumPill,
   premiumStateOf,
@@ -84,7 +85,16 @@ describe("reading a plan off the wire", () => {
     // direction this must fail is "offer nothing and explain" — never "free",
     // which would offer to sell against a vocabulary we do not share, and
     // never "premium", which would claim entitlements a context may not have.
-    for (const raw of [undefined, null, "", "ACTIVE", "trialing", "paused", 1, {}]) {
+    for (const raw of [
+      undefined,
+      null,
+      "",
+      "ACTIVE",
+      "trialing",
+      "paused",
+      1,
+      {},
+    ]) {
       expect(premiumStateOf(raw)).toBe("unavailable");
     }
   });
@@ -119,8 +129,15 @@ describe("reading a plan off the wire", () => {
     // What a context is entitled to affects every member of it. Only the
     // sentence about somebody's card narrows, and narrowing more would be
     // hiding a state from the people living in it.
-    for (const state of ["free", "premium", "canceled", "unavailable"] as const) {
-      expect(describePremium(state, false)).toEqual(describePremium(state, true));
+    for (const state of [
+      "free",
+      "premium",
+      "canceled",
+      "unavailable",
+    ] as const) {
+      expect(describePremium(state, false)).toEqual(
+        describePremium(state, true),
+      );
     }
   });
 
@@ -172,7 +189,11 @@ describe("which control is offered", () => {
   test("an owner who has chosen something is offered the upgrade", () => {
     expect(
       premiumControl(
-        view({ status: status({ selected: { managedStorage: true, fastSearch: false } }) }),
+        view({
+          status: status({
+            selected: { managedStorage: true, fastSearch: false },
+          }),
+        }),
       ),
     ).toBe("upgrade");
   });
@@ -220,13 +241,18 @@ describe("which control is offered", () => {
       premiumControl(
         view({
           upgrade: undefined,
-          status: status({ selected: { managedStorage: true, fastSearch: false } }),
+          status: status({
+            selected: { managedStorage: true, fastSearch: false },
+          }),
         }),
       ),
     ).toBe("none");
     expect(
       premiumControl(
-        view({ manageBilling: undefined, status: status({ hasStripeCustomer: true }) }),
+        view({
+          manageBilling: undefined,
+          status: status({ hasStripeCustomer: true }),
+        }),
       ),
     ).toBe("none");
   });
@@ -253,9 +279,121 @@ describe("which control is offered", () => {
     // misconfiguration on our side becomes a subscription they cannot end.
     expect(
       premiumControl(
-        view({ status: status({ configured: false, hasStripeCustomer: true }) }),
+        view({
+          status: status({ configured: false, hasStripeCustomer: true }),
+        }),
       ),
     ).toBe("manage");
+  });
+});
+
+describe("moving an existing context into managed storage", () => {
+  test("the original stays authoritative while a verified copy runs", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        active: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "copy",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 40,
+        managedMigrationObjectsCopied: 38,
+      }),
+    );
+    expect(copy?.title).toMatch(/copying/i);
+    expect(copy?.body).toMatch(
+      /original storage stays connected and untouched/i,
+    );
+    expect(copy?.body).toMatch(/40 of 50 files/i);
+    expect(copy?.percent).toBe(80);
+  });
+
+  test("each verification pass is named and never presented as another copy", () => {
+    const source = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "verify_source",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 10,
+      }),
+    );
+    expect(source?.title).toMatch(/verifying your original/i);
+    expect(source?.body).toMatch(/10 of 50 files/i);
+    expect(source?.percent).toBe(20);
+
+    const target = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "verify_target",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 45,
+      }),
+    );
+    expect(target?.title).toMatch(/verifying the managed copy/i);
+    expect(target?.percent).toBe(90);
+  });
+
+  test("the counting pass does not invent a percentage before it knows the total", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "count",
+        managedMigrationObjectsProcessed: 25,
+      }),
+    );
+    expect(copy?.title).toMatch(/measuring/i);
+    expect(copy?.body).toMatch(/25 files found/i);
+    expect(copy?.percent).toBeUndefined();
+  });
+
+  test("an active step never claims one hundred percent", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+        managedMigrationPhase: "copy",
+        managedMigrationObjectsTotal: 50,
+        managedMigrationObjectsProcessed: 55,
+      }),
+    );
+    expect(copy?.percent).toBe(99);
+    expect(copy?.body).toMatch(/55 files checked/i);
+    expect(copy?.body).toMatch(/more than the earlier count/i);
+  });
+
+  test("a stopped copy says nothing switched and retry is safe", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        active: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "failed",
+      }),
+    );
+    expect(copy?.failed).toBe(true);
+    expect(copy?.body).toMatch(/original remains connected and untouched/i);
+    expect(copy?.body).toMatch(/safely try again/i);
+  });
+
+  test("no migration message remains after managed storage is live", () => {
+    expect(
+      managedMigrationCopy(
+        status({
+          status: "active",
+          selected: { managedStorage: true, fastSearch: false },
+          storageIsManaged: true,
+          managedProvisioning: "ready",
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -264,7 +402,10 @@ describe("the two entitlements", () => {
     const rows = entitlementRows(
       status({ selected: { managedStorage: true, fastSearch: false } }),
     );
-    expect(rows.map((row) => row.value)).toEqual(["managedStorage", "fastSearch"]);
+    expect(rows.map((row) => row.value)).toEqual([
+      "managedStorage",
+      "fastSearch",
+    ]);
     expect(rows[0]!.on).toBe(true);
     expect(rows[1]!.on).toBe(false);
   });
@@ -277,7 +418,9 @@ describe("the two entitlements", () => {
   });
 
   test("the price does not move, and the group says so", () => {
-    expect(entitlementsHint(status())).toContain("$20 a month whichever you choose");
+    expect(entitlementsHint(status())).toContain(
+      "$20 a month whichever you choose",
+    );
   });
 
   test("a ticked box on a lapsed plan is labelled as a choice, not a state", () => {
@@ -290,15 +433,23 @@ describe("the two entitlements", () => {
     for (const raw of ["past_due", "canceled"]) {
       expect(
         entitlementsHint(
-          status({ status: raw, selected: { managedStorage: true, fastSearch: false } }),
+          status({
+            status: raw,
+            selected: { managedStorage: true, fastSearch: false },
+          }),
         ),
       ).toMatch(/turns on when the subscription is active/);
     }
     // Not said where it would be noise: nothing chosen, or already paying.
-    expect(entitlementsHint(status({ status: "past_due" }))).not.toMatch(/turns on/);
+    expect(entitlementsHint(status({ status: "past_due" }))).not.toMatch(
+      /turns on/,
+    );
     expect(
       entitlementsHint(
-        status({ status: "active", selected: { managedStorage: true, fastSearch: true } }),
+        status({
+          status: "active",
+          selected: { managedStorage: true, fastSearch: true },
+        }),
       ),
     ).not.toMatch(/turns on/);
   });
@@ -348,7 +499,9 @@ describe("what this context is using", () => {
   });
 
   test("a truncated walk says so rather than reading as exact", () => {
-    expect(usageLine(status({ notes: 500, notesTruncated: true }))).toContain("500+");
+    expect(usageLine(status({ notes: 500, notesTruncated: true }))).toContain(
+      "500+",
+    );
   });
 
   test("a member gets no census at all", () => {
@@ -366,9 +519,9 @@ describe("the renewal line", () => {
   const day = Date.UTC(2026, 8, 30) / 1000;
 
   test("says when it renews", () => {
-    expect(renewalLine(status({ currentPeriodEnd: day }), Date.UTC(2026, 8, 1))).toMatch(
-      /^Renews on /,
-    );
+    expect(
+      renewalLine(status({ currentPeriodEnd: day }), Date.UTC(2026, 8, 1)),
+    ).toMatch(/^Renews on /);
   });
 
   test("and says when it is ending instead", () => {
@@ -394,7 +547,12 @@ describe("a failed attempt gets our sentence", () => {
   test("and anything else gets the general one rather than being rendered raw", () => {
     // A provider message can name an account, a customer or a price. Nothing
     // from Stripe reaches a screen.
-    for (const code of [undefined, "", "STRIPE_REFUSED", "card_declined: cus_x"]) {
+    for (const code of [
+      undefined,
+      "",
+      "STRIPE_REFUSED",
+      "card_declined: cus_x",
+    ]) {
       expect(describeSessionFailure(code)).toBe(
         "That did not go through. Check your connection and try again.",
       );

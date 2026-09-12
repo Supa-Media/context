@@ -1163,6 +1163,38 @@ async function runEndToEndChecks(check) {
     return { response, body };
   }
 
+  async function write(path, content) {
+    const harness = createWorkerCtx();
+    const response = await worker.fetch(
+      new Request("https://gateway.test/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "tools/call",
+          params: {
+            name: "write_note",
+            arguments: {
+              path,
+              content,
+              visibility: "team",
+              confirm_team_publish: true,
+            },
+          },
+        }),
+      }),
+      {
+        CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+        GATEWAY_SECRET,
+      },
+      harness.ctx,
+    );
+    const body = await response.json();
+    await harness.settle();
+    return { response, body };
+  }
+
   const projectedCount = () => d1.rows("SELECT COUNT(*) AS n FROM notes")[0].n;
   const progressReports = () =>
     controlPlane.calls.filter((call) => call.path === "/gateway/search-index/progress");
@@ -1275,10 +1307,34 @@ async function runEndToEndChecks(check) {
     );
     check("and says nothing it has already said", progressReports().length === 0);
 
+    // A note written after the projection becomes ready must be searchable
+    // without waiting for the listing reconciliation clock or forcing a full
+    // rebuild. This is the production failure that used to require turning
+    // Fast Search off and on again: write_note changed the canonical bucket,
+    // but no request told the ready projection about the new version.
+    const liveWrite = await write(
+      "1-projects/live-echidna.md",
+      "# Live update\n\nThe echidna arrived after Fast Search was ready.\n",
+    );
+    check(
+      "a post-activation note write succeeds",
+      liveWrite.response.status === 200 && !liveWrite.body.result?.isError,
+    );
+    check(
+      "and is written through to the ready projection",
+      d1.rows("SELECT path FROM notes WHERE path = ?", ["1-projects/live-echidna.md"])
+        .length === 1,
+    );
+    const liveAnswer = await search("echidna");
+    check(
+      "so the next Fast Search finds it without a rebuild",
+      JSON.stringify(liveAnswer.body).includes("1-projects/live-echidna.md"),
+    );
+
     const projected = d1.rows("SELECT path, visibility FROM notes ORDER BY path");
     check(
       "repeated searches copy the whole context into its own database",
-      projected.length === SEEDED_NOTES + 1,
+      projected.length === SEEDED_NOTES + 2,
     );
     check(
       "including the note that arrived while the backfill was running",
@@ -1344,6 +1400,35 @@ async function runEndToEndChecks(check) {
     check(
       "and never a credential",
       !bodies.includes(API_TOKEN) && !bodies.includes(ACCOUNT_ID),
+    );
+
+    // D1 is a disposable derivative. Even three consecutive provider
+    // refusals must not turn a successful canonical bucket write into a
+    // failed write, and retrying must not leak provider details to the caller.
+    d1.state.fail = 503;
+    const requestsBeforeFailedWrite = d1.requests.length;
+    const writeDuringOutage = await write(
+      "1-projects/durable-platypus.md",
+      "# Durable write\n\nThe platypus survives a projection outage.\n",
+    );
+    d1.state.fail = null;
+    check(
+      "a projection outage does not fail the canonical note write",
+      writeDuringOutage.response.status === 200 && !writeDuringOutage.body.result?.isError,
+    );
+    check(
+      "and the note remains safe in the bucket",
+      bucket.get("1-projects/durable-platypus.md")?.body.includes("survives a projection outage"),
+    );
+    check(
+      "the ready projection retries a transient refusal three times",
+      d1.requests.length - requestsBeforeFailedWrite === 3,
+    );
+    check(
+      "without returning provider or credential details",
+      !JSON.stringify(writeDuringOutage.body).includes(API_TOKEN) &&
+        !JSON.stringify(writeDuringOutage.body).includes(ACCOUNT_ID) &&
+        !JSON.stringify(writeDuringOutage.body).includes(DATABASE_ID),
     );
 
     // -- the token never escapes -------------------------------------------

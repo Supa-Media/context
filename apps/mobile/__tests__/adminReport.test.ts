@@ -200,6 +200,12 @@ describe("the known-integration list", () => {
     expect(names).toContain("SEARCH_D1_API_TOKEN");
     expect(names).toContain("SEARCH_D1_ACCOUNT_ID");
   });
+
+  test("managed storage is offered and the environment-only webhook secret is not", () => {
+    const names = KNOWN_SECRETS.map((known) => known.name);
+    expect(names).toContain("MANAGED_R2_API_TOKEN");
+    expect(names).not.toContain("STRIPE_WEBHOOK_SECRET");
+  });
 });
 
 describe("a total the server stopped counting", () => {

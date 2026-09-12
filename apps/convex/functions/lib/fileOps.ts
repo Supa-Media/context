@@ -50,6 +50,7 @@ import {
   canSee,
   clearedOverrides,
   effectiveVisibility,
+  narrowerVisibility,
   foldPath,
   hasOverride,
   isPlumbing,
@@ -277,6 +278,29 @@ export function normalizePath(input: string): string | null {
   if (clean.split("/").some((segment) => segment === "." || segment === "..")) {
     return null;
   }
+  // No control characters, and a newline is the one that mattered.
+  //
+  // `privacy.md` is a line-oriented format and `renderPrivacyRulesBlock`
+  // interpolates a path into it unescaped, so a path carrying `\n` wrote its
+  // own extra rules. Measured on this door before the fix: one
+  // `setFolderVisibility` declaring **private** for
+  // `2-areas/hr: team\n  1-projects/junk` published `2-areas/hr` to the whole
+  // team, and one `setVisibility` declaring **private** for
+  // `2-areas/salaries.md: team\n  1-projects/junk.md` left
+  // `note_overrides` holding that note twice — `private` then `team`, the
+  // later winning. The call declared `private` both times, so the console
+  // asked for no publish confirmation.
+  //
+  // The hostile input is a KEY IN THE BUCKET, not the owner's typing:
+  // `writableAsRule`'s own docstring says a newline is a legal S3 key
+  // character and names this exact escalation. Obsidian sync, rclone and the
+  // provider console all write keys directly.
+  //
+  // Rejected here, where every path argument arrives, rather than escaped at
+  // the renderer: a path with a control character in it is not a path worth
+  // preserving. `#422` did this in the gateway; this is the same fix on the
+  // other engine.
+  if (/[\u0000-\u001F\u007F]/.test(clean)) return null;
   return clean;
 }
 
@@ -1646,15 +1670,32 @@ function rulesSurvivorsRestOn(
  *
  * The collision has no right answer - the arriving folder and the one already
  * there both have a claim - so it is resolved in the only direction that
- * cannot leak.
+ * cannot leak: the narrower of the two survives.
+ *
+ * That used to be spelled `existing.vis === "team" && rule.vis === "private"`,
+ * which was the same thing while there were two values and stopped being it
+ * the day a rule could name a group. Nothing in that test narrows `team` to a
+ * group, and nothing narrows a group to `private`, so renaming a folder whose
+ * subfolder was held back to `@supa-leads` over one whose matching subfolder
+ * was `team` kept `team` - every note under it readable by the whole
+ * workspace, from a rename. `narrowerVisibility` is the engine's own order and
+ * is identical to the old test on the two tiers.
  */
 function oneRulePerPrefix(rules: readonly PrivacyRule[]): PrivacyRule[] {
   const byPrefix = new Map<string, PrivacyRule>();
   for (const rule of rules) {
     const existing = byPrefix.get(rule.prefix);
-    if (existing === undefined || (existing.vis === "team" && rule.vis === "private")) {
+    if (existing === undefined) {
       byPrefix.set(rule.prefix, rule);
+      continue;
     }
+    const narrower = narrowerVisibility(existing.vis, rule.vis);
+    // Keep the rule object whose value won, and prefer the incumbent on a tie
+    // so the pass stays stable. Two different groups narrow to `private`, which
+    // is neither rule's object - it is written as a fresh one rather than
+    // dropped, because "neither claim survives" must still leave a rule.
+    if (narrower === existing.vis) continue;
+    byPrefix.set(rule.prefix, narrower === rule.vis ? rule : { prefix: rule.prefix, vis: narrower as Visibility });
   }
   return [...byPrefix.values()];
 }
@@ -2453,20 +2494,59 @@ async function rootFolders(
  * repair. It then has no rule, so it inherits `default_visibility: private` —
  * the fail-closed direction — and `partial` says the list is short.
  */
-function writableAsRule(folder: string): boolean {
+function writableAsRule(folder: string, vis: Visibility = "private"): boolean {
   try {
     const parsed = parsePrivacyManifest(
-      renderPrivacyRulesBlock([{ prefix: folder, vis: "private" }], new Map()),
+      renderPrivacyRulesBlock([{ prefix: folder, vis }], new Map()),
     );
     return (
       parsed.rules.length === 1 &&
       parsed.rules[0]!.prefix === folder &&
+      parsed.rules[0]!.vis === vis &&
       parsed.overrides.size === 0
     );
   } catch {
     return false;
   }
 }
+
+/**
+ * The same round trip for a NOTE OVERRIDE, which is the other half of the
+ * format and the other half a caller supplies.
+ *
+ * `writableAsRule` existed and was correct, and guarded exactly one path —
+ * `rootFolders`, the manifest *repair* routine. Neither visibility setter
+ * reached it, and those are the two functions that take a caller-supplied path
+ * and interpolate it into the file. A guard that cannot be reached from the
+ * door the attacker uses is not a guard for that door.
+ *
+ * Why this is not redundant with `normalizePath`'s control-character refusal:
+ * a blacklist is a guess about a parser that has a comment stripper, a
+ * trailing-slash tolerance and a dot-segment rule. `2-areas/pay: team`
+ * contains no control character at all, and renders a rule the parser reads as
+ * naming `2-areas/pay` — a different note, silently. The oracle here is the
+ * code that will actually read the file, so the two cannot drift.
+ */
+function writableAsOverride(path: string, vis: Visibility): boolean {
+  try {
+    const parsed = parsePrivacyManifest(
+      renderPrivacyRulesBlock([], new Map([[path, vis]])),
+    );
+    if (parsed.rules.length !== 0 || parsed.overrides.size !== 1) return false;
+    // Through `overrideFor`, like every other override read in this file: the
+    // map has one entry so the case fold cannot change the answer, which is
+    // exactly why reaching past the helper would be a harmless-looking
+    // exception.
+    return overrideFor(parsed.overrides, path) === vis;
+  } catch {
+    return false;
+  }
+}
+
+/** What a path that cannot be written as a rule is told, at either setter. */
+const UNWRITABLE_PATH_MESSAGE =
+  "That path cannot be recorded in privacy.md: it contains a character the rule " +
+  "format uses. Rename it and try again.";
 
 /* -------------------------------------------------------------------------- */
 /*                                 visibility                                 */
@@ -2514,6 +2594,16 @@ export async function setVisibility(
       "Only markdown notes can have their own visibility. Set the folder's default instead.",
     );
   }
+  // Belt to `normalizePath`'s brace — see `writableAsOverride`.
+  //
+  // Placed AFTER the specific refusals, not before them: the parser enforces
+  // the `.md` rule too, so a guard in front of that check would answer "that
+  // path contains a character the rule format uses" for an ordinary folder and
+  // quietly take over a message another check exists to give. A check added in
+  // front of another makes the second one's tests vacuous.
+  if (!writableAsOverride(path, options.visibility)) {
+    throw new FileOpError("PATH_INVALID", UNWRITABLE_PATH_MESSAGE);
+  }
 
   const state = await mutateManifest(store, (current) => {
     if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
@@ -2559,6 +2649,10 @@ export async function setFolderVisibility(
   }
   const folder = requirePath(options.path);
   if (isPlumbing(folder)) throw new FileOpError("PATH_INVALID", "That path is reserved.");
+  // Belt to `normalizePath`'s brace — see `writableAsOverride`.
+  if (!writableAsRule(folder, options.visibility)) {
+    throw new FileOpError("PATH_INVALID", UNWRITABLE_PATH_MESSAGE);
+  }
 
   await mutateManifest(store, (current) => {
     if (

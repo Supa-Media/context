@@ -5,32 +5,115 @@ import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { StorageChoice } from "../../console/storage/StorageChoice";
+import type { ConnectFormValues } from "../../console/storage/connect";
 import { connectProgressLabel } from "../verify";
+import type { ConnectState } from "../verify";
+import type { ManagedOffer } from "../useManagedOffer";
 import type { OnboardingController } from "../useOnboarding";
+import { ManagedConfirm } from "./ManagedConfirm";
+import { ManagedSettling } from "./ManagedSettling";
 
 /**
- * Step 2 — the bucket.
+ * Step 2 — where the notes live.
  *
  * The connect form is the console's, reused rather than rebuilt: the SSRF host
  * rules, the addressing question that only appears when it is genuinely a
  * question, and the copy about what happens to the secret are all things that
  * would rot in a second copy.
  *
- * What this step adds is the two things onboarding needs and the console does
- * not. First, the probe's progress — `bindStorage` returns as soon as the row
- * is written, so "connected" is a thing that happens a moment later, on the
+ * What this step adds is the things onboarding needs and the console does not.
+ * First, the probe's progress — `bindStorage` returns as soon as the row is
+ * written, so "connected" is a thing that happens a moment later, on the
  * subscription, and a first-run screen that just went quiet at that point would
  * read as broken. Second, the way out: **"I'll do this later" is a real
  * answer.** A context with no binding is a state the schema supports, and a
  * credential form is a hostile place to trap somebody thirty seconds into their
  * first session — they may not have made the bucket yet.
+ *
+ * ## The third answer, and the two screens behind it
+ *
+ * Somebody who has no storage and is not going to make any now has a third
+ * option: we keep the files. It is only drawn where the deployment can
+ * actually deliver that (`useManagedOffer`), and pressing it does not go
+ * straight to Stripe — `ManagedConfirm` states the price, the billable unit
+ * and the exit promise first, because an outward, irreversible step is owed a
+ * screen that says all of it at once. Coming back from Stripe lands here too,
+ * in `ManagedSettling`.
  */
 export function StorageStep({ controller }: { controller: OnboardingController }) {
+  return (
+    <StorageStepBody
+      connectState={controller.connectState}
+      workspaceId={controller.claimed?.workspaceId ?? null}
+      contextName={controller.claimed === null ? "this context" : `@${controller.claimed.slug}`}
+      connect={controller.connect}
+      managed={controller.managed}
+      storageReady={controller.connectState.kind === "connected"}
+      onSkip={controller.skipStorage}
+      onContinuePast={controller.continuePastStorage}
+    />
+  );
+}
+
+/**
+ * The step with its data already resolved — what the suite and the browser
+ * fixture drive, exactly as `StorageChoiceBody` is.
+ */
+export function StorageStepBody({
+  connectState,
+  workspaceId,
+  contextName,
+  connect,
+  managed,
+  storageReady,
+  onSkip,
+  onContinuePast,
+}: {
+  connectState: ConnectState;
+  workspaceId: string | null;
+  contextName: string;
+  connect: (values: ConnectFormValues) => Promise<{ status: string }>;
+  /** Absent where this deployment cannot provide managed storage. */
+  managed: ManagedOffer | null;
+  storageReady: boolean;
+  onSkip: () => void;
+  onContinuePast: () => void;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
-  const { connectState } = controller;
   const progress = connectProgressLabel(connectState);
   const busy = connectState.kind === "binding" || connectState.kind === "verifying";
+
+  if (managed !== null && managed.mode === "settling") {
+    return (
+      <ManagedSettling
+        state={{
+          paid: managed.paid,
+          storageReady,
+          slow: managed.slow,
+          failure: managed.provisionFailure,
+        }}
+        contextName={contextName}
+        onUseOwnStorage={managed.back}
+        onCarryOn={onSkip}
+        onRetry={managed.retry}
+      />
+    );
+  }
+
+  if (managed !== null && managed.mode === "confirm" && managed.status !== null) {
+    return (
+      <ManagedConfirm
+        status={managed.status}
+        contextName={contextName}
+        state={managed.session}
+        failure={managed.failure}
+        onToggle={managed.toggle}
+        onContinue={managed.proceed}
+        onBack={managed.back}
+      />
+    );
+  }
 
   return (
     <View>
@@ -40,8 +123,8 @@ export function StorageStep({ controller }: { controller: OnboardingController }
         Repeating it here was the first thing that read as filler on screen.
       */}
       <Text variant="rowSub" style={styles.lede}>
-        Your name is claimed. This is the one thing Context needs from you — and it is the
-        last step you have to do now.
+        Your name is claimed. Context keeps your notes as plain Markdown files — this is
+        where those files go.
       </Text>
 
       {connectState.kind === "connected" ? (
@@ -52,8 +135,8 @@ export function StorageStep({ controller }: { controller: OnboardingController }
         </Notice>
       ) : (
         <StorageChoice
-          workspaceId={controller.claimed?.workspaceId ?? null}
-          connect={controller.connect}
+          workspaceId={workspaceId}
+          connect={connect}
           dropboxResumeTo="onboarding"
           // Said here rather than discovered afterwards. The Dropbox flow is a
           // redirect: it takes the browser to Dropbox and brings it back to
@@ -63,6 +146,11 @@ export function StorageStep({ controller }: { controller: OnboardingController }
           // choice and the seed prompt are skipped, and somebody should know
           // that before they press it rather than after.
           dropboxNote="Connecting Dropbox leaves this page: you finish on Dropbox and come back to your console, so the two steps after this one are skipped. Connecting a bucket keeps you here."
+          managed={
+            managed === null || !managed.available
+              ? undefined
+              : { price: managed.price, onChoose: managed.choose }
+          }
         />
       )}
 
@@ -100,7 +188,7 @@ export function StorageStep({ controller }: { controller: OnboardingController }
           <Button
             label="Carry on anyway"
             accessibilityLabel="Continue without a verified bucket"
-            onPress={controller.continuePastStorage}
+            onPress={onContinuePast}
             testID="welcome-storage-continue"
           />
         ) : null}
@@ -109,7 +197,7 @@ export function StorageStep({ controller }: { controller: OnboardingController }
             label="I'll do this later"
             variant="ghost"
             disabled={busy}
-            onPress={controller.skipStorage}
+            onPress={onSkip}
             testID="welcome-storage-skip"
           />
         )}
@@ -122,7 +210,7 @@ export function StorageStep({ controller }: { controller: OnboardingController }
       */}
       {connectState.kind === "connected" ? null : (
         <Text variant="foot" style={styles.later}>
-          No bucket yet? Skipping is fine and nothing here expires. The console shows that
+          No storage yet? Skipping is fine and nothing here expires. The console shows that
           storage is not connected, with this form waiting behind it.
         </Text>
       )}

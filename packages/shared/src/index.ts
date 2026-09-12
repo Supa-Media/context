@@ -23,6 +23,24 @@ export const APP_SLUG = "context";
 export { normalizeEmail } from "./email";
 
 /**
+ * Where Stripe sends somebody back to, built once for both sides.
+ *
+ * The control plane mints the URL and the app owns the routes, and while the
+ * two lived apart the control plane sent a completed payment to a path that is
+ * not a route at all. See `checkoutReturn.ts`.
+ */
+export {
+  CHECKOUT_PARAM,
+  checkoutOutcomeFrom,
+  checkoutReturnPath,
+  contextSegment as checkoutContextSegment,
+  portalReturnPath,
+  premiumSettingsPath,
+  type CheckoutOrigin,
+  type CheckoutOutcome,
+} from "./checkoutReturn";
+
+/**
  * The link engine: what a link between two notes is, and how it is rewritten so
  * a rename or a move does not break it. Used by the control plane's file
  * operations and by the console's editor.

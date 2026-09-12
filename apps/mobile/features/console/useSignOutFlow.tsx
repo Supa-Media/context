@@ -5,6 +5,7 @@ import { Confirm } from "./files/Dialogs";
 import { forgetLocalCopies, unsentOnDevice } from "../offline/forget";
 import { signOutWarning } from "../offline/copy";
 import type { ConsoleData } from "./types";
+import { resetObservabilityUser } from "../observability/client";
 
 const NO_QUEUE = { pending: 0, conflicted: 0, rejected: 0 };
 
@@ -52,6 +53,7 @@ export function useSignOutFlow(data: ConsoleData): {
     void (async () => {
       await forgetLocalCopies();
       await signOut();
+      resetObservabilityUser();
       router.replace("/");
     })();
   }, [router, signOut]);

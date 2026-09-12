@@ -43,11 +43,20 @@ const schema = defineSchema({
    */
   names: defineTable({
     name: v.string(),
-    kind: v.union(v.literal("user"), v.literal("workspace")),
+    kind: v.union(v.literal("user"), v.literal("workspace"), v.literal("group")),
     /** Set when `kind === "user"`. */
     userId: v.optional(v.id("users")),
     /** Set when `kind === "workspace"`. */
     workspaceId: v.optional(v.id("workspaces")),
+    /**
+     * Set when `kind === "group"`.
+     *
+     * A group claims a row here for the same reason a workspace does: a privacy
+     * rule names a person and a group with the same `@name` token, so the two
+     * cannot be allowed to collide. Keeping the third kind in this table makes
+     * that one lookup rather than three that could race past each other.
+     */
+    groupId: v.optional(v.id("workspaceGroups")),
     claimedBy: v.id("users"),
     claimedAt: v.number(),
   })
@@ -117,6 +126,54 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])
     .index("by_workspace_user", ["workspaceId", "userId"]),
+
+  /**
+   * A named set of people inside one workspace, for a folder rule to point at.
+   *
+   * `name` is the FULL, slug-prefixed name (`supa-leads`) exactly as
+   * `privacy.md` carries it after the `@` — assembled by `buildGroupName` from
+   * the workspace's own slug, never accepted from a caller. That is what stops
+   * one workspace minting a name inside another's space in a namespace they
+   * share with every username.
+   *
+   * The group is the control plane's object and the manifest holds only the
+   * reference, which is the whole split: a name in a file is not a fact, and
+   * removing somebody from the workspace closes every folder at once without
+   * the bucket being touched.
+   */
+  workspaceGroups: defineTable({
+    workspaceId: v.id("workspaces"),
+    /** Normalized, slug-prefixed, and unique across the `names` table. */
+    name: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_name", ["name"]),
+
+  /**
+   * One person named in one group.
+   *
+   * **A row here grants nothing on its own.** Resolution intersects it with
+   * `workspaceMembers`, so a name left behind after somebody leaves the
+   * workspace is inert rather than a hole — see `resolveGroupMembers`. That is
+   * what lets the manifest keep a reference it cannot check.
+   *
+   * `workspaceId` is denormalized off the group so a workspace's rows can be
+   * swept without walking its groups first, and so every row carries the tenant
+   * it belongs to rather than inheriting it through a join.
+   */
+  workspaceGroupMembers: defineTable({
+    groupId: v.id("workspaceGroups"),
+    workspaceId: v.id("workspaces"),
+    userId: v.id("users"),
+    addedBy: v.id("users"),
+    addedAt: v.number(),
+  })
+    .index("by_group", ["groupId"])
+    .index("by_group_user", ["groupId", "userId"])
+    .index("by_workspace", ["workspaceId"])
+    .index("by_user", ["userId"]),
 
   /**
    * An outstanding offer of membership.
@@ -735,6 +792,42 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * A paid copy from customer-owned storage into a managed bucket.
+   *
+   * The source binding remains live until copy and verification finish. Its
+   * id is pinned so a reconnect during the copy makes cutover fail closed.
+   * The destination credential is workspace-bound encrypted metadata and is
+   * never returned by a public function.
+   */
+  managedStorageMigrations: defineTable({
+    workspaceId: v.id("workspaces"),
+    sourceBindingId: v.id("storageBindings"),
+    targetEndpoint: v.string(),
+    targetBucket: v.string(),
+    targetAccessKeyId: v.string(),
+    encryptedTargetSecretAccessKey: v.string(),
+    status: v.union(v.literal("copying"), v.literal("failed")),
+    phase: v.union(
+      v.literal("count"),
+      v.literal("copy"),
+      v.literal("verify_source"),
+      v.literal("verify_target"),
+    ),
+    cursor: v.optional(v.string()),
+    objectsCopied: v.number(),
+    /** Stable denominator measured before the first copy pass. */
+    objectsTotal: v.optional(v.number()),
+    /** Cursor-independent progress within the current phase. */
+    objectsProcessedInPhase: v.optional(v.number()),
+    changesInPass: v.number(),
+    readyToCutover: v.optional(v.boolean()),
+    errorCode: v.optional(v.string()),
+    startedBy: v.id("users"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_workspace", ["workspaceId"]),
+
+  /**
    * THE KEY(S) THAT OPEN ONE CONTEXT'S ENCRYPTED NOTES.
    *
    * See `docs/decisions/encryption.md`. **One *live* row per workspace, plus
@@ -897,7 +990,9 @@ const schema = defineSchema({
      * steady state a reader should trust — `functions/googleConnect.ts` writes
      * both in the same mutation.
      */
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    products: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     /**
      * Gmail's own settings and cursor. Present iff `"gmail"` is in `products`.
      * See `docs/decisions/communications.md` for what each field argues.
@@ -950,7 +1045,9 @@ const schema = defineSchema({
          * `sweepExpiredAttachments` treats absent the same as the documented
          * 90-day default.
          */
-        attachmentRetentionDays: v.optional(v.union(v.number(), v.literal("forever"))),
+        attachmentRetentionDays: v.optional(
+          v.union(v.number(), v.literal("forever")),
+        ),
         /**
          * Customer-visible folder where this mailbox's day notes and
          * attachments land. Absent on rows written before integration settings
@@ -1018,7 +1115,12 @@ const schema = defineSchema({
     chat: v.optional(
       v.object({
         scopes: v.array(v.string()),
-        spaceSettings: v.optional(v.record(v.string(), v.union(v.literal("excluded"), v.literal("paused")))),
+        spaceSettings: v.optional(
+          v.record(
+            v.string(),
+            v.union(v.literal("excluded"), v.literal("paused")),
+          ),
+        ),
         cursors: v.optional(v.record(v.string(), v.string())),
         destinationFolder: v.optional(v.string()),
         nonceSeed: v.string(),
@@ -1115,6 +1217,30 @@ const schema = defineSchema({
      */
     disconnectedAt: v.optional(v.number()),
     boundBy: v.id("users"),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1152,7 +1278,9 @@ const schema = defineSchema({
     connectionId: v.id("googleConnections"),
     requestedBy: v.id("users"),
     mode: v.literal("backfill"),
-    services: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    services: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     status: v.union(
       v.literal("queued"),
       v.literal("running"),
@@ -1166,13 +1294,39 @@ const schema = defineSchema({
     daysWithMail: v.optional(v.number()),
     bytesWritten: v.optional(v.number()),
     destinationFolder: v.optional(v.string()),
-    currentService: v.optional(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    currentService: v.optional(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     currentUnit: v.optional(v.string()),
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
     errorCode: v.optional(v.string()),
     transientFailures: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -1216,11 +1370,20 @@ const schema = defineSchema({
      * callback.
      */
     flow: v.optional(
-      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"), v.literal("google")),
+      v.union(
+        v.literal("gmail"),
+        v.literal("calendar"),
+        v.literal("chat"),
+        v.literal("google"),
+      ),
     ),
-    products: v.array(v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat"))),
+    products: v.array(
+      v.union(v.literal("gmail"), v.literal("calendar"), v.literal("chat")),
+    ),
     backfillDays: v.optional(v.number()),
-    folders: v.optional(v.array(v.union(v.literal("inbox"), v.literal("sent")))),
+    folders: v.optional(
+      v.array(v.union(v.literal("inbox"), v.literal("sent"))),
+    ),
     /**
      * The attachment choices made before leaving for Google's consent
      * screen, carried the same way `backfillDays`/`folders` are — see this
@@ -1231,7 +1394,9 @@ const schema = defineSchema({
      * to row; `googleConnect.ts` is the only reader and reassembles the
      * `number | "forever"` shape on the way out.
      */
-    attachmentMode: v.optional(v.union(v.literal("metadata-only"), v.literal("store"))),
+    attachmentMode: v.optional(
+      v.union(v.literal("metadata-only"), v.literal("store")),
+    ),
     attachmentRetentionDays: v.optional(v.number()),
     attachmentRetentionForever: v.optional(v.boolean()),
     expiresAt: v.number(),
@@ -1461,9 +1626,13 @@ const schema = defineSchema({
     leasedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    progressPhase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+    progressCompleted: v.optional(v.number()),
+    progressTotal: v.optional(v.number()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_workspace_updatedAt", ["workspaceId", "updatedAt"])
     .index("by_expiresAt", ["expiresAt"]),
 
   /**
@@ -1606,9 +1775,7 @@ const schema = defineSchema({
     grantTypes: v.optional(v.array(v.string())),
     responseTypes: v.optional(v.array(v.string())),
     scope: v.optional(v.string()),
-    applicationType: v.optional(
-      v.union(v.literal("native"), v.literal("web")),
-    ),
+    applicationType: v.optional(v.union(v.literal("native"), v.literal("web"))),
     /**
      * RFC 7591's `software_id`: what the client says it *is*, as opposed to
      * what it called itself this time.
@@ -1967,6 +2134,14 @@ const schema = defineSchema({
   searchIndexes: defineTable({
     workspaceId: v.id("workspaces"),
     /**
+     * Which product contract created this derivative.
+     *
+     * Rows written before Premium launched have no generation and are never
+     * served. A paid opt-in replaces their remote coordinates and provisions a
+     * fresh database in the customer-data account; the files remain canonical.
+     */
+    generation: v.optional(v.literal("premium-v1")),
+    /**
      * The owner's answer, and the reason the row exists.
      *
      * Stored rather than implied by the row's existence because the two come
@@ -2013,6 +2188,30 @@ const schema = defineSchema({
     /** Backfill progress, so the settings screen can be honest about it. */
     notesIndexed: v.optional(v.number()),
     notesPending: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2271,6 +2470,30 @@ const schema = defineSchema({
      */
     lastEventIds: v.optional(v.array(v.string())),
     lastEventAt: v.optional(v.number()),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -2316,6 +2539,16 @@ const schema = defineSchema({
     selectedAtCheckout: v.optional(
       v.object({ managedStorage: v.boolean(), fastSearch: v.boolean() }),
     ),
+    /**
+     * Where the attempt started, which decides where finishing returns to.
+     *
+     * Optional because rows written before this existed have no answer, and
+     * "settings" is the right reading of those: it is where the only checkout
+     * the product had could be started from. Never taken from a client as a
+     * URL — it selects one of two shapes we wrote, which is the same rule
+     * `expectedWorkspaceId` follows at the gateway.
+     */
+    origin: v.optional(v.union(v.literal("settings"), v.literal("onboarding"))),
     /** Ours, from a closed set — never Stripe's text, which can name an account. */
     errorCode: v.optional(v.string()),
     /**
@@ -2323,6 +2556,30 @@ const schema = defineSchema({
      * somebody abandoned, and a live checkout URL is a live capability.
      */
     expiresAt: v.number(),
+    /**
+     * Where provisioning the managed bucket has got to, for the one context
+     * this plan is for.
+     *
+     * On the plan rather than on the binding, because until it succeeds there
+     * *is* no binding — and the screen that has to say "creating your storage"
+     * is looking at somebody who has paid and has nothing yet. Absent is the
+     * ordinary state: a context that never bought managed storage has no
+     * answer here and needs none.
+     *
+     * `failed` is the state that has to exist. Without it the console can only
+     * wait, and a person who paid two minutes ago cannot tell a slow webhook
+     * from a bucket that will never appear.
+     */
+    managedProvisioning: v.optional(
+      v.union(v.literal("running"), v.literal("ready"), v.literal("failed")),
+    ),
+    /**
+     * Why it failed, from **our** closed set — never Cloudflare's text, which
+     * can name an account. The console maps it to a sentence and a next step.
+     */
+    managedProvisioningError: v.optional(v.string()),
+    /** When the last attempt ended, so a retry can be rate-limited by a human. */
+    managedProvisioningAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
