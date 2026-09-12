@@ -1542,9 +1542,13 @@ const schema = defineSchema({
     leasedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     lastError: v.optional(v.string()),
+    progressPhase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+    progressCompleted: v.optional(v.number()),
+    progressTotal: v.optional(v.number()),
   })
     .index("by_hashed_ticket", ["hashedTicket"])
     .index("by_workspace_status", ["workspaceId", "status"])
+    .index("by_workspace_updatedAt", ["workspaceId", "updatedAt"])
     .index("by_expiresAt", ["expiresAt"]),
 
   /**

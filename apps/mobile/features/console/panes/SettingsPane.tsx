@@ -390,7 +390,7 @@ export function SettingsPane({
         {settingsSectionLabel("advanced")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        Audit trail and key export. Most people never need this.
+        Background folder moves, audit trail, and key export. Most people never need this.
       </Text>
       <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>

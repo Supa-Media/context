@@ -248,6 +248,7 @@ async function handleGatewayJobMessage(message, env) {
 
   let status = "failed";
   let error;
+  let progress;
   if (job.kind === "materialize_move" && typeof job.moveId === "string") {
     const result = await toolMaterializeMove(store, "private", job.moveId, MOVE_MATERIALIZE_BATCH);
     const text = result?.content?.[0]?.text || "";
@@ -257,15 +258,36 @@ async function handleGatewayJobMessage(message, env) {
       status = "complete";
     } else {
       status = "queued";
+      progress = moveProgressFromText(text);
     }
   } else {
     error = "unsupported gateway job";
   }
 
-  await controlPlane.reportGatewayJob(ticket, { status, ...(error ? { error } : {}) });
+  await controlPlane.reportGatewayJob(ticket, {
+    status,
+    ...(error ? { error } : {}),
+    ...(progress ? { progress } : {}),
+  });
   if (status === "queued" && env?.GATEWAY_JOBS && typeof env.GATEWAY_JOBS.send === "function") {
     await env.GATEWAY_JOBS.send(body);
   }
+}
+
+/** Counts only: never forward a marker's paths or provider text to the control plane. */
+function moveProgressFromText(text) {
+  const found = /^(copied|deleted): (\d+)\/(\d+)$/m.exec(text);
+  if (!found) return undefined;
+  const completed = Number(found[2]);
+  const total = Number(found[3]);
+  if (!Number.isSafeInteger(completed) || !Number.isSafeInteger(total) || total <= 0 || completed > total) {
+    return undefined;
+  }
+  return {
+    phase: found[1] === "copied" ? "copying" : "deleting",
+    completed,
+    total,
+  };
 }
 /**
  * Ops that must remain before the deferred pass is worth starting: the

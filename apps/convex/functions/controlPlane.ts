@@ -1376,6 +1376,13 @@ export const reportGatewayJob = internalMutation({
     result: v.object({
       status: v.union(v.literal("queued"), v.literal("complete"), v.literal("failed")),
       error: v.optional(v.string()),
+      progress: v.optional(
+        v.object({
+          phase: v.union(v.literal("copying"), v.literal("deleting")),
+          completed: v.number(),
+          total: v.number(),
+        }),
+      ),
     }),
   },
   returns: v.boolean(),
@@ -1387,11 +1394,26 @@ export const reportGatewayJob = internalMutation({
       .unique();
     if (job === null) return false;
     if (job.status !== "running") return false;
+    const progress = args.result.progress;
+    const validProgress =
+      progress !== undefined &&
+      Number.isInteger(progress.completed) &&
+      Number.isInteger(progress.total) &&
+      progress.completed >= 0 &&
+      progress.total > 0 &&
+      progress.completed <= progress.total;
     await ctx.db.patch(job._id, {
       status: args.result.status,
       updatedAt: Date.now(),
       completedAt: args.result.status === "complete" ? Date.now() : undefined,
       lastError: gatewayJobError(args.result.error),
+      ...(validProgress
+        ? {
+            progressPhase: progress.phase,
+            progressCompleted: progress.completed,
+            progressTotal: progress.total,
+          }
+        : {}),
     });
     return true;
   },
