@@ -87,6 +87,9 @@ function manifestValue(sourceId, contribution, dates) {
 
 /** Store the days from one completed provider pass without dropping older days. */
 export async function persistChatContribution({ store, sourceId, contribution }) {
+  if (store?.capabilities?.conditionalWrite === false) {
+    throw new TypeError("Shared Google Chat sync requires storage with conditional writes");
+  }
   const location = paths(sourceId);
   const existing = await readJson(store, location.manifest);
   if (existing !== null && existing.value?.sourceId !== String(sourceId)) {
