@@ -98,7 +98,10 @@ function offer(over: Partial<ManagedOffer> = {}): ManagedOffer {
 function mount(managed: ManagedOffer | null, storageReady = false): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
-  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  const root = createRoot(container, {
+    onUncaughtError: () => {},
+    onCaughtError: () => {},
+  });
   roots.push(() => {
     act(() => root.unmount());
     container.remove();
@@ -125,8 +128,11 @@ describe("offering storage we keep", () => {
     for (const managed of [null, offer({ available: false })]) {
       const container = mount(managed);
       expect(container.querySelector('[data-testid="choose-managed"]')).toBeNull();
-      // And the two free answers are untouched, which is the other half of the
-      // rule: nothing about the BYO path gets longer because a paid one exists.
+      // The self-managed path remains available. Its provider choices stay
+      // behind the click whether or not this deployment sells Premium.
+      const own = container.querySelector('[data-testid="choose-own-storage"]') as HTMLElement;
+      expect(own).not.toBeNull();
+      act(() => own.click());
       expect(container.querySelector('[data-testid="choose-bucket"]')).not.toBeNull();
       expect(container.querySelector('[data-testid="choose-dropbox"]')).not.toBeNull();
     }
@@ -137,12 +143,13 @@ describe("offering storage we keep", () => {
     const card = container.querySelector('[data-testid="choose-managed"]');
     expect(card).not.toBeNull();
     expect(card?.textContent ?? "").toContain("$20 a month");
-    // Ordered after the free ones. A screen that sold above a free option
-    // would be selling against its own free tier.
+    expect(card?.textContent ?? "").toContain("50 GB");
+    expect(container.textContent ?? "").not.toContain("Recommended");
+    // The two product paths are peers. Provider details are not a third tier.
     const order = [...container.querySelectorAll("[data-testid]")]
       .map((node) => node.getAttribute("data-testid"))
       .filter((id) => id !== null && id.startsWith("choose-"));
-    expect(order).toEqual(["choose-bucket", "choose-dropbox", "choose-managed"]);
+    expect(order).toEqual(["choose-own-storage", "choose-managed"]);
   });
 });
 
@@ -174,7 +181,10 @@ describe("the screen before Stripe", () => {
     const container = mount(
       offer({
         mode: "confirm",
-        status: { ...status, selected: { managedStorage: false, fastSearch: false } },
+        status: {
+          ...status,
+          selected: { managedStorage: false, fastSearch: false },
+        },
       }),
     );
     const button = container.querySelector('[data-testid="managed-confirm-continue"]');

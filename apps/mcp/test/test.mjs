@@ -32,6 +32,7 @@ import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
 import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runChatContributionStoreChecks } from "./chatContributionStore.test.mjs";
+import { runCalendarContributionStoreChecks } from "./calendarContributionStore.test.mjs";
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
@@ -4371,6 +4372,7 @@ await runGmailSyncChecks(check);
 // order without the swap-and-restore discipline the block above needs.
 await runGoogleChatChecks(check);
 await runChatContributionStoreChecks(check);
+await runCalendarContributionStoreChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);

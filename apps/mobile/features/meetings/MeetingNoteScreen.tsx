@@ -391,6 +391,7 @@ export function noteEditorHref(record: MeetingRecord): string | null {
 /** The generated note, or the honest absence of one. */
 function Summary({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
+  const snapshot = useMeetingsSnapshot();
   const { session } = record;
 
   if (session.enhanced !== null) {
@@ -423,10 +424,25 @@ function Summary({ record }: { record: MeetingRecord }) {
           the gateway and this device may be the one thing between it and the
           bucket — so the sentence says which of those is outstanding rather
           than implying somebody only has to wait.
+
+          **Three outstanding things now, not two**, and the new one is first
+          because it is the one a person is most likely to be looking at.
+          Splitting `recorder.stop()` from `recorder.drain()` ends the meeting
+          the moment End is pressed and moves the transcription wait behind it,
+          which is what stopped the clock running over a finished meeting — and
+          it left this screen saying the only thing it had for a meeting with no
+          note yet: *"Waiting to reach your context."* True, and not the answer.
+          Nothing is wrong with the connection; the last of the audio is still
+          being turned into words, and the finalize is held on purpose until it
+          is, so the note is not written without the end of the meeting. Telling
+          somebody about a network problem they do not have is the same defect
+          as telling them nothing, one sentence further on.
         */}
-        {record.acked.finalized
-          ? "Your context is writing this up. It will appear here."
-          : "Waiting to reach your context. Your notes are safe on this device until it does."}
+        {snapshot.transcribing === session.id
+          ? "Still turning the last of the audio into words. The note is written once they are in."
+          : record.acked.finalized
+            ? "Your context is writing this up. It will appear here."
+            : "Waiting to reach your context. Your notes are safe on this device until it does."}
       </Text>
     </View>
   );

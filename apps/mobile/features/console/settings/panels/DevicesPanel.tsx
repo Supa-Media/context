@@ -47,7 +47,7 @@ export function DevicesPanel() {
 
   return (
     <View>
-      <Text variant="paneTitle" style={styles.head}>
+      <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
         {settingsSectionLabel("devices")}
       </Text>
       <Text variant="paneSub" style={styles.sub}>

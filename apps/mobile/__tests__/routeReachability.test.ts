@@ -443,6 +443,15 @@ describe("every route is reachable, or says why not", () => {
       "/authorize",
       "/connect/dropbox",
       "/connect/google",
+      /*
+        The map, whose last door was the "Elsewhere in the console" card at the
+        foot of settings — three destinations repeated under all nineteen
+        sections, drawn unconditionally *because* taking it off any one section
+        took the map out of the product. The owner's call was that the map can
+        vanish. It is on this list rather than deleted: the route and the pane
+        still render, and one entry point brings it back.
+      */
+      "/console/map",
       "/e2e-fixture",
       "/invite/[token]",
       "/note/[...address]",

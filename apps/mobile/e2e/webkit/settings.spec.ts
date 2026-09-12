@@ -41,11 +41,10 @@ import { tap } from "./helpers";
  * phone levels, draws list and panel side by side at a pointer width, and
  * lays its rows out the way the styles claim — inside a real engine, at a
  * real viewport, with real hit-testing. It does not prove anything about the
- * sections whose props the fixture does not supply: `onSignOut`,
- * `onOpenInvitation` and `onOpenSection` are absent there (no session, no
- * router — see `E2EFixtureScreen`'s header), so the sign-out row, the
- * invitation answer and the "Elsewhere in the console" card are not on this
- * screen to be pressed.
+ * sections whose props the fixture does not supply: `onSignOut` and
+ * `onOpenInvitation` are absent there (no session, no router — see
+ * `E2EFixtureScreen`'s header), so the sign-out row and the invitation answer
+ * are not on this screen to be pressed.
  *
  * ## Why the presses inside the overlay are `locator.tap()`
  *
@@ -107,15 +106,18 @@ async function openConsole(page: Page): Promise<void> {
 /**
  * How far a row's label starts from the row's own left edge.
  *
- * The whole of the centring defect, measured rather than described: the row
- * is `flexDirection: "row"` with `paddingHorizontal: 9`, so an honest label
- * begins 9pt in — plus a dot and its gap on a context row, which is the
- * widest legitimate answer here and still nowhere near half a row. A centred
- * label in a ~330pt-wide row starts somewhere past 100. `LEFT_EDGE` sits
- * between the two, close enough to the real value to fail on the defect and
- * loose enough not to break on a padding token moving by a point or two.
+ * The whole of the centring defect, measured rather than described. The row
+ * is `flexDirection: "row"` with `paddingHorizontal: 11` and now opens with a
+ * 19pt mark and a 12pt gap, so an honest label begins about 42pt in. A
+ * centred label in a ~330pt-wide row starts somewhere past 100. `LEFT_EDGE`
+ * sits between the two — far enough above the real value to survive a padding
+ * token moving, or a mark drawn a point wider, and still nowhere near half a
+ * row.
+ *
+ * It was 48 while the rows had no mark on them, which left six points of
+ * headroom: the number moved because the rows did, not because the claim did.
  */
-const LEFT_EDGE = 48;
+const LEFT_EDGE = 64;
 
 async function labelOffset(row: Locator, label: string): Promise<number> {
   const rowBox = await row.boundingBox();
@@ -139,13 +141,21 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
   */
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
-  await expect(page.getByText("Personal brain", { exact: true })).toBeVisible();
+  /*
+    The identity block by its testID rather than by its words. Its second line
+    is "Personal brain · you're the owner" — kind and role in one sentence,
+    because being the owner is a fact about you in this context rather than a
+    fourth row in a column of properties — so an exact-text match on the kind
+    alone no longer names a node, and a looser one would match the section
+    list once a row ever previews the same words.
+  */
+  await expect(page.getByTestId("overview-identity")).toContainText("Personal brain");
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
 
   // Back pops that level rather than closing the overlay.
   await page.getByLabel("Back", { exact: true }).tap();
   await expect(page.getByTestId("settings-sections")).toBeVisible();
-  await expect(page.getByText("Personal brain", { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId("overview-identity")).toHaveCount(0);
 
   // And a row from the list draws its own section, which is the `onSelect`
   // wiring the fixture stands in for `router.setParams({ settings })` with.
@@ -216,13 +226,13 @@ test.describe("at a pointer width", () => {
     // Both at once, which is the whole difference from the phone: no Back,
     // because there is no level to pop.
     await expect(page.getByTestId("settings-sections")).toBeVisible();
-    await expect(page.getByText("Personal brain", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("overview-identity")).toBeVisible();
     await expect(page.getByTestId("settings-overlay-back")).toHaveCount(0);
 
     // The list really is beside the panel rather than above it — the sidebar
     // ends before the panel's content begins.
     const list = await page.getByTestId("settings-sections").boundingBox();
-    const panel = await page.getByText("Personal brain", { exact: true }).boundingBox();
+    const panel = await page.getByTestId("overview-identity").boundingBox();
     if (list === null || panel === null) throw new Error("no box for the list or the panel");
     expect(panel.x).toBeGreaterThan(list.x + list.width);
 

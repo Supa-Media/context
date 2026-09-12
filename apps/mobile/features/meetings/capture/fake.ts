@@ -33,6 +33,15 @@ export interface FakeRecorder extends MeetingRecorder {
   /** Make the next `start()` reject — a refused permission, a busy device. */
   refuseStart(message: string): void;
   /**
+   * Make `drain()` hang until the returned function is called.
+   *
+   * The wait that used to live inside `stop()` and now happens after the
+   * meeting has ended. A test about *where* that wait falls — before the fold
+   * or after it — cannot be written against a drain that resolves on the next
+   * tick, because both orders look identical from the outside.
+   */
+  holdDrain(): () => void;
+  /**
    * Make `stop()` hang until the returned function is called.
    *
    * The real recorders' `stop()` is the slowest call in this feature and is
@@ -76,6 +85,8 @@ export function fakeRecorder(
   let startedWith: CaptureOptions | null = null;
   /** Set by `holdStop`; awaited by `stop` while it is not `null`. */
   let held: Promise<void> | null = null;
+  /** The same, for `drain`. */
+  let heldDrain: Promise<void> | null = null;
 
   return {
     calls,
@@ -100,6 +111,19 @@ export function fakeRecorder(
     },
     refuseStart(message) {
       refusal = message;
+    },
+    holdDrain() {
+      let release = (): void => {};
+      heldDrain = new Promise<void>((resolve) => {
+        release = () => {
+          heldDrain = null;
+          resolve();
+        };
+      });
+      return release;
+    },
+    async drain() {
+      if (heldDrain !== null) await heldDrain;
     },
     holdStop() {
       let release = (): void => {};

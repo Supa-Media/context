@@ -3205,22 +3205,29 @@ still answers the query* in `shareRecipients.test.ts`.
 
 Shots of every state: `docs/design/share-sheet/`.
 
-### An Obsidian vault is imported before a new layout is proposed
+### Storage starts with ownership, then offers existing notes
 
-After either a customer-owned bucket or managed storage connects, first-run asks
-one question before proposing PARA: **“Have an Obsidian vault?”** On Mac and web,
-the person chooses the vault folder and Context streams its files directly into
-the connected bucket at the same relative paths. Markdown, folders and
-attachments therefore keep working together; successful import replaces the
-layout question rather than putting PARA beside a structure the person already
-has.
+The first storage decision has two peer paths: **Bring your own storage** and
+**Context-managed Premium storage**. The first opens the S3-compatible and
+Dropbox provider choices. The second names the 50 GB allowance and continues to
+the existing Premium confirmation. Neither path is marked safer or recommended;
+the choice is technical control versus convenience.
+
+After either path connects, first-run asks **“Have an Obsidian vault or existing
+Markdown notes?”** The same question appears in Storage settings for an existing
+workspace. On Mac and web, the person chooses the folder and Context streams its
+files directly into the connected storage at the same relative paths. Markdown,
+folders and attachments therefore keep working together; a successful first-run
+import replaces the layout question rather than putting PARA beside a structure
+the person already has.
 
 The import is bounded, batched and create-only. Retrying skips objects that
 already landed, and it never overwrites a file already in the destination.
 Bytes pass through the action into the bucket and are never stored in Convex.
 The client shows file-count progress and the server records path-only audit
-metadata. After the last batch, the existing all-private repair path creates a
-valid `privacy.md` from the uploaded top-level folders.
+metadata. After a fresh onboarding import, the existing all-private repair path
+creates a valid `privacy.md` from the uploaded top-level folders. A Settings
+import never rewrites an established workspace's access map.
 
 Obsidian application state and Context plumbing do not come along:
 `.obsidian/`, `.trash/`, `.git/`, `.context/`, `.audit/`, system metadata and a
@@ -3229,3 +3236,22 @@ This avoids uploading plugin credentials or replacing Context's access map.
 Folder picking is Mac/web-only because native mobile pickers do not preserve a
 vault's relative paths; mobile says where to continue instead of flattening the
 vault.
+
+**"Create-only" is a claim about the bucket, not about the request, so the
+capability decides which way it is enforced.** Every adapter here *sends*
+`onlyIf: { absent: true }`; whether the bucket obeys is the question
+`initialCapabilities()` answers `false` to until a probe says otherwise, because
+"B2 and arbitrary S3-compatible endpoints do not reliably" support conditional
+writes. Sending the precondition and trusting the reply on a binding that has
+not proven it is how a write that should have been skipped comes back reported
+as *created*, with the person's own file gone underneath — the "lost write with
+no error" that comment calls the one failure mode a notes product cannot have,
+arriving during onboarding over the vault they are importing. So
+`importVaultFiles` reads `store.capabilities` exactly as `saveNote` and the
+manifest writers do, and an unproven backend gets a read-then-create whose
+residual window is one round trip. The check is `does not lose an existing file
+on a backend whose conditional writes were never proven`, and it needs
+`memoryS3`'s `ignoreIfMatch` to also ignore `If-None-Match` — the same feature,
+so a stub that honoured one and not the other was answering for a backend that
+could not be the one in doubt, and the create-only claim was only ever tested
+where it holds for free.

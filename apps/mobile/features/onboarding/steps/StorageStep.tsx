@@ -30,10 +30,10 @@ import { ManagedSettling } from "./ManagedSettling";
  * credential form is a hostile place to trap somebody thirty seconds into their
  * first session — they may not have made the bucket yet.
  *
- * ## The third answer, and the two screens behind it
+ * ## Managed storage, and the two screens behind it
  *
- * Somebody who has no storage and is not going to make any now has a third
- * option: we keep the files. It is only drawn where the deployment can
+ * Somebody can either bring storage they control or ask Context to run it.
+ * The managed path is only drawn where the deployment can
  * actually deliver that (`useManagedOffer`), and pressing it does not go
  * straight to Stripe — `ManagedConfirm` states the price, the billable unit
  * and the exit promise first, because an outward, irreversible step is owed a
@@ -138,14 +138,6 @@ export function StorageStepBody({
           workspaceId={workspaceId}
           connect={connect}
           dropboxResumeTo="onboarding"
-          // Said here rather than discovered afterwards. The Dropbox flow is a
-          // redirect: it takes the browser to Dropbox and brings it back to
-          // `/connect/dropbox`, not to this screen, so the two steps after this
-          // one do not happen. The folder still gets the standard layout —
-          // `verifyStorageBinding` scaffolds an empty one either way — but the
-          // choice and the seed prompt are skipped, and somebody should know
-          // that before they press it rather than after.
-          dropboxNote="Connecting Dropbox leaves this page: you finish on Dropbox and come back to your console, so the two steps after this one are skipped. Connecting a bucket keeps you here."
           managed={
             managed === null || !managed.available
               ? undefined

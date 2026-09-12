@@ -34,7 +34,7 @@ export function AppearancePanel() {
 
   return (
     <View>
-      <Text variant="paneTitle" style={styles.head}>
+      <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
         {settingsSectionLabel("appearance")}
       </Text>
       <Text variant="paneSub" style={styles.sub}>

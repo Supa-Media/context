@@ -14,7 +14,7 @@ import { Icon } from "./Icon";
 import { Text } from "./Text";
 import { layout, radii, space } from "../tokens";
 
-import { useThemedStyles, type Colors, type Shadows } from "../theme";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../theme";
 
 /**
  * A panel over the page, rather than a page you went to.
@@ -50,12 +50,23 @@ export function Overlay({
   closeLabel = "Close",
   trailing,
   sidebar,
+  sidebarWidth = layout.railWidth,
   children,
   onBack,
+  backLabel,
   onDismiss,
   testID,
 }: {
-  title: string;
+  /**
+   * The bar's own title, where the bar is the only thing naming the screen.
+   *
+   * **Omitted where the content carries a heading of its own**, which on a
+   * phone's section screen it does: a bar titled "Overview" over a panel
+   * titled "Overview" spends about seventy points of the first screenful
+   * restating a word already on it. There the bar says where Back goes and
+   * nothing else, which is what a phone's nav bar is for.
+   */
+  title?: string;
   /** A short mark beside the title — which context this is, or a role. */
   badge?: ReactNode;
   /**
@@ -76,6 +87,11 @@ export function Overlay({
    * implement, which would have left the next caller's content unreachable.
    */
   sidebar?: ReactNode;
+  /**
+   * How wide that sidebar is drawn. Defaults to the rail's width, which is
+   * what every caller wanted while a sidebar held nothing but labels.
+   */
+  sidebarWidth?: number;
   children: ReactNode;
   /**
    * Back, on a phone's second level. Present means the head draws a chevron
@@ -84,9 +100,19 @@ export function Overlay({
    * dismissing from there would throw away a step the person just took.
    */
   onBack?: () => void;
+  /**
+   * The word beside the back chevron — where Back goes, not where you are.
+   *
+   * A bare chevron leaves the bar's title as the only thing naming the
+   * screen, which is how a section ends up titled twice: once in the bar and
+   * once, properly, at the top of its own content. Named, the bar can say
+   * "Settings" and the content can carry the heading.
+   */
+  backLabel?: string;
   onDismiss: () => void;
   testID?: string;
 }) {
+  const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const compact = useWindowDimensions().width < layout.narrowBreakpoint;
   /*
@@ -106,15 +132,28 @@ export function Overlay({
           accessibilityRole="button"
           accessibilityLabel="Back"
           onPress={onBack}
-          style={styles.close}
+          style={backLabel === undefined ? styles.close : styles.back}
           testID={testID ? `${testID}-back` : undefined}
         >
-          <Icon name="chevronLeft" size={16} />
+          <Icon name="chevronLeft" size={16} color={colors.accent} />
+          {backLabel === undefined ? null : (
+            <Text variant="rail" style={styles.backLabel} numberOfLines={1}>
+              {backLabel}
+            </Text>
+          )}
         </Pressable>
       )}
-      <Text variant="noteTitle" role="heading" aria-level={2} numberOfLines={1} style={styles.title}>
-        {title}
-      </Text>
+      {title === undefined ? null : (
+        <Text
+          variant="noteTitle"
+          role="heading"
+          aria-level={2}
+          numberOfLines={1}
+          style={styles.title}
+        >
+          {title}
+        </Text>
+      )}
       {badge}
       <View style={styles.grow} />
       {trailing}
@@ -201,7 +240,9 @@ export function Overlay({
         <Pressable style={styles.panel} accessible={false} onPress={() => {}}>
           {head}
           <View style={styles.body}>
-            {sidebar === undefined ? null : <View style={styles.side}>{sidebar}</View>}
+            {sidebar === undefined ? null : (
+              <View style={[styles.side, { width: sidebarWidth }]}>{sidebar}</View>
+            )}
             <View style={styles.main}>{children}</View>
           </View>
         </Pressable>
@@ -246,6 +287,16 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     },
     title: { flexShrink: 1 },
     grow: { flexGrow: 1 },
+    back: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 2,
+      minHeight: layout.minTouchTarget,
+      paddingRight: space.x2,
+      marginLeft: -space.x1,
+      borderRadius: radii.md,
+    },
+    backLabel: { color: colors.accent },
     close: {
       width: layout.minTouchTarget,
       height: layout.minTouchTarget,
@@ -255,7 +306,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     },
     body: { flex: 1, flexDirection: "row", minHeight: 0 },
     side: {
-      width: layout.railWidth,
       borderRightWidth: 1,
       borderRightColor: colors.line,
       backgroundColor: colors.surface,
