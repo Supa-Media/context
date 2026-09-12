@@ -19,6 +19,27 @@ import { fnv1a64 } from "../../../../../packages/communications/src/anchors.js";
 import { chatMessageToEvent, fallbackSpaceLabel, isHistoryOn, spaceDisplayName } from "./transform.js";
 import { DAY_MS, REGEN_LOOKBACK_DAYS } from "./protocol.js";
 
+/** A hard ceiling behind the cycle check, for a provider that emits fresh junk forever. */
+const MAX_PAGE_WALK = 1000;
+
+/** Fixed, content-free failure a scheduler can classify without parsing provider prose. */
+export class ChatPaginationError extends Error {
+  constructor() {
+    super("Google Chat pagination did not converge");
+    this.name = "ChatPaginationError";
+    this.code = "PAGINATION_STALLED";
+  }
+}
+
+function acceptNextPageToken(seen, nextPageToken, pages) {
+  if (!nextPageToken) return undefined;
+  if (seen.has(nextPageToken) || pages >= MAX_PAGE_WALK) {
+    throw new ChatPaginationError();
+  }
+  seen.add(nextPageToken);
+  return nextPageToken;
+}
+
 function calendarDate(iso) {
   const t = Date.parse(String(iso ?? ""));
   if (!Number.isFinite(t)) return null;
@@ -83,7 +104,10 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
   const events = [];
   let latestMs = sinceMs;
   let pageToken;
+  let pages = 0;
+  const seenPageTokens = new Set();
   do {
+    pages += 1;
     const page = await listMessages({ spaceName, sinceCreateTime: new Date(sinceMs).toISOString(), pageToken });
     for (const message of page.items ?? []) {
       const date = calendarDate(message?.createTime);
@@ -92,7 +116,7 @@ async function readSpaceMessages({ listMessages, space, account, sinceMs }) {
       const t = Date.parse(message.createTime);
       if (Number.isFinite(t) && t > latestMs) latestMs = t;
     }
-    pageToken = page.nextPageToken;
+    pageToken = acceptNextPageToken(seenPageTokens, page.nextPageToken, pages);
   } while (pageToken);
   return { events, latestMs };
 }
@@ -136,10 +160,17 @@ export async function syncGoogleChat({ listSpaces, listMessages, connection, now
 
   const spaces = [];
   let spacePageToken;
+  let spacePages = 0;
+  const seenSpacePageTokens = new Set();
   do {
+    spacePages += 1;
     const page = await listSpaces({ pageToken: spacePageToken });
     for (const space of page.items ?? []) spaces.push(space);
-    spacePageToken = page.nextPageToken;
+    spacePageToken = acceptNextPageToken(
+      seenSpacePageTokens,
+      page.nextPageToken,
+      spacePages,
+    );
   } while (spacePageToken);
 
   const cursors = { ...(connection?.cursors ?? {}) };

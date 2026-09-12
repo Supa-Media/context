@@ -12,6 +12,7 @@
 //   advance a denied space's cursor anyway                             -> 1 check failed
 //   let one space's unexpected error abort the whole sync              -> 1 check failed
 //   stamp a regenerated note with the pass clock instead of its data   -> 1 check failed
+//   trust a repeated provider page token and walk it forever            -> 3 checks failed
 //   derive the day nonce from account+date alone, dropping nonceSeed   -> 1 check failed
 //   isHistoryOn always returns true, ignoring HISTORY_OFF entirely     -> 3 checks failed
 //
@@ -231,6 +232,50 @@ export async function runGoogleChatChecks(check) {
     });
     check("the failing space is recorded in errors", result.errors.some((e) => e.space === DM));
     check("...and the healthy space still synced", result.notes.some((part) => part.events.some((e) => e.space.key === ENGINEERING)));
+  });
+
+  await section("sync: a repeated spaces page token is a bounded failure", async () => {
+    let calls = 0;
+    const error = await syncGoogleChat({
+      listSpaces: async () => {
+        calls += 1;
+        if (calls > 2) throw Object.assign(new Error("fixture walked forever"), { code: "TEST_UNBOUNDED" });
+        return { items: [], nextPageToken: "same-page" };
+      },
+      listMessages: async () => ({ items: [] }),
+      connection: { account: "acct", nonceSeed: "seed" },
+      now: NOW,
+    }).catch((caught) => caught);
+    check("a repeated spaces token is detected before a third request", calls === 2);
+    check("...and is a typed pagination failure a scheduler can classify", error?.code === "PAGINATION_STALLED");
+  });
+
+  await section("sync: one space's repeated message page token does not stall the others", async () => {
+    const looping = fixtureSpace({ name: DM, spaceType: "DIRECT_MESSAGE" });
+    const healthy = fixtureSpace({ name: ENGINEERING });
+    let loopingCalls = 0;
+    const result = await syncGoogleChat({
+      listSpaces: async () => ({ items: [looping, healthy] }),
+      listMessages: async ({ spaceName }) => {
+        if (spaceName === ENGINEERING) return { items: [] };
+        loopingCalls += 1;
+        if (loopingCalls > 2) {
+          throw Object.assign(new Error("fixture walked forever"), { code: "TEST_UNBOUNDED" });
+        }
+        return { items: [], nextPageToken: "same-page" };
+      },
+      connection: {
+        account: "acct",
+        nonceSeed: "seed",
+        cursors: {
+          [DM]: "2026-09-06T00:00:00.000Z",
+          [ENGINEERING]: "2026-09-06T00:00:00.000Z",
+        },
+      },
+      now: NOW,
+    });
+    check("a repeated message token is detected before a third request", loopingCalls === 2);
+    check("...and only that space is reported as failed", result.errors.length === 1 && result.errors[0]?.space === DM);
   });
 
   // -- idempotency, edits and deletions --------------------------------------
