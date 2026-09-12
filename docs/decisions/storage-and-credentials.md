@@ -258,16 +258,22 @@ not an assertion per path; sabotage `write_note` to snapshot again and it fails.
   arrangement. The console names the condition instead — it cannot see the
   setting, so it does not guess which side of it somebody is on.
 
-**What this does not solve.** A bulk move still copies every byte through the
-Worker, because the storage adapter has `get`/`put`/`delete`/`list` and no
-`copy`; a folder move still rewrites `privacy.md` once per note under a
-conditional-write retry loop, which serialises the batch; and both run inside one
-Worker invocation against a 50-subrequest budget, which is what `FOLDER_MOVE_CAP`
-of 500 and `BATCH_MOVE_CAP` of 100 are optimistic about. Removing the snapshot
-takes one round trip and one full body copy per object out of that, and no more.
-Server-side `CopyObject` behind a probed `copy` capability, one manifest write per
-operation, and a resumable job for anything larger than an invocation are the
-next three, in that order.
+**Large moves are durable; their physical copy is still provider-bound.** A
+large owner-scoped folder move now makes one logical cutover, persists its
+marker in the customer's bucket, and materializes bounded batches through the
+Cloudflare Queue. A queue ticket is hashed in the control plane and carries no
+credential, note path, or note content. The owner can see only its phase and
+measured object counts in Settings; source and destination names remain in the
+bucket marker because a folder name can itself be private. Completed rows stay
+visible for one day so progress does not disappear at 99 percent.
+
+The storage adapter still has `get`/`put`/`delete`/`list` and no portable
+server-side `copy`, so each backend pays its own read, write, verify, and delete
+cost. A provider-specific `CopyObject` capability can reduce that cost later,
+but it must preserve the same marker, conditional cleanup, retry, and progress
+contract. The console's direct Convex move action remains synchronous; this
+durable path and its progress describe gateway-triggered large moves until the
+console starts the same job rather than its separate 45-second request.
 
 ### Dropbox's client secret is optional hardening, not a second credential to guard
 

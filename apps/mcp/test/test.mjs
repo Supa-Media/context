@@ -2882,6 +2882,20 @@ check(
     queuedGatewayMessages[0]?.moveId === queuedMoveId &&
     !JSON.stringify(queuedGatewayMessages[0]).includes("cat_test_owner")
 );
+const firstQueuedMessage = queuedGatewayMessages.shift();
+await worker.queue({ messages: [{ body: firstQueuedMessage }] }, env);
+const firstProgressReport = [...controlPlane.calls]
+  .reverse()
+  .find((entry) => entry.path === "/gateway/jobs/report");
+check(
+  "queue consumer reports bounded move progress without note paths",
+  firstProgressReport?.body?.result?.status === "queued" &&
+    firstProgressReport?.body?.result?.progress?.phase === "copying" &&
+    Number.isInteger(firstProgressReport?.body?.result?.progress?.completed) &&
+    firstProgressReport.body.result.progress.completed > 0 &&
+    firstProgressReport?.body?.result?.progress?.total === 501 &&
+    !JSON.stringify(firstProgressReport.body.result.progress).includes("queued-move")
+);
 for (let i = 0; i < 20 && objects.has(`.context/moves/${queuedMoveId}.json`); i += 1) {
   const message = queuedGatewayMessages.shift();
   if (!message) break;

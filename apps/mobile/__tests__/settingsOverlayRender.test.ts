@@ -465,6 +465,7 @@ describe("what a non-owner is told instead of the controls", () => {
     const container = mount(() =>
       createElement(AdvancedPanel, {
         view: {
+          moves: { jobs: [], loading: false, failure: null },
           audit: {
             events: [],
             loading: false,
@@ -478,5 +479,30 @@ describe("what a non-owner is told instead of the controls", () => {
     expect(container.textContent ?? "").toContain(
       "Only an owner of this context can see its audit trail.",
     );
+  });
+
+  test("advanced: a durable move shows its measured phase and percentage", () => {
+    const container = mount(() =>
+      createElement(AdvancedPanel, {
+        view: {
+          moves: {
+            jobs: [{
+              jobId: "job-1",
+              status: "running",
+              phase: "copying",
+              completed: 400,
+              total: 500,
+              updatedAt: 0,
+            }],
+            loading: false,
+            failure: null,
+          },
+          audit: { events: [], loading: false, failure: null },
+          keyExport: undefined,
+        },
+      }),
+    );
+    expect(container.textContent ?? "").toContain("Copying safely · 400 of 500 · 80%");
+    expect(container.querySelector('[data-testid="durable-move-progress"]')).not.toBeNull();
   });
 });

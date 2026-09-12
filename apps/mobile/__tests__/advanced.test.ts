@@ -6,8 +6,44 @@ import {
   buildKeyExportDocument,
   canReadAuditTrail,
   describeKeyExportFailure,
+  describeMoveProgress,
   type ConsoleAuditEvent,
 } from "../features/console/advanced/advanced";
+
+describe("describing durable folder moves", () => {
+  test("uses measured progress and a human phase name", () => {
+    expect(
+      describeMoveProgress({
+        jobId: "job-1",
+        status: "running",
+        phase: "copying",
+        completed: 400,
+        total: 500,
+        updatedAt: 0,
+      }),
+    ).toEqual({ headline: "Moving a large folder", detail: "Copying safely · 400 of 500 · 80%" });
+  });
+
+  test("never invents a percentage before a total exists", () => {
+    expect(
+      describeMoveProgress({
+        jobId: "job-1",
+        status: "queued",
+        updatedAt: 0,
+      }).detail,
+    ).toBe("Waiting to start");
+  });
+
+  test("turns a provider failure into one short actionable sentence", () => {
+    expect(
+      describeMoveProgress({
+        jobId: "job-1",
+        status: "failed",
+        updatedAt: 0,
+      }).detail,
+    ).toBe("Paused safely; try the move again when storage is reachable.");
+  });
+});
 
 describe("who may read the audit trail through the console", () => {
   // `listEvents` itself is member-readable on the backend, and `paths` is now

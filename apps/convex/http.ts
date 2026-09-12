@@ -529,6 +529,26 @@ export const gatewayJobsReport = gatewayRoute(async (ctx, body) => {
     result?.status === "queued" || result?.status === "complete" || result?.status === "failed"
       ? result.status
       : null;
+  const rawProgress =
+    result?.progress && typeof result.progress === "object" && !Array.isArray(result.progress)
+      ? result.progress as Record<string, unknown>
+      : null;
+  const progress =
+    rawProgress !== null &&
+    (rawProgress.phase === "copying" || rawProgress.phase === "deleting") &&
+    typeof rawProgress.completed === "number" &&
+    Number.isInteger(rawProgress.completed) &&
+    rawProgress.completed >= 0 &&
+    typeof rawProgress.total === "number" &&
+    Number.isInteger(rawProgress.total) &&
+    rawProgress.total > 0 &&
+    rawProgress.completed <= rawProgress.total
+      ? {
+          phase: rawProgress.phase as "copying" | "deleting",
+          completed: rawProgress.completed,
+          total: rawProgress.total,
+        }
+      : null;
   if (ticket !== null && status !== null) {
     try {
       await ctx.runMutation(internal.functions.controlPlane.reportGatewayJob, {
@@ -536,6 +556,7 @@ export const gatewayJobsReport = gatewayRoute(async (ctx, body) => {
         result: {
           status,
           ...(typeof result?.error === "string" ? { error: result.error } : {}),
+          ...(progress === null ? {} : { progress }),
         },
       });
     } catch {

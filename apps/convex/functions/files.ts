@@ -72,9 +72,11 @@ import { getAuthUserId } from "@convex-dev/auth/server";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
+  type QueryCtx,
   action,
   internalAction,
   internalQuery,
+  query,
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
@@ -1421,13 +1423,61 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> 
  * in the root error boundary with nothing to do about it — see the note at the
  * top of `lib/workspaceAuth.ts`.
  */
-async function callerId(ctx: ActionCtx): Promise<Id<"users">> {
+async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
     throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
   }
   return userId as Id<"users">;
 }
+
+const durableMoveValidator = v.object({
+  jobId: v.id("gatewayJobs"),
+  status: v.union(
+    v.literal("queued"),
+    v.literal("running"),
+    v.literal("complete"),
+    v.literal("failed"),
+  ),
+  phase: v.optional(v.union(v.literal("copying"), v.literal("deleting"))),
+  completed: v.optional(v.number()),
+  total: v.optional(v.number()),
+  updatedAt: v.number(),
+});
+
+/**
+ * Recent durable folder moves, owner-only and deliberately path-free.
+ *
+ * A move can name a private folder. Settings needs its state and measured
+ * counts, never the source, destination, marker id, provider error, grant, or
+ * acting client. Completed rows stay visible briefly so 99% does not turn
+ * directly into an empty card before the owner sees the outcome.
+ */
+export const listDurableMoves = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(durableMoveValidator),
+  handler: async (ctx, args) => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
+    const rows = await ctx.db
+      .query("gatewayJobs")
+      .withIndex("by_workspace_updatedAt", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(20);
+    const completedCutoff = Date.now() - 24 * 60 * 60 * 1_000;
+    return rows
+      .filter((row) => row.status !== "complete" || row.updatedAt >= completedCutoff)
+      .slice(0, 10)
+      .map((row) => ({
+        jobId: row._id,
+        status: row.status,
+        ...(row.progressPhase === undefined ? {} : { phase: row.progressPhase }),
+        ...(row.progressCompleted === undefined ? {} : { completed: row.progressCompleted }),
+        ...(row.progressTotal === undefined ? {} : { total: row.progressTotal }),
+        updatedAt: row.updatedAt,
+      }));
+  },
+});
 
 /** One folder's contents. Any member may read. */
 export const listFiles = action({

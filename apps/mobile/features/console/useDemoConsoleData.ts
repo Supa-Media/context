@@ -378,6 +378,7 @@ export function useDemoConsoleData(): ConsoleData {
     // `storageActions` is — it hands somebody a credential and cannot be
     // offered where nothing would really act on it.
     advanced: {
+      moves: { jobs: [], loading: false, failure: null },
       audit: {
         events: demoAuditEvents(selectedContextId, Date.now()),
         loading: false,

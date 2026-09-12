@@ -875,6 +875,9 @@ describe("a stranger cannot reach another workspace's files", () => {
       // cross-tenant risk: a stranger asking for another workspace's note
       // paths must get `WORKSPACE_NOT_FOUND`, never a real (even empty) list.
       (workspaceId) => as.action(api.functions.files.notePaths, { workspaceId }),
+      // Counts and phase reveal less than a path, but the existence of a long
+      // move is still activity in another tenant and therefore owner-only.
+      (workspaceId) => as.query(api.functions.files.listDurableMoves, { workspaceId }),
       // Owner-only, and absent here since it was written. The one exit from a
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.
