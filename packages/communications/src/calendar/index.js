@@ -20,7 +20,7 @@ export {
   parseCalendarDayPath,
 } from "./paths.js";
 export { eventAnchor, eventCacheKey, isEventAnchor } from "./anchors.js";
-export { CALENDAR_FENCE_MARKER, NO_TITLE, defangCalendarFence, renderCalendarDay } from "./render.js";
+export { CALENDAR_FENCE_MARKER, NO_TITLE, defangCalendarFence, isCalendarDayNote, renderCalendarDay } from "./render.js";
 export {
   applyIncremental,
   horizonDates,

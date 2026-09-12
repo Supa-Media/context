@@ -34,9 +34,23 @@ export function isCalendarDayDate(value) {
 /** `2026-09-07.md`, and only that shape — a calendar day never splits into parts. */
 const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.md$/;
 
+/**
+ * The folder a calendar day lands in: `CALENDAR_FOLDER` unless the owner chose
+ * one, and never a string that is not a folder.
+ *
+ * `normalizeRoot` answers `""` for input that is only separators and
+ * whitespace (`"/"`, `"///"`), which is not the default and is not a folder —
+ * left as-is it built `/2026-09-07.md`, a key with no folder at all, and
+ * `<root>//2026-09-07.md` under a customer root. `channelDestinationFolder`
+ * makes the same decision for a channel day and answers `null` so its caller
+ * refuses; this refuses directly, because two implementations of "is this a
+ * folder we will file into" is how one of them ends up the weaker one.
+ */
 function calendarDestinationFolder(folder) {
   if (folder === undefined || folder === null || String(folder).trim() === "") return CALENDAR_FOLDER;
-  return normalizeRoot(folder).replace(/\/$/g, "");
+  const normalized = normalizeRoot(folder).replace(/\/$/g, "");
+  if (!normalized) throw new TypeError("not a folder this package files into");
+  return normalized;
 }
 
 /**

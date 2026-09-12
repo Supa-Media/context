@@ -1729,6 +1729,37 @@ the console displayed the custom path. The override changes only the folder;
 the file remains one flat `YYYY-MM-DD.md`, with no account or tenant segment,
 and the same validated customer root still wraps it.
 
+**Choosing the folder is what ends "a path this sync writes is a path only
+this sync writes", so the pass now asks whose note it is holding.** While the
+destination was fixed at `0-inbox/calendar/`, every key a pass touched was one
+it had written, and a full pass may delete: it walks all fourteen horizon days
+and removes the note at every date with no events. A chosen destination breaks
+that assumption in the most ordinary way available — the control plane accepts
+`2-areas/communications/daily`, its own test picks exactly that, and
+`YYYY-MM-DD.md` is how the owner's Obsidian daily notes in such a folder are
+already named, in a bucket this product syncs to Obsidian on purpose. So
+`isCalendarDayNote` reads the frontmatter `type` the renderer always emits, and
+a note that is not one is neither overwritten nor deleted. It is deliberately
+false for anything unreadable as a calendar day, which makes ciphertext skip
+too — `sealNoteContent`'s rule (a note this request cannot open is a note it
+cannot write) arriving through the call graph rather than a second check. The
+checks are `a note this sync did not write is never deleted from a chosen
+destination` and `an owner's note with frontmatter of its own is not mistaken
+for this sync's`; the second exists because a guard that only asked "does this
+open with `---`" would pass the first.
+
+**And a destination that normalizes away is refused rather than filed at the
+bucket root.** `normalizeRoot` answers `""` for input that is only separators
+(`"/"`, `"///"`), which built `/2026-09-07.md` — no folder at all — and
+`<root>//2026-09-07.md` under a customer root. `channelDestinationFolder`
+already answers `null` for the same input so its caller refuses; the calendar
+copy had restated it without that line. Two implementations of "is this a
+folder we will file into" is how one of them ends up the weaker one. The
+control plane refuses an empty destination too, so this is the second lock on
+a door rather than the only one — and it is the lock a self-hoster calling
+`calendarDayNotePath` directly reaches first. The check is `a destination that
+normalizes away is refused, never turned into a rootless key`.
+
 That shared file makes **account aggregation a write-time invariant**, not a
 presentation detail. A scheduled pass may update one account's private event
 cache, but it must render the day from the union of every active account cache

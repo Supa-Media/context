@@ -156,6 +156,48 @@ function preamble(nonce) {
 }
 
 /**
+ * Is this the text of a calendar day note *this package rendered*?
+ *
+ * A destination folder is the owner's to choose, so the paths a sync writes
+ * and deletes are no longer paths only that sync writes: a date-named note the
+ * owner keeps in the same folder has the same key. This is what a caller asks
+ * before it destroys one, and it answers off the frontmatter `type` the
+ * renderer always emits rather than off the path, because the path is exactly
+ * the thing that stopped being proof.
+ *
+ * Deliberately false for anything it cannot read as one — a hand-written note,
+ * a note in some other shape, and an encrypted note whose bytes are
+ * ciphertext. That last case is the gateway's own rule reached by call graph
+ * rather than by a second check: a note this pass cannot open is a note this
+ * pass must not write.
+ *
+ * @param {unknown} text
+ * @returns {boolean}
+ */
+export function isCalendarDayNote(text) {
+  const source = String(text ?? "");
+  if (!source.startsWith("---\n")) return false;
+  const end = source.indexOf("\n---", 3);
+  if (end === -1) return false;
+  for (const line of source.slice(4, end).split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon === -1) continue;
+    if (line.slice(0, colon).trim() !== "type") continue;
+    const raw = line.slice(colon + 1).trim();
+    let value = raw;
+    if (raw.startsWith('"')) {
+      try {
+        value = JSON.parse(raw);
+      } catch {
+        value = raw;
+      }
+    }
+    return String(value) === CALENDAR_DAY_TYPE;
+  }
+  return false;
+}
+
+/**
  * One day of the calendar, as Markdown. Pure: same inputs, same bytes.
  *
  * @param {{date: string, timezone: string, events: import("./protocol.js").CalendarEventInstance[],
