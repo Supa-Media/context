@@ -115,10 +115,12 @@ import {
   syncShardedIndex,
 } from "./search/shards.js";
 import { createD1Client } from "./search/d1/client.js";
+import { projectNote, upsertStatements } from "./search/d1/project.js";
 import { answerFromProjection } from "./search/d1/serve.js";
 import {
   D1_PASS_NOTE_CAP,
   censusFromManifest,
+  countProjected,
   loadCensus,
   progressFrom,
   projectPass,
@@ -4963,7 +4965,83 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
     visibility: desiredVisibility,
     team_visible: desiredVisibility === "team",
   });
+  await projectWrittenNoteAfterResponse(store, {
+    path,
+    content,
+    version: put.etag,
+    visibility: desiredVisibility,
+  });
   return toolText(`written: ${path} (etag ${put.etag})\nvisibility: ${desiredVisibility}`);
+}
+
+/**
+ * Keep a ready Fast Search database current when this gateway writes a note.
+ *
+ * The initial backfill and periodic reconciliation remain the repair path for
+ * writes made through Obsidian, rclone, or a provider console. A gateway write
+ * is different: we already have the new plaintext, version, and effective
+ * visibility, so waiting for another bucket listing makes the very next search
+ * stale for no reason. The projection is a derivative, so a D1 refusal never
+ * rolls back the canonical bucket write.
+ *
+ * Deferred where the runtime supports `waitUntil`; awaited on self-hosted
+ * shims so "no deferral" never means "no indexing". Three idempotent attempts
+ * cover a transient provider refusal without inventing a second write format:
+ * every attempt starts by deleting this path's prior rows.
+ */
+async function projectWrittenNoteAfterResponse(
+  store,
+  { path, content, version, visibility },
+) {
+  if (!store.searchIndex || store.searchIndex.state !== "ready") return "off";
+
+  const run = async () => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const client = createD1Client(store.searchIndex);
+        const projected = projectNote(path, {
+          version,
+          uploaded: null,
+          visibility,
+          content,
+        });
+        await client.runAll(upsertStatements(path, projected));
+        if (typeof store.reportSearchIndexProgress === "function") {
+          const notesIndexed = await countProjected(client);
+          await store.reportSearchIndexProgress({
+            notesIndexed,
+            notesPending: 0,
+            state: "ready",
+          });
+        }
+        return;
+      } catch {
+        // The canonical note is already safe in the customer's bucket. A
+        // later reconciliation pass repairs the disposable projection.
+      }
+    }
+    try {
+      console.error(
+        JSON.stringify({
+          event: "search-projection-write-behind-failed",
+          workspace: store.actor?.workspaceId,
+        }),
+      );
+    } catch {
+      // Reporting a derivative failure cannot fail the note write either.
+    }
+  };
+
+  if (typeof store.defer === "function") {
+    try {
+      store.defer(run());
+      return "deferred";
+    } catch {
+      // A host that refuses waitUntil is the same as one without it.
+    }
+  }
+  await run();
+  return "inline";
 }
 
 /**
