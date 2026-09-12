@@ -520,6 +520,28 @@ that "the customer-data account holds nothing of ours" is enforced
 in code rather than asserted in this file, and so that an operator or a support
 engineer pointing the wrong flow at it gets a refusal instead of a bucket.
 
+### Replacing a bucket from a local vault
+
+The Obsidian importer's destructive option means the literal bucket, not only
+the note paths the console normally shows. It deletes `privacy.md`, attachments,
+audit objects, recovery objects and derived R2 indexes as well as Markdown.
+That is why it is owner-only, requires `I understand` at both UI and mutation,
+and is implemented through the sole credential barrier as a durable job rather
+than as a browser loop holding storage credentials.
+
+One pass counts the bucket and later passes remove at most 100 objects. Delete
+passes always list from the beginning: a continuation token describes the old
+keyspace and may skip objects after the preceding page disappears. Progress is
+counts only; no object list or file content enters Convex. Provider-side
+versioning is outside Context's control, so the UI says that an older provider
+version may remain even though every current object is removed.
+
+Only after the bucket is empty does the job accept local upload batches. Its
+last batch restores a valid all-private `privacy.md` before recording
+completion. A failure at any point leaves a resumable phase and count; it never
+turns into permission to replay the typed confirmation against another vault or
+workspace.
+
 **They compare the endpoint as the URL parser sees it, never as it was typed.**
 A substring test over the raw string is not the same check as the one every
 consumer performs: `new URL()` percent-decodes and IDNA-maps the host, so

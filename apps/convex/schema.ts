@@ -1609,7 +1609,7 @@ const schema = defineSchema({
   vaultImportJobs: defineTable({
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
-    strategy: v.union(v.literal("merge"), v.literal("folder")),
+    strategy: v.union(v.literal("merge"), v.literal("folder"), v.literal("replace")),
     sourceFingerprint: v.string(),
     totalFiles: v.number(),
     totalBytes: v.number(),
@@ -1618,6 +1618,12 @@ const schema = defineSchema({
     completedFiles: v.number(),
     createdFiles: v.number(),
     skippedFiles: v.number(),
+    /** Present only for destructive imports created after replacement shipped. */
+    replacement: v.optional(v.object({
+      phase: v.union(v.literal("counting"), v.literal("deleting"), v.literal("uploading")),
+      totalObjects: v.number(),
+      deletedObjects: v.number(),
+    })),
     status: v.union(v.literal("active"), v.literal("paused"), v.literal("complete")),
     createdAt: v.number(),
     updatedAt: v.number(),

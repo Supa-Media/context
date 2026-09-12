@@ -6,7 +6,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { Button } from "../../design/components/Button";
 import { Card } from "../../design/components/Card";
 import { Check } from "../../design/components/Field";
-import { ChoiceGroup, FormError, Notice } from "../../design/components/Input";
+import { ChoiceGroup, FormError, Notice, TextField } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { leading } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
@@ -23,9 +23,16 @@ import {
 
 type UploadState =
   | { kind: "idle" }
+  | { kind: "clearing"; completed: number; total: number; phase: "counting" | "deleting" }
   | { kind: "uploading"; completed: number; total: number }
   | { kind: "complete"; created: number; skipped: number }
-  | { kind: "failed"; message: string; completed: number; total: number };
+  | {
+      kind: "failed";
+      stage: "counting" | "clearing" | "uploading";
+      message: string;
+      completed: number;
+      total: number;
+    };
 
 interface VaultJobStatus {
   jobId: Id<"vaultImportJobs">;
@@ -36,6 +43,11 @@ interface VaultJobStatus {
   createdFiles: number;
   skippedFiles: number;
   completedBatches?: number[];
+  replacement?: {
+    phase: "counting" | "deleting" | "uploading";
+    totalObjects: number;
+    deletedObjects: number;
+  };
 }
 
 function importPercent(completed: number, total: number): number {
@@ -86,6 +98,7 @@ export function VaultImport({
   testIDPrefix?: string;
 }) {
   const importBatch = useAction(api.functions.files.importVaultJobBatch);
+  const clearReplacementBatch = useAction(api.functions.files.clearVaultImportBatch);
   const startJob = useMutation(api.functions.files.startVaultImport);
   const pauseJob = useMutation(api.functions.files.pauseVaultImport);
   const existingJob = useQuery(api.functions.files.latestVaultImportJob, {
@@ -99,6 +112,7 @@ export function VaultImport({
       existingJob={existingJob ?? undefined}
       startJob={startJob}
       importBatch={importBatch}
+      clearReplacementBatch={clearReplacementBatch}
       pauseJob={pauseJob}
       resetPrivacy={initializePrivacy ? resetPrivacy : undefined}
       onSkip={onSkip}
@@ -115,6 +129,7 @@ export function VaultImportBody({
   existingJob,
   startJob,
   importBatch,
+  clearReplacementBatch,
   pauseJob,
   resetPrivacy,
   onSkip,
@@ -133,6 +148,7 @@ export function VaultImportBody({
     totalFiles: number;
     totalBytes: number;
     totalBatches: number;
+    confirmation?: string;
   }) => Promise<VaultJobStatus>;
   importBatch: (args: {
     workspaceId: Id<"workspaces">;
@@ -140,6 +156,11 @@ export function VaultImportBody({
     sourceFingerprint: string;
     batchIndex: number;
     files: { path: string; bytes: ArrayBuffer; contentType: string }[];
+  }) => Promise<VaultJobStatus>;
+  clearReplacementBatch?: (args: {
+    workspaceId: Id<"workspaces">;
+    jobId: Id<"vaultImportJobs">;
+    sourceFingerprint: string;
   }) => Promise<VaultJobStatus>;
   pauseJob?: (args: {
     workspaceId: Id<"workspaces">;
@@ -156,11 +177,16 @@ export function VaultImportBody({
     existingData ? (existingJob?.strategy ?? null) : "merge",
   );
   const [plan, setPlan] = useState<VaultPlan | null>(null);
+  const [replaceConfirmation, setReplaceConfirmation] = useState("");
   const [picking, setPicking] = useState(false);
   const [pickingUnavailable, setPickingUnavailable] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [upload, setUpload] = useState<UploadState>({ kind: "idle" });
-  const busy = picking || upload.kind === "uploading";
+  const busy = picking || upload.kind === "uploading" || upload.kind === "clearing";
+  const resumingConfirmedReplacement =
+    strategy === "replace" && existingJob?.status !== undefined && existingJob.status !== "complete";
+  const replacementConfirmed =
+    strategy !== "replace" || replaceConfirmation === "I understand" || resumingConfirmedReplacement;
 
   useEffect(() => {
     if (strategy === null && existingJob?.strategy !== undefined)
@@ -209,6 +235,7 @@ export function VaultImportBody({
     let jobId: Id<"vaultImportJobs"> | undefined;
     let completed = 0;
     let total = plan.files.length;
+    let failureStage: "counting" | "clearing" | "uploading" = "uploading";
     try {
       const batches = batchVaultFiles(plan.files);
       const sourceFingerprint = vaultFingerprint(plan, strategy);
@@ -219,9 +246,30 @@ export function VaultImportBody({
         totalFiles: plan.files.length,
         totalBytes: plan.totalBytes,
         totalBatches: batches.length,
+        ...(strategy === "replace" ? { confirmation: "I understand" } : {}),
       });
       jobId = job.jobId;
       let latest = job;
+      while (latest.replacement !== undefined && latest.replacement.phase !== "uploading") {
+        failureStage = latest.replacement.phase === "counting" ? "counting" : "clearing";
+        completed = latest.replacement.deletedObjects;
+        total = latest.replacement.totalObjects;
+        if (clearReplacementBatch === undefined) {
+          throw new Error("Replacement clearing is unavailable.");
+        }
+        setUpload({
+          kind: "clearing",
+          phase: latest.replacement.phase,
+          completed: latest.replacement.deletedObjects,
+          total: latest.replacement.totalObjects,
+        });
+        latest = await clearReplacementBatch({
+          workspaceId,
+          jobId,
+          sourceFingerprint,
+        });
+      }
+      failureStage = "uploading";
       completed = latest.completedFiles;
       total = latest.totalFiles;
       setUpload({
@@ -257,7 +305,7 @@ export function VaultImportBody({
       // A fresh import replaces onboarding's scaffold step, so it needs the
       // all-private access map that step would have created. Settings imports
       // leave a workspace's existing access map alone.
-      if (resetPrivacy !== undefined) await resetPrivacy({ workspaceId });
+      if (strategy !== "replace" && resetPrivacy !== undefined) await resetPrivacy({ workspaceId });
       setUpload({
         kind: "complete",
         created: latest.createdFiles,
@@ -274,10 +322,13 @@ export function VaultImportBody({
       }
       setUpload({
         kind: "failed",
+        stage: failureStage,
         completed,
         total,
         message:
-          "The upload stopped. Choose Resume upload now, or reselect the same folder later; Context will continue after the last completed batch.",
+          failureStage !== "uploading"
+            ? "The replacement stopped safely. Choose Resume now, or reselect the same folder later; Context will continue clearing from the saved count before it uploads."
+            : "The upload stopped. Choose Resume upload now, or reselect the same folder later; Context will continue after the last completed batch.",
       });
     }
   };
@@ -291,7 +342,11 @@ export function VaultImportBody({
       </Text>
 
       <View style={styles.promises}>
-        <Check tone="ok">Existing files stay unchanged.</Check>
+        {strategy === "replace" ? (
+          <Check tone="warn">The selected folder becomes this bucket's new contents.</Check>
+        ) : (
+          <Check tone="ok">Existing files stay unchanged.</Check>
+        )}
         <Check tone="ok">
           Obsidian settings, plugin data, trash, and Git files are skipped.
         </Check>
@@ -302,7 +357,7 @@ export function VaultImportBody({
         !(existingJob !== undefined && existingJob.status !== "complete") ? (
           <ChoiceGroup
             label="How should these notes be added?"
-            hint="Choose where new files go. Neither option replaces anything already here."
+            hint="Merge and folder imports preserve existing files. Replacement permanently clears the bucket first."
             options={[
               {
                 value: "merge",
@@ -315,6 +370,11 @@ export function VaultImportBody({
                 label: "Keep it in its own folder",
                 detail: "Put everything under Imports / Vault name.",
               },
+              {
+                value: "replace",
+                label: "Replace everything",
+                detail: "Permanently remove every existing file in this bucket, then upload this folder.",
+              },
             ]}
             value={strategy}
             disabled={busy}
@@ -323,9 +383,28 @@ export function VaultImportBody({
               setPlan(null);
               setPickError(null);
               setUpload({ kind: "idle" });
+              setReplaceConfirmation("");
             }}
             testID={testIDPrefix}
           />
+        ) : null}
+
+        {strategy === "replace" && !resumingConfirmedReplacement && upload.kind === "idle" ? (
+          <Notice tone="warn" style={styles.notice}>
+            <Text variant="rowTitle">This permanently deletes every existing file in this bucket.</Text>
+            <Text variant="check" style={styles.dangerDetail}>
+              Notes, attachments, access settings, audit files, and Context system files are removed before the selected folder uploads. Context cannot undo this. Your storage provider may retain older versions if bucket versioning is enabled. Ask collaborators and sync tools to stop editing until it finishes.
+            </Text>
+            <TextField
+              label="Type I understand to continue"
+              value={replaceConfirmation}
+              onChangeText={setReplaceConfirmation}
+              autoCapitalize="none"
+              autoCorrect={false}
+              testID={`${testIDPrefix}-replace-confirmation`}
+              containerStyle={styles.confirmation}
+            />
+          </Notice>
         ) : null}
 
         {existingJob !== undefined &&
@@ -334,18 +413,22 @@ export function VaultImportBody({
           <View style={styles.stepBlock}>
             <Text variant="rowTitle">Resume this import</Text>
             <Text variant="check" role="status" style={styles.stepDetail}>
-              {existingJob.completedFiles} of {existingJob.totalFiles} files
-              finished ·{" "}
-              {importPercent(
-                existingJob.completedFiles,
-                existingJob.totalFiles,
-              )}
-              %
+              {existingJob.replacement?.phase === "counting"
+                ? "Counting the existing bucket will resume."
+                : existingJob.replacement?.phase === "deleting"
+                  ? `${existingJob.replacement.deletedObjects} of ${existingJob.replacement.totalObjects} existing files removed · ${importPercent(existingJob.replacement.deletedObjects, existingJob.replacement.totalObjects)}%`
+                  : `${existingJob.completedFiles} of ${existingJob.totalFiles} files finished · ${importPercent(existingJob.completedFiles, existingJob.totalFiles)}%`}
             </Text>
-            <ImportProgress
-              completed={existingJob.completedFiles}
-              total={existingJob.totalFiles}
-            />
+            {existingJob.replacement?.phase === "counting" ? null : (
+              <ImportProgress
+                completed={existingJob.replacement?.phase === "deleting"
+                  ? existingJob.replacement.deletedObjects
+                  : existingJob.completedFiles}
+                total={existingJob.replacement?.phase === "deleting"
+                  ? existingJob.replacement.totalObjects
+                  : existingJob.totalFiles}
+              />
+            )}
             <Text variant="meta" style={styles.skipDetail}>
               Choose the same vault to resume. Completed batches will not upload
               again.
@@ -353,7 +436,7 @@ export function VaultImportBody({
           </View>
         ) : null}
 
-        {strategy !== null && plan === null && upload.kind === "idle" ? (
+        {strategy !== null && replacementConfirmed && plan === null && upload.kind === "idle" ? (
           <View style={styles.stepBlock}>
             <Text variant="eyebrow">Choose your folder</Text>
             {picking ? (
@@ -393,7 +476,9 @@ export function VaultImportBody({
             <Text variant="meta" style={styles.skipDetail}>
               {strategy === "folder"
                 ? `Destination: Imports / ${plan.rootName}`
-                : "Destination: existing folder paths"}
+                : strategy === "replace"
+                  ? "Destination: replaces every file in this bucket"
+                  : "Destination: existing folder paths"}
             </Text>
             <Notice tone="warn" style={styles.notice}>
               <Text variant="check">
@@ -438,6 +523,25 @@ export function VaultImportBody({
           </Notice>
         ) : null}
 
+        {upload.kind === "clearing" ? (
+          <Notice tone="warn" style={styles.notice}>
+            <View style={styles.progressRow}>
+              <ActivityIndicator color={colors.text2} size="small" />
+              <Text variant="check" role="status">
+                {upload.phase === "counting"
+                  ? "Counting existing bucket files…"
+                  : `Removing ${upload.completed} of ${upload.total} existing files · ${importPercent(upload.completed, upload.total)}%`}
+              </Text>
+            </View>
+            {upload.phase === "deleting" ? (
+              <ImportProgress completed={upload.completed} total={upload.total} />
+            ) : null}
+            <Text variant="meta" style={styles.skipDetail}>
+              Keep this tab open. If the connection fails, deletion progress is saved and can resume.
+            </Text>
+          </Notice>
+        ) : null}
+
         {upload.kind === "failed" ? (
           <View>
             <FormError
@@ -447,13 +551,16 @@ export function VaultImportBody({
             />
             <Notice style={styles.notice}>
               <Text variant="check" role="status">
-                Paused at {upload.completed} of {upload.total} files ·{" "}
-                {importPercent(upload.completed, upload.total)}%
+                {upload.stage === "counting"
+                  ? "Paused while counting existing bucket files."
+                  : `Paused at ${upload.completed} of ${upload.total} ${upload.stage === "clearing" ? "existing files removed" : "files uploaded"} · ${importPercent(upload.completed, upload.total)}%`}
               </Text>
-              <ImportProgress
-                completed={upload.completed}
-                total={upload.total}
-              />
+              {upload.stage === "counting" ? null : (
+                <ImportProgress
+                  completed={upload.completed}
+                  total={upload.total}
+                />
+              )}
             </Notice>
           </View>
         ) : null}
@@ -461,7 +568,7 @@ export function VaultImportBody({
         {upload.kind === "complete" ? (
           <Notice tone="ok" style={styles.notice}>
             <Text variant="check" role="status" style={styles.okText}>
-              Import complete. {upload.created} files uploaded
+              Import complete. {upload.created} {upload.created === 1 ? "file" : "files"} uploaded
               {upload.skipped > 0
                 ? `, ${upload.skipped} already there or skipped`
                 : ""}
@@ -483,7 +590,9 @@ export function VaultImportBody({
               <Button
                 label={
                   upload.kind === "failed"
-                    ? "Resume upload"
+                    ? upload.stage !== "uploading"
+                      ? "Resume replacement"
+                      : "Resume upload"
                     : `Upload ${plan.files.length} ${plan.files.length === 1 ? "file" : "files"}`
                 }
                 variant="white"
@@ -536,4 +645,6 @@ const makeStyles = (colors: Colors) =>
     },
     skipDetail: { marginTop: 7, color: colors.muted },
     okText: { color: colors.okText },
+    confirmation: { marginTop: 14 },
+    dangerDetail: { marginTop: 8 },
   });

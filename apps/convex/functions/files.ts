@@ -161,6 +161,7 @@ import {
   DELETE_CONFIRMATION,
   FileOpError,
   type FileStore,
+  clearVaultBatch,
   archivePath,
   copyPath,
   createFolder,
@@ -185,7 +186,7 @@ import {
   writeImage,
   readImage,
 } from "./lib/fileOps";
-import type { Scope, Visibility } from "./lib/privacy";
+import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
 import {
   ensureFormResponseFiles,
   runFormAction,
@@ -308,15 +309,29 @@ const vaultImportResultValidator = v.object({
   bytesCreated: v.number(),
 });
 
+const vaultClearResultValidator = v.object({
+  kind: v.literal("vaultCleared"),
+  mode: v.union(v.literal("counted"), v.literal("deleted")),
+  objects: v.number(),
+  complete: v.boolean(),
+});
+
+const replacementStatusValidator = v.object({
+  phase: v.union(v.literal("counting"), v.literal("deleting"), v.literal("uploading")),
+  totalObjects: v.number(),
+  deletedObjects: v.number(),
+});
+
 const vaultImportJobStatusValidator = v.object({
   jobId: v.id("vaultImportJobs"),
-  strategy: v.union(v.literal("merge"), v.literal("folder")),
+  strategy: v.union(v.literal("merge"), v.literal("folder"), v.literal("replace")),
   status: v.union(v.literal("active"), v.literal("paused"), v.literal("complete")),
   totalFiles: v.number(),
   completedFiles: v.number(),
   createdFiles: v.number(),
   skippedFiles: v.number(),
   completedBatches: v.array(v.number()),
+  replacement: v.optional(replacementStatusValidator),
 });
 
 const fileValidator = v.object({
@@ -611,6 +626,7 @@ const operationResultValidator = v.union(
   imageWrittenValidator,
   imageValidator,
   vaultImportResultValidator,
+  vaultClearResultValidator,
   searchResultsValidator,
   notePathsValidator,
   indexMaintainedValidator,
@@ -689,6 +705,8 @@ const operationValidator = v.union(
       contentType: v.string(),
     })),
   }),
+  v.object({ kind: v.literal("clearVault"), countOnly: v.boolean() }),
+  v.object({ kind: v.literal("ensurePrivacy") }),
   v.object({
     kind: v.literal("removeEncryption"),
     path: v.string(),
@@ -788,6 +806,8 @@ type FileOperation =
       kind: "importVault";
       files: Array<{ path: string; bytes: ArrayBuffer; contentType: string }>;
     }
+  | { kind: "clearVault"; countOnly: boolean }
+  | { kind: "ensurePrivacy" }
   /**
    * Replace an encrypted note's content with plaintext. A separate operation
    * from `write` rather than one more of its shapes — `writeFile` never
@@ -862,6 +882,7 @@ type OperationResult =
       errorCode?: string;
     }
   | { kind: "vaultImported"; created: string[]; skipped: string[]; bytesCreated: number }
+  | { kind: "vaultCleared"; mode: "counted" | "deleted"; objects: number; complete: boolean }
   | {
       kind: "listing";
       path: string;
@@ -2212,6 +2233,27 @@ export async function executeOperation(
         const file = await readFile(store, { path: operation.path, scope });
         return { kind: "file", ...file };
       }
+      case "clearVault": {
+        const cleared = await clearVaultBatch(store, operation.countOnly);
+        return { kind: "vaultCleared", ...cleared };
+      }
+      case "ensurePrivacy": {
+        try {
+          const reset = await resetPrivacyManifest(store, { scope, now });
+          return { kind: "privacyReset", ...reset };
+        } catch (error) {
+          if (error instanceof FileOpError && error.code === "PRIVACY_MANIFEST_USABLE") {
+            return {
+              kind: "privacyReset",
+              path: PRIVACY_KEY,
+              folders: [],
+              backedUpTo: null,
+              partial: false,
+            };
+          }
+          throw error;
+        }
+      }
       case "search": {
         const results = await searchNotes(
           store,
@@ -3022,13 +3064,18 @@ const VAULT_FINGERPRINT_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 
 type VaultImportJobStatus = {
   jobId: Id<"vaultImportJobs">;
-  strategy: "merge" | "folder";
+  strategy: "merge" | "folder" | "replace";
   status: "active" | "paused" | "complete";
   totalFiles: number;
   completedFiles: number;
   createdFiles: number;
   skippedFiles: number;
   completedBatches: number[];
+  replacement?: {
+    phase: "counting" | "deleting" | "uploading";
+    totalObjects: number;
+    deletedObjects: number;
+  };
 };
 
 function vaultImportJobStatus(job: Doc<"vaultImportJobs">): VaultImportJobStatus {
@@ -3041,6 +3088,7 @@ function vaultImportJobStatus(job: Doc<"vaultImportJobs">): VaultImportJobStatus
     createdFiles: job.createdFiles,
     skippedFiles: job.skippedFiles,
     completedBatches: [...job.completedBatches].sort((left, right) => left - right),
+    ...(job.replacement === undefined ? {} : { replacement: job.replacement }),
   };
 }
 
@@ -3078,7 +3126,8 @@ function validateVaultImportPlan(args: {
 export const startVaultImport = mutation({
   args: {
     workspaceId: v.id("workspaces"),
-    strategy: v.union(v.literal("merge"), v.literal("folder")),
+    strategy: v.union(v.literal("merge"), v.literal("folder"), v.literal("replace")),
+    confirmation: v.optional(v.string()),
     sourceFingerprint: v.string(),
     totalFiles: v.number(),
     totalBytes: v.number(),
@@ -3087,6 +3136,12 @@ export const startVaultImport = mutation({
   returns: vaultImportJobStatusValidator,
   handler: async (ctx, args): Promise<VaultImportJobStatus> => {
     validateVaultImportPlan(args);
+    if (args.strategy === "replace" && args.confirmation !== "I understand") {
+      throw new ConvexError({
+        code: "IMPORT_REPLACE_CONFIRMATION_REQUIRED",
+        message: "Type I understand exactly before replacing this bucket.",
+      });
+    }
     const actorUserId = await callerId(ctx);
     await requireWorkspaceRole(ctx, args.workspaceId, actorUserId, "owner");
     const recent = await ctx.db
@@ -3128,6 +3183,13 @@ export const startVaultImport = mutation({
       completedFiles: 0,
       createdFiles: 0,
       skippedFiles: 0,
+      ...(args.strategy === "replace" ? {
+        replacement: {
+          phase: "counting" as const,
+          totalObjects: 0,
+          deletedObjects: 0,
+        },
+      } : {}),
       status: "active",
       createdAt: now,
       updatedAt: now,
@@ -3135,6 +3197,115 @@ export const startVaultImport = mutation({
     const created = await ctx.db.get(jobId);
     if (created === null) throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "The import could not start." });
     return vaultImportJobStatus(created);
+  },
+});
+
+export const recordVaultClearBatch = internalMutation({
+  args: {
+    jobId: v.id("vaultImportJobs"),
+    actorUserId: v.id("users"),
+    workspaceId: v.id("workspaces"),
+    sourceFingerprint: v.string(),
+    mode: v.union(v.literal("counted"), v.literal("deleted")),
+    objects: v.number(),
+    complete: v.boolean(),
+  },
+  returns: v.union(v.null(), vaultImportJobStatusValidator),
+  handler: async (ctx, args): Promise<VaultImportJobStatus | null> => {
+    const job = await ctx.db.get(args.jobId);
+    if (
+      job === null ||
+      job.workspaceId !== args.workspaceId ||
+      job.actorUserId !== args.actorUserId ||
+      job.sourceFingerprint !== args.sourceFingerprint ||
+      job.strategy !== "replace" ||
+      job.replacement === undefined ||
+      !Number.isSafeInteger(args.objects) ||
+      args.objects < 0
+    ) return null;
+
+    const now = Date.now();
+    if (job.replacement.phase === "counting" && args.mode === "counted") {
+      const replacement = {
+        phase: args.objects === 0 ? "uploading" as const : "deleting" as const,
+        totalObjects: args.objects,
+        deletedObjects: 0,
+      };
+      await ctx.db.patch(job._id, { replacement, status: "active", updatedAt: now });
+      return vaultImportJobStatus({ ...job, replacement, status: "active", updatedAt: now });
+    }
+    if (job.replacement.phase === "deleting" && args.mode === "deleted") {
+      const rawDeleted = job.replacement.deletedObjects + args.objects;
+      const totalObjects = Math.max(job.replacement.totalObjects, rawDeleted);
+      const replacement = {
+        phase: args.complete ? "uploading" as const : "deleting" as const,
+        totalObjects,
+        deletedObjects: args.complete ? totalObjects : rawDeleted,
+      };
+      await ctx.db.patch(job._id, { replacement, status: "active", updatedAt: now });
+      return vaultImportJobStatus({ ...job, replacement, status: "active", updatedAt: now });
+    }
+    return vaultImportJobStatus(job);
+  },
+});
+
+/** Count, then remove, one retryable page of every object in a replacement bucket. */
+export const clearVaultImportBatch = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    jobId: v.id("vaultImportJobs"),
+    sourceFingerprint: v.string(),
+  },
+  returns: vaultImportJobStatusValidator,
+  handler: async (ctx, args): Promise<VaultImportJobStatus> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const job = await ctx.runQuery(internal.functions.files.vaultImportJobForBatch, {
+      jobId: args.jobId,
+    }) as Doc<"vaultImportJobs"> | null;
+    if (
+      job === null ||
+      job.workspaceId !== args.workspaceId ||
+      job.actorUserId !== actorUserId ||
+      job.sourceFingerprint !== args.sourceFingerprint ||
+      job.strategy !== "replace" ||
+      job.replacement === undefined
+    ) {
+      throw new ConvexError({ code: "IMPORT_JOB_NOT_FOUND", message: "That replacement is no longer available." });
+    }
+    if (job.replacement.phase === "uploading") return vaultImportJobStatus(job);
+
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "clearVault", countOnly: job.replacement.phase === "counting" },
+    }) as Extract<OperationResult, { kind: "vaultCleared" }>;
+    const recorded = await ctx.runMutation(internal.functions.files.recordVaultClearBatch, {
+      jobId: args.jobId,
+      actorUserId,
+      workspaceId: args.workspaceId,
+      sourceFingerprint: args.sourceFingerprint,
+      mode: result.mode,
+      objects: result.objects,
+      complete: result.complete,
+    });
+    if (recorded === null) {
+      throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
+    }
+    if (result.mode === "deleted" && result.objects > 0) {
+      await ctx.runMutation(internal.functions.audit.recordEvent, {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        action: "vault.replace.clear",
+        paths: [],
+        details: { objectsDeleted: result.objects },
+      });
+    }
+    return recorded;
   },
 });
 
@@ -3268,6 +3439,12 @@ export const importVaultJobBatch = action({
     ) {
       throw new ConvexError({ code: "IMPORT_JOB_MISMATCH", message: "Choose the same vault again to resume." });
     }
+    if (job.strategy === "replace" && job.replacement?.phase !== "uploading") {
+      throw new ConvexError({
+        code: "IMPORT_REPLACE_NOT_READY",
+        message: "The existing bucket must finish clearing before files upload.",
+      });
+    }
     if (job.completedBatches.includes(args.batchIndex)) return vaultImportJobStatus(job);
     const completedFilesAfterBatch = job.completedFiles + args.files.length;
     const completedBatchCountAfterBatch = job.completedBatches.length + 1;
@@ -3284,6 +3461,19 @@ export const importVaultJobBatch = action({
       scope,
       operation: { kind: "importVault", files: args.files },
     })) as Extract<OperationResult, { kind: "vaultImported" }>;
+    if (
+      job.strategy === "replace" &&
+      job.completedBatches.length + 1 === job.totalBatches &&
+      job.completedFiles + args.files.length === job.totalFiles
+    ) {
+      // Idempotent so a retry after storage succeeded but progress recording
+      // failed still restores the private access map before completing.
+      await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope,
+        operation: { kind: "ensurePrivacy" },
+      });
+    }
     const recorded = await ctx.runMutation(internal.functions.files.recordVaultImportBatch, {
       jobId: args.jobId,
       actorUserId,

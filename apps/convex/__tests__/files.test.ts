@@ -249,6 +249,145 @@ describe("an owner can edit their context", () => {
 });
 
 describe("Obsidian vault import", () => {
+  test("requires the exact destructive acknowledgement before a replacement job exists", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const args = {
+      workspaceId: f.workspaceId,
+      strategy: "replace" as const,
+      sourceFingerprint: "vault-replace-confirmation",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    };
+
+    for (const confirmation of [undefined, "i understand", "I understand "]) {
+      const error = await captureError(() => owner.mutation(
+        api.functions.files.startVaultImport,
+        { ...args, confirmation },
+      ));
+      expect(errorCode(error)).toBe("IMPORT_REPLACE_CONFIRMATION_REQUIRED");
+    }
+
+    const jobs = await f.t.run((ctx) => ctx.db.query("vaultImportJobs").collect());
+    expect(jobs).toEqual([]);
+  });
+
+  test("clears every bucket object in a resumable owner-only phase before replacement uploads", async () => {
+    const f = await fixture();
+    f.backend.seed(".audit/events.jsonl", "audit");
+    f.backend.seed(".context/recover/privacy.md", "old privacy");
+    f.backend.seed("attachment.png", new Uint8Array([1, 2, 3]));
+    for (let index = 0; index < 205; index += 1) {
+      f.backend.seed(`archive/note-${String(index).padStart(3, "0")}.md`, `${index}`);
+    }
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "replace",
+      confirmation: "I understand",
+      sourceFingerprint: "vault-replace-resumable",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    });
+
+    expect(job.replacement).toEqual({
+      phase: "counting",
+      totalObjects: 0,
+      deletedObjects: 0,
+    });
+
+    const unauthorized = await captureError(() => asUser(f.t, f.stranger).action(
+      api.functions.files.clearVaultImportBatch,
+      { workspaceId: f.workspaceId, jobId: job.jobId, sourceFingerprint: "vault-replace-resumable" },
+    ));
+    expect(errorCode(unauthorized)).toBe("WORKSPACE_NOT_FOUND");
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(214);
+
+    const counted = await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    expect(counted.replacement).toEqual({
+      phase: "deleting",
+      totalObjects: 214,
+      deletedObjects: 0,
+    });
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(214);
+
+    const firstPage = await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    expect(firstPage.replacement).toEqual({
+      phase: "deleting",
+      totalObjects: 214,
+      deletedObjects: 100,
+    });
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(114);
+
+    await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    const cleared = await owner.action(api.functions.files.clearVaultImportBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+    });
+    expect(cleared.replacement).toEqual({
+      phase: "uploading",
+      totalObjects: 214,
+      deletedObjects: 214,
+    });
+    expect(f.backend.snapshot()).toEqual({});
+
+    const complete = await owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-resumable",
+      batchIndex: 0,
+      files: [{
+        path: "new.md",
+        bytes: new TextEncoder().encode("new").buffer,
+        contentType: "text/markdown; charset=utf-8",
+      }],
+    });
+    expect(complete.status).toBe("complete");
+    expect(f.backend.snapshot()["new.md"]).toBe("new");
+    expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("default_visibility: private");
+  });
+
+  test("refuses replacement file bytes until the bucket-clearing phase finishes", async () => {
+    const f = await fixture();
+    const owner = asUser(f.t, f.owner);
+    const job = await owner.mutation(api.functions.files.startVaultImport, {
+      workspaceId: f.workspaceId,
+      strategy: "replace",
+      confirmation: "I understand",
+      sourceFingerprint: "vault-replace-ordering",
+      totalFiles: 1,
+      totalBytes: 3,
+      totalBatches: 1,
+    });
+
+    const error = await captureError(() => owner.action(api.functions.files.importVaultJobBatch, {
+      workspaceId: f.workspaceId,
+      jobId: job.jobId,
+      sourceFingerprint: "vault-replace-ordering",
+      batchIndex: 0,
+      files: [{ path: "new.md", bytes: new TextEncoder().encode("new").buffer, contentType: "text/markdown" }],
+    }));
+
+    expect(errorCode(error)).toBe("IMPORT_REPLACE_NOT_READY");
+    expect(f.backend.snapshot()["index.md"]).toBe("# Context\n");
+    expect(f.backend.snapshot()["new.md"]).toBeUndefined();
+  });
+
   test("persists resumable progress and counts a retried batch only once", async () => {
     const f = await fixture();
     const owner = asUser(f.t, f.owner);
@@ -1172,6 +1311,12 @@ describe("a stranger cannot reach another workspace's files", () => {
             bytes: new TextEncoder().encode("# Imported\n").buffer,
             contentType: "text/markdown; charset=utf-8",
           }],
+        }),
+      (workspaceId) =>
+        as.action(api.functions.files.clearVaultImportBatch, {
+          workspaceId,
+          jobId: importJobId,
+          sourceFingerprint: "vault-isolation",
         }),
       (workspaceId) =>
         as.action(api.functions.files.moveEntry, { workspaceId, from: "a.md", to: "b.md" }),
