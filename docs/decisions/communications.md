@@ -953,6 +953,27 @@ account at one destination fail closed. The runner and persistence layer are
 still required before this is live — the helper is the tested join they must
 use, not a claim that scheduled Chat delivery is enabled.
 
+**Two rules that join has to keep, because the first draft of it kept
+neither.** A *destination* is the folder a key lands in, not the string a
+settings field holds, so contributions are grouped by
+`channelDestinationFolder`'s answer — the same function `channelDayNotePath`
+resolves the path with. Grouping on the raw string made
+`0-inbox/google-chat` and `0-inbox/google-chat/` two destinations that then
+rendered the same path twice, one note per account, and whichever the runner
+persisted last erased the other: the exact erasure the join exists to prevent,
+reachable by a trailing slash. And the *notice order* inside a day is
+codepoint order, never `localeCompare`, for the reason `chronological` in
+`packages/communications/src/note.js` already states — a comparator decides
+which bytes land in the note, so a default-locale collation makes the day a
+property of the machine that rendered it. A collation additionally treats
+U+0000 as ignorable, which quietly voided the NUL joining a notice's label to
+its reason and let two different notices compare equal, leaving their order to
+whichever account was polled first — byte churn on a shared note, every pass,
+which is what "Keep scheduled Chat notes byte-stable" was merged to end. The
+checks are `two spellings of one destination folder are one destination, not
+two notes at one path` and `notices whose label and reason run together under a
+collation still order the same either way`.
+
 **On the control-plane side, `functions/chatProduct.ts` attaches Chat to the
 same `googleConnections` row Gmail already writes** (2026-09-07) — no second
 table. A first draft of this file built exactly that: `chatConnections` and
