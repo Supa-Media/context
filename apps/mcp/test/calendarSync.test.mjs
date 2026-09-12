@@ -131,6 +131,82 @@ export async function runCalendarSyncChecks(check) {
       !destinationStore.files.has("0-inbox/calendar/2026-09-07.md"),
   );
 
+  /* ------------- somebody else's notes in a chosen destination ------------- */
+  //
+  // A destination is now the owner's to choose, and `2-areas/communications/daily`
+  // is the folder the control plane's own test picks. `YYYY-MM-DD.md` is also
+  // how every Obsidian daily note in that folder is already named, and this
+  // bucket is synced to Obsidian by design. So the paths this sync writes and
+  // deletes are no longer paths only this sync writes, and it has to say
+  // whose note it is holding before it destroys one: a full pass walks all
+  // fourteen horizon days and deletes the note at every date with no events.
+
+  const dailyStore = createStore();
+  const OWN_DAILY = "# Tuesday\n\nsomething the owner wrote by hand.\n";
+  dailyStore.files.set("2-areas/daily/2026-09-10.md", OWN_DAILY);
+  dailyStore.files.set("2-areas/daily/2026-09-07.md", OWN_DAILY);
+  const dailySync = await syncCalendarAccount({
+    connection: baseConnection({ destinationFolder: "2-areas/daily" }),
+    store: dailyStore,
+    fetchImpl: server.fetch,
+    now: NOW,
+  });
+  check(
+    "a note this sync did not write is never deleted from a chosen destination",
+    dailyStore.files.get("2-areas/daily/2026-09-10.md") === OWN_DAILY,
+  );
+  check(
+    "...nor overwritten on a date that does have events",
+    dailyStore.files.get("2-areas/daily/2026-09-07.md") === OWN_DAILY,
+  );
+  check(
+    "...and neither is reported as a write this pass made",
+    !dailySync.writes.some(({ path }) => path.startsWith("2-areas/daily/2026-09-07") || path.startsWith("2-areas/daily/2026-09-10")),
+  );
+  check(
+    "a date in the destination holding nothing of the owner's is still written",
+    dailyStore.files.has("2-areas/daily/2026-09-08.md"),
+  );
+
+  // Frontmatter is not the test — `type: calendar-day` is. An owner's daily
+  // note in a folder like this very often carries frontmatter of its own, so a
+  // guard that only asked "does this open with ---" would wave it straight
+  // through, and this check is the one that would not notice.
+  const frontmatterStore = createStore();
+  const OWN_WITH_FRONTMATTER = "---\ntype: daily\ntags: [journal]\n---\n\n# Tuesday\n";
+  frontmatterStore.files.set("2-areas/daily/2026-09-07.md", OWN_WITH_FRONTMATTER);
+  frontmatterStore.files.set("2-areas/daily/2026-09-10.md", OWN_WITH_FRONTMATTER);
+  await syncCalendarAccount({
+    connection: baseConnection({ destinationFolder: "2-areas/daily" }),
+    store: frontmatterStore,
+    fetchImpl: server.fetch,
+    now: NOW,
+  });
+  check(
+    "an owner's note with frontmatter of its own is not mistaken for this sync's",
+    frontmatterStore.files.get("2-areas/daily/2026-09-07.md") === OWN_WITH_FRONTMATTER &&
+      frontmatterStore.files.get("2-areas/daily/2026-09-10.md") === OWN_WITH_FRONTMATTER,
+  );
+
+  // The same guard is what keeps an encrypted note encrypted: ciphertext does
+  // not read as a calendar day, so the pass leaves it alone rather than
+  // replacing it with plaintext — the rule `sealNoteContent` states in the
+  // gateway ("a note this request cannot open is a note this request cannot
+  // write"), reached here by the same call graph rather than a second check.
+  const sealedStore = createStore();
+  const SEALED = "-----BEGIN CONTEXT ENCRYPTED NOTE-----\nnot openable here\n";
+  sealedStore.files.set("2-areas/daily/2026-09-07.md", SEALED);
+  await syncCalendarAccount({
+    connection: baseConnection({ destinationFolder: "2-areas/daily" }),
+    store: sealedStore,
+    fetchImpl: server.fetch,
+    now: NOW,
+  });
+  check(
+    "a note this sync cannot read as its own is never replaced with plaintext",
+    sealedStore.files.get("2-areas/daily/2026-09-07.md") === SEALED,
+  );
+
   /* --------------------- idempotent regeneration -------------------------- */
 
   const secondRunStore = createStore();
