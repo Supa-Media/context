@@ -790,12 +790,28 @@ const VAULT_IMPORT_CONTENT_TYPES = new Set([
  * overwrites their newer copy. Hidden folders are refused again here rather
  * than trusted to the browser's picker; `.obsidian` can contain plugin tokens
  * and `.context`/`.audit` are Context's own plumbing.
+ *
+ * **Create-only is enforced two ways, because one of them is not always
+ * available.** `onlyIf: { absent: true }` is what every adapter in this
+ * codebase *sends*; whether the bucket behind it obeys is a different
+ * question, and the one `initialCapabilities()` answers `false` to until a
+ * probe says otherwise — "B2 and arbitrary S3-compatible endpoints do not
+ * reliably" support conditional writes. Sending the precondition anyway and
+ * trusting the reply is how a write that should have been skipped comes back
+ * reported as created, with the owner's own file gone under it: the "lost
+ * write with no error" that same comment calls the one failure mode a notes
+ * product cannot have, arriving here during onboarding over the vault they
+ * are importing. So the capability decides, exactly as `saveNote` and the
+ * manifest writers already do, and an unproven backend gets a read-then-create
+ * whose residual race is one round trip — the same window `scaffold.ts`
+ * documents rather than defends.
  */
 export async function importVaultFiles(
   store: FileStore,
   options: { files: readonly VaultImportFile[]; scope: Scope },
 ): Promise<VaultImportResult> {
   const state = await loadPrivacyState(store);
+  const conditional = store.capabilities?.conditionalWrite === true;
   const created: string[] = [];
   const skipped: string[] = [];
   let bytesCreated = 0;
@@ -818,11 +834,19 @@ export async function importVaultFiles(
     }
 
     // The precondition makes retries idempotent and closes the race between a
-    // preceding GET and PUT. Every supported adapter implements absent-create.
-    const put = await store.put(path, file.bytes, {
-      onlyIf: { absent: true },
-      contentType: file.contentType,
-    });
+    // preceding GET and PUT — where the bucket honours it. Where the binding
+    // has not proven it does, the read is the check, and the one-round-trip
+    // window is stated rather than papered over.
+    if (!conditional && (await store.get(path)) !== null) {
+      skipped.push(path);
+      continue;
+    }
+    const put = conditional
+      ? await store.put(path, file.bytes, {
+          onlyIf: { absent: true },
+          contentType: file.contentType,
+        })
+      : await store.put(path, file.bytes, { contentType: file.contentType });
     if (put === null) {
       skipped.push(path);
     } else {

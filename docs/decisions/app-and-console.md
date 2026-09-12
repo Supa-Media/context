@@ -3229,3 +3229,22 @@ This avoids uploading plugin credentials or replacing Context's access map.
 Folder picking is Mac/web-only because native mobile pickers do not preserve a
 vault's relative paths; mobile says where to continue instead of flattening the
 vault.
+
+**"Create-only" is a claim about the bucket, not about the request, so the
+capability decides which way it is enforced.** Every adapter here *sends*
+`onlyIf: { absent: true }`; whether the bucket obeys is the question
+`initialCapabilities()` answers `false` to until a probe says otherwise, because
+"B2 and arbitrary S3-compatible endpoints do not reliably" support conditional
+writes. Sending the precondition and trusting the reply on a binding that has
+not proven it is how a write that should have been skipped comes back reported
+as *created*, with the person's own file gone underneath — the "lost write with
+no error" that comment calls the one failure mode a notes product cannot have,
+arriving during onboarding over the vault they are importing. So
+`importVaultFiles` reads `store.capabilities` exactly as `saveNote` and the
+manifest writers do, and an unproven backend gets a read-then-create whose
+residual window is one round trip. The check is `does not lose an existing file
+on a backend whose conditional writes were never proven`, and it needs
+`memoryS3`'s `ignoreIfMatch` to also ignore `If-None-Match` — the same feature,
+so a stub that honoured one and not the other was answering for a backend that
+could not be the one in doubt, and the create-only claim was only ever tested
+where it holds for free.
