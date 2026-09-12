@@ -116,8 +116,14 @@ export function E2EFixtureScreen({
     not — there is no note in the URL to preserve off a context, and the
     account scope is what somebody with nothing selected can act on.
   */
-  const openSettings = () =>
-    setSettings(current === null ? DEFAULT_ACCOUNT_SETTINGS_SECTION : DEFAULT_SETTINGS_SECTION);
+  const openSettings = (section?: SettingsSectionKey) =>
+    setSettings(
+      // A named section wins, exactly as the real route's `setParams` lets it:
+      // Browse's "Connect a bucket" asks for `storage`, and a fixture that
+      // dropped the argument would hide the one thing that button does.
+      section ??
+        (current === null ? DEFAULT_ACCOUNT_SETTINGS_SECTION : DEFAULT_SETTINGS_SECTION),
+    );
 
   return (
     <View style={{ flex: 1 }}>

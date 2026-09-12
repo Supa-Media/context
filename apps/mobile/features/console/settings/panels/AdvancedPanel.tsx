@@ -8,6 +8,7 @@ import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { useCopy } from "../../../design/useCopy";
 import { useArming } from "../../useArming";
+import { DeleteWorkspaceCard } from "../DeleteWorkspaceCard";
 import { relativeTime } from "../../format";
 import {
   auditActionLabel,
@@ -107,6 +108,15 @@ export function AdvancedPanel({
         our access.
       </Text>
       <KeyExportCard action={view.keyExport} demo={demo} />
+
+      {/*
+        Last, and only for an owner. It is the one control on this screen that
+        cannot be undone, and the section it sits in is already the one that
+        means "not for me".
+      */}
+      {view.deletion === undefined || demo ? null : (
+        <DeleteWorkspaceCard deletion={view.deletion} />
+      )}
     </View>
   );
 }

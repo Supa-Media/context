@@ -192,7 +192,9 @@ export function WorkspaceStorageStepBody({
       {connectState.kind === "connected" ? null : (
         <Text variant="foot" style={styles.later}>
           Skipping is fine and nothing here expires — you can still invite people, and they
-          will find the workspace empty until a bucket is connected from its settings.
+          will find the workspace empty until a bucket is connected from its settings. The
+          name stays claimed for as long as the workspace does; deleting it from its own
+          settings gives the name back.
         </Text>
       )}
     </View>

@@ -54,6 +54,8 @@ import type { Id, TableNames } from "../_generated/dataModel";
 import { CONNECT_ATTEMPT_TABLES } from "./lib/connectAttempts";
 import { isProductionTestAccount } from "./lib/testAccount";
 import { managedBucketName } from "./lib/managedStorage";
+import { normalizeName } from "./lib/names";
+import { requireWorkspaceRole } from "./lib/workspaceAuth";
 
 /**
  * The minimal shape `deleteWorkspaceCascade` needs from a query over a table
@@ -122,6 +124,106 @@ export const deleteTestWorkspace = mutation({
         code: "FORBIDDEN",
         message:
           "Only an unshared workspace created by the production test account can use this cleanup.",
+      });
+    }
+
+    await deleteWorkspaceCascade(ctx, args.workspaceId);
+    return { deleted: true };
+  },
+});
+
+/**
+ * Delete a **workspace** you own, and give its name back.
+ *
+ * ## The hole this fills
+ *
+ * A workspace claims its slug at step 1 of its creation flow, out of the same
+ * global namespace usernames come from, and `createWorkspace` counts it
+ * against `MAX_WORKSPACES_PER_USER` the moment it commits. Until this existed
+ * the only thing that released either was deleting the whole account, so a
+ * workspace somebody named, skipped the bucket on and never came back to held
+ * that name forever and one of their ten slots with it — a reservation nobody
+ * could cancel, the person who made it included. The flow told them
+ * "nothing here expires", which was true and was not the reassurance it
+ * sounded like.
+ *
+ * ## What this deletes, and what it cannot
+ *
+ * The cascade is `deleteAccount`'s, unchanged: our metadata about the
+ * workspace, credential envelopes included. **The customer's bucket is not
+ * touched** — the same "revoke the key and we're gone" promise
+ * `disconnectStorage` makes, which is exactly why this is safe to offer for a
+ * workspace on storage the customer owns. Their notes are still theirs, still
+ * where they put them, still openable in Obsidian.
+ *
+ * That promise is what the four guards protect:
+ *
+ *  - **Owner only.** An editor tearing down somebody else's workspace is the
+ *    worst thing this mutation could be made to do. `requireWorkspaceRole`
+ *    tells a stranger nothing beyond "not found".
+ *  - **The slug, typed.** The account card is guarded by two presses; a
+ *    workspace is addressed by name, so its confirmation is the name, and the
+ *    check is here rather than in the panel — a client that skipped the field
+ *    cannot skip the check. Normalized first, because somebody looking at
+ *    `@acme-eng` on screen types the `@`.
+ *  - **Shared only.** A brain is the one context a person has exactly one of,
+ *    its slug is their username, and its capture address is live on the apex
+ *    (`lib/ingestionStore.ts`). Releasing that is account deletion's business,
+ *    and a settings panel is not where somebody should be able to do it by
+ *    accident.
+ *  - **Not while we hold the only key.** On managed storage the notes live in
+ *    a bucket we created and the customer has no credential for, and the free
+ *    hand-off path is still unbuilt (`docs/decisions/billing.md`, "What is
+ *    deliberately not built"). Deleting the row would either strand their
+ *    notes in our infrastructure with nothing pointing at them or, if it went
+ *    on to empty the bucket, destroy the only copy. Non-negotiable #1 does not
+ *    allow either, so this refuses and says which one it is; the export and
+ *    hand-off work is what lifts it.
+ */
+export const deleteWorkspace = mutation({
+  args: { workspaceId: v.id("workspaces"), confirmSlug: v.string() },
+  returns: v.object({ deleted: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    const { workspace } = await requireWorkspaceRole(
+      ctx,
+      args.workspaceId,
+      userId,
+      "owner",
+    );
+
+    if (workspace.kind !== "shared") {
+      throw new ConvexError({
+        code: "PERSONAL_CONTEXT",
+        message:
+          "A brain is deleted with the account it belongs to, not from here.",
+      });
+    }
+
+    /*
+      The `@` is stripped here rather than in `normalizeName`, which is
+      deliberately a trim and a lowercase and nothing else: a normalizer that
+      silently dropped a character would be rewriting names on the claim path
+      too. Here it is a courtesy to somebody copying what the screen shows
+      them, and it widens nothing — `@` is not a legal character in a name, so
+      no other workspace can be reached by adding one.
+    */
+    if (normalizeName(args.confirmSlug).replace(/^@/, "") !== workspace.slug) {
+      throw new ConvexError({
+        code: "CONFIRMATION_MISMATCH",
+        message: "That is not this workspace's name, so nothing was deleted.",
+      });
+    }
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding !== null && binding.bucket === managedBucketName(args.workspaceId)) {
+      throw new ConvexError({
+        code: "MANAGED_STORAGE",
+        message:
+          "This workspace's notes are in storage we run, and moving them out is not built yet. Connect a bucket you own first, or delete it once hand-off ships.",
       });
     }
 

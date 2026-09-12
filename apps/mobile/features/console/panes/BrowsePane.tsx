@@ -326,7 +326,22 @@ export function BrowsePane({
           {onOpenSettings ? (
             <Button
               label="Connect a bucket"
-              onPress={onOpenSettings}
+              /*
+                Called in a lambda, and with the section it means.
+
+                `onPress={onOpenSettings}` read as a tidy pass-through and was
+                a dead button: React Native hands a press handler its
+                `GestureResponderEvent`, `onOpenSettings` takes an optional
+                *section key*, so the event arrived as the section and the
+                route was asked for `?settings=[object Object]` — which
+                resolves to nothing. `browseNoticeActions.test.ts` presses it
+                and asserts what it was called with.
+
+                `storage` rather than nothing: the button says "Connect a
+                bucket", and opening settings at Overview to go hunting for
+                the Storage section is the same defect one screen further on.
+              */
+              onPress={() => onOpenSettings("storage")}
               style={styles.dismiss}
               testID="browse-connect-storage"
             />
@@ -378,7 +393,18 @@ export function BrowsePane({
           <Text variant="hint" style={styles.noticeWarnText}>
             {files.notice}
           </Text>
-          <Button label="Dismiss" onPress={files.dismissNotice} style={styles.dismiss} />
+          {/*
+            Also in a lambda, for the reason the button above gives: this one
+            takes no arguments so the press event was harmless, and the next
+            person to give it a parameter would inherit a silent bug rather
+            than a failing test.
+          */}
+          <Button
+            label="Dismiss"
+            onPress={() => files.dismissNotice()}
+            style={styles.dismiss}
+            testID="browse-dismiss-notice"
+          />
         </View>
       ) : null}
     </View>
