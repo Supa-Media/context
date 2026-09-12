@@ -124,8 +124,9 @@ export async function runImessageSyncChecks(check) {
   check("a first pass reports the new rows it saw", report1.newRows === 1);
   check("the affected day is written", report1.days.length === 1 && report1.days[0].status === "written");
   check("the cursor advances past the highest ROWID seen", report1.cursor.lastRowId === 1);
-  check("exactly one note now exists", deps1.notes.size === 1);
+  check("the day and its organically-derived contact now exist", deps1.notes.size === 2);
   check("the note lands at the fixed iMessage path for that day", deps1.notes.has("0-inbox/imessage/2026-09-07.md"));
+  check("the contact links back to the iMessage day instead of copying its body", [...deps1.notes.entries()].some(([path, note]) => path.startsWith("0-inbox/contacts/") && note.content.includes("[[0-inbox/imessage/2026-09-07#msg-") && !note.content.includes("\nhello\n")));
 
   // -- re-running with NOTHING new changes no bytes -------------------------
   const before = deps1.notes.get("0-inbox/imessage/2026-09-07.md").content;
@@ -160,7 +161,7 @@ export async function runImessageSyncChecks(check) {
   check("the OTHER day's stored bytes are untouched", deps2.notes.get("0-inbox/imessage/2026-09-07.md").content === day1Before);
   check(
     "writeNote is never called for the untouched day (only for the affected one)",
-    deps2.writeCalls.length === writesBeforeR2 + 1,
+    deps2.writeCalls.length === writesBeforeR2 + 2,
   );
 
   // -- a day whose only new rows carry no real content advances the cursor too --
@@ -218,7 +219,7 @@ export async function runImessageSyncChecks(check) {
     return realWrite(path, content, expectedEtag);
   };
   const r6 = await syncImessage(deps5, EMPTY_CURSOR);
-  check("a conflicted write is retried once against the freshly re-read note", r6.days[0].status === "written" && writeAttempts === 2);
+  check("a conflicted write is retried once against the freshly re-read note", r6.days[0].status === "written" && writeAttempts === 3);
 
   // -- withoutUpdatedTimestamp: what makes two renders of the same day compare equal --
   const a = 'updated: "2026-09-07T00:00:00.000Z"\ntype: "channel-day"\nbody text';

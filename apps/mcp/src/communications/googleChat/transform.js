@@ -107,7 +107,11 @@ export function chatMessageToEvent({ space, message, account }) {
     threadId: String(message?.thread?.name ?? message?.name ?? ""),
     sentAt: String(message?.createTime ?? ""),
     subject: deleted ? "" : preview(text),
-    from: { name: String(message?.sender?.displayName ?? ""), address: "" },
+    from: {
+      name: String(message?.sender?.displayName ?? ""),
+      address: "",
+      providerUserId: String(message?.sender?.name ?? ""),
+    },
     to: [],
     body: deleted ? "_(This message was deleted.)_" : text,
     attachments: attachments.map((attachment) => ({
