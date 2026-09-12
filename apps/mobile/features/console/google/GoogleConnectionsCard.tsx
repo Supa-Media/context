@@ -213,6 +213,16 @@ const SERVICE_ACCOUNTS_TITLE: Record<GoogleService, string> = {
   chat: "Accounts we read Chat from",
 };
 
+/**
+ * The one sentence under the destination field, for all three services.
+ *
+ * It was a per-service prop carrying three strings that differed only in which
+ * service they named — which the field's own label already says. The shape of
+ * a pattern is the same rule for mail, calendars and Chat, so it is one
+ * constant; the refusals say the rest, and they say it only when they apply.
+ */
+const DESTINATION_HINT = "A folder, or a pattern ending in /YYYY-MM-DD.md.";
+
 /** Every service on this account except the one a narrowed panel is about. */
 function otherServices(connection: GoogleConnection, service: GoogleService): string[] {
   return (["gmail", "calendar", "chat"] as const)
@@ -262,10 +272,12 @@ export function GoogleConnectionsCard({
       : connections.filter((connection) => connection.syncServices[service]);
   const copy = service === undefined ? null : SERVICE_COPY[service];
 
+  const empty = shown.length === 0;
+
   return (
-    <Card>
+    <View>
       {/*
-        The scope, once.
+        The scope, once, and outside the card.
 
         This said it four times: a title ("Google accounts"), a sub ("Each
         Google account whose calendar this context reads"), a pill, and then
@@ -276,10 +288,10 @@ export function GoogleConnectionsCard({
         The title is still the *account* rather than the service, and that is
         not decoration: Disconnect removes the account, so a card titled
         "Google calendars" over a button that also stops mail would be the
-        narrower name doing the misleading. What went is the second sentence
-        restating the panel's own heading, and the per-row service list — which
-        now appears once per account, as the sentence that qualifies
-        Disconnect, where it is load-bearing rather than repetitive.
+        narrower name doing the misleading. What went is the sentence restating
+        the panel's own heading, and the per-row service list — which now
+        appears once per account, as the line that qualifies Disconnect, where
+        it is load-bearing rather than repetitive.
       */}
       <Row style={styles.head}>
         <Grow>
@@ -290,37 +302,57 @@ export function GoogleConnectionsCard({
         <Pill tone="neutral">{`${shown.length} connected`}</Pill>
       </Row>
 
-      {shown.length === 0 ? (
-        <Text variant="rowSub" style={styles.empty}>
-          {loading
-            ? "Loading Google accounts..."
-            : (copy?.empty ?? "No Google accounts connected yet.")}
-        </Text>
-      ) : null}
-      {shown.length === 0 && !loading && copy ? (
-        <Text variant="rowSub" style={styles.empty}>
-          {copy.next}
-        </Text>
-      ) : null}
+      {/*
+        One card per account, rather than one card holding all of them.
 
-      {shown.map((connection) => (
-        <ConnectedGoogleRow
-          key={connection.connectionId}
-          connection={connection}
-          actions={actions}
-          service={service}
-          folders={folders}
-        />
-      ))}
-
-      {actions ? (
-        <GoogleConnectControls actions={actions} service={service} />
+        With every account inside a single surface the only thing separating
+        two of them was the hairline above a service row — so on the Calendar
+        panel, where each account draws exactly one service, two accounts ran
+        together as four indistinguishable rows. A card is the unit Disconnect
+        acts on, so it is the unit the eye should be able to find.
+      */}
+      {empty ? (
+        <Card>
+          <Text variant="rowSub">
+            {loading
+              ? "Loading Google accounts..."
+              : (copy?.empty ?? "No Google accounts connected yet.")}
+          </Text>
+          {!loading && copy ? (
+            <Text variant="rowSub" style={styles.empty}>
+              {copy.next}
+            </Text>
+          ) : null}
+          {actions ? (
+            <GoogleConnectControls actions={actions} service={service} />
+          ) : (
+            <Text variant="foot" style={styles.note}>
+              Only an owner can connect or remove Google accounts.
+            </Text>
+          )}
+        </Card>
       ) : (
-        <Text variant="foot" style={styles.note}>
-          Only an owner can connect or remove Google accounts.
-        </Text>
+        <>
+          {shown.map((connection) => (
+            <Card key={connection.connectionId} style={styles.accountCard}>
+              <ConnectedGoogleRow
+                connection={connection}
+                actions={actions}
+                service={service}
+                folders={folders}
+              />
+            </Card>
+          ))}
+          {actions ? (
+            <GoogleConnectControls actions={actions} service={service} />
+          ) : (
+            <Text variant="foot" style={styles.note}>
+              Only an owner can connect or remove Google accounts.
+            </Text>
+          )}
+        </>
       )}
-    </Card>
+    </View>
   );
 }
 
@@ -446,7 +478,7 @@ function ConnectedGoogleRow({
   const showBlock = (key: GoogleService) => service === undefined || service === key;
 
   return (
-    <View style={styles.account}>
+    <View>
       <Row style={styles.accountHead}>
         <Grow>
           <Text variant="rowTitle">{connection.email}</Text>
@@ -465,7 +497,6 @@ function ConnectedGoogleRow({
               : "Connected; forward sync setup is pending")
           }
           destinationPath={connection.gmail.destinationPath}
-          destinationHint="A folder, or a pattern ending in /YYYY-MM-DD.md."
           error={connection.syncRun?.status === "failed" ? inlineError : undefined}
           saveDestination={actions?.saveDestination}
           folders={folders}
@@ -483,7 +514,6 @@ function ConnectedGoogleRow({
               : "Connected; upcoming event sync setup is pending"
           }
           destinationPath={connection.calendar.destinationPath}
-          destinationHint="A folder, or a pattern ending in /YYYY-MM-DD.md."
           saveDestination={actions?.saveDestination}
           folders={folders}
           named={service === undefined}
@@ -500,7 +530,6 @@ function ConnectedGoogleRow({
               : "Connected; Chat sync setup is pending"
           }
           destinationPath={connection.chat.destinationPath}
-          destinationHint="A folder, or a pattern ending in /YYYY-MM-DD.md."
           saveDestination={actions?.saveDestination}
           folders={folders}
           named={service === undefined}
@@ -742,13 +771,8 @@ function GoogleServiceBlock({
   title,
   status,
   destinationPath,
-  destinationHint,
-  actionLabel,
-  actionDisabled = false,
   error,
-  onAction,
   saveDestination,
-  destinationReadOnly = false,
   folders = [],
   named = true,
 }: {
@@ -757,13 +781,8 @@ function GoogleServiceBlock({
   title: string;
   status: string;
   destinationPath: string;
-  destinationHint: string;
-  actionLabel?: string;
-  actionDisabled?: boolean;
   error?: string;
-  onAction?: () => void;
   saveDestination?: GoogleActions["saveDestination"];
-  destinationReadOnly?: boolean;
   folders?: readonly string[];
   /**
    * Whether to name the service above its row.
@@ -804,7 +823,7 @@ function GoogleServiceBlock({
     [draft, destinationPath, folders],
   );
 
-  const canEdit = !destinationReadOnly && saveDestination !== undefined;
+  const canEdit = saveDestination !== undefined;
 
   const save = () => {
     if (saveDestination === undefined) return;
@@ -827,14 +846,6 @@ function GoogleServiceBlock({
             {status}
           </Text>
         </Grow>
-        {actionLabel ? (
-          <Button
-            label={actionLabel}
-            disabled={actionDisabled}
-            onPress={onAction}
-            testID={`start-google-${service}-${connectionId}`}
-          />
-        ) : null}
       </Row>
 
       <Row divided style={styles.serviceRow}>
@@ -866,7 +877,7 @@ function GoogleServiceBlock({
             autoCapitalize="none"
             autoCorrect={false}
             placeholder={destinationPath}
-            hint={destinationHint}
+            hint={DESTINATION_HINT}
             error={view.problem ?? undefined}
             style={styles.destinationInput}
             testID={`google-${service}-destination-${connectionId}`}
@@ -1012,8 +1023,8 @@ function gmailRunDetail(connection: GoogleConnection): string | null {
 const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { marginBottom: 12 },
   rowSub: { marginTop: 2 },
-  /** One account. No border of its own — the card it sits in is the surface. */
-  account: { marginTop: 4 },
+  /** One account is one card, so two of them cannot read as four rows. */
+  accountCard: { marginTop: 12 },
   accountHead: { marginBottom: 2 },
   accountFoot: { marginTop: 2, flexWrap: "wrap", gap: 10 },
   armedHint: { marginTop: 10 },
