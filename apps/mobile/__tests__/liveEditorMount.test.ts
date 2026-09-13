@@ -29,6 +29,7 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
 import { deleteCharBackward, insertNewline } from "@codemirror/commands";
+import { forceParsing, syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
 import { LiveEditor, type EditorControls } from "../features/console/files/LiveEditor.web";
 
 /**
@@ -127,6 +128,28 @@ function viewIn(container: HTMLElement): EditorView {
   const view = dom === null ? null : EditorView.findFromDOM(dom as HTMLElement);
   if (view === null) throw new Error("no EditorView mounted");
   return view;
+}
+
+/**
+ * Table grids in the decoration set, rather than in the DOM.
+ *
+ * CodeMirror renders only the viewport, so a widget below the fold is absent
+ * from the DOM whether or not it was computed — asserting on `querySelector`
+ * would pass for the wrong reason on a short note and fail for the wrong reason
+ * on a long one. The decorations are the thing under test.
+ */
+function gridsIn(view: EditorView): number {
+  let found = 0;
+  for (const source of view.state.facet(EditorView.decorations)) {
+    const set = typeof source === "function" ? source(view) : source;
+    const iter = set.iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { widget?: { constructor: { name: string } } };
+      if (spec.widget?.constructor.name === "TableGridWidget") found += 1;
+      iter.next();
+    }
+  }
+  return found;
 }
 
 /** The editor's text, read out of the DOM CodeMirror actually built. */
@@ -514,6 +537,288 @@ describe("the imperative handle", () => {
     act(() => view.focus());
     act(() => m.controls()?.blur());
     expect(m.focus).toEqual([true, false]);
+    m.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE EYE REDRAWS THE NOTE, RATHER THAN ARMING THE NEXT CLICK TO REDRAW IT.
+ *
+ * Reading mode is not a repaint — several decorations are a function of
+ * `state.readOnly`, and the two loudest are the ones a reader is there for: a
+ * `form` fence becomes a form and a table becomes a grid only when the note
+ * cannot be typed into (`formFences`, `tableGrids`, and `revealSelection`
+ * behind both).
+ *
+ * The toggle reaches the editor as a **compartment reconfigure** and nothing
+ * else: no document change, no selection change. `livePreview`'s state field
+ * used to return its cached set unless one of those two had happened, so
+ * pressing the eye left every read-mode decoration computed under the previous
+ * value of `readOnly` — and the note stayed as its own source until the next
+ * click put a cursor in it, which is exactly how it was reported.
+ *
+ * Every existing test of this logic builds a **fresh** `EditorState` with
+ * `EditorState.readOnly.of(true)`, which runs the field's `create` and can
+ * never see it. So this one has to mount and flip the prop, which is the only
+ * way the transaction under test gets built at all.
+ */
+describe("toggling reading mode redraws the note on the spot", () => {
+  const FORM = [
+    "# Request a feature",
+    "",
+    "```form",
+    "id: feature-requests",
+    "responses: feature-requests-responses.md",
+    "layout: table",
+    "submit: member",
+    "edit_own: true",
+    "votes: named",
+    "fields:",
+    "  - { name: title, type: line, max: 120, required: true }",
+    "```",
+    "",
+  ].join("\n");
+
+  test("a form fence becomes a form with no click in between", () => {
+    const m = mount({ value: FORM, editable: true });
+    expect(m.container.querySelector(".cm-lp-form")).toBeNull();
+
+    // The only thing that happens is the prop changing. No dispatch, no focus,
+    // no selection — the same as pressing the eye and touching nothing.
+    m.update({ editable: false });
+    expect(m.container.querySelector(".cm-lp-form")).not.toBeNull();
+
+    m.unmount();
+  });
+
+  test("a table becomes a grid on the same press", () => {
+    const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |", ""].join("\n");
+    const m = mount({ value: `# Notes\n\n${TABLE}`, editable: true });
+    expect(m.container.querySelector(".cm-lp-grid")).toBeNull();
+
+    m.update({ editable: false });
+    const grid = m.container.querySelector(".cm-lp-grid table");
+    expect(grid).not.toBeNull();
+    // The header's own cells, rather than the dashes that described them.
+    expect([...(grid?.querySelectorAll("th") ?? [])].map((th) => th.textContent)).toEqual(["a", "b"]);
+    expect(grid?.textContent).not.toContain("---");
+
+    m.unmount();
+  });
+
+  test("and turning it back off puts the source back, also with no click", () => {
+    const m = mount({ value: FORM, editable: false });
+    expect(m.container.querySelector(".cm-lp-form")).not.toBeNull();
+
+    m.update({ editable: true });
+    expect(m.container.querySelector(".cm-lp-form")).toBeNull();
+    expect(renderedText(m.container)).toContain("layout: table");
+
+    m.unmount();
+  });
+
+  /**
+   * THE TREE IS THE THIRD INPUT, AND IT ARRIVES BY A FOURTH ROUTE.
+   *
+   * `decorationsFor` reads the document, the selection and `readOnly` — but it
+   * reads all three *through the syntax tree*, and on a note of any size that
+   * tree is not there yet. CodeMirror parses roughly the first three thousand
+   * characters up front and finishes the rest as idle work, announcing each
+   * advance with a transaction that carries no document change, no selection
+   * and no change of `readOnly`.
+   *
+   * So a note long enough to matter — which is most notes worth reading —
+   * would draw its first screen and leave everything below it as raw markdown
+   * until something else happened to invalidate the set. Same symptom as the
+   * eye doing nothing, one input over.
+   *
+   * The test forces the parse rather than waiting for the idle callback,
+   * because the callback only advances as far as the *viewport* and a jsdom
+   * editor has no height to scroll. What is being pinned is the predicate: a
+   * transaction whose only news is a longer tree must rebuild the decorations.
+   */
+  test("a table below the first parsed chunk becomes a grid when the parse reaches it", () => {
+    const filler = Array.from(
+      { length: 140 },
+      (_, index) => `Paragraph ${index} of ordinary prose in this note.`,
+    ).join("\n\n");
+    const doc = `${filler}\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n`;
+
+    const m = mount({ value: doc, editable: false });
+    const view = viewIn(m.container);
+
+    // The premise: the note really is longer than the first parse.
+    expect(syntaxTreeAvailable(view.state, doc.length)).toBe(false);
+    expect(gridsIn(view)).toBe(0);
+
+    act(() => {
+      forceParsing(view, doc.length, 5000);
+    });
+
+    expect(syntaxTree(view.state).length).toBe(doc.length);
+    expect(gridsIn(view)).toBe(1);
+
+    m.unmount();
+  });
+
+  /**
+   * The narrow reading of the bug is "recompute on a reconfigure". The rule is
+   * "recompute when the answer can have changed", and `readOnly` is the only
+   * part of the configuration these decorations read — so a reconfigure that
+   * leaves it alone must not throw the set away. The decorations are rebuilt
+   * from the tree on every recompute, and doing that on configuration changes
+   * that cannot matter is work on a path that already runs per keystroke.
+   */
+  test("a reconfigure that does not touch readOnly is not a redraw", () => {
+    const m = mount({ value: FORM, editable: false });
+    const before = m.container.querySelector(".cm-lp-form");
+    expect(before).not.toBeNull();
+
+    // Same value in: `editability(false)` again, a real reconfigure transaction
+    // whose answer is identical.
+    m.update({ editable: false });
+    // The same DOM node, not an equal one — a rebuilt widget would lose
+    // whatever somebody had typed into it. See `FormWidget.eq`.
+    expect(m.container.querySelector(".cm-lp-form")).toBe(before);
+
+    m.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE PALETTE THIS HALF DECLARES AND THE PALETTE ITS STYLES READ ARE THE SAME
+ * SET.
+ *
+ * Everything drawn inside the editor names its colours as `--lp-*` custom
+ * properties rather than as values, because the identical rules run inside the
+ * iOS WebView where the palette arrives over a bridge (`webview/host.ts`'s
+ * `themeVars`). That only works while both hosts declare the whole set.
+ *
+ * The bug this exists to stop shipped, and shipped invisibly: `--lp-content`
+ * and `--lp-body` were declared by the guest and not by this half. An unknown
+ * custom property makes its *whole declaration* invalid at computed-value time
+ * — it is not an error and it is not a fallback to something sensible — so
+ * `color: var(--lp-content)` silently became `inherit`, and CodeMirror's own
+ * base theme (`li[aria-selected] { background: #17c; color: white }`) won the
+ * completion list instead. That is white ink on the light ground, in a
+ * dropdown, on the surface most people use. On a phone it was correct the whole
+ * time, which is why looking at the app never found it.
+ *
+ * So this asserts the relationship rather than the two lists: mount the editor,
+ * read every stylesheet actually in the document, and require that every
+ * property any of them *reads* is one `ensureStyles` *declares*. A rule added
+ * later that reaches for `--lp-danger` fails here rather than in a screenshot.
+ */
+describe("every --lp-* the editor's styles read is one this half declares", () => {
+  /**
+   * The `--lp-*` properties the **base** `.cm-lp-root` rule declares.
+   *
+   * Deliberately not "declared anywhere in the sheet". The compact media query
+   * re-declares `--lp-content` at the phone measure, and counting that would
+   * let a property that exists only inside the query pass this test while being
+   * undefined at every width above the breakpoint — which is the desktop
+   * console, which is where the bug was reported. The first `.cm-lp-root {` in
+   * the sheet is the unconditional one; brace-matching from it takes that block
+   * and nothing nested after it.
+   */
+  function declaredIn(css: string): Set<string> {
+    const open = css.indexOf(".cm-lp-root {");
+    if (open === -1) return new Set();
+    let depth = 0;
+    let end = open;
+    for (let at = css.indexOf("{", open); at < css.length; at += 1) {
+      if (css[at] === "{") depth += 1;
+      else if (css[at] === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          end = at;
+          break;
+        }
+      }
+    }
+    const block = css.slice(open, end);
+    return new Set([...block.matchAll(/(--lp-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+  }
+
+  /** The `--lp-*` properties read by `var()` anywhere in a block of CSS. */
+  function readIn(css: string): Set<string> {
+    return new Set([...css.matchAll(/var\(\s*(--lp-[a-z0-9-]+)/g)].map((m) => m[1]));
+  }
+
+  /**
+   * Every stylesheet in the document, as text.
+   *
+   * CodeMirror's `EditorView.theme` goes in through `style-mod`, which may use
+   * `insertRule` rather than `textContent` — so both are read. Taking them out
+   * of the live document rather than importing the modules is the point: a
+   * theme this file forgot to import would be a hole in the guard, and a theme
+   * the editor really mounts cannot be.
+   */
+  function stylesheetsInDocument(): string {
+    const sheets: string[] = [];
+    for (const element of [...document.querySelectorAll("style")]) {
+      const text = element.textContent ?? "";
+      if (text !== "") {
+        sheets.push(text);
+        continue;
+      }
+      const sheet = (element as HTMLStyleElement).sheet;
+      if (sheet === null) continue;
+      try {
+        for (const rule of [...sheet.cssRules]) sheets.push(rule.cssText);
+      } catch {
+        // A stylesheet jsdom will not enumerate is one this guard skips rather
+        // than fails on; the interesting ones are all readable.
+      }
+    }
+    return sheets.join("\n");
+  }
+
+  test("nothing reads a property that was never set", () => {
+    const m = mount({ value: "# note\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n", editable: true });
+
+    const ours = document.getElementById("context-live-preview-styles");
+    expect(ours).not.toBeNull();
+    const declared = declaredIn(ours?.textContent ?? "");
+
+    // The four the bug was about, named so a regression says which is missing
+    // rather than only that one is.
+    for (const property of ["--lp-content", "--lp-bg", "--lp-body", "--lp-mono"]) {
+      expect([...declared]).toContain(property);
+    }
+
+    const missing = [...readIn(stylesheetsInDocument())].filter(
+      (property) => !declared.has(property),
+    );
+    expect(missing).toEqual([]);
+
+    m.unmount();
+  });
+
+  /**
+   * The completion list is the surface the bug was reported on, so it is named
+   * rather than left to the sweep above: it is themed by `linkComplete.ts`,
+   * which is a different file from the one that declares the palette, and that
+   * distance is the whole reason the two drifted.
+   */
+  test("including the completion list, which is themed in another file", () => {
+    const m = mount({ value: "x", editable: true });
+    const declared = declaredIn(
+      document.getElementById("context-live-preview-styles")?.textContent ?? "",
+    );
+
+    const completion = stylesheetsInDocument()
+      .split("\n")
+      .filter((line) => line.includes("tooltip-autocomplete") || line.includes("cm-completion"))
+      .join("\n");
+    // If this is empty the guard below proves nothing — the theme did not mount.
+    expect(completion).not.toBe("");
+
+    for (const property of readIn(completion)) expect([...declared]).toContain(property);
     m.unmount();
   });
 });
