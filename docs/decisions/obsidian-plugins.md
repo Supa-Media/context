@@ -348,3 +348,35 @@ hundred transitively into a repository whose gateway is dependency-free by rule.
 None of it reaches the gateway or the console bundle — it is confined to one
 built page — but it is a real supply-chain surface in a public repository, and
 the version is pinned exactly rather than ranged for that reason.
+
+## A drawing is named by its file, never by `# Excalidraw Data`
+
+`noteHeading` names a note in three rungs — the frontmatter's `title`, the
+body's opening `# Heading`, then the filename — and the middle one is a trap for
+this format. Every `.excalidraw.md` the plugin has ever written opens with
+`# Excalidraw Data`, the container heading for the sections beneath it, so the
+rung meant to catch a document naming itself caught the plugin's scaffolding
+instead: the breadcrumb, the tab and the inline title all read **Excalidraw
+Data**, for every drawing in every context.
+
+It is not even a heading the reader can see. A drawing opens in `DrawingView`
+or the editor page, so the Markdown half is never on screen — the collision the
+middle rung exists to avoid (a title above the same `# H1`) cannot happen here,
+and suppressing the title on account of it left a drawing with no name anywhere.
+
+So a drawing skips that rung entirely and is named from its path. The trim is
+`drawingName`, not a `.md` strip, because a drawing carries **two** extensions:
+`plan.excalidraw.md` is a file called `plan`, and the older trim left
+`plan.excalidraw` in the band. One function does it for the title, the
+breadcrumb leaf and the tab label, so the three cannot come to disagree about
+what a file is called — and the tab strip's collision test runs on the same
+name, so `plan.md` and `plan.excalidraw.md` open as two tabs that say which is
+which rather than two that look identical.
+
+The frontmatter rung above is untouched. A `title:` somebody typed still wins,
+for a drawing exactly as for a note.
+
+**What a simplification costs.** Dropping the drawing branch restores
+"Excalidraw Data" as the name of every drawing. Replacing `drawingName` with a
+`.md` trim restores `plan.excalidraw`. `frontmatter.test.ts`,
+`breadcrumbPath.test.ts` and `fileTabs.test.ts` fail respectively.

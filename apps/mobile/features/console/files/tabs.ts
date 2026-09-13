@@ -36,6 +36,8 @@
  * deliberately untouched here.
  */
 
+import { drawingName } from "@context/drawings";
+
 import { baseName, parentPath } from "./paths";
 import type { FolderListing } from "./types";
 
@@ -322,12 +324,16 @@ export function dirtyCount(state: TabsState): number {
  * noise — except when two open tabs share one, which in a PARA context is
  * routine (`1-projects/notes.md` and `2-areas/notes.md`). Then both get their
  * folder, and neither is a coin toss.
+ *
+ * `drawingName` rather than a `.md` trim, because a drawing carries two
+ * extensions: `plan.excalidraw.md` is a file called `plan`, and it is the same
+ * trim `noteHeading` and `crumbsFor` make. Using it for the collision test too
+ * is what keeps `plan.md` and `plan.excalidraw.md` from opening as two tabs
+ * that look identical.
  */
 export function tabLabel(state: TabsState, path: string): string {
-  const name = baseName(path).replace(/\.md$/i, "");
-  const ambiguous = state.tabs.some(
-    (tab) => tab.path !== path && baseName(tab.path).replace(/\.md$/i, "") === name,
-  );
+  const name = drawingName(path);
+  const ambiguous = state.tabs.some((tab) => tab.path !== path && drawingName(tab.path) === name);
   if (!ambiguous) return name;
   const folder = parentPath(path);
   return folder === "" ? name : `${baseName(folder)}/${name}`;

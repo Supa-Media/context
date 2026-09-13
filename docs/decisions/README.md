@@ -292,6 +292,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The drawing editor is a page, because a dynamic import is not a lazy chunk
 - The page never sees the customer's Markdown
 - Fonts are served from our own origin, and that is not a preference
+- A drawing is named by its file, never by `# Excalidraw Data`
 
 ## [Testing and guards](./testing.md)
 
