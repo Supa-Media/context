@@ -240,17 +240,14 @@ describe("what a keystroke resolves to", () => {
     });
   });
 
-  test("delete knows whether it is aiming at a folder", () => {
-    // The dialog's copy differs — a folder takes its contents with it.
+  test("delete sends either a folder or a file to trash", () => {
     expect(intentForRowCommand("deleteForever", at("1-projects"))).toEqual({
-      kind: "delete",
+      kind: "trash",
       path: "1-projects",
-      isFolder: true,
     });
     expect(intentForRowCommand("deleteForever", at(NOTE))).toEqual({
-      kind: "delete",
+      kind: "trash",
       path: NOTE,
-      isFolder: false,
     });
   });
 
@@ -278,6 +275,7 @@ describe("carrying an intent out", () => {
       cut: (p: string) => calls.push(`cut:${p}`),
       paste: (f: string) => calls.push(`paste:${f}`),
       move: (p: string, f: string) => calls.push(`move:${p}->${f}`),
+      destroy: (p: string) => calls.push(`trash:${p}`),
     };
     return { calls, dialogs, files, onDialog: (d: RowIntent) => dialogs.push(d) };
   }
@@ -304,12 +302,19 @@ describe("carrying an intent out", () => {
     expect(s.calls).toEqual([`move:${archived}->1-projects`]);
   });
 
-  test("the six that need typing go to the dialogs, and nowhere near the browser", () => {
-    for (const command of ["newNote", "newFolder", "rename", "moveTo", "deleteForever"] as const) {
+  test("the four that need typing go to the dialogs, and nowhere near the browser", () => {
+    for (const command of ["newNote", "newFolder", "rename", "moveTo"] as const) {
       const s = spy();
       applyRowIntent(intentForRowCommand(command, at(NOTE))!, s.files, s.onDialog);
       expect(s.calls).toEqual([]);
       expect(s.dialogs).toHaveLength(1);
     }
+  });
+
+  test("delete moves to trash immediately instead of opening a dialog", () => {
+    const s = spy();
+    applyRowIntent(intentForRowCommand("deleteForever", at(NOTE))!, s.files, s.onDialog);
+    expect(s.calls).toEqual([`trash:${NOTE}`]);
+    expect(s.dialogs).toEqual([]);
   });
 });

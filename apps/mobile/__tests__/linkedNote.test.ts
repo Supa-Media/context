@@ -532,7 +532,12 @@ describe("the URL follows the note that is open", () => {
      * the URL kept naming it, the next reload would follow a link to a note
      * that no longer exists and land on "That file does not exist".
      */
-    actions[name("deleteEntry")] = async () => ({});
+    actions[name("trashEntry")] = async () => ({
+      kind: "moved",
+      from: NOTE,
+      to: `4-archive/stamp/${NOTE}`,
+      paths: [`4-archive/stamp/${NOTE}`],
+    });
     unmount = mount(NOTE);
     await settle();
     await act(async () => setContext("w1"));

@@ -144,7 +144,12 @@ describe("the guards that decide whether the server is called at all", () => {
       etag: "etag-2",
       conflictCheck: "conditional",
     });
-    actions[name("deleteEntry")] = async () => ({ path: NOTE });
+    actions[name("trashEntry")] = async () => ({
+      kind: "moved",
+      from: NOTE,
+      to: `4-archive/stamp/${NOTE}`,
+      paths: [`4-archive/stamp/${NOTE}`],
+    });
     actions[name("moveEntry")] = async () => ({ path: NOTE });
   });
 
@@ -171,12 +176,12 @@ describe("the guards that decide whether the server is called at all", () => {
     // visitor. `useFileBrowser` has exactly one non-test call site
     // (`useLiveConsoleData.ts`), and the marketing console runs
     // `useDemoFileBrowser` instead. It is a signed-in workspace **member**,
-    // who does hold a credential — and `deleteEntry` would refuse them at
+    // who does hold a credential — and `archiveEntry` would refuse them at
     // `minimum: "editor"`. So the server backstop exists, and the reason this
     // guard is worth holding is narrower and true: a request that cannot
     // succeed surfaces as "that did not work", which reads as a broken console
     // rather than as a permission they do not have.
-    expect(called("deleteEntry")).toHaveLength(0);
+    expect(called("trashEntry")).toHaveLength(0);
     expect(called("moveEntry")).toHaveLength(0);
   });
 
@@ -194,11 +199,11 @@ describe("the guards that decide whether the server is called at all", () => {
       browser.rename(NOTE, "renamed.md");
     });
     await settle();
-    expect(called("deleteEntry")).toHaveLength(1);
+    expect(called("trashEntry")).toHaveLength(1);
     expect(called("moveEntry")).toHaveLength(1);
   });
 
-  test("the delete confirmation is the literal the backend demands", async () => {
+  test("delete moves into recoverable storage without a confirmation argument", async () => {
     unmount = mount({ canEdit: true });
     await settle();
     await act(async () => {
@@ -206,29 +211,8 @@ describe("the guards that decide whether the server is called at all", () => {
     });
     await settle();
 
-    // `deleteEntry` refuses anything but this exact string, and the console is
-    // the only caller that supplies it, so a typo turns every delete into a
-    // refusal the UI reports as "that did not work".
-    //
-    // **What this pins, exactly**, because the first version of this comment
-    // claimed more: it pins the *hook's* literal, and nothing here pins it to
-    // the server's. Measured — changing `DELETE_CONFIRMATION` in
-    // `functions/lib/fileOps.ts` leaves the whole mobile suite green. The
-    // server's own copy is pinned incidentally, by a hardcoded literal in
-    // `shareRead.test.ts`, so a one-sided rename does turn CI red — but on an
-    // unrelated share test, and a deliberate rename updating both would break
-    // the console silently.
-    //
-    // Importing the server constant here is the obvious fix and does not work:
-    // `functions/files.ts` pulls `@convex-dev/auth/server`, which does not
-    // resolve under this file's jsdom environment (`consoleVisibility.test.ts`
-    // gets away with the same import because it runs under node). Closing it
-    // properly means moving the literal somewhere both sides can reach, which
-    // is a change to production layout and not this test's to make.
-    expect(called("deleteEntry")[0].args).toMatchObject({
-      path: NOTE,
-      confirmation: "permanently delete",
-    });
+    expect(called("trashEntry")[0].args).toEqual({ path: NOTE, workspaceId: "w1" });
+    expect(called("deleteEntry")).toHaveLength(0);
   });
 
   test("saving a read-only note never reaches writeNote", async () => {

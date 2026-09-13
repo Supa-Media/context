@@ -122,6 +122,11 @@ describe("an operation with an inverse offers it", () => {
     actions[name("listFiles")] = async () => ROOT;
     actions[name("moveEntry")] = async () => ({ path: NOTE });
     actions[name("archiveEntry")] = async () => ({ path: NOTE, to: ARCHIVED });
+    actions[name("trashEntry")] = async () => ({
+      path: NOTE,
+      to: `.context/trash/stamp/${NOTE}`,
+    });
+    actions[name("restoreTrashEntry")] = async () => ({ path: NOTE });
     actions[name("duplicateEntry")] = async () => ({ path: NOTE, to: "1-projects/note 2.md" });
   });
 
@@ -200,6 +205,25 @@ describe("an operation with an inverse offers it", () => {
     await settle();
 
     expect(moves()).toEqual([{ from: ARCHIVED, to: NOTE }]);
+  });
+
+  test("delete moves to trash and offers the exact move back", async () => {
+    unmount = mount();
+    await settle();
+
+    await act(async () => browser.destroy(NOTE));
+    await settle();
+
+    expect(browser.toasts).toHaveLength(1);
+    expect(browser.toasts[0]!.message).toBe("Moved note.md to trash.");
+    expect(calls.filter((call) => call.name === name("deleteEntry"))).toEqual([]);
+
+    await act(async () => browser.toasts[0]!.undo!());
+    await settle();
+
+    expect(
+      calls.filter((call) => call.name === name("restoreTrashEntry")).map((call) => call.args),
+    ).toEqual([{ workspaceId: "w1", from: `.context/trash/stamp/${NOTE}`, to: NOTE }]);
   });
 
   test("only the last operation is on offer", async () => {

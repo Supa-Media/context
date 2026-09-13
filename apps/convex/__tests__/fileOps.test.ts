@@ -40,9 +40,11 @@ import {
   movePath,
   readFile,
   removeNoteEncryption,
+  restoreTrashedPath,
   resetPrivacyManifest,
   setFolderVisibility,
   setVisibility,
+  trashPath,
   writeFile,
 } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, canSee, isPlumbing, parsePrivacyManifest } from "../functions/lib/privacy";
@@ -1100,6 +1102,70 @@ describe("archiving is the recoverable one", () => {
       archivePath(store, { path: "4-archive/README.md", scope: "private", now: NOW }),
     );
     expect(error.code).toBe("PATH_INVALID");
+  });
+});
+
+describe("trash is hidden and reversible", () => {
+  test("a team editor can trash and restore a shared note without changing privacy", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    const privacy = store.snapshot()[PRIVACY_KEY];
+
+    const trashed = await trashPath(store, {
+      path: "1-projects/context-lc.md",
+      scope: "team",
+      now: NOW,
+    });
+    expect(trashed.to).toMatch(/^\.context\/trash\/[\dTZ-]+\/1-projects\/context-lc\.md$/);
+    expect(store.snapshot()[trashed.to]).toContain("# Context.LC");
+    expect(store.snapshot()["1-projects/context-lc.md"]).toBeUndefined();
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(privacy);
+    expect(isPlumbing(trashed.to)).toBe(true);
+
+    await restoreTrashedPath(store, {
+      from: trashed.to,
+      to: "1-projects/context-lc.md",
+      scope: "team",
+    });
+    expect(store.snapshot()["1-projects/context-lc.md"]).toContain("# Context.LC");
+    expect(store.snapshot()[trashed.to]).toBeUndefined();
+    expect(store.snapshot()[PRIVACY_KEY]).toBe(privacy);
+  });
+
+  test("restore cannot redirect a trash entry to a different path", async () => {
+    const store = bucket();
+    const trashed = await trashPath(store, {
+      path: "1-projects/context-lc.md",
+      scope: "private",
+      now: NOW,
+    });
+    const error = await capture(() =>
+      restoreTrashedPath(store, {
+        from: trashed.to,
+        to: "2-areas/context-lc.md",
+        scope: "private",
+      }),
+    );
+    expect(error.code).toBe("PATH_INVALID");
+  });
+
+  test("trash and restore preserve attachment bytes", async () => {
+    const store = bucket();
+    const bytes = new Uint8Array([0, 255, 17, 128, 3]);
+    store.seed("1-projects/image.png", bytes);
+    const trashed = await trashPath(store, {
+      path: "1-projects/image.png",
+      scope: "private",
+      now: NOW,
+    });
+    expect(store.bytesOf(trashed.to)).toEqual(bytes);
+
+    await restoreTrashedPath(store, {
+      from: trashed.to,
+      to: "1-projects/image.png",
+      scope: "private",
+    });
+    expect(store.bytesOf("1-projects/image.png")).toEqual(bytes);
   });
 });
 

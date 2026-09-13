@@ -212,10 +212,9 @@ const COMMANDS: Partial<Record<MenuActionId, Command>> = {
   cut: "cut",
   paste: "paste",
   archive: "archive",
-  // The one pair whose names differ, and they differ on purpose: the menu item
-  // is `delete` because that is where it sits in the list, the command is
-  // `deleteForever` because that is what pressing it does. Mapping them here
-  // rather than renaming either keeps both names honest in their own file.
+  // Keep the established command id so existing keyboard customizations keep
+  // working. The action is now recoverable even though this legacy id says
+  // `deleteForever`.
   delete: "deleteForever",
 };
 
@@ -530,15 +529,12 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
       archived
         ? makeItem(context, "restore", single === null ? `Restore ${items(count)}` : "Restore")
         : makeItem(context, "archive", single === null ? `Archive ${items(count)}` : "Archive"),
-      // The ellipsis is the promise that this asks first. Deletion is
-      // permanent — `describeDeleteForever` is the sentence it asks with — and
-      // "Move to…" needs a destination before it can do anything. "New note"
-      // takes no ellipsis: it offers something rather than asking about what is
-      // already there.
+      // Deleting is an immediate move into the archive-backed trash. The toast
+      // offers Undo, so there is no confirmation dialog or ellipsis.
       makeItem(
         context,
         "delete",
-        single === null ? `Delete ${items(count)} forever…` : "Delete forever…",
+        single === null ? `Move ${items(count)} to trash` : "Move to trash",
         { danger: true },
       ),
     ],
