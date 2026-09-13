@@ -3639,3 +3639,83 @@ measures the line box rather than `.cm-content`, because `.cm-content` is
 deliberately still the full width of the pane, and it logs the width, the em
 multiple, the count and the resolved face on every run, so a failure names the
 font it is arguing with rather than only a number.
+
+### An icon reaches for a path only when a rectangle cannot hold one weight
+
+`Icon.tsx` draws the set from `View`s — borders, radii, transforms — and the
+header argues at length for why, against both an icon font and
+`react-native-svg`. Two of the forty-odd icons are now stroked `<Path>`s
+instead. This is the rule that keeps it at two, and the evidence that earned
+the exception.
+
+**The refusal had two grounds and both expired.** The first was the dependency:
+native, so it would land in `native-deps.json` and need a fresh development
+build before anyone saw an icon. It has been in `package.json` at 15.12.1 and in
+`native-deps.json` `core` since the baseline was over-provisioned ahead of the
+first binary — every build already carries it, so there is no build to wait for
+and nothing to gate. The second was the load-bearing one: *"there is no icon
+here with a curve a rectangle cannot fake."*
+
+**The eye is that curve, and it took three attempts to say why.** A rectangle
+*can* fake a curve. What it cannot fake is **a curve at constant stroke
+weight**, and every failure was that one fact arriving in a new disguise:
+
+1. A `shackle` over a `cradle` — the padlock's arch and its mirror. Those carry
+   left and right borders, which closed the almond into a capsule with a dot in
+   it. That is a toggle switch, and it read as one in the toolbar.
+2. One rounded border per lid, then a semicircle stretched sideways to kill the
+   straight run a clamped corner radius leaves across a wide shallow arc. That
+   removed the switch and exposed what the borders had been doing all along: a
+   corner between borders of different widths is drawn as a wedge running to a
+   point, so the stroke arrived at each canthus at nothing.
+3. The true arc walked as round-capped `bar`s. Uniform weight at last — and the
+   caps that let consecutive segments join are the same caps that bulge past a
+   curve this tight, so it read as a beaded chain.
+
+A stroked path has none of those failure modes, and the reference the owner
+supplied — one weight the whole way round, lids meeting in points, an iris large
+enough to nearly fill the almond — is not reachable from `borderRadius` at all.
+
+**So: reach for a path only when the drawing needs a curve at constant weight.
+Everything a rectangle can fake stays a rectangle.** Without a stated trigger
+this becomes a slow, unargued rewrite in which forty working drawings are
+churned one at a time for no gain. `eye` and `pencil` qualify; nothing else in
+the set does today.
+
+**What a "simplification" back to borders would cost**, and the guards that
+fail. Path data stays in the same unit space (`viewBox="0 0 1 1"`) and the
+weight is still `strokeFor(size)`, expressed as `strokeWidth = w / u` — so a
+path icon is held to every set-wide claim the others are, rather than quietly
+dropping out of them. `icons.test.ts` reads the geometry back out of the DOM:
+it samples arcs rather than reducing them to their endpoints, because an arc's
+bulge is the part that leaves the box, and it holds `eye` and `pencil` to
+"stays inside its box" in the stroke's own terms — half the weight hangs outside
+the outline, and that half has to fit too. The guard that is the actual finding
+is **one weight all the way round**: it is cheap, exact, and it is the thing
+that was wrong in all three earlier attempts. Sabotaged three ways — the iris at
+a different weight, the eye widened until the stroke overhangs, the outline left
+open — each fails exactly one test and no others.
+
+### The read toggle's glyph is the act, so the accent fill is gone
+
+The note's trailing capsule carried one eye, lit by `selected` while reading.
+The argument for the fill was real: one mark cannot draw both "will hide the
+markup" and "will bring it back", so the state went into the fill and the label
+carried the act — the same rule `ICON_NAMES` states for the padlock that group
+used to hold.
+
+Two marks can draw it. The control now shows an **eye while you are editing**
+(press it to read) and a **pencil while you are reading** (press it to edit), so
+the icon and its `accessibilityLabel` say the same thing at last.
+
+**Once they do, the fill is not merely redundant — it is wrong.** It would light
+the *pencil*, and a lit control in this chrome means "this mode is on", while
+the pencil means "press to start editing". Keeping both would be one signal
+contradicting the other on an unlabelled 20pt target.
+
+`_layout.tsx` (the phone) and `BrowsePane.tsx` (every pointer density) take the
+same swap, because it is one control in two places rather than two controls.
+`noteChrome.test.ts` asserts the label and the glyph together, reading
+`data-icon` — which is why `Icon.tsx` puts the name in the DOM at all: a drawing
+has no text, so without it "the mark changes when the mode does" is
+unassertable.
