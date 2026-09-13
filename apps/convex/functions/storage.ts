@@ -61,6 +61,7 @@ import {
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSigningArtifacts } from "./lib/verification";
+import { storageLayoutStateValidator } from "./lib/storageLayout";
 import {
   requireWorkspaceAccess,
   requireWorkspaceRole,
@@ -597,6 +598,13 @@ export const applyBinding = internalMutation({
       noteCount: undefined,
       noteCountedAt: undefined,
       noteCountTruncated: undefined,
+      // And where the storage-layout migration got to, which is the one whose
+      // survival would be silent. It is what decides whether the console still
+      // offers that migration, so a `complete` carried onto a different bucket
+      // is a bucket that never gets offered it — the pre-v1 plumbing left in
+      // place, dual reads carrying it, and nothing on any screen saying so.
+      storageLayoutState: undefined,
+      storageLayoutAt: undefined,
       // And the Dropbox grant, which is the one with a life of its own.
       //
       // `applyDropboxBinding` clears every S3 field on the way in and says why:
@@ -896,6 +904,47 @@ export const recordVerification = internalMutation({
         conditionalWrite: (args.capabilities ?? binding.capabilities)
           .conditionalWrite,
       },
+    });
+    return null;
+  },
+});
+
+/**
+ * Record where the storage-layout migration got to.
+ *
+ * Internal, and the same shape as `recordNoteCount` for the same reason: it is
+ * a thing we observed while holding a credential, which no query can recompute
+ * without becoming a public function that opens one.
+ *
+ * The bucket stays authoritative — `migrateStorageLayout` persists its own
+ * state under `.context/` and short-circuits on `complete`. This is the copy
+ * the console reads, and it exists because the console had nothing to read:
+ * "available" was as close to "pending" as it could get, so the offer to run
+ * the migration was answered by a flag on one device and came back on every
+ * other one, for a bucket that had already been migrated.
+ *
+ * Called on every outcome, including the refusals — a bucket without
+ * conflict-safe writes answers `unsupported` and that is an answer, not a
+ * failure to record. A binding that vanished mid-migration drops the write,
+ * exactly as the count does: the state describes a bucket this row no longer
+ * names.
+ */
+export const recordStorageLayoutState = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    state: storageLayoutStateValidator,
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null) return null;
+
+    await ctx.db.patch(binding._id, {
+      storageLayoutState: args.state,
+      storageLayoutAt: Date.now(),
     });
     return null;
   },
@@ -2111,6 +2160,20 @@ export const getStorageBinding = query({
       noteCount: v.optional(v.number()),
       noteCountedAt: v.optional(v.number()),
       noteCountTruncated: v.optional(v.boolean()),
+      /**
+       * Where the storage-layout migration got to, and when we last heard.
+       *
+       * Absent means nobody has run it through us, which is the only state
+       * that still offers it — see `lib/storageLayout.ts` for the other six.
+       *
+       * Not clamped to the owner, unlike `noteCount`. That number is about
+       * private notes and this is about our own plumbing: it names no key and
+       * counts nothing of the customer's. Every member of a context can
+       * already see its provider, its bucket and its verification status, and
+       * this says less than any of them.
+       */
+      storageLayoutState: v.optional(storageLayoutStateValidator),
+      storageLayoutAt: v.optional(v.number()),
       updatedAt: v.number(),
       /** True only for the deterministic bucket this service operates. */
       managed: v.boolean(),
@@ -2158,6 +2221,8 @@ export const getStorageBinding = query({
       noteCount: isOwner ? binding.noteCount : undefined,
       noteCountedAt: isOwner ? binding.noteCountedAt : undefined,
       noteCountTruncated: isOwner ? binding.noteCountTruncated : undefined,
+      storageLayoutState: binding.storageLayoutState,
+      storageLayoutAt: binding.storageLayoutAt,
       updatedAt: binding.updatedAt,
       managed: binding.bucket === managedBucketName(args.workspaceId),
     };
