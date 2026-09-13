@@ -302,6 +302,18 @@ export function mountGuest(
           pendingForms.set(token, resolve);
           bridge.post({ v: PROTOCOL_VERSION, type: "form-vote", token, ...vote });
         }),
+      update: (change) =>
+        new Promise((resolve) => {
+          const token = `u${++formToken}`;
+          pendingForms.set(token, resolve);
+          bridge.post({ v: PROTOCOL_VERSION, type: "form-update", token, ...change });
+        }),
+      retract: (change) =>
+        new Promise((resolve) => {
+          const token = `d${++formToken}`;
+          pendingForms.set(token, resolve);
+          bridge.post({ v: PROTOCOL_VERSION, type: "form-retract", token, ...change });
+        }),
     },
   };
 

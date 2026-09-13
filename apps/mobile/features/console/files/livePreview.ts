@@ -1658,6 +1658,7 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 .cm-lp-form-responses-table th { color: var(--lp-muted); font-size: 0.88em; font-weight: 600; }
 .cm-lp-form-voters { color: var(--lp-muted); white-space: nowrap; }
 .cm-lp-form-vote-controls { display: flex; gap: 6px; margin-top: 6px; white-space: nowrap; }
+.cm-lp-form-response-controls { display: flex; gap: 6px; white-space: nowrap; }
 .cm-lp-form-vote {
   border: 1px solid var(--lp-code-bg);
   border-radius: 8px;
@@ -1669,6 +1670,17 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 }
 .cm-lp-form-vote:disabled { opacity: 0.45; cursor: default; }
 .cm-lp-form-vote-remove { color: var(--lp-muted); }
+.cm-lp-form-response-action {
+  border: 1px solid var(--lp-code-bg);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: var(--lp-link);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-lp-form-response-action:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-delete { color: var(--lp-muted); }
 /*
   "We can't display because the formatting is off", which is what the owner
   asked for. Dashed rather than solid so it reads as a gap in the note that

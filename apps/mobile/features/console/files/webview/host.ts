@@ -242,6 +242,15 @@ export interface HostSink {
     responseId: string;
     vote: "up" | "none";
   }) => Promise<{ ok: boolean; message: string }>;
+  onUpdateFormResponse?: (change: {
+    formId: string;
+    responseId: string;
+    values: ReadonlyArray<{ field: string; value: string }>;
+  }) => Promise<{ ok: boolean; message: string }>;
+  onRetractFormResponse?: (change: {
+    formId: string;
+    responseId: string;
+  }) => Promise<{ ok: boolean; message: string }>;
 }
 
 export interface HostBridge {
@@ -536,6 +545,38 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
             .then((outcome) => reply(outcome.ok, outcome.message))
             .catch((error: unknown) =>
               reply(false, error instanceof Error ? error.message : "That vote didn’t send."),
+            );
+          return;
+        }
+        case "form-update": {
+          const { token, formId, responseId, values } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const update = sink.onUpdateFormResponse;
+          if (update === undefined) {
+            reply(false, "Editing is unavailable here.");
+            return;
+          }
+          update({ formId, responseId, values })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "Those changes didn’t save."),
+            );
+          return;
+        }
+        case "form-retract": {
+          const { token, formId, responseId } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const retract = sink.onRetractFormResponse;
+          if (retract === undefined) {
+            reply(false, "Deleting is unavailable here.");
+            return;
+          }
+          retract({ formId, responseId })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "That response wasn’t deleted."),
             );
           return;
         }
