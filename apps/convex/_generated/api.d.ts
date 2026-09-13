@@ -73,6 +73,7 @@ import type * as functions_googleConnect from "../functions/googleConnect.js";
 import type * as functions_googleSync from "../functions/googleSync.js";
 import type * as functions_meetings_transcribe from "../functions/meetings/transcribe.js";
 import type * as functions_names from "../functions/names.js";
+import type * as functions_obsidianPlugins from "../functions/obsidianPlugins.js";
 import type * as functions_provisioning from "../functions/provisioning.js";
 import type * as functions_shareCard from "../functions/shareCard.js";
 import type * as functions_shares from "../functions/shares.js";
@@ -153,6 +154,7 @@ declare const fullApi: ApiFromModules<{
   "functions/googleSync": typeof functions_googleSync;
   "functions/meetings/transcribe": typeof functions_meetings_transcribe;
   "functions/names": typeof functions_names;
+  "functions/obsidianPlugins": typeof functions_obsidianPlugins;
   "functions/provisioning": typeof functions_provisioning;
   "functions/shareCard": typeof functions_shareCard;
   "functions/shares": typeof functions_shares;

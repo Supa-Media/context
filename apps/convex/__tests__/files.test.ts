@@ -20,7 +20,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
@@ -313,6 +313,149 @@ describe("Obsidian plugin inventory", () => {
     ));
     expect(errorShape(existingError)).toBe(errorShape(missingError));
     expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  test("an owner grants capabilities to the exact bundle that was checked", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({ id: "highlightr-plugin", name: "Highlightr", version: "1.2.2" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const approved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "metadata:read"],
+        networkHosts: [],
+      },
+    );
+    expect(approved).toMatchObject({
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      status: "active",
+      capabilities: ["metadata:read", "vault:read"],
+    });
+
+    const grants = await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listPluginGrants,
+      { workspaceId: f.workspaceId },
+    );
+    expect(grants).toEqual([approved]);
+
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Changed extends Plugin {}',
+    );
+    const changedInventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    expect(changedInventory.plugins[0].bundleFingerprint).not.toBe(fingerprint);
+    expect(await f.t.query(internal.functions.obsidianPlugins.resolveActiveGrant, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: changedInventory.plugins[0].bundleFingerprint!,
+    })).toBeNull();
+
+    await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.revokePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+    });
+    expect((await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listPluginGrants,
+      { workspaceId: f.workspaceId },
+    ))[0].status).toBe("revoked");
+  });
+
+  test("only an owner can grant a plugin and a blocked bundle cannot be granted", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/shell/manifest.json",
+      JSON.stringify({ id: "shell", name: "Shell", version: "1.0.0" }),
+    );
+    f.backend.seed(".obsidian/plugins/shell/main.js", 'require("child_process")');
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const editorError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "shell",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+      },
+    ));
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const blockedError = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "shell",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+      },
+    ));
+    expect(errorCode(blockedError)).toBe("PLUGIN_NOT_RUNNABLE");
+  });
+
+  test("network authority is limited to hosts found in the reviewed bundle", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/web/manifest.json",
+      JSON.stringify({ id: "web", name: "Web", version: "1.0.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/web/main.js",
+      'requestUrl("https://api.example.com/items")',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const widened = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["evil.example"],
+      },
+    ));
+    expect(errorCode(widened)).toBe("INVALID_NETWORK_GRANT");
+
+    const approved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["API.EXAMPLE.COM"],
+      },
+    );
+    expect(approved.networkHosts).toEqual(["api.example.com"]);
   });
 });
 

@@ -144,6 +144,40 @@ const schema = defineSchema({
     .index("by_workspace_user", ["workspaceId", "userId"]),
 
   /**
+   * Explicit authority for one reviewed Obsidian plugin bundle.
+   *
+   * The bundle remains in the customer's bucket and never enters Convex. The
+   * fingerprint binds this row to the manifest/main.js objects the scanner
+   * reviewed, so syncing an update cannot inherit the old version's grant.
+   */
+  obsidianPluginGrants: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    capabilities: v.array(
+      v.union(
+        v.literal("vault:read"),
+        v.literal("metadata:read"),
+        v.literal("vault:write"),
+        v.literal("vault:rename"),
+        v.literal("vault:delete"),
+        v.literal("settings:read"),
+        v.literal("settings:write"),
+        v.literal("network:request"),
+      ),
+    ),
+    /** Exact hosts approved from the scanner's evidence; no wildcards. */
+    networkHosts: v.array(v.string()),
+    status: v.union(v.literal("active"), v.literal("revoked")),
+    grantedBy: v.id("users"),
+    grantedAt: v.number(),
+    updatedAt: v.number(),
+    revokedAt: v.optional(v.number()),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
+  /**
    * A named set of people inside one workspace, for a folder rule to point at.
    *
    * `name` is the FULL, slug-prefixed name (`supa-leads`) exactly as
