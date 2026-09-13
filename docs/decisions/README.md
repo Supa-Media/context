@@ -29,6 +29,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Version history is the customer's object versioning, not a copy we keep
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
+- A migration pass is walked in waves, and an unchanged object is read twice
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
