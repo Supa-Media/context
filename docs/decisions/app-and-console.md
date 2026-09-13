@@ -3441,3 +3441,95 @@ invisible in light mode, and two separate pieces of work reached that conclusion
 independently within a day. `--lp-line`, `--lp-line-strong` and
 `--lp-focus-ring` come from the palette's own `line`, `lineStrong` and
 `accentDim`; the guard above is what keeps both hosts declaring them.
+
+### One save status, and a control only where pressing it does something
+
+Measured in a real browser against `/e2e-fixture`, at 1440×900: the foot of a
+resting note carried the sentence **"Saved in your bucket"** at x=16 and a grey
+pill reading **"Saved"** at x=1344 — same row, same moment, same claim, two
+visual languages, opposite ends of the window. The same note at 390×844 carried
+the sentence alone. So the console said one thing twice, and only on the screen
+with the most room to say it once.
+
+The sentence is the half that stays. `NoteEditor`'s own header calls it the
+strongest promise in the product, and it is the only half that can tell the
+truth about the two states that reach it falsely — a queued draft is on this
+device and not in the bucket, a cached body came off this device — which a
+one-word pill has no room to do.
+
+The pill is not deleted, because in two states it is not status at all:
+`saveButton` is pressable exactly where autosave refuses, a failed save and a
+conflict, and the manual route has to stay reachable there. So the rule is the
+one that keeps that reason and drops the duplication: **the save control is
+drawn when pressing it does something, and not otherwise.** `NoteEditor`'s
+status row reads `button.disabled` as *whether to draw this*, not as *how it
+should look*.
+
+Every arm it removes is an arm whose sentence already said the same thing, in
+words that say it better: `Saved` under "Saved in your bucket", `Saving…` under
+"Saving…", `Queued` under a queued draft's own message, and `Read-only` and
+`Encrypted` under the notice at the head of the note rather than one word at the
+foot of it. `saveButton` still computes all of them and `autosave.test.ts` still
+checks all of them — what changed is which reach the screen.
+
+What it costs: a person on a pointer layout no longer has a permanent target at
+the foot of the note to aim at, so "where is Save" is answered by the state
+rather than by muscle memory. That is the trade, and the states where somebody
+actually needs it are exactly the states that still draw it.
+
+The guard is `offlineEditorRender.test.ts`'s "the save status at a pointer
+width", which mounts the editor at 1440 and at 390 and asserts the same save
+controls at both — and asserts each width alone, because `mount` fires a
+`resize` that every editor still on screen listens to, so two held open and
+compared afterwards compare one width against itself. Written that way, the case
+was green against the defect it exists to catch.
+
+### The browser-reachable console is the console, at every density
+
+`/e2e-fixture` is the only console in this repository anybody can open in a
+browser — every other route wants a session and a deployment — so it is what the
+WebKit suite drives, what a screenshot of "the console" is taken against, and
+what a person looking at this product in a real browser is looking at.
+
+It was the phone console at every width. `E2EFixtureScreen` wires `BrowsePane`
+under a `NavBandProvider` exactly as the console layout does, and `BrowsePane`
+draws that band at compact only, because at medium and wide the contexts are
+`ConsoleRail`'s — one switcher per density, never two. The fixture mounted the
+compact half and not the pointer half, on the argument that `AppFrame`'s regions
+were not what the WebKit cases press.
+
+Measured in Chromium at 1440×900, that argument's bill: the whole console
+answered **three** `[role=button]` elements — an avatar, one breadcrumb crumb
+and the save pill — and a person could not reach another context at all. The
+same fixture at 390×844 drew `@lk` and `@public-worship` above the path. A
+reachable-contexts affordance visible on a phone and absent on a desktop is
+backwards, and "a session resolves to a *set* of accessible contexts" is the
+product rather than a layout preference.
+
+**The product was right the whole time**, which is the part worth recording: the
+rail has carried the contexts at medium and wide throughout. What was missing is
+that nothing said so. `consoleChrome.test.ts` asserted the strip at 390 and
+nothing at 1440, so the claim that the console has a switcher at every density
+was resting on nobody having checked — and the fixture, which is what people
+check *with*, reported a defect the product does not have.
+
+So: the fixture takes the density decision the way the product takes it
+(`densityFor` and `regionsFor`, not a width literal) and mounts the real
+`ConsoleRail` in the mode those functions answer, with the account block in the
+rail's foot where the product puts it. `AppFrame` is still not reproduced — the
+column is a plain `View` at `layout.railWidth`, and the hairline and surface
+fill stay that component's, pinned by `appFrameRender.test.ts`.
+
+Two guards, deliberately in different places. `consoleChrome.test.ts`'s "every
+context this account can reach is on the screen" asks the **product** the
+question at 390 and at 1440 and does not care which component answers — its mock
+grew a second context, because a one-context account renders identically whether
+or not a switcher exists. `fixtureConsoleDensity.test.ts` asks the **fixture**
+the same question, and asserts the strip and the rail are never both on one
+screen. Sabotage: `rail: "hidden"` in `regionsFor`'s wide arm fails six cases
+across the two files.
+
+What it costs: `settings.spec.ts`'s pointer-width case reaches Settings through
+`rail-settings` rather than the compact account menu, because the compact block
+is no longer drawn at that width — one control where the product has one, rather
+than a stand-in for a region that was missing.
