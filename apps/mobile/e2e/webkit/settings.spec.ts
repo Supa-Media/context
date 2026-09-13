@@ -72,12 +72,18 @@ import { tap } from "./helpers";
  * `ConsoleRail.tsx`'s own account of why — so what is beside sign-out now is
  * one control that opens a menu, and Settings is a row in it labelled
  * "Settings…", not "Settings". Two presses where the fixture's account
- * corner needed one, everywhere this file runs: `E2EFixtureScreen.tsx` mounts
- * `AccountBlock`'s compact form "at every width" (its own header explains why
- * — there is no `AppFrame` rail here to draw the pointer layout's separate
- * gear), so the pointer-width test below reaches Settings through this same
- * menu rather than through `ConsoleRail`'s untouched `rail-settings` control,
- * which this fixture never mounts at all.
+ * corner needed one, at the phone viewport this file mostly runs at.
+ *
+ * **The pointer-width case below no longer goes through that menu**, and the
+ * paragraph this replaces is why it used to: `E2EFixtureScreen` drew
+ * `AccountBlock`'s compact form at every width, because there was no rail on
+ * that screen to hold the pointer layout's own gear. The fixture mounts the
+ * real `ConsoleRail` at medium and wide now — it had no context switcher above
+ * 880pt until it did, see its header — and the account block moved into the
+ * rail's foot with it. So the pointer case presses `rail-settings`, which is
+ * the control that surface actually has, and the compact menu is what the
+ * phone cases press. Both land on the same section: `openSettings()` with no
+ * argument answers a context's own Overview either way.
  *
  * The account menu trigger is itself at rest when this file presses it —
  * nothing has opened a panel yet — so it is reached the same way `GEAR` was,
@@ -211,17 +217,18 @@ test.describe("at a pointer width", () => {
   test("the list and the panel are on screen together", async ({ page }) => {
     await openConsole(page);
     /*
-      Not a click on `ConsoleRail`'s pointer rail — that `rail-settings` gear
-      is still exactly what it was (`AccountBlock`'s non-`compact` form is
-      untouched), but this fixture never mounts it: `E2EFixtureScreen.tsx`
-      draws the account block `compact` "at every width" because there is no
-      `AppFrame` here to own a rail at all, so widening the viewport does not
-      change which form of the block is on screen, only which presentation
-      `Menu.web.tsx` gives its menu — a popover here rather than the phone's
-      sheet. `hasTouch: false` above rules the coordinate helper out.
+      `rail-settings` — the gear in `AccountBlock`'s non-`compact` form, at the
+      foot of the rail. This is one press rather than the phone's two because
+      the pointer layout's block never merged its gear into a disclosure menu;
+      see the header. `hasTouch: false` above rules the coordinate helper out,
+      so this is a plain `click`.
+
+      This used to press the compact block's `account-menu`, because the
+      fixture drew that form at every width and mounted no rail at all. It
+      mounts the real one now, so `account-menu` is not on this screen and this
+      control is.
     */
-    await page.getByTestId("account-menu").click();
-    await page.getByTestId(ACCOUNT_SETTINGS).click();
+    await page.getByTestId("rail-settings").click();
 
     // Both at once, which is the whole difference from the phone: no Back,
     // because there is no level to pop.

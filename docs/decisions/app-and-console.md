@@ -3483,3 +3483,53 @@ controls at both — and asserts each width alone, because `mount` fires a
 `resize` that every editor still on screen listens to, so two held open and
 compared afterwards compare one width against itself. Written that way, the case
 was green against the defect it exists to catch.
+
+### The browser-reachable console is the console, at every density
+
+`/e2e-fixture` is the only console in this repository anybody can open in a
+browser — every other route wants a session and a deployment — so it is what the
+WebKit suite drives, what a screenshot of "the console" is taken against, and
+what a person looking at this product in a real browser is looking at.
+
+It was the phone console at every width. `E2EFixtureScreen` wires `BrowsePane`
+under a `NavBandProvider` exactly as the console layout does, and `BrowsePane`
+draws that band at compact only, because at medium and wide the contexts are
+`ConsoleRail`'s — one switcher per density, never two. The fixture mounted the
+compact half and not the pointer half, on the argument that `AppFrame`'s regions
+were not what the WebKit cases press.
+
+Measured in Chromium at 1440×900, that argument's bill: the whole console
+answered **three** `[role=button]` elements — an avatar, one breadcrumb crumb
+and the save pill — and a person could not reach another context at all. The
+same fixture at 390×844 drew `@lk` and `@public-worship` above the path. A
+reachable-contexts affordance visible on a phone and absent on a desktop is
+backwards, and "a session resolves to a *set* of accessible contexts" is the
+product rather than a layout preference.
+
+**The product was right the whole time**, which is the part worth recording: the
+rail has carried the contexts at medium and wide throughout. What was missing is
+that nothing said so. `consoleChrome.test.ts` asserted the strip at 390 and
+nothing at 1440, so the claim that the console has a switcher at every density
+was resting on nobody having checked — and the fixture, which is what people
+check *with*, reported a defect the product does not have.
+
+So: the fixture takes the density decision the way the product takes it
+(`densityFor` and `regionsFor`, not a width literal) and mounts the real
+`ConsoleRail` in the mode those functions answer, with the account block in the
+rail's foot where the product puts it. `AppFrame` is still not reproduced — the
+column is a plain `View` at `layout.railWidth`, and the hairline and surface
+fill stay that component's, pinned by `appFrameRender.test.ts`.
+
+Two guards, deliberately in different places. `consoleChrome.test.ts`'s "every
+context this account can reach is on the screen" asks the **product** the
+question at 390 and at 1440 and does not care which component answers — its mock
+grew a second context, because a one-context account renders identically whether
+or not a switcher exists. `fixtureConsoleDensity.test.ts` asks the **fixture**
+the same question, and asserts the strip and the rail are never both on one
+screen. Sabotage: `rail: "hidden"` in `regionsFor`'s wide arm fails six cases
+across the two files.
+
+What it costs: `settings.spec.ts`'s pointer-width case reaches Settings through
+`rail-settings` rather than the compact account menu, because the compact block
+is no longer drawn at that width — one control where the product has one, rather
+than a stand-in for a region that was missing.
