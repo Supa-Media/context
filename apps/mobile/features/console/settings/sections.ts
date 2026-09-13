@@ -6,7 +6,7 @@
  * order here is how often a thing is actually touched, and the grouping is the
  * question a person is asking rather than the subsystem that answers it:
  *
- *  - **What comes in** — everything that fills a brain without being typed
+ *  - **Integrations** — everything that fills a brain without being typed
  *    into it: the mailboxes and calendars we read, the chats, this Mac, and
  *    the address mail can be forwarded to. It was one section, on the argument
  *    that it is one question. It is four now, because it is four: a person
@@ -27,7 +27,7 @@
  * rather than disabled where they do not apply — a greyed row inviting
  * somebody to press it is a worse answer than no row. The line that rule stops
  * at is the *explanation*: a shared workspace has no capture address at all,
- * and the sentence saying so is worth a section of its own, so "What comes in"
+ * and the sentence saying so is worth a section of its own, so "Integrations"
  * is listed for one and every panel under it refuses in its own words.
  */
 
@@ -35,7 +35,7 @@ import type { IconName } from "../../design/components/Icon";
 
 export type SettingsGroup =
   | "Your account"
-  | "What comes in"
+  | "Integrations"
   | "Who can see it"
   | "Your notes";
 
@@ -146,8 +146,15 @@ export const SETTINGS_SECTIONS = [
 
       Still no "leave" or "quit": leaving a *workspace* is a different,
       non-destructive action, and it is People's, not this one's.
+
+      "brain" is here and "workspace" deliberately is not. A brain *is* deleted
+      from this screen — it is one per person and it goes with the account, the
+      sentence `deletionBlockedReason` gives for refusing it anywhere else — so
+      "delete my brain" has to land here. A workspace is deleted on its own, in
+      Advanced, and a haystack that answered for both would send somebody who
+      wanted one workspace gone to the screen that closes their account.
     */
-    keywords: "sign out log out logout delete close account remove erase permanently",
+    keywords: "sign out log out logout delete close account remove erase permanently brain",
     label: "Sign out & delete",
     scope: "account",
     group: "Your account",
@@ -221,39 +228,39 @@ export const SETTINGS_SECTIONS = [
   {
     key: "email",
     keywords:
-      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google",
+      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google integration integrations sync",
     scope: "context",
     label: "Email",
-    group: "What comes in",
+    group: "Integrations",
     icon: "mail",
     personalOnly: false,
   },
   {
     key: "calendar",
-    keywords: "calendar calendars ical events event schedule agenda appointments google",
+    keywords: "calendar calendars ical events event schedule agenda appointments google integration integrations sync",
     scope: "context",
     label: "Calendar",
-    group: "What comes in",
+    group: "Integrations",
     icon: "calendar",
     personalOnly: false,
   },
   {
     key: "chats",
     keywords:
-      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac",
+      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac icloud integration integrations sync",
     scope: "context",
     label: "Chats",
-    group: "What comes in",
+    group: "Integrations",
     icon: "chat",
     personalOnly: false,
   },
   {
     key: "meetings",
     keywords:
-      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop",
+      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
     scope: "context",
     label: "Meetings",
-    group: "What comes in",
+    group: "Integrations",
     icon: "mic",
     personalOnly: false,
   },
@@ -353,7 +360,21 @@ export const SETTINGS_SECTIONS = [
   },
   {
     key: "advanced",
-    keywords: "audit history log trail export key keys encryption rotate activity",
+    /*
+      The deletion words are half this haystack, and they are the reason it was
+      rewritten. "Delete this workspace" has lived at the bottom of this
+      section since it shipped, and none of the words somebody types on the way
+      to it — delete, remove, the noun *workspace* itself — were in any
+      section's vocabulary. So "delete workspace" matched nothing at all, and
+      the bare "delete" matched exactly one row: **Sign out & delete**. Somebody
+      who wanted one workspace off their list was handed the control that
+      closes their whole account, which is the worst wrong answer this box can
+      give. The privacy row above states the rule this broke — a word nobody
+      can search for is an answer nobody finds — and a destructive control is
+      where it costs the most.
+    */
+    keywords:
+      "audit history log trail export key keys encryption rotate activity delete remove workspace destroy retire unwanted clutter",
     scope: "context",
     label: "Advanced",
     group: "Your notes",
@@ -450,6 +471,14 @@ const FILLER = new Set([
   "of",
   "on",
   "the",
+  /*
+    "this" for the same reason "my" is here, found the same way: "delete this
+    workspace" is what the row on the Overview page calls itself, and every
+    word having to match meant reading our own label back to us returned
+    nothing. A demonstrative cannot name a setting, so it can never be the word
+    that distinguishes one row from another.
+  */
+  "this",
   "to",
 ]);
 

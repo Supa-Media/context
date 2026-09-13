@@ -43,6 +43,15 @@
 import { EditorState, Range, RangeSet, StateField, type Extension } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { FormWidget, formFences, formHost } from "./formBlock";
+/*
+  The gateway's own inverse of what it writes into a response cell. Imported
+  rather than reimplemented for the reason `formBlock.ts`'s header gives about
+  the grammar: a second copy of this is a second answer that can disagree, and
+  the disagreement would show up as a person's submitted text drawn back to them
+  wrong. `forms.js` is pure, zero-dependency, DOM-free JavaScript; three
+  surfaces already reach for it.
+*/
+import { unescapeCell } from "../../../../mcp/src/forms.js";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { css } from "@codemirror/lang-css";
@@ -698,6 +707,539 @@ export function tableLines(state: EditorState, frontEnd = 0): number[] {
   return lines;
 }
 
+/* -------------------------------------------------------------------------- */
+/*                          a table, actually laid out                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One run of text inside a rendered cell, and the classes to draw it in.
+ *
+ * A cell is a list of these rather than a string because a cell is markdown:
+ * `**bold**`, an inline `code` span, a strikethrough. The classes are the same
+ * ones `styleClassFor` hands the rest of the note, so a phrase looks the same
+ * inside a grid as it does in the paragraph above it — one renderer, not two.
+ *
+ * A `\n` in `text` is a **hard break the author asked for** (`<br>`), which is
+ * the only way a newline can reach a cell: a raw one ends the row. The widget
+ * draws it as a line break.
+ */
+export interface CellRun {
+  readonly text: string;
+  /** Space-separated live-preview classes, or `null` for the body face. */
+  readonly className: string | null;
+}
+
+/** What the delimiter row said about a column, or `null` for the default. */
+export type CellAlign = "left" | "center" | "right" | null;
+
+/** One GFM table, read out of the tree and ready to draw. */
+export interface TableGrid {
+  readonly from: number;
+  readonly to: number;
+  /** The whole table verbatim. What `eq` compares on — see `TableGridWidget`. */
+  readonly source: string;
+  readonly align: readonly CellAlign[];
+  readonly header: ReadonlyArray<readonly CellRun[]>;
+  readonly rows: ReadonlyArray<ReadonlyArray<readonly CellRun[]>>;
+}
+
+/**
+ * The entities `escapeCell` writes, and the numeric forms a person might.
+ *
+ * Deliberately short. This is not an HTML entity table and must not become
+ * one: the job is reading back what the gateway wrote (`&amp;`, `&lt;`,
+ * `&gt;`) plus the handful somebody types by hand. Anything else is left as the
+ * characters the author typed, which is always a defensible thing to draw.
+ */
+const CELL_ENTITIES: ReadonlyMap<string, string> = new Map([
+  ["&amp;", "&"],
+  ["&lt;", "<"],
+  ["&gt;", ">"],
+  ["&quot;", '"'],
+  ["&apos;", "'"],
+  ["&nbsp;", " "],
+]);
+
+function decodeEntity(source: string): string | null {
+  const known = CELL_ENTITIES.get(source.toLowerCase());
+  if (known !== undefined) return known;
+  const numeric = /^&#(x[0-9a-f]+|\d+);$/i.exec(source);
+  if (numeric === null) return null;
+  const digits = numeric[1];
+  const code =
+    digits[0].toLowerCase() === "x" ? Number.parseInt(digits.slice(1), 16) : Number.parseInt(digits, 10);
+  if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff) return null;
+  /*
+    Surrogates are refused explicitly rather than left to throw, because
+    `String.fromCodePoint` does **not** throw for a lone one — it happily
+    returns an unpaired code unit. Drawing `&#xD800;` as itself is the same
+    answer this function gives every entity it does not understand, and is
+    better than putting a half character into the DOM.
+  */
+  if (code >= 0xd800 && code <= 0xdfff) return null;
+  return String.fromCodePoint(code);
+}
+
+/** The one HTML tag a cell may contain that means something here. */
+const BREAK_TAG_RE = /^<br\s*\/?>$/i;
+
+/** `a` and `b` as one class attribute, dropping the empties. */
+function joinClasses(outer: string | null, own: string | null): string | null {
+  if (outer === null) return own;
+  if (own === null) return outer;
+  return `${outer} ${own}`;
+}
+
+/**
+ * A wiki link, drawn as the words rather than as its own brackets.
+ *
+ * `[[note]]` is not a grammar node — the lezer Markdown dialect reads it as an
+ * ordinary `Link` around `[note]` with the outer brackets as plain text, so
+ * hiding the link's own marks (which is right for `[label](url)`) leaves the
+ * reader `[note]`: one bracket at each end and no link. `noteLinks` normally
+ * covers for this by decorating the whole span, and it cannot reach inside a
+ * block widget.
+ *
+ * So the cell finds them itself, the same shape `noteLinksIn` parses, and draws
+ * the alias where there is one. Drawn in the link colour and **not followable**
+ * — the ref that resolves a path against the open note belongs to `noteLinks`
+ * and does not reach here. That is a real gap against the mono-line rendering
+ * this replaces, and it is stated rather than papered over: the link is one
+ * press of the eye away, where it is followable again.
+ */
+const WIKI_LINK_RE = /!?\[\[([^[\]]+)\]\]/g;
+
+/**
+ * One `TableCell` node, as the runs that draw it.
+ *
+ * Built as a per-character map and then merged into runs rather than by walking
+ * children recursively, because the interesting content is **not** a clean
+ * tree: an escape, an entity, a `<br>` and a wiki link each stand for different
+ * text than they are written as, and they nest inside styled spans. A position
+ * map answers "what is drawn here, in what face" once for each of them.
+ *
+ * Four kinds of range stand in for other text, and it is not a coincidence that
+ * the first three are exactly what `apps/mcp/src/forms.js` writes — `forms.js`
+ * escapes every value it puts in a response row:
+ *
+ *  - **`Escape`** — `\|` is how a pipe survives a cell, `\\` a backslash.
+ *    Drawing the backslash would put one in front of every pipe somebody typed.
+ *  - **`HTMLTag`** — `<br>` is how a newline survives one. Every other tag is
+ *    drawn as its own text: this file has no `innerHTML` and is not gaining one.
+ *  - **`Entity`** — `&lt;` is how a `<` survives the above. Decoded *after* the
+ *    break is recognised, which is what keeps somebody who typed a literal
+ *    `<br>` seeing `<br>` — the ordering `escapeCell` sorts its replacements for.
+ *  - **`InlineCode`** — taken whole, and its text run through the gateway's own
+ *    `unescapeCell`. The grammar emits no `Escape`, `Entity` or `HTMLTag` inside
+ *    a code span (CommonMark says its content is literal), so the three rules
+ *    above simply do not fire there and a submitted `` `a|b` `` came back as
+ *    `` `a\|b` ``. GFM unescapes a cell's pipes before inline parsing, so this
+ *    is the spec's answer as well as the round trip's, and using `unescapeCell`
+ *    rather than a second copy of it is what stops the two readers disagreeing.
+ *
+ * Marks are dropped under exactly the rule the rest of the note follows, so a
+ * cell is never the one place `**` shows through.
+ */
+function cellRuns(state: EditorState, cell: SyntaxNode): CellRun[] {
+  const base = cell.from;
+  const text = state.doc.sliceString(cell.from, cell.to);
+  /** The classes covering each character, innermost last. */
+  const classAt: (string | null)[] = new Array<string | null>(text.length).fill(null);
+  /** Pure syntax, drawn as nothing. */
+  const hidden: boolean[] = new Array<boolean>(text.length).fill(false);
+  /** Ranges that stand in for other text, keyed by where they start. */
+  const stands = new Map<number, { to: number; text: string; className: string | null }>();
+  /** Code spans, whose content is literal and so claims its whole range. */
+  const literal: Array<{ from: number; to: number }> = [];
+
+  const paint = (from: number, to: number, className: string): void => {
+    for (let at = from; at < to; at += 1) {
+      classAt[at - base] = joinClasses(classAt[at - base], className);
+    }
+  };
+
+  syntaxTree(state).iterate({
+    from: cell.from,
+    to: cell.to,
+    enter(node) {
+      // Ancestors of the cell overlap the range; they are not in it.
+      if (node.from < cell.from || node.to > cell.to || node.to <= node.from) return;
+
+      if (HIDDEN_MARKS.has(node.name) || isHiddenPlumbing(node.node)) {
+        for (let at = node.from; at < node.to; at += 1) hidden[at - base] = true;
+        return false;
+      }
+
+      const source = state.doc.sliceString(node.from, node.to);
+      const outer = classAt[node.from - base];
+
+      if (node.name === "InlineCode") {
+        literal.push({ from: node.from, to: node.to });
+        /*
+          The marks are the backtick runs at either end; what is between them is
+          the literal content, and `unescapeCell` is the inverse of what wrote it.
+        */
+        const opening = node.node.firstChild;
+        const closing = node.node.lastChild;
+        const innerFrom = opening === null ? node.from : opening.to;
+        const innerTo = closing === null ? node.to : closing.from;
+        stands.set(node.from, {
+          to: node.to,
+          text: unescapeCell(state.doc.sliceString(innerFrom, innerTo)) as string,
+          className: joinClasses(outer, "cm-lp-code"),
+        });
+        return false;
+      }
+      if (node.name === "Escape") {
+        stands.set(node.from, { to: node.to, text: source.slice(1), className: outer });
+        return false;
+      }
+      if (node.name === "HTMLTag") {
+        stands.set(node.from, {
+          to: node.to,
+          text: BREAK_TAG_RE.test(source) ? "\n" : source,
+          className: outer,
+        });
+        return false;
+      }
+      if (node.name === "Entity") {
+        stands.set(node.from, { to: node.to, text: decodeEntity(source) ?? source, className: outer });
+        return false;
+      }
+
+      const own = styleClassFor(node.name);
+      if (own !== null) paint(node.from, node.to, own);
+      return undefined;
+    },
+  });
+
+  /*
+    Wiki links last, and not inside a code span: `` `[[note]]` `` is literal
+    text and the span has already said what it draws. Only a code span blocks
+    one — an `Escape` *inside* the link is how an alias is written in a table
+    cell at all (`[[target\|alias]]`, because a bare pipe would end the cell),
+    so treating any overlapping replacement as a clash would refuse exactly the
+    links that are written correctly.
+  */
+  WIKI_LINK_RE.lastIndex = 0;
+  for (let found = WIKI_LINK_RE.exec(text); found !== null; found = WIKI_LINK_RE.exec(text)) {
+    const from = base + found.index;
+    const to = from + found[0].length;
+    if (literal.some((span) => span.from < to && span.to > from)) continue;
+    /*
+      The alias, which is what a reader is meant to see. Split on the last pipe
+      and then unescape, so the backslash that let the pipe survive the cell is
+      not drawn — the target keeps it, and the target is not what is drawn.
+    */
+    const inside = found[1];
+    const pipe = inside.lastIndexOf("|");
+    const shown = pipe === -1 ? inside : inside.slice(pipe + 1);
+    stands.set(from, {
+      to,
+      text: (unescapeCell(shown) as string).trim(),
+      className: joinClasses(classAt[found.index], "cm-lp-link"),
+    });
+  }
+
+  const raw: CellRun[] = [];
+  const add = (piece: string, className: string | null): void => {
+    if (piece !== "") raw.push({ text: piece, className });
+  };
+  for (let at = 0; at < text.length; ) {
+    const stand = stands.get(base + at);
+    if (stand !== undefined) {
+      add(stand.text, stand.className);
+      at = stand.to - base;
+      continue;
+    }
+    if (hidden[at]) {
+      at += 1;
+      continue;
+    }
+    add(text[at], classAt[at]);
+    at += 1;
+  }
+
+  // Adjacent runs in the same face are one run. Not cosmetic: the widget makes
+  // a span per run, and the loop above emits one per character.
+  const runs: CellRun[] = [];
+  for (const run of raw) {
+    const last = runs[runs.length - 1];
+    if (last !== undefined && last.className === run.className) {
+      runs[runs.length - 1] = { text: last.text + run.text, className: last.className };
+      continue;
+    }
+    runs.push(run);
+  }
+  return runs;
+}
+
+/**
+ * The delimiter row, read for what it is actually for.
+ *
+ * `|:--|:-:|--:|` is not content — it is three column alignments and a count,
+ * and drawing it to a reader (which is what the mono-face pass did) is showing
+ * them the ruler instead of the measurement.
+ */
+export function alignmentsIn(text: string): CellAlign[] {
+  const inner = text.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
+  return inner.split("|").map((part) => {
+    const spec = part.trim();
+    const left = spec.startsWith(":");
+    const right = spec.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
+
+/**
+ * THE COLUMNS OF ONE ROW — AND THE GRAMMAR DOES NOT GIVE YOU THESE.
+ *
+ * The obvious implementation is the `TableCell` children, and it is wrong in
+ * the way that matters most here: **lezer emits no `TableCell` for an empty
+ * cell.** `| 1 |  | 3 |` has two of them, so taking the children shifts every
+ * column to its right — a reader is shown `3` under the header `b`, with no
+ * hint that anything moved. In a form's response table an unanswered optional
+ * field does exactly that to every column after it, which is the feature's own
+ * output silently misattributed.
+ *
+ * So the columns are the gaps *between the delimiters*, which are the `|`
+ * characters and are always in the tree. A gap holds the row's `TableCell` when
+ * there is one and is an empty column when there is not.
+ *
+ * The leading and trailing gaps are dropped only when they are empty, which is
+ * what makes this right for both pipe styles: `| a | b |` opens and closes on a
+ * delimiter and has two columns, and GFM's optional `a | b` has no outer pipes
+ * and also has two.
+ *
+ * Returns one entry per column, `null` where the column is empty.
+ */
+function cellsOf(row: SyntaxNode): Array<SyntaxNode | null> {
+  const delimiters: Array<{ from: number; to: number }> = [];
+  const cells: SyntaxNode[] = [];
+  for (let child = row.firstChild; child !== null; child = child.nextSibling) {
+    if (child.name === "TableDelimiter") delimiters.push({ from: child.from, to: child.to });
+    else if (child.name === "TableCell") cells.push(child.node);
+  }
+
+  const gaps: Array<{ from: number; to: number }> = [];
+  let at = row.from;
+  for (const delimiter of delimiters) {
+    gaps.push({ from: at, to: delimiter.from });
+    at = delimiter.to;
+  }
+  gaps.push({ from: at, to: row.to });
+
+  if (gaps.length > 0 && gaps[0].to <= gaps[0].from) gaps.shift();
+  if (gaps.length > 0 && gaps[gaps.length - 1].to <= gaps[gaps.length - 1].from) gaps.pop();
+
+  return gaps.map(
+    (gap) => cells.find((cell) => cell.from >= gap.from && cell.to <= gap.to) ?? null,
+  );
+}
+
+function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
+  let align: CellAlign[] = [];
+  let header: CellRun[][] | null = null;
+  const rows: CellRun[][][] = [];
+
+  for (let child = table.firstChild; child !== null; child = child.nextSibling) {
+    if (child.name === "TableHeader") {
+      header = cellsOf(child).map((cell) => (cell === null ? [] : cellRuns(state, cell)));
+      continue;
+    }
+    if (child.name === "TableRow") {
+      rows.push(cellsOf(child).map((cell) => (cell === null ? [] : cellRuns(state, cell))));
+      continue;
+    }
+    /*
+      The delimiter *row*, which is a `TableDelimiter` that is a direct child of
+      the table — the single `|` separators are children of the rows instead, so
+      there is nothing to disambiguate here beyond being on this level.
+    */
+    if (child.name === "TableDelimiter" && align.length === 0) {
+      align = alignmentsIn(state.doc.sliceString(child.from, child.to));
+    }
+  }
+
+  // No header is not a GFM table, whatever else the tree made of it.
+  if (header === null || header.length === 0) return null;
+
+  /*
+    Every row is the header's width. GFM says a short row is padded and a long
+    one is truncated, and the reason to follow it here is structural rather than
+    conformance: a `<tr>` with the wrong number of cells shifts every column to
+    its right for the rest of the table, so one malformed row would misdraw the
+    rows under it rather than itself.
+  */
+  const width = header.length;
+  const shaped = rows.map((row) => {
+    const cells = row.slice(0, width);
+    while (cells.length < width) cells.push([]);
+    return cells;
+  });
+
+  return {
+    from: table.from,
+    to: table.to,
+    source: state.doc.sliceString(table.from, table.to),
+    align,
+    header,
+    rows: shaped,
+  };
+}
+
+/**
+ * Every table that should be drawn as a grid right now.
+ *
+ * **`state.readOnly`, and nothing else** — the form block's rule, and the same
+ * sentence for the same reason. The rest of this file serves "you cannot edit
+ * syntax you cannot see" by revealing markup when the caret touches it, and a
+ * table cannot do that: the cell you want to edit is the thing the grid has
+ * replaced, so a grid that gave way on selection would flicker between two
+ * layouts as somebody arrowed through a row. A reader has no caret to reveal
+ * with, so the two rules stop competing: editing shows the pipes exactly where
+ * the author put them, reading shows the table.
+ *
+ * A table that does not start at the margin is left alone, for the reason
+ * `htmlPreviews` gives: a block widget replaces whole lines, and one indented
+ * inside a list item does not occupy them.
+ *
+ * `frontEnd` excludes the frontmatter — see `hangingIndents`.
+ */
+export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
+  if (!state.readOnly) return [];
+  const grids: TableGrid[] = [];
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "Table") return;
+      const table = node.node;
+      if (
+        state.doc.lineAt(table.from).from !== table.from ||
+        state.doc.lineAt(table.to).to !== table.to
+      ) {
+        return;
+      }
+      const grid = readTable(state, table);
+      if (grid !== null) grids.push(grid);
+    },
+  });
+  return grids;
+}
+
+/**
+ * A table, drawn as a table.
+ *
+ * A real `<table>` rather than a grid of divs, because this is tabular data and
+ * the element carries the row and column relationships to a screen reader for
+ * free — a reader who cannot see the alignment is exactly the one who needs to
+ * be told which header a cell belongs to.
+ *
+ * Nothing here interprets the note as markup: every string reaches the DOM
+ * through `textContent`, the way `FormWidget` does and for the same reason. The
+ * one tag a cell may contain that means something — `<br>` — has already become
+ * a `\n` in `cellRuns`, so the break is drawn by this file rather than parsed
+ * by the browser.
+ *
+ * `ignoreEvent` is left at CodeMirror's default, which **ignores** events inside
+ * the widget — the same behaviour `FormWidget` asks for explicitly. It costs
+ * nothing today, because a grid exists only while the note is read-only and
+ * there is no caret to place either way; it is named here so that a later
+ * change making tables interactive knows it is a decision rather than an
+ * oversight.
+ */
+export class TableGridWidget extends WidgetType {
+  constructor(private readonly grid: TableGrid) {
+    super();
+  }
+
+  /*
+    Compared on the table's own text. Like `FormWidget.eq` this is load-bearing
+    rather than an optimisation — the decoration set is rebuilt on every
+    transaction, and a widget that reported itself new would have its DOM torn
+    down and rebuilt on every keystroke elsewhere in the note.
+  */
+  eq(other: TableGridWidget): boolean {
+    return other.grid.source === this.grid.source;
+  }
+
+  toDOM(): HTMLElement {
+    /*
+      The scroller is the wrapper rather than the table, so a table wider than
+      the measure scrolls inside its own box. Without it the note itself scrolls
+      sideways, and then every paragraph in the note is dragged off screen by
+      one wide table.
+    */
+    const wrap = document.createElement("div");
+    wrap.className = "cm-lp-grid";
+
+    const table = document.createElement("table");
+    table.className = "cm-lp-grid-table";
+
+    const head = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    this.grid.header.forEach((cell, column) => {
+      headRow.append(this.drawCell("th", cell, column));
+    });
+    head.append(headRow);
+    table.append(head);
+
+    const body = document.createElement("tbody");
+    for (const row of this.grid.rows) {
+      const tr = document.createElement("tr");
+      row.forEach((cell, column) => {
+        tr.append(this.drawCell("td", cell, column));
+      });
+      body.append(tr);
+    }
+    table.append(body);
+
+    wrap.append(table);
+    return wrap;
+  }
+
+  private drawCell(tag: "th" | "td", runs: readonly CellRun[], column: number): HTMLElement {
+    const cell = document.createElement(tag);
+    const align = this.grid.align[column] ?? null;
+    if (align !== null) cell.classList.add(`cm-lp-grid-${align}`);
+
+    const empty = runs.every((run) => run.text.trim() === "");
+    if (empty) {
+      /*
+        A dash rather than nothing. An empty cell drawn as empty is
+        indistinguishable from a column that failed to render, and a reader has
+        no way to tell which they are looking at — the same argument as "an
+        absent capability is reported, never faked".
+      */
+      cell.classList.add("cm-lp-grid-empty");
+      return cell;
+    }
+
+    for (const run of runs) {
+      // A `\n` is the hard break the author wrote as `<br>`; see `cellRuns`.
+      const pieces = run.text.split("\n");
+      pieces.forEach((piece, index) => {
+        if (index > 0) cell.append(document.createElement("br"));
+        if (piece === "") return;
+        if (run.className === null) {
+          cell.append(document.createTextNode(piece));
+          return;
+        }
+        const span = document.createElement("span");
+        span.className = run.className;
+        span.textContent = piece;
+        cell.append(span);
+      });
+    }
+    return cell;
+  }
+}
+
 /**
  * A bullet, drawn in place of the `-` that means it.
  *
@@ -1167,7 +1709,18 @@ export function decorationsFor(state: EditorState): DecorationSet {
       }).range(indent.from),
     );
   }
+  /*
+    A table is either laid out or left as its own pipes, never both: a line
+    decoration inside a block replacement is a range set describing two
+    different things for the same characters. `tableGrids` is empty unless the
+    note is read-only, so an editable note still gets the mono face on every
+    row, and a read-only one whose table `readTable` refused falls back to it.
+  */
+  const grids = tableGrids(state, frontEnd);
+  const insideGrid = (pos: number): boolean =>
+    grids.some((grid) => pos >= grid.from && pos < grid.to);
   for (const from of tableLines(state, frontEnd)) {
+    if (insideGrid(from)) continue;
     lines.push(Decoration.line({ class: "cm-lp-table" }).range(from));
   }
 
@@ -1205,7 +1758,8 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const forms = formFences(state, frontEnd);
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
-    forms.some((form) => pos >= form.from && pos < form.to);
+    forms.some((form) => pos >= form.from && pos < form.to) ||
+    insideGrid(pos);
 
   const styles: Range<Decoration>[] = [];
   tree.iterate({
@@ -1258,6 +1812,20 @@ export function decorationsFor(state: EditorState): DecorationSet {
   }
 
   /*
+    And the tables, by the same rule about the passes above keeping out of the
+    range a block widget swallows. `tableGrids` has already refused anything
+    that does not occupy whole lines.
+  */
+  for (const grid of grids) {
+    hides.push(
+      Decoration.replace({
+        widget: new TableGridWidget(grid),
+        block: true,
+      }).range(grid.from, grid.to),
+    );
+  }
+
+  /*
     Bullets and checkboxes are replacements rather than styles — the characters
     that mean them are taken off the screen and a glyph is drawn instead — so
     they belong with the hides, and they obey the same reveal rule. See
@@ -1279,19 +1847,63 @@ export function decorationsFor(state: EditorState): DecorationSet {
 }
 
 /**
- * The extension: recompute on every document or selection change.
+ * The extension: recompute whenever the answer can have changed.
  *
  * A `StateField` rather than a `ViewPlugin` because the decorations depend on
  * the selection, and a view plugin that maps its own decorations through
  * transactions would have to invalidate them on every cursor move anyway —
  * which is the entire workload. Recomputing from the tree is simpler and is
  * what makes `decorationsFor` a pure function worth testing.
+ *
+ * ## The three inputs, and the one that was missed
+ *
+ * `decorationsFor` reads exactly three things out of the state: the document,
+ * the selection, and **`readOnly`**. The first two are what a transaction
+ * obviously carries. The third is configuration, and it changes by a route that
+ * carries neither — `LiveEditor`'s compartment swapping `editability(…)` when
+ * the eye is pressed — so a guard of "document or selection" let the whole of
+ * reading mode go stale.
+ *
+ * On screen that was the bug this comment exists for: **pressing the eye did
+ * nothing until you clicked into the note.** A form fence stayed as its own
+ * source, a table stayed as its pipes, and the markup a reader is not supposed
+ * to see stayed revealed — all of it correct again the instant any click
+ * produced a selection transaction and the cached set was finally thrown away.
+ *
+ * `readOnly` is compared rather than `transaction.reconfigured` being trusted,
+ * and the difference is not pedantry in both directions:
+ *
+ *  - A reconfigure that leaves `readOnly` alone cannot change a decoration, and
+ *    rebuilding the whole set from the tree is the work this field does per
+ *    keystroke. Redoing it for an unrelated facet is waste on the hottest path
+ *    here.
+ *  - More importantly it says *what is actually being watched*. A fourth input
+ *    added to `decorationsFor` later is a line to add here, and a condition
+ *    naming `readOnly` is one somebody reads and notices; `reconfigured` is one
+ *    that looks like it already covers everything and does not.
  */
 export function livePreview() {
   const decorations = StateField.define<DecorationSet>({
     create: (state) => decorationsFor(state),
     update(value, transaction) {
-      if (!transaction.docChanged && !transaction.selection) return value;
+      const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
+      /*
+        And the tree, which arrives late on a note of any size. CodeMirror parses
+        the first few thousand characters synchronously and finishes the rest on
+        an idle callback, announcing it with a transaction that carries no
+        document change, no selection and no change of `readOnly` — the third
+        input, by a fourth route. Without this a reader scrolling past roughly
+        the first screen of a long note finds raw markdown below it until a
+        click, which is the same symptom the `readOnly` comparison above was
+        added to kill.
+
+        Identity, not contents: the language state hands back a new `Tree` when
+        it has parsed further, and the same one otherwise.
+      */
+      const treeChanged = syntaxTree(transaction.state) !== syntaxTree(transaction.startState);
+      if (!transaction.docChanged && !transaction.selection && !readOnlyChanged && !treeChanged) {
+        return value;
+      }
       return decorationsFor(transaction.state);
     },
     provide: (field) => EditorView.decorations.from(field),
@@ -1505,15 +2117,83 @@ export const livePreviewStyles = `
   text-decoration-thickness: 1px;
 }
 /*
-  A table is not laid out — the pipes are still the author's — but it is drawn
-  in the mono face, which is what makes the columns of a table that fits line
-  up. See tableLines.
+  AN EDITABLE table is not laid out — the pipes are still the author's — but it
+  is drawn in the mono face, which is what makes the columns of a table that
+  fits line up. A reader gets the grid below instead. See tableLines and
+  tableGrids.
 */
 .cm-lp-table {
   font-family: var(--lp-mono);
   font-size: 0.86em;
 }
 .cm-lp-table-delim { color: var(--lp-muted); }
+/*
+  A TABLE, LAID OUT FOR A READER.
+
+  Hairlines and nothing else: no outer box, no fill, no zebra. A table in a
+  note is part of the document rather than a panel sitting on it, and every
+  edge spent here is an edge competing with the note's own structure. What
+  separates the header from the body is one stronger rule, which is the only
+  place this needs weight.
+
+  The scroller is the wrapper, so a table wider than the measure scrolls in its
+  own box rather than dragging the whole note sideways.
+*/
+.cm-lp-grid {
+  overflow-x: auto;
+  margin: 0.4em 0;
+}
+.cm-lp-grid-table {
+  border-collapse: collapse;
+  /*
+    Sized by its content rather than stretched to the measure. A two-column
+    table pushed to full width puts a hand-span of nothing between the label
+    and its value, which is harder to read than the pipes were.
+  */
+  width: auto;
+  max-width: 100%;
+  font-size: 0.94em;
+  line-height: 1.5;
+  /* Digits in a column line up, which is most of why a column of them exists. */
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-grid-table th {
+  font-weight: 600;
+  color: var(--lp-heading);
+  text-align: left;
+  padding: 7px 14px 8px;
+  border-bottom: 1px solid var(--lp-line-strong);
+  /*
+    A header is a label, and a label that wraps to two lines over a one-line
+    column is the table drawing attention to its own chrome.
+  */
+  white-space: nowrap;
+}
+.cm-lp-grid-table td {
+  padding: 8px 14px;
+  border-top: 1px solid var(--lp-line);
+  vertical-align: top;
+  color: var(--lp-content);
+}
+/*
+  The outer columns lose their side padding, so the grid's own edges line up
+  with the paragraph above it. Without this a table reads as indented from the
+  text around it by however much cell padding happens to be, which is the one
+  thing that gives away a rendered block as a rendered block.
+*/
+.cm-lp-grid-table tr > :first-child { padding-left: 0; }
+.cm-lp-grid-table tr > :last-child { padding-right: 0; }
+.cm-lp-grid-left { text-align: left; }
+.cm-lp-grid-center { text-align: center; }
+.cm-lp-grid-right { text-align: right; }
+/*
+  An empty cell says so. Drawn as nothing it is indistinguishable from a column
+  that failed to render, and a reader cannot tell which they are looking at.
+*/
+.cm-lp-grid-empty::after {
+  content: "—";
+  color: var(--lp-muted);
+}
 .cm-lp-rule { color: var(--lp-muted); }
 /*
   A FORM, DRAWN FROM ITS DECLARATION.
@@ -1531,16 +2211,69 @@ export const livePreviewStyles = `
   diagram frame beside it is and what a form is not.
 */
 .cm-lp-form {
-  border: 1px solid var(--lp-code-bg);
-  border-radius: 12px;
-  padding: 14px 16px 16px;
+  /*
+    A real hairline. This was --lp-code-bg, which is the code fence's FILL:
+    #F5F5F5 on a #FFFFFF ground, so in light mode the card had no visible edge
+    at all and the form read as loose controls dropped into the note. --lp-line
+    is the palette's own separator and is the same value every hairline in the
+    app is drawn in.
+  */
+  border: 1px solid var(--lp-line);
+  /*
+    One radius family — 10 on the card, 8 on the field, 8 on the button. It was
+    12 / 9 / 11, three radii no two of which agreed, which is what made a small
+    card read as three unrelated objects stacked up.
+  */
+  border-radius: 10px;
+  /* The padding belongs to the three bands inside, so their rules can run edge
+     to edge. */
+  overflow: hidden;
   margin: 0.6em 0;
   font-family: var(--lp-body);
   font-size: 0.94em;
   line-height: 1.45;
   color: var(--lp-content);
 }
-.cm-lp-form-row { margin-bottom: 12px; }
+/*
+  WHAT THIS BOX IS, AND WHERE WHAT YOU TYPE GOES.
+
+  See FormWidget.drawHead. The destination is the half that earns the strip:
+  responses live in a sister note by design, and a reader had no way to learn
+  which one before pressing Submit.
+*/
+.cm-lp-form-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--lp-line);
+  background: var(--lp-code-bg);
+}
+.cm-lp-form-kind {
+  font-family: var(--lp-mono);
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+.cm-lp-form-dest { font-size: 0.82em; color: var(--lp-muted); }
+.cm-lp-form-dest-path { font-family: var(--lp-mono); color: var(--lp-content); }
+.cm-lp-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+.cm-lp-form-row { display: flex; flex-direction: column; gap: 6px; }
+/* The label and its character count, on one line. */
+.cm-lp-form-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
 /*
   A field's name is its label verbatim, with underscores spaced out. Sentence
   case is left alone rather than title-cased: the author wrote the name, and a
@@ -1548,12 +2281,17 @@ export const livePreviewStyles = `
   are about a field they cannot find.
 */
 .cm-lp-form-label {
-  display: block;
-  font-size: 0.85em;
+  /*
+    Small, spaced and upper-case: a field name is a label rather than a
+    sentence, and at 0.85em in sentence case it read as body copy that happened
+    to be grey — the note's own prose and the form's chrome in the same voice.
+    The name itself is still verbatim; see drawField.
+  */
+  font-size: 0.76em;
   font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--lp-muted);
-  letter-spacing: 0.01em;
-  margin-bottom: 5px;
 }
 /*
   The word rather than an asterisk. An asterisk has to be learned, is invisible
@@ -1563,30 +2301,47 @@ export const livePreviewStyles = `
 */
 .cm-lp-form-required {
   font-weight: 500;
-  font-size: 0.92em;
+  /* Not upper-cased with the name: it is a note about the field, not part of
+     what the field is called. */
+  text-transform: none;
+  letter-spacing: 0.02em;
   color: var(--lp-muted);
-  opacity: 0.8;
+  opacity: 0.85;
 }
 .cm-lp-form-input {
   display: block;
   width: 100%;
   box-sizing: border-box;
   font: inherit;
+  font-family: var(--lp-body);
   color: var(--lp-content);
   background: var(--lp-code-bg);
-  border: 1px solid transparent;
-  border-radius: 9px;
+  /*
+    A real border at rest rather than a transparent one. A filled slab with no
+    edge is a block of colour; the edge is what says "you type in here", and
+    without it the only thing distinguishing a field from a code span was its
+    width.
+  */
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 8px;
   padding: 8px 10px;
   /* Safari draws its own rounded fill over the one above without this. */
   -webkit-appearance: none;
   appearance: none;
 }
+.cm-lp-form-input::placeholder { color: var(--lp-muted); opacity: 0.7; }
 /* The two controls that are meaningless at full width and a target at 18px. */
 .cm-lp-form-input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--lp-link); }
 .cm-lp-form-input[type="date"], .cm-lp-form-input[type="number"] { width: auto; min-width: 10em; }
 .cm-lp-form-input:focus {
   outline: none;
   border-color: var(--lp-link);
+  /*
+    A ring as well as the border. The border alone moves one pixel of colour on
+    focus, which is not enough to find the field you just tabbed to — and this
+    is the control a keyboard user reaches Submit through.
+  */
+  box-shadow: 0 0 0 3px var(--lp-focus-ring);
 }
 textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 /*
@@ -1595,17 +2350,20 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   field before it.
 */
 .cm-lp-form-count {
-  text-align: right;
-  font-size: 0.78em;
+  font-size: 0.76em;
   color: var(--lp-muted);
-  margin-top: 3px;
+  /* Digits that change under the reader's eye must not move the label. */
+  font-variant-numeric: tabular-nums;
 }
 .cm-lp-form-foot {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: 14px;
+  padding: 11px 14px;
+  /* The action is separated from the fields rather than being the next thing
+     in the stack — pressing it is not the same kind of act as filling one in. */
+  border-top: 1px solid var(--lp-line);
 }
 /*
   The app's primary button, in CSS: the accent fill, white ink, 11px corners and
@@ -1614,16 +2372,18 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-submit {
   font: inherit;
+  font-family: var(--lp-body);
   font-weight: 600;
   color: #ffffff;
   background: var(--lp-link);
   border: none;
-  border-radius: 11px;
-  padding: 9px 18px;
+  border-radius: 8px;
+  padding: 7px 16px;
   cursor: pointer;
   -webkit-appearance: none;
   appearance: none;
 }
+.cm-lp-form-submit:focus-visible { outline: 2px solid var(--lp-link); outline-offset: 2px; }
 .cm-lp-form-submit:disabled { opacity: 0.45; cursor: default; }
 .cm-lp-form-status { font-size: 0.88em; color: var(--lp-muted); }
 .cm-lp-form-status-ok { color: var(--lp-link); font-weight: 600; }
@@ -1635,12 +2395,27 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-status-bad { color: var(--lp-content); font-weight: 600; }
 .cm-lp-form-status-quiet { opacity: 0.75; }
+/*
+  The sister file's rows, as the card's fourth band.
+
+  Its own padding and no margin, because the card is now edge-to-edge bands
+  separated by rules (see .cm-lp-form) rather than one padded box — a margin
+  here would inset the rule and leave the rows flush against the border. The
+  title takes the same small upper-case voice as a field label, so the two
+  headings inside one card agree.
+*/
 .cm-lp-form-responses {
-  border-top: 1px solid var(--lp-code-bg);
-  margin-top: 16px;
-  padding-top: 14px;
+  border-top: 1px solid var(--lp-line);
+  padding: 14px;
 }
-.cm-lp-form-responses-title { font-weight: 650; margin-bottom: 8px; }
+.cm-lp-form-responses-title {
+  font-weight: 600;
+  font-size: 0.76em;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+  margin-bottom: 8px;
+}
 .cm-lp-form-responses-status { color: var(--lp-muted); font-size: 0.88em; }
 .cm-lp-form-responses-scroll { overflow-x: auto; }
 .cm-lp-form-responses-table {
@@ -1650,7 +2425,7 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 }
 .cm-lp-form-responses-table th,
 .cm-lp-form-responses-table td {
-  border-bottom: 1px solid var(--lp-code-bg);
+  border-bottom: 1px solid var(--lp-line);
   padding: 8px 10px 8px 0;
   text-align: left;
   vertical-align: top;
@@ -1660,7 +2435,7 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 .cm-lp-form-vote-controls { display: flex; gap: 6px; margin-top: 6px; white-space: nowrap; }
 .cm-lp-form-response-controls { display: flex; gap: 6px; white-space: nowrap; }
 .cm-lp-form-vote {
-  border: 1px solid var(--lp-code-bg);
+  border: 1px solid var(--lp-line-strong);
   border-radius: 8px;
   padding: 4px 8px;
   color: var(--lp-link);
@@ -1671,7 +2446,7 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 .cm-lp-form-vote:disabled { opacity: 0.45; cursor: default; }
 .cm-lp-form-vote-remove { color: var(--lp-muted); }
 .cm-lp-form-response-action {
-  border: 1px solid var(--lp-code-bg);
+  border: 1px solid var(--lp-line-strong);
   border-radius: 8px;
   padding: 4px 8px;
   color: var(--lp-link);
@@ -1689,7 +2464,10 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-broken {
   border-style: dashed;
+  border-color: var(--lp-line-strong);
   color: var(--lp-muted);
+  /* No head, no fields, no foot — so this one carries its own padding. */
+  padding: 14px;
 }
 .cm-lp-form-broken-title { font-weight: 600; color: var(--lp-content); }
 .cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }

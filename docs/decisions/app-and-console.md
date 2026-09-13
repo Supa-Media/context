@@ -3362,3 +3362,82 @@ said between the presses, not beside the button` and the `the destination
 editor` block in `apps/mobile/__tests__/googleConnectionsCard.test.ts`, plus
 `a narrowed card offers no way into the editor without a saver` in
 `apps/mobile/__tests__/communicationsPanels.test.ts`.
+
+### Reading mode is the whole rule for a block that replaces its own source
+
+Three things in a note are drawn as something other than the characters that
+mean them: a `form` fence becomes a form, a GFM table becomes a grid, and an
+`html-preview` fence becomes a diagram. All three are gated on **`state.readOnly`
+and nothing else** — reading mode, `privacy.md`, a viewer below editor, an
+encrypted envelope — rather than on a flag of their own.
+
+That is not tidiness, it is the file's central rule arriving at its limit.
+Everywhere else Live Preview serves "you cannot edit syntax you cannot see" by
+**revealing markup when the caret enters it**: `## Heading` is a heading until
+you click the line. A block widget cannot do that, and the two that came first
+show why from opposite directions. Filling in a form field *is* putting a caret
+somewhere, so a form that revealed on selection would turn back into a code
+fence the instant anybody tried to use it. A table's cell is the thing the grid
+replaced, so a grid that gave way on selection would flicker between two layouts
+as somebody arrowed along a row.
+
+A reader has no caret to reveal anything with, so the competition disappears:
+**editing shows you the source, reading shows you the thing.** The source is one
+press of the eye away, which is also the only place it can be fixed — which is
+why a `form` block that will not parse draws a card naming the line rather than
+a half-built form, and why a table the reader refuses falls back to the mono
+face rather than to nothing.
+
+The cost, stated: find-in-note searches the document, so a match inside a
+replaced range is not visible while reading. The grid also cannot carry
+`noteLinks`' click target, because that extension resolves a path against the
+open note through a ref that does not reach a widget — so a `[[wiki]]` link in a
+cell is drawn as its words in the link colour and is **not followable** until
+you leave reading mode. Both are real, both are the price of the block widget,
+and neither is worth a second reveal rule.
+
+**What would reverse this** is making a grid editable in place, and that is a
+different product: it needs a serializer from the drawn cells back to pipes,
+which is exactly the round trip `livePreview.ts` exists to avoid — "the buffer
+**is** the Markdown", and nothing here parses the document into another model
+and writes it back.
+
+### The `--lp-*` palette is a contract between two hosts, and a missing one fails silently
+
+Every rule drawn inside the note editor names its colours as `--lp-*` custom
+properties rather than as values, because the identical stylesheet runs in two
+places: the browser, where `LiveEditor.web.tsx` sets them from `useColors()`,
+and the iOS `WebView`, where they arrive over the bridge from `themeVars`. A
+colour imported from the design tokens at the top of a shared module would be
+the *build's* palette rather than the viewer's.
+
+**The failure mode is why this is a decision and not a convention.** An unknown
+custom property does not fall back and does not error: it makes its whole
+declaration invalid at computed-value time, so `color: var(--lp-missing)`
+resolves to `inherit` and the text silently takes whatever colour the app around
+the editor happens to be using. That shipped. The web half declared six of the
+set, `--lp-content` was not among them, and CodeMirror's own base theme
+(`li[aria-selected] { background: #17c; color: white }`) won the completion list
+— white ink on the light ground — while every form label, every input, the
+status line and the link tooltip lost their colour by the same mechanism. All of
+it was correct on iOS the whole time, which is exactly why looking at the app
+never found it.
+
+So the guard is a **relationship rather than a list**: `liveEditorMount.test.ts`
+mounts the editor, reads every stylesheet actually in the document, and requires
+every `--lp-*` any of them reads to be one the base `.cm-lp-root` rule declares.
+Reading the live document rather than importing the themes is what makes a theme
+the test forgot to import impossible to miss — the completion list's theme lives
+in `linkComplete.ts`, a different file from the one that declares the palette,
+and that distance is the whole reason the two drifted. Restricting to the base
+block is what stops a property declared only inside the compact media query from
+passing while being undefined at every width above the breakpoint, which is the
+desktop console, which is where it was reported.
+
+**A hairline is a token, not a fill.** There was no `--lp-line` for a long time,
+so anything that wanted an edge borrowed `--lp-code-bg` — the code fence's
+*background*, which is `#F5F5F5` on a `#FFFFFF` ground. Every such border was
+invisible in light mode, and two separate pieces of work reached that conclusion
+independently within a day. `--lp-line`, `--lp-line-strong` and
+`--lp-focus-ring` come from the palette's own `line`, `lineStrong` and
+`accentDim`; the guard above is what keeps both hosts declaring them.

@@ -493,8 +493,8 @@ function ConnectedGoogleRow({
           status={
             gmailRunDetail(connection) ??
             (connection.gmail.historyCursorReady
-              ? "Ready for new mail"
-              : "Connected; forward sync setup is pending")
+              ? "Watching for new mail"
+              : "Connected; waiting for the first scheduled mail pass")
           }
           destinationPath={connection.gmail.destinationPath}
           error={connection.syncRun?.status === "failed" ? inlineError : undefined}
@@ -510,8 +510,8 @@ function ConnectedGoogleRow({
           title={SERVICE_TITLES.calendar}
           status={
             connection.calendar.syncCursorReady
-              ? `Ready for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
-              : "Connected; upcoming event sync setup is pending"
+              ? `Watching for calendar changes${formatSyncTime(connection.calendar.lastSyncedAt) ? ` · ${formatSyncTime(connection.calendar.lastSyncedAt)}` : ""}`
+              : "Connected; waiting for the first scheduled calendar pass"
           }
           destinationPath={connection.calendar.destinationPath}
           saveDestination={actions?.saveDestination}
@@ -526,8 +526,8 @@ function ConnectedGoogleRow({
           title={SERVICE_TITLES.chat}
           status={
             connection.chat.cursorCount > 0
-              ? `Ready for ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
-              : "Connected; Chat sync setup is pending"
+              ? `Watching ${connection.chat.cursorCount} Chat space${connection.chat.cursorCount === 1 ? "" : "s"}${formatSyncTime(connection.chat.lastSyncedAt) ? ` · ${formatSyncTime(connection.chat.lastSyncedAt)}` : ""}`
+              : "Connected; waiting for the first scheduled Chat pass"
           }
           destinationPath={connection.chat.destinationPath}
           saveDestination={actions?.saveDestination}
@@ -537,14 +537,13 @@ function ConnectedGoogleRow({
       ) : null}
 
       {/*
-        The schedule is the *account's* — one grant, one pass — but only Gmail
-        is advanced by that pass today, so it is drawn only where Gmail is in
-        view. A Calendar or Chat panel showing "every 15 minutes, next due at
-        10:15" would be a promise this loop does not yet keep for those two;
-        their own status lines already say their sync is pending. When they
-        join the loop, this condition is what goes.
+        The schedule is the *account's* — one grant, one claim, one poll
+        interval — and the durable loop chooses the least-recently-synced
+        product on each pass. Drawing it on every narrowed panel is the thing a
+        reader needs most: when this account will next be asked about mail,
+        Calendar or Chat.
       */}
-      {connection.syncServices.gmail && showBlock("gmail") ? (
+      {(connection.syncServices.gmail || connection.syncServices.calendar || connection.syncServices.chat) ? (
         <GoogleSyncScheduleBlock
           connectionId={connection.connectionId}
           sync={connection.sync}

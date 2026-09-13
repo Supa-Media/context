@@ -195,7 +195,7 @@ export function SettingsList({
       {/*
         The box is here because a list only works when our name for a thing is
         the reader's. Somebody looking for Gmail does not know it is under
-        "What comes in", and somebody who wants to cancel does not think
+        "Integrations", and somebody who wants to cancel does not think
         "account" — so every section carries the words people actually type,
         and this matches against those as well as the label.
       */}

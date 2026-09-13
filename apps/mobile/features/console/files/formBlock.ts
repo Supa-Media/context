@@ -390,9 +390,19 @@ export class FormWidget extends WidgetType {
   private drawForm(wrap: HTMLElement, config: FormConfig): HTMLElement {
     const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>();
 
+    wrap.append(this.drawHead(config));
+
+    /*
+      The fields in their own box rather than loose in the card, so the card can
+      carry a header and a footer with rules between them. The gap is here and
+      not as a margin on each row, or the first and last rows fight the box's
+      own padding — see the stylesheet.
+    */
+    const fields = el("div", "cm-lp-form-fields");
     for (const field of config.fields) {
-      wrap.append(this.drawField(field, config, inputs));
+      fields.append(this.drawField(field, config, inputs));
     }
+    wrap.append(fields);
 
     const foot = el("div", "cm-lp-form-foot");
     const button = el("button", "cm-lp-form-submit", "Submit");
@@ -505,6 +515,33 @@ export class FormWidget extends WidgetType {
     });
 
     return wrap;
+  }
+
+  /**
+   * The strip that says what this box is and where what you type into it goes.
+   *
+   * **The destination is the part worth the row.** `responses:` is in the
+   * block, so an author sees it; a reader gets a form with a Submit button and
+   * no way at all to find out which note their answer lands in — and in a
+   * shared workspace that is the one thing they might reasonably want to check
+   * before typing. It is the same fact `docs/decisions/forms.md` rests the
+   * whole design on ("responses live in a sister file"), and it was invisible
+   * on the only surface where it matters.
+   *
+   * Plain text rather than a link, deliberately. Following one means resolving
+   * a path against the open note and navigating, which is `noteLinks`' job and
+   * reaches this widget through a ref it has not got. A link that looks
+   * followable and is not is worse than the name on its own, so the name is
+   * what is drawn — the file is one press of the eye away in the block itself.
+   */
+  private drawHead(config: FormConfig): HTMLElement {
+    const head = el("div", "cm-lp-form-head");
+    head.append(el("span", "cm-lp-form-kind", `Form · ${config.id}`));
+
+    const dest = el("span", "cm-lp-form-dest", "Answers go to ");
+    dest.append(el("span", "cm-lp-form-dest-path", config.responses));
+    head.append(dest);
+    return head;
   }
 
   /**
@@ -701,14 +738,23 @@ export class FormWidget extends WidgetType {
     const row = el("div", "cm-lp-form-row");
     const id = `cm-form-${config.id}-${field.name}`;
 
+    /*
+      The label and the character count share one line above the box. The count
+      used to sit under it, which put the limit *after* the control it applies
+      to — you found out how much room you had by running out of it — and cost
+      a whole row per field in a card that is already a stack of rows.
+    */
+    const top = el("div", "cm-lp-form-top");
+
     const label = el("label", "cm-lp-form-label");
     label.htmlFor = id;
     label.textContent = field.name.replace(/_/g, " ");
     if (field.required) {
-      const mark = el("span", "cm-lp-form-required", "required");
+      const mark = el("span", "cm-lp-form-required", "· required");
       label.append(" ", mark);
     }
-    row.append(label);
+    top.append(label);
+    row.append(top);
 
     const input = buildInput(field);
     input.id = id;
@@ -730,7 +776,8 @@ export class FormWidget extends WidgetType {
         count.textContent = `${[...input.value].length} / ${field.max}`;
       };
       input.addEventListener("input", update);
-      row.append(count);
+      // Onto the label's line, beside the name it is a limit on.
+      top.append(count);
     }
     return row;
   }

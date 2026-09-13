@@ -223,6 +223,63 @@ describe("the drawn form", () => {
     expect(dom.textContent).toContain("<img src=x>");
   });
 
+  /**
+   * A READER CAN SEE WHERE THEIR ANSWER IS GOING.
+   *
+   * `responses:` names a sister note, and that is the load-bearing half of the
+   * whole design — who may read an answer is whatever visibility that one file
+   * has. An author sees the key in the block. A reader saw a box and a Submit
+   * button and had no way at all to find out which note their words land in,
+   * which in a shared workspace is the thing they might reasonably want to
+   * check before typing.
+   */
+  describe("the head says what the box is and where it sends", () => {
+    test("the responses note is named to the person filling it in", () => {
+      const head = drawn().querySelector<HTMLElement>(".cm-lp-form-head");
+      expect(head).not.toBeNull();
+      expect(head?.textContent).toContain("bugs-responses.md");
+    });
+
+    test("and the form is named by its own id, not by a guess at a title", () => {
+      expect(drawn().querySelector<HTMLElement>(".cm-lp-form-kind")?.textContent).toContain("bugs");
+    });
+
+    /*
+      Through `textContent` like every other string in this file. A path is
+      author-supplied text reaching the screen, so the rule that holds for a
+      select option holds here: there is no `innerHTML` in this widget.
+    */
+    test("a path that looks like markup is drawn as characters", () => {
+      const doc = [
+        "```form",
+        "id: x",
+        "responses: <img src=x onerror=alert(1)>.md",
+        "layout: table",
+        "fields:",
+        "  - { name: a, type: line, max: 10 }",
+        "```",
+      ].join("\n");
+      const state = stateFor(doc);
+      const [fence] = formFences(state);
+      // Whether the grammar accepts this path at all is `forms.js`'s call; what
+      // is asserted here is that if it reaches the DOM it reaches it as text.
+      if (fence.config === null) return;
+      const dom = new FormWidget(fence, null).toDOM();
+      expect(dom.querySelector("img")).toBeNull();
+      expect(dom.textContent).toContain("<img src=x onerror=alert(1)>.md");
+    });
+  });
+
+  /**
+   * The count is a limit, and a limit read after the control it applies to is
+   * one you find out about by running out of room. It shares the label's line.
+   */
+  test("the character count sits on the label's own row", () => {
+    const top = drawn().querySelector<HTMLElement>(".cm-lp-form-top");
+    expect(top?.querySelector(".cm-lp-form-label")).not.toBeNull();
+    expect(top?.querySelector(".cm-lp-form-count")?.textContent).toBe("0 / 120");
+  });
+
   test("says it cannot send when the surface has no host, rather than offering a dead button", () => {
     const dom = drawn(null);
     expect(dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.disabled).toBe(true);

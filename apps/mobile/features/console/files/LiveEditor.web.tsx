@@ -216,20 +216,51 @@ function ensureStyles(colors: Colors): void {
   --lp-code-bg: ${colors.well};
   --lp-mono: ${fonts.mono};
   /*
-    What the note is drawn *on*, which this half did not declare until something
-    needed to draw in it.
+    THIS BLOCK IS THE CONTRACT, AND IT HAS BEEN BROKEN TWICE THE SAME WAY.
 
-    The guest bundle has always set it (webview/styles.ts) and this half had
-    only the four above, so a rule using it was fine on iOS and silently wrong
-    in the browser — an unknown custom property makes its declaration invalid at
-    computed-value time, so a colour falls back to currentColor rather than to
-    nothing visible. The checkbox's tick is cut out of the filled box in this
-    colour; without it the tick took the text colour and vanished into the fill.
+    Everything drawn inside the editor — the shared stylesheet appended below,
+    the completion list's theme, the link affordance — names its colours as
+    --lp-* custom properties rather than as values, because the same rules run
+    inside the iOS WebView where the palette arrives over a bridge. The guest
+    declares the whole set (webview/host.ts themeVars, webview/styles.ts); this
+    half has to declare the same set or those rules are talking to nothing.
 
-    The editor itself is transparent (below), so this names the surface behind
-    it rather than painting one.
+    A missing one does not fail loudly. An unknown custom property makes its
+    whole declaration invalid at computed-value time, so a colour naming one
+    becomes inherit rather than an error — and the text takes whatever colour
+    the app around the editor happens to be using, which was white ink on the
+    light ground in the completion list and in every form label. It was right
+    on iOS the whole time, which is exactly why nobody found it by looking at a
+    phone.
+
+    So: KEEP THIS IN STEP WITH themeVars. liveEditorMount.test.ts asserts
+    that every --lp-* any mounted stylesheet reads is one declared here, which
+    is the guard rather than this paragraph.
+  */
+  --lp-content: ${colors.text2};
+  /*
+    Hairlines, which this file had no token for at all — a rule that needed one
+    borrowed --lp-code-bg, and that is the code fence's *fill*: #F5F5F5 on a
+    #FFFFFF ground, which is not an edge. The palette has had the right two
+    values the whole time.
+  */
+  --lp-line: ${colors.line};
+  --lp-line-strong: ${colors.lineStrong};
+  /* The wash behind a focused control, so focus is a ring rather than one
+     pixel of border changing colour. */
+  --lp-focus-ring: ${colors.accentDim};
+  /*
+    What the note is drawn *on*. The editor itself is transparent (below), so
+    this names the surface behind it rather than painting one. The checkbox's
+    tick is cut out of the filled box in this colour.
   */
   --lp-bg: ${colors.surface};
+  /*
+    The face the rendered blocks are set in — a form's fields, a table's cells.
+    Not the scroller's own font-family, which is set directly below: that one
+    is the note's body text and existed before anything here needed a token.
+  */
+  --lp-body: ${fonts.body};
   height: 100%;
 }
 .cm-lp-root .cm-editor { height: 100%; background: transparent; }
@@ -241,7 +272,12 @@ function ensureStyles(colors: Colors): void {
   padding: 14px 16px;
   overflow: auto;
 }
-.cm-lp-root .cm-content { color: ${colors.text2}; caret-color: ${colors.text}; }
+/*
+  Through the property rather than the value, so the body text and everything
+  that says "the note's ink" resolve to one colour. The media query below moves
+  both by moving the property once.
+*/
+.cm-lp-root .cm-content { color: var(--lp-content); caret-color: ${colors.text}; }
 .cm-lp-root .cm-line { padding: 0; }
 /*
   The phone reads the note; it does not inspect it. Same buffer, same
@@ -268,7 +304,12 @@ function ensureStyles(colors: Colors): void {
     line-height: 1.5;
     padding: 8px 24px 32px;
   }
-  .cm-lp-root .cm-content { color: ${colors.text}; }
+  /*
+    The note is the whole screen here rather than a column beside a file tree,
+    so it is drawn in the full-strength ink — themeVars' compact ? text : text2,
+    which is the same sentence in the same two colours.
+  */
+  .cm-lp-root { --lp-content: ${colors.text}; }
 }
 ${livePreviewStyles}
 `;
