@@ -217,15 +217,28 @@ Deletion is a distinct explicit phase, unavailable until a seven-day rollback
 window has elapsed, and re-verifies each source/destination pair before removing
 the source. Re-running either phase is safe.
 
-The Explorer exposes this as an owner-only settings control. Its confirmation
+The console exposes this as an owner-only control in **Settings → Storage**,
+and as a **dismissible notice** in the browse pane's existing notice band. It
+is deliberately not chrome: it was briefly a gear in the file tree's toolbar,
+beside the four controls somebody uses every day, and a maintenance operation
+run once or never does not earn permanent room there. Both entry points are
+gated on the same owner-only action and raise the same confirmation, which
 names the boundary before anything runs: only reserved Context objects move;
-notes, folders, `privacy.md`, and `index.md` do not. One press queues a fresh
-capability check, bounded copy batches until copying is complete, and safe
-cleanup for the end of the rollback window, so an owner does not need to call
-an internal migration function or keep the console open. A backend without
-verified conditional delete keeps its legacy copies rather than risk deleting
-an object that changed; a stopped run is resumed by pressing the same control
-again.
+notes, folders, `privacy.md`, and `index.md` do not. The notice carries one
+further condition the settings row does not — a connected binding — because an
+offer that appears in front of somebody has to earn the interruption, while a
+row they went looking for should still be there while a probe is in flight;
+neither condition decides who may run it. Its dismissal is remembered per
+workspace on the device, because nothing tells the console whether a given
+bucket still needs the update, so an offer drawn from availability alone would
+return for ever.
+
+One press queues a fresh capability check, bounded copy batches until copying
+is complete, and safe cleanup for the end of the rollback window, so an owner
+does not need to call an internal migration function or keep the console open.
+A backend without verified conditional delete keeps its legacy copies rather
+than risk deleting an object that changed; a stopped run is resumed by pressing
+the same control again.
 
 The connect-time capability probe persists conditional create and delete
 alongside conditional writes. Older binding rows omit those fields and
