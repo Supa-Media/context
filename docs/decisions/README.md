@@ -283,6 +283,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One unreadable plugin costs one verdict, never the report
 - The read path cannot be aimed
 - What is deliberately not built
+- Drawings: read the file, describe it, and refuse to write over it
+- The guard is the load-bearing half, and describing created the need for it
+- Everything degrades to "we could not read it", never to a refusal
+- The render is true, not hand-drawn, and that is the trade
 
 ## [Testing and guards](./testing.md)
 

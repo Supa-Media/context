@@ -18,6 +18,11 @@
  */
 
 import { termsOf } from "./text.js";
+import {
+  drawingSearchText,
+  isDrawingPath,
+  parseDrawing,
+} from "../../../../packages/drawings/src/excalidraw.js";
 
 const FIELD_ORDER = ["title", "headings", "tags", "body"];
 
@@ -140,6 +145,33 @@ function extractLinks(text, folder) {
  */
 export function extractFields(path, content) {
   const normalized = typeof content === "string" ? content.replace(/\r\n/g, "\n") : "";
+  /*
+    A drawing is indexed by what is written *in* it, never by its payload.
+
+    `<name>.excalidraw.md` is a real Markdown file, so without this branch the
+    walk tokenizes a megabyte of LZ-String base64 into terms no query can
+    produce — which is the argument the fallback scan already makes for an
+    encrypted note ("matching a needle against base64 would produce hits nobody
+    asked for"), reached by a different route. What is left is the drawing's
+    name, its labels and the notes it links to, which is what somebody is
+    actually searching for when they go looking for a diagram.
+
+    Here rather than in `addDoc` because every consumer of the index — the
+    shards, the D1 projection, `maintain.js` — goes through this function, and a
+    second place to decide what a drawing's text is would be a second place for
+    it to be wrong.
+  */
+  if (isDrawingPath(path)) {
+    const drawing = parseDrawing(normalized, path);
+    const fmMatch = normalized.match(FRONTMATTER_RE);
+    return {
+      title: drawing.name,
+      headings: "",
+      tags: fmMatch ? parseFrontmatterTags(fmMatch[1]) : [],
+      body: drawingSearchText(drawing),
+      links: extractLinks(drawingLinkText(drawing), folderOf(path)),
+    };
+  }
   const fmMatch = normalized.match(FRONTMATTER_RE);
   const tags = fmMatch ? parseFrontmatterTags(fmMatch[1]) : [];
   const rest = fmMatch ? normalized.slice(fmMatch[0].length) : normalized;
@@ -162,6 +194,27 @@ export function extractFields(path, content) {
   const links = extractLinks(rest, folderOf(path));
 
   return { title, headings, tags, body, links };
+}
+
+/**
+ * The part of a drawing that carries links to other notes.
+ *
+ * A drawing's `[[wikilinks]]` live in its `Element Links` and `Embedded Files`
+ * sections and in an element's own `link`, never in prose — so the link walk is
+ * handed those and nothing else. Passing it the whole file instead would make
+ * it scan the payload, which is both pointless and the slowest thing the
+ * indexer could do to a megabyte of base64.
+ */
+function drawingLinkText(drawing) {
+  const parts = [];
+  for (const [, target] of drawing.elementLinks) parts.push(String(target));
+  for (const [, target] of drawing.embeddedFiles) parts.push(String(target));
+  if (drawing.elements) {
+    for (const element of drawing.elements) {
+      if (typeof element.link === "string") parts.push(element.link);
+    }
+  }
+  return parts.join("\n");
 }
 
 // -- in-memory index -----------------------------------------------------

@@ -115,11 +115,16 @@ import {
   getWithLegacyFallback,
   migrateStorageLayout,
 } from "./storageLayout.js";
+import {
+  describeDrawing,
+  isDrawingPath,
+  parseDrawing,
+} from "../../../packages/drawings/src/excalidraw.js";
 import { CHANNELS, CHANNEL_FOLDERS } from "../../../packages/communications/src/protocol.js";
 import { parseChannelDayNote } from "../../../packages/communications/src/note.js";
 import { parseChannelDayPath } from "../../../packages/communications/src/paths.js";
 import { classifyCaptureKind } from "./communications/paths.js";
-import { indexByName, rewriteLinks } from "./links.js";
+import { indexByName, parseLinks, rewriteLinks } from "./links.js";
 import { createSearchBudget, NOTE_INDEX_CHAR_CAP } from "./search/maintain.js";
 import {
   SEARCH_RESULT_LIMIT,
@@ -4875,9 +4880,75 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   const opened = await openStoredNote(store, stored);
   if (!opened.ok) return encryptedNoteRefusal(path);
   const marker = opened.encrypted ? "\nencryption: v1" : "";
+  /*
+   * A DRAWING IS DESCRIBED, NOT DUMPED.
+   *
+   * `<name>.excalidraw.md` is a Markdown file whose body is a compressed JSON
+   * payload. Returning it verbatim spends the caller's whole context on bytes
+   * it cannot decode, so a drawing comes back as `describeDrawing` renders it:
+   * what is in it, what the labels say, and which shape points at which. The
+   * console draws the real picture from the same parse (`packages/drawings`),
+   * so the words and the image never describe different drawings.
+   *
+   * The etag is still the file's, because it still identifies the file. What a
+   * caller must not do is write this text back — `toolWriteNote` refuses that
+   * explicitly rather than trusting anyone to notice.
+   */
+  if (isDrawingPath(path) && !opened.encrypted) {
+    const drawing = parseDrawing(opened.text, path);
+    return toolText(
+      `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}\n` +
+        `kind: drawing\n\n${describeDrawing(drawing, { path })}\n\n` +
+        "*This is a description. The drawing itself is unchanged in the bucket, and " +
+        "write_note will not overwrite it with text.*"
+    );
+  }
   return toolText(
-    `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}\n\n${opened.text}`
+    `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}` +
+      `${drawingEmbedLine(opened.text)}\n\n${opened.text}`
   );
+}
+
+/**
+ * The drawings a note embeds, as a header line.
+ *
+ * `![[plan.excalidraw]]` in a note is an image to Obsidian and four words to
+ * everything else. A caller reading the note gets told the embed is a drawing
+ * and what to read to find out what it shows — without which the most common
+ * way a drawing appears in somebody's brain is also the one way an agent
+ * cannot follow.
+ *
+ * **In the header and not appended to the body**, which is the whole of the
+ * design and was a bug first. Appended, it reads as part of the note: a client
+ * that reads a note, edits a line and writes it back would have written
+ * "Embedded drawings (read one…)" into the customer's file. That is the same
+ * data-loss shape `toolWriteNote`'s drawing guard exists to stop, introduced by
+ * the feature meant to be safe. The header block above the blank line is
+ * already the established place for what is true *about* a note rather than in
+ * it — `etag`, `path`, `visibility`, `encryption` — and every client already
+ * treats it that way.
+ *
+ * Resolution is deliberately not attempted here. `parseLinks` already knows how
+ * a target is written and `rewriteLinks` already keeps these pointing at the
+ * right file when one moves (an `.excalidraw` suffix is ten characters, so it
+ * falls past `resolveLink`'s eight-character extension test and correctly has
+ * `.md` appended). What this adds is the one thing neither does: saying out
+ * loud that the thing on the other end is a picture.
+ */
+function drawingEmbedLine(text) {
+  // Every note read passes through here, so the common answer is reached
+  // without parsing anything: a note with no drawing in it cannot name one.
+  if (!/excalidraw/i.test(text)) return "";
+
+  const seen = new Set();
+  for (const link of parseLinks(text)) {
+    if (!link.embed) continue;
+    const file = link.target.trim().split("#")[0];
+    if (!/\.excalidraw(\.md)?$/i.test(file)) continue;
+    seen.add(file.endsWith(".md") ? file : `${file}.md`);
+  }
+  if (seen.size === 0) return "";
+  return `\nembedded drawings: ${[...seen].join(", ")}`;
 }
 
 /**
@@ -5101,6 +5172,37 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (isPlumbing(path)) return toolError("that path is reserved");
   if (isPersonalCommunicationsPath(path) && store.actor?.workspaceKind === "shared") {
     return toolError("personal communications can only be synced to a personal brain");
+  }
+  /*
+   * A DRAWING IS NEVER OVERWRITTEN WITH TEXT.
+   *
+   * `read_note` returns a drawing as a *description* — see `toolReadNote` —
+   * which creates a failure mode that did not exist before it: a client that
+   * reads a note, edits a line and writes the whole thing back would replace
+   * somebody's diagram with a paragraph about the diagram, and the only copy of
+   * those elements is the file it just destroyed. That is exactly the
+   * data-loss shape `docs/decisions/obsidian-plugins.md` refuses ("a file we do
+   * not parse is still a file we do not corrupt"), arriving through the gateway
+   * instead of through a tidy-up.
+   *
+   * So a write to a `.excalidraw.md` path must itself be a drawing. The test is
+   * "does this parse as one", not "is the caller trusted" or "did the caller
+   * pass a flag": a real drawing written by a real editor passes it, and text
+   * that only describes one cannot. Creating a new drawing through the gateway
+   * is still allowed — it just has to carry a payload.
+   *
+   * Before the etag check on purpose. A caller who is about to destroy a
+   * drawing should be told that, not told their etag is stale.
+   */
+  if (isDrawingPath(path)) {
+    const incoming = parseDrawing(content, path);
+    if (incoming.unreadable === "missing") {
+      return toolError(
+        "that path holds an Excalidraw drawing, and this content carries no drawing payload. " +
+          "read_note returns a drawing as a description, not as its source — writing that back " +
+          "would replace the drawing with text. Edit it in Excalidraw or Obsidian instead."
+      );
+    }
   }
   /*
    * A FORM BLOCK THAT DOES NOT PARSE IS REFUSED AT THE WRITE, NOT AT THE READ.

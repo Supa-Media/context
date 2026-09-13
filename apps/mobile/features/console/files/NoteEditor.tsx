@@ -13,6 +13,8 @@ import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
 import { Confirm } from "./Dialogs";
+import { isDrawingPath } from "@context/drawings";
+import { DrawingView } from "./DrawingView";
 import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
@@ -255,6 +257,14 @@ export function NoteEditor({
   */
   const passphraseLocked =
     state.encrypted && encryption !== undefined && isPassphraseNote(state.draft);
+  /*
+    A drawing is decided by its path, never by its content: the check has to
+    hold for a file that is still loading, for one whose payload is unreadable,
+    and for an empty draft — and in every one of those the path is the only
+    thing that is known. An encrypted drawing stays on the locked path below,
+    because there is nothing to draw until it is opened.
+  */
+  const drawing = !passphraseLocked && !state.encrypted && isDrawingPath(state.path ?? "");
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   /*
@@ -480,7 +490,24 @@ export function NoteEditor({
           {compact && !passphraseLocked && (frontmatter !== "" || visibility !== undefined) ? (
             <Properties frontmatter={frontmatter} visibility={visibility} />
           ) : null}
-          {passphraseLocked ? (
+          {drawing ? (
+            /*
+              A drawing is shown, not edited.
+
+              `LiveEditor` would happily open a `.excalidraw.md` file — it is
+              Markdown — and hand somebody a buffer of LZ-String base64 with a
+              caret in it. One stray keystroke in that buffer and a save writes
+              a payload no reader can decompress: the diagram is gone, and the
+              file still looks like a file. So this branch comes before the
+              editor rather than beside it, and there is no way past it.
+
+              Editing stays where the format is owned, in Excalidraw or
+              Obsidian. That is the same answer `toolWriteNote` gives an agent
+              that tries to write prose over a drawing, reached from the other
+              side of the product.
+            */
+            <DrawingView path={state.path!} source={state.draft} />
+          ) : passphraseLocked ? (
             <LockedNoteView
               path={state.path!}
               stored={state.draft}

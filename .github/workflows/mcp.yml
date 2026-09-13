@@ -60,6 +60,9 @@ on:
       # And the offline decryptor, same reason again: `Test Offline Decryptor`
       # below is its only CI anywhere.
       - "packages/encryption-decryptor/**"
+      # And the drawings core, same reason again: `Test Drawings Core` below is
+      # its only CI anywhere.
+      - "packages/drawings/**"
       - ".github/workflows/mcp.yml"
 
 permissions:
@@ -191,6 +194,40 @@ jobs:
       # because this package has no dependencies either.
       - name: Run test suite
         working-directory: packages/communications
+        run: node test/test.mjs
+
+  drawings:
+    name: Test Drawings Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # Beside `Test Meetings Core` and for the reason written there in full: a
+      # package whose suite no job runs has local-only checks. `ci.yml`'s
+      # reusable pipeline filters on `apps/mobile`, `apps/convex` and
+      # `packages/shared`, and nothing else invokes `packages/drawings/test`.
+      #
+      # This one decides what happens to a customer's Excalidraw files — which
+      # of them the gateway will describe rather than dump, and which writes it
+      # refuses so a diagram is not replaced by a paragraph about the diagram.
+      # Its consumers' suites are not a substitute for the same measured reason
+      # recorded on `Test Meetings Core`: a consumer's suite sees the behaviour
+      # it happens to exercise, and the owning package's suite is the contract.
+      # Concretely, the gateway suite never reaches the pre-`##` heading form or
+      # the uncompressed `json` fence at all, and both are shapes a real vault
+      # contains.
+      #
+      # Bare node with no install, because this package has no dependencies —
+      # the same promise the gateway makes, and the reason the gateway can
+      # import it by relative path.
+      - name: Run test suite
+        working-directory: packages/drawings
         run: node test/test.mjs
 
   desktop:

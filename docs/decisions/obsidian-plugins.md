@@ -161,3 +161,87 @@ The rule that governs all three, and the reason none of them is a small step:
 context.** `team` means named people the owner granted access to, and none of
 them consented to somebody else's plugin. Whatever the runtime ends up being, it
 is scoped below the context, not equal to it.
+
+## Drawings: read the file, describe it, and refuse to write over it
+
+`.excalidraw.md` was listed above as a format we do not parse and therefore
+cannot corrupt. That is still the floor, and it is no longer the whole answer:
+a drawing is now **read** — described in words for an agent and drawn as a
+picture in the console — and still never rewritten.
+
+The reason the floor stopped being enough is that a drawing is a `.md` file, so
+every rule in the gateway already applied to it and each one was wrong in the
+same way. `list_notes` showed it as an ordinary note. The indexer tokenized a
+megabyte of LZ-String base64 into terms no query can produce, crowding out the
+ones that can — the argument the fallback scan already makes for an encrypted
+note ("matching a needle against base64 would produce hits nobody asked for"),
+arriving by a different route. And `read_note` returned the whole file,
+uncapped, so asking about a diagram spent a caller's entire context on a blob it
+could not decode.
+
+`packages/drawings` is the one parser, imported by the Worker by relative path
+(no dependency, no build step — the `packages/meetings` arrangement) and by the
+console as `@context/drawings`. One parse feeds both the description and the
+render, so the words an agent is given and the picture a person sees cannot
+drift into describing different drawings.
+
+### The guard is the load-bearing half, and describing created the need for it
+
+Returning a description introduces a failure that did not exist before it: a
+client reads a note, edits a line, writes the whole thing back — and replaces
+the diagram with a paragraph *about* the diagram. The only copy of those
+elements was the file it just destroyed. That is the data-loss shape this
+document already refuses, arriving through the gateway rather than through a
+tidy-up.
+
+So a write to a `.excalidraw.md` path must itself parse as a drawing. The test
+is "does this carry a payload", not "is the caller trusted" and not "did the
+caller pass a flag": a real drawing from a real editor passes it, text that only
+describes one cannot, and creating a new drawing through the gateway still
+works. The console enforces the same rule from the other side — `NoteEditor`
+renders a drawing instead of opening it in `LiveEditor`, because an editor over
+that buffer is one keystroke away from a payload nothing can decompress and a
+file that still looks like a file.
+
+### Everything degrades to "we could not read it", never to a refusal
+
+Missing, oversized, undecodable or unrecognised payloads all parse to a drawing
+with `elements: null` and whatever labels the Markdown half carried — which is
+usually all of them, because the plugin writes them out as plain text precisely
+so they stay searchable. The reply then says which of those happened and that
+the file is untouched.
+
+This is a deliberate ceiling on what a bug in the decoder can cost. LZ-String is
+vendored (the gateway has no dependencies and cannot have one), and a vendored
+decompressor is exactly the kind of code that is subtly wrong on a subset of
+inputs. Every caller therefore treats a decode failure as "payload unavailable",
+so the worst case is a missing preview rather than a file that will not open.
+
+### The render is true, not hand-drawn, and that is the trade
+
+Excalidraw's look comes from `roughjs` re-stroking every edge several times from
+a seeded RNG. Reproducing it is a large amount of code whose output is *meant*
+to be imprecise and which changes upstream — and it cannot run in the gateway at
+all, which has no DOM. `scene.js` lays elements out as plain primitives and
+`DrawingView` draws them with `react-native-svg` (already in `native-deps.json`,
+so no new native dependency, and the same component on web, iOS and Android).
+Hachure fills flatten to reduced-opacity solids for the same reason.
+
+A preview that looks slightly too tidy is worth more than one that is wrong in
+ways nobody can predict, and the file stays portable either way: the real
+rendering is one click away in Obsidian or on excalidraw.com. **That is the
+point of keeping the file plain, so the renderer is allowed to be the
+approximate half.**
+
+### What is deliberately not built
+
+- **Editing.** The console draws a drawing; it does not change one. Authoring
+  means the real Excalidraw editor — React DOM, so a lazy web chunk and a
+  webview on native, deliberately *not* folded into the committed CodeMirror
+  bundle that ships over the air.
+- **Images inside a drawing.** Excalidraw stores those bytes in the payload's
+  `files` map; they render as placeholder boxes until that is wired to the asset
+  store.
+- **Serving a drawing as an image over MCP.** `read_image` refuses SVG on
+  purpose, and rasterising needs a renderer the Worker cannot host. An agent
+  gets the description, which is the form it can actually use.
