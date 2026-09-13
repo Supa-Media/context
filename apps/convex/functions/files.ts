@@ -357,8 +357,8 @@ const pluginInventoryValidator = v.object({
   reason: v.union(v.string(), v.null()),
   plugins: v.array(pluginValidator),
   // Convex object-validator fields are identifiers, so verdicts containing
-  // hyphens must be represented as record keys instead of object fields.
-  counts: v.record(pluginVerdictValidator, v.number()),
+  // hyphens must be represented as string record keys instead of object fields.
+  counts: v.record(v.string(), v.number()),
   found: v.number(),
   scanned: v.number(),
   truncated: v.boolean(),
