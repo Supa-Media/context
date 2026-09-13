@@ -605,6 +605,10 @@ export const applyBinding = internalMutation({
       // place, dual reads carrying it, and nothing on any screen saying so.
       storageLayoutState: undefined,
       storageLayoutAt: undefined,
+      // And the record that it was ever *asked*, which is the half that
+      // decides whether the console offers at all. Left behind, a new bucket
+      // reads as "checked, never run" and is never offered the migration.
+      storageLayoutCheckedAt: undefined,
       // And the Dropbox grant, which is the one with a life of its own.
       //
       // `applyDropboxBinding` clears every S3 field on the way in and says why:
@@ -928,11 +932,28 @@ export const recordVerification = internalMutation({
  * failure to record. A binding that vanished mid-migration drops the write,
  * exactly as the count does: the state describes a bucket this row no longer
  * names.
+ *
+ * ## An absent `state` is an answer too, and it is why this takes one
+ *
+ * `state` is optional because **"we looked, and this bucket has never run the
+ * migration" is a different fact from "nobody has looked"** — and the console
+ * had no way to tell them apart, so it offered the update to every context
+ * migrated before this field existed, for ever, on every device. Recording the
+ * *question* separately from the *answer* is what ends that:
+ * `storageLayoutCheckedAt` says the bucket was asked, and is set on every call
+ * here; `storageLayoutState` stays what it said, and is left absent when it
+ * has genuinely never run.
+ *
+ * A bucket that would not answer at all must not reach this function. That is
+ * not a state, it is the absence of an observation, and writing a timestamp
+ * for it would claim we know something we do not — `readStorageLayout` returns
+ * `observed: false` and its caller records nothing.
  */
 export const recordStorageLayoutState = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
-    state: storageLayoutStateValidator,
+    /** Absent means the bucket answered that it has never run this. */
+    state: v.optional(storageLayoutStateValidator),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -942,9 +963,19 @@ export const recordStorageLayoutState = internalMutation({
       .unique();
     if (binding === null) return null;
 
+    const now = Date.now();
     await ctx.db.patch(binding._id, {
+      /*
+        Written even when it clears a state we had. The bucket is authoritative
+        and this row is a copy of it: a state file that is gone means this
+        bucket is no longer migrated as far as anything can tell, and the
+        honest consequence is that the console offers the update again. A copy
+        that outlived the thing it copied is the stale-green-check failure the
+        rebind clear exists to avoid.
+      */
       storageLayoutState: args.state,
-      storageLayoutAt: Date.now(),
+      ...(args.state === undefined ? {} : { storageLayoutAt: now }),
+      storageLayoutCheckedAt: now,
     });
     return null;
   },
@@ -2174,6 +2205,13 @@ export const getStorageBinding = query({
        */
       storageLayoutState: v.optional(storageLayoutStateValidator),
       storageLayoutAt: v.optional(v.number()),
+      /**
+       * Whether the bucket has been *asked*, which is the half that decides
+       * whether the console offers at all. Absent state plus absent checked is
+       * "nobody has looked"; absent state with this set is the real "nobody
+       * has run it". See the schema column for what conflating them cost.
+       */
+      storageLayoutCheckedAt: v.optional(v.number()),
       updatedAt: v.number(),
       /** True only for the deterministic bucket this service operates. */
       managed: v.boolean(),
@@ -2223,6 +2261,7 @@ export const getStorageBinding = query({
       noteCountTruncated: isOwner ? binding.noteCountTruncated : undefined,
       storageLayoutState: binding.storageLayoutState,
       storageLayoutAt: binding.storageLayoutAt,
+      storageLayoutCheckedAt: binding.storageLayoutCheckedAt,
       updatedAt: binding.updatedAt,
       managed: binding.bucket === managedBucketName(args.workspaceId),
     };
@@ -2249,6 +2288,95 @@ export const getStorageBinding = query({
  */
 const REVERIFY_LIMIT = 6;
 const REVERIFY_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Ask this bucket where the storage-layout migration got to, and run nothing.
+ *
+ * ## Why a context that was already migrated kept being offered the migration
+ *
+ * `storageBindings.storageLayoutState` was added so the console could stop
+ * offering an update that had already run. It was only ever written by a
+ * migration *pass*, so it answered for contexts migrated from then on and for
+ * nobody else: every context migrated before it existed kept `complete` in its
+ * own bucket and nothing in this row, and an empty column reads as "nobody has
+ * run this". The notice came back on every device, for ever, for exactly the
+ * people who had already done what it was asking. The owner who reported the
+ * original nag was one of them.
+ *
+ * The bucket has always known. Nothing ever asked it outside of a migration.
+ * This asks.
+ *
+ * ## Why it is safe to call whenever the console wonders
+ *
+ * It schedules `runFileOperation` with `readStorageLayout`, which is one `get`
+ * against a single JSON key under `.context/` — no write, no delete, and none
+ * of the conditional-write capability `migrateStorage` demands. A bucket that
+ * can never *run* the migration can still say whether it already has.
+ *
+ * It is also self-limiting by construction: the observation sets
+ * `storageLayoutCheckedAt`, and the guard below refuses once that is set. One
+ * probe per binding, and one more after a rebind, which is a bucket nobody has
+ * looked at either.
+ *
+ * ## A mutation that schedules rather than an action that probes
+ *
+ * `reverifyStorage`'s reason exactly: `runFileOperation` opens a credential,
+ * and a public function that *called* it would have that in its own call
+ * graph. The scheduler discards the job's result, so this can cause the read
+ * without ever being able to see what it opened. Watch `getStorageBinding` for
+ * the outcome.
+ *
+ * Owner-only, because it spends the workspace's request budget against the
+ * workspace's bucket — the same reason `reverifyStorage` is.
+ */
+export const observeStorageLayout = mutation({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ queued: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
+
+    const binding = await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .unique();
+    if (binding === null) return { queued: false };
+    /*
+      Nothing to ask, or nothing to ask it with. An unverified or errored
+      binding is one the console is already telling its owner about in a louder
+      notice, and a probe against it would fail for that reason rather than
+      teach anybody anything.
+    */
+    if (binding.status !== "connected") return { queued: false };
+    // Already answered — by an observation, or by a migration pass that
+    // recorded its own outcome. Either way the question is spent.
+    if (binding.storageLayoutCheckedAt !== undefined) return { queued: false };
+
+    await consumeRateLimit(ctx, {
+      key: `storage.observeLayout:${args.workspaceId}`,
+      limit: OBSERVE_LAYOUT_LIMIT,
+      windowMs: OBSERVE_LAYOUT_WINDOW_MS,
+    });
+
+    await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: { kind: "readStorageLayout" },
+    });
+    return { queued: true };
+  },
+});
+
+/**
+ * The guard above spends itself after one success, so this is only ever the
+ * ceiling on *unsuccessful* probes — a bucket that will not answer, asked
+ * again by a console that mounted again. Low, because nobody is waiting on it:
+ * it is a background reconcile, and the cost of a refusal is that a notice
+ * somebody can already dismiss stays up a while longer.
+ */
+const OBSERVE_LAYOUT_LIMIT = 4;
+const OBSERVE_LAYOUT_WINDOW_MS = 60 * 60 * 1000;
+
 
 /**
  * Check an existing binding again, without re-supplying the credential.

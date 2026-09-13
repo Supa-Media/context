@@ -42,7 +42,10 @@ import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
 import { runEncryptionRotationChecks } from "./encryptionRotation.test.mjs";
 import { runRotationCursorAdversarialChecks } from "./encryptionRotationCursor.test.mjs";
-import { runStorageLayoutChecks } from "./storageLayout.test.mjs";
+import {
+  runStorageLayoutChecks,
+  runStorageLayoutReadChecks,
+} from "./storageLayout.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -4377,6 +4380,7 @@ await runEncryptionPassphraseChecks(check);
 await runEncryptionRotationChecks(check);
 await runRotationCursorAdversarialChecks(check);
 await runStorageLayoutChecks();
+await runStorageLayoutReadChecks();
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own

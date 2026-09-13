@@ -848,3 +848,56 @@ notes, and this names no key and counts nothing of the customer's.
 `apps/convex/__tests__/storage.test.ts` and the migration's end-to-end case in
 `files.test.ts` fail; so do four checks in
 `apps/mobile/__tests__/storageMigrationEntry.test.ts`.
+
+## Absent meant two things, and the bucket is asked which
+
+Recording the outcome above ended the nag for every context migrated *after*
+it shipped, and for nobody else. `storageLayoutState` was only ever written by
+a migration pass, so a context migrated before that kept `complete` in its own
+bucket and an empty column on its binding — and "absent is the only state that
+still offers" then read that empty column as *nobody has run it*. The notice
+came back on every device, for ever, for exactly the people who had already
+run it. **The owner who reported the original nag was still being nagged by
+the fix for it**, which is the sharpest version of the failure: a decision that
+was right about the mechanism and wrong about the population it applied to.
+
+Absent was never one answer. It is "nobody has run this" and "nobody has
+looked", and those are opposites for every bucket that predates the column.
+
+So the question is recorded separately from the answer.
+`storageBindings.storageLayoutCheckedAt` says the bucket was **asked**;
+`storageLayoutState` stays what it **said**, absent when it has genuinely never
+run. The notice offers only on asked-and-never-run. Settings → Storage takes
+neither condition and keeps its button while the answer is unknown, because
+pressing it is still correct and now records what it finds.
+
+**Asking runs nothing.** `readStorageLayoutState` is one `get` against
+`.context/migrations/storage-layout-v1.json` — no write, no delete, and none of
+the conditional-write capability the migration itself demands, because a bucket
+that can never *run* the migration can still say whether it already has. It
+reaches a credential through `runFileOperation`, the enumerated barrier, rather
+than through a second internal action that opens one; `observeStorageLayout` is
+a public owner-only mutation that schedules it, on `reverifyStorage`'s model.
+`verifyStorageBinding` does the same read in the credential open it already
+makes, beside `countNotes`, so connect and re-verify answer it for free.
+
+**A bucket that will not answer is not an answer.** `readStorageLayoutState`
+returns `observed: false` and nothing is recorded — a timestamp written there
+would claim knowledge nobody has and close the offer on a context that may
+genuinely still need it. Conversely an observation of "no state file here"
+*clears* a state we had: the bucket is authoritative and this row is a copy, and
+a copy that outlives what it copied is the stale-green-check failure the rebind
+clear exists to avoid.
+
+**What a simplification costs.** Collapsing `observed` into the state records a
+false absence, and the nag returns with extra steps. Dropping
+`storageLayoutCheckedAt` and offering on absent state alone is the bug this
+section exists for. Offering while the question is still in flight puts the
+notice in front of somebody about to be told it is unnecessary. Failing to
+clear the timestamp on rebind is worse than failing to clear the state: a new
+bucket then reads as *asked, and never migrated* — an answer nobody obtained —
+and is never offered the migration at all, silently, which is the outcome the
+rebind clear was written to prevent. `apps/mcp/test/storageLayout.test.mjs`
+(`runStorageLayoutReadChecks`), the observation cases in
+`apps/convex/__tests__/storage.test.ts`, and two checks in
+`apps/mobile/__tests__/storageMigrationEntry.test.ts` fail.

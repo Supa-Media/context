@@ -134,6 +134,12 @@ interface StorageBinding {
     | "complete";
   storageLayoutAt?: number;
   /**
+   * Whether the bucket has been *asked* where the migration got to. Absent
+   * state with this set is the real "nobody has run it"; both absent is
+   * "nobody has looked", which is not something to offer on.
+   */
+  storageLayoutCheckedAt?: number;
+  /**
    * Load-bearing for Re-verify: the probe is queued, not awaited, so the pane
    * watches this field to know its outcome landed. See `storage/reverify.ts`.
    */
@@ -335,6 +341,9 @@ export function useLiveConsoleData(): ConsoleData {
   const revoke = useMutation(api.functions.grants.revokeGrant);
   const bindStorage = useAction(api.functions.storage.bindStorage);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
+  const observeStorageLayout = useMutation(
+    api.functions.storage.observeStorageLayout,
+  );
   const disconnectStorage = useMutation(api.functions.storage.disconnectStorage);
   const disconnectGoogle = useMutation(
     api.functions.googleConnect.disconnectGoogleConnection,
@@ -476,6 +485,7 @@ export function useLiveConsoleData(): ConsoleData {
           noteCountTruncated: binding.noteCountTruncated,
           layoutState: binding.storageLayoutState,
           layoutStateAt: binding.storageLayoutAt,
+          layoutChecked: binding.storageLayoutCheckedAt !== undefined,
           forcePathStyle: binding.forcePathStyle,
           // `objectCount`, `paraPresent` and `versioningOn` are deliberately
           // not set. Nothing has counted this bucket, looked for PARA folders,
@@ -541,6 +551,15 @@ export function useLiveConsoleData(): ConsoleData {
             });
           },
           disconnect: () => disconnectStorage({ workspaceId: selectedContextId }),
+          /*
+            Not a control anybody presses. It is the console asking the bucket
+            where the storage-layout migration got to, so an already-migrated
+            context stops being offered it — see
+            `storage/StorageMigration.tsx`. Owner-only with the rest of this
+            object because the backend is: it spends the workspace's request
+            budget against the workspace's bucket.
+          */
+          observeLayout: () => observeStorageLayout({ workspaceId: selectedContextId }),
         };
 
   // Same owner-only rule as the storage binding, and one rule beyond it: only a

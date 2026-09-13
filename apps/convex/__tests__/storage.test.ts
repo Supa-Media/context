@@ -1600,6 +1600,118 @@ describe("where the storage-layout migration got to", () => {
     );
     expect(binding?.storageLayoutState).toBeUndefined();
     expect(binding?.storageLayoutAt).toBeUndefined();
+    // And nobody has *asked* it, which is the half that decides the offer.
+    expect(binding?.storageLayoutCheckedAt).toBeUndefined();
+  });
+
+  /*
+    THE ABSENCE THAT MEANT TWO THINGS.
+
+    Recording the outcome fixed the offer for every context migrated after the
+    column existed, and for nobody else. A context migrated before it kept
+    `complete` in its own bucket and nothing in this row — and an empty column
+    read as "nobody has run this", so the notice came back on every device, for
+    ever, for exactly the people who had already run it.
+
+    So the question and the answer are recorded separately. `checkedAt` says
+    the bucket was asked; the state stays what it said.
+  */
+  test("a bucket that answers 'never run' is a different fact from one nobody asked", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    // Nothing has run here, and that is now a recorded answer rather than an
+    // unasked question.
+    expect(binding?.storageLayoutState).toBeUndefined();
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+    // No outcome was observed, so nothing claims one was.
+    expect(binding?.storageLayoutAt).toBeUndefined();
+  });
+
+  test("recording an outcome also records that the bucket was asked", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBe("complete");
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
+  test("a state file that has gone stops claiming the bucket is migrated", async () => {
+    /*
+      The bucket is authoritative and this row is a copy of it. A copy that
+      outlives what it copied is the stale-green-check failure the rebind clear
+      exists to avoid, so an observation of "no state here" clears a state we
+      had rather than keeping the more flattering answer.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBeUndefined();
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
+  test("asking is owner-only, and spends itself once the bucket has answered", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    // Only a bucket we believe works is worth a question: an unverified or
+    // errored binding is one the console is already shouting about, and a
+    // probe against it fails for that reason rather than teaching anybody
+    // anything.
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+    const member = await createUser(t, "asker@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+
+    await expect(
+      asUser(t, member).mutation(api.functions.storage.observeStorageLayout, {
+        workspaceId,
+      }),
+    ).rejects.toThrow();
+
+    // An unanswered binding is worth asking about exactly once...
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: true });
+
+    // ...and once it has answered — by an observation or by a migration pass —
+    // the question is spent, so a console that mounts again asks nothing.
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: false });
   });
 
   test("a recorded outcome is readable, and stamped", async () => {
@@ -1690,6 +1802,12 @@ describe("where the storage-layout migration got to", () => {
     expect(rebound?.bucket).toBe("somewhere-else");
     expect(rebound?.storageLayoutState).toBeUndefined();
     expect(rebound?.storageLayoutAt).toBeUndefined();
+    /*
+      Including the record that it was ever asked. Left behind, a new bucket
+      reads as "checked, and never migrated" — an answer nobody obtained about
+      a bucket nobody looked at — and the console never offers it the update.
+    */
+    expect(rebound?.storageLayoutCheckedAt).toBeUndefined();
   });
 
   test("a binding that went away drops the write rather than resurrecting a row", async () => {
