@@ -650,6 +650,66 @@ The tests that fail if the waiting is reversed are the
 prove an upgrade and a retry queue the gate rather than the copy, which is the
 wiring the gate's own cases cannot see.
 
+### A pass is walked in waves, and an unchanged object is read twice, not three times
+
+The reconciliation is correct but was costed as though every object were free.
+Each listed key was reconciled one at a time, awaiting each before starting the
+next, and each cost three full-body reads: the source, the destination to
+compare against, and the destination again to verify. The third was
+unconditional, so a pass over a context where nothing had changed re-downloaded
+every object for an answer the second read had already given.
+
+That put a verification pass over a twenty-thousand-object context on the order
+of an hour, which is what made the source changing underneath the job the
+problem it became. A change found in either verification pass sends the
+migration back to `verify_source`, so one edit costs a full round trip of both
+passes; at an hour a pass, an ordinary afternoon of editing outruns the walk and
+cutover never arrives. The console compounded it by reporting progress *within
+the current step*, so a restart read as the percentage going backwards.
+
+Two changes, neither touching what reconciliation means:
+
+- **The verifying read happens only after a write.** When the comparison read
+  already proved the bytes equal, nothing was written and that read *is* the
+  proof; asking again only asks the same question. Where a write did happen the
+  read-back is unchanged, because that is the case it was built for.
+- **A page is reconciled in bounded waves rather than one object at a time.**
+  Every key on a page is independent of every other, so awaiting them serially
+  bought nothing and cost a round trip each. Waves are bounded by count *and* by
+  bytes: reconciling one object holds its source and destination bodies at once
+  and the byte cap admits 25MB objects, so a width-bounded wave alone is a wave
+  that can be holding hundreds of megabytes. Pages grew with the width, since
+  what a small page was really buying was per-action scheduling overhead.
+
+The wave width is not the gateway's. `inWaves` in `search/maintain.js` uses 6
+because a Worker may hold 6 simultaneous connections; this runs in a Convex
+action, where the binding constraint is memory instead, and the width and the
+byte budget are set against that.
+
+Together these take a steady-state pass from three serial reads per object to
+two concurrent ones — roughly a twenty-fold reduction in wall-clock, and with it
+the livelock: an edit still costs two passes, but two passes are now minutes.
+That is a mitigation and not a proof of convergence. A context edited
+continuously can still in principle outrun the walk, and the fix for *that* is
+to reconcile the keys known to have changed rather than re-walking everything —
+deliberately not built here, because the cost of it is a per-key change list
+that the walk does not currently keep.
+
+What is **not** a fix, and was considered: asking the owner to stop editing
+while the copy runs. The source binding stays live and serving throughout by
+design — that is the guarantee that makes a paid move safe to start — and a
+context is written to by every agent connected to it, not only by the person
+reading the settings panel. A migration that requires the product to be idle is
+a migration that fails on exactly the contexts large enough to need one.
+
+The tests that fail if this is reversed are in
+`apps/convex/__tests__/managedMigration.test.ts`: the destination is read once
+for an object already identical and twice for one that had to be written; waves
+close at whichever bound comes first; an object larger than the whole budget
+gets a wave of its own rather than being starved; and a failed page raises the
+error of the earliest *listed* object and lets its wave settle first, so which
+error a caller sees does not depend on network timing.
+
 The settings panel reports files checked, says which storage remains
 authoritative, and offers an owner-only retry. This is still not the free exit
 path: exporting everything or handing the managed bucket to customer-owned
