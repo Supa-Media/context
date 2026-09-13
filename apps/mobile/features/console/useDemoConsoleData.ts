@@ -47,6 +47,7 @@ import type {
 const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "highlightr-plugin",
+    source: "obsidian",
     name: "Highlightr",
     version: "1.2.2",
     author: "Chetachi",
@@ -59,6 +60,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   },
   {
     id: "readwise-official",
+    source: "obsidian",
     name: "Readwise Official",
     version: "2.1.1",
     author: "Readwise",
@@ -70,6 +72,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   },
   {
     id: "obsidian-excalidraw-plugin",
+    source: "obsidian",
     name: "Excalidraw",
     version: "2.4.2",
     author: "Zsolt Viczián",
@@ -80,6 +83,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   },
   {
     id: "obsidian-git",
+    source: "obsidian",
     name: "Obsidian Git",
     version: "2.24.1",
     author: "Vinzent",
@@ -97,6 +101,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   },
   {
     id: "dataview",
+    source: "obsidian",
     name: "Dataview",
     version: "0.5.67",
     author: "Michael Brenan",

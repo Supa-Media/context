@@ -547,13 +547,12 @@ export function useLiveConsoleData(): ConsoleData {
   // answer, and a second one derived here could disagree with it.
   const fastSearch = useFastSearch({ workspaceId: selectedContextId });
   /*
-    One call, one honest answer, and the single place that changes when the
-    owner-only inventory read lands. It takes no arguments today because the
-    gateway's own read takes none — `list_plugins` cannot be aimed, which is
-    what keeps a tool that reads outside the privacy manifest's reach from
-    becoming a way to read around it.
+    Owner-only, and a scan rather than a subscription — see `usePlugins`. The
+    read itself takes no path argument, because the gateway's own read takes
+    none: `list_plugins` cannot be aimed, which is what keeps a tool reading
+    outside the privacy manifest's reach from becoming a way to read around it.
   */
-  const plugins = usePlugins();
+  const plugins = usePlugins({ workspaceId: selectedContextId, role: selected?.role });
 
   // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
   // this hook decides for itself, from `role`, whether to subscribe at all.

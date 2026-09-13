@@ -57,11 +57,43 @@ export type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run
 export interface PluginFinding {
   id: string;
   reason: string;
+  /**
+   * Which check matched, from the gateway: a blocked module, a private member,
+   * a network reach, a dynamic-code construct, or the scan reporting its own
+   * limit. Used to order findings within a row and for nothing else — the
+   * verdict is the server's, and deriving one from these would be recreating
+   * security policy in a settings pane.
+   */
+  kind?: "module" | "member" | "network" | "dynamic" | "scan";
+}
+
+/**
+ * Reading the inventory. Absent — the whole object — for anyone the server
+ * would refuse, and in the read-only demo, the rule `StorageActions` states and
+ * every owner-only view in this console follows.
+ */
+export interface PluginActions {
+  /** Read `.obsidian/plugins/` now. Resolves when the view has its answer. */
+  read: () => Promise<void>;
 }
 
 export interface ConsolePlugin {
   /** The **manifest's** id, never the folder's. Curation is keyed on it. */
   id: string;
+  /**
+   * Where this plugin lives: the customer's own Obsidian vault, or installed by
+   * Context under `.context/plugins/`.
+   *
+   * Two different objects wearing the same name, and the difference is whose it
+   * is. An `obsidian` row is somebody else's software that Context is reporting
+   * on and must never write to; a `context` row is one Context installed, at a
+   * version it pinned, and can update or remove. Reading them as one list is
+   * right — a person wants to know what is in their bucket — but a screen that
+   * offered Uninstall on a vault plugin would be offering to delete a file out
+   * of `.obsidian/`, which is the one thing this whole section promises not to
+   * touch.
+   */
+  source: "obsidian" | "context";
   name: string;
   version?: string;
   author?: string;
@@ -104,11 +136,17 @@ export interface PluginInventory {
  * everywhere else: the states are genuinely exclusive, and the compiler is
  * cheaper than a convention nobody can see from the call site.
  *
- * `unavailable` is the honest default and is not an error. The gateway can
- * answer this today through the `list_plugins` MCP tool, and the console has no
- * owner-only read of its own yet (see `usePlugins`). Rendering fixture rows
- * there would be inventing plugin facts, which is the one thing the frontend
- * brief forbids outright.
+ * `idle` is the resting state and is not an error, because **a scan is an event
+ * rather than a subscription.** Reading the inventory opens every plugin's
+ * `manifest.json` and `main.js` in the customer's bucket; running that on every
+ * mount of a settings pane would be dozens of object reads to redraw a screen
+ * nobody asked to refresh. The gateway's own report has carried a `checkedAt`
+ * since it was written, which is the same observation from the other side: this
+ * is an answer with a date on it, and the reader asks for a new one.
+ *
+ * `withheld` is a non-owner. `listObsidianPlugins` is owner-only, so the console
+ * does not send the call and says why instead of rendering a control whose only
+ * possible outcome is a permission error.
  *
  * There is no `empty` member: a bucket with no plugins in it is a **successful**
  * read that found none, so it is `ready` with `found: 0`, and the panel says so
@@ -116,10 +154,11 @@ export interface PluginInventory {
  * plugins" ends up meaning "your storage key expired".
  */
 export type PluginsView =
-  | { state: "unavailable" }
+  | { state: "withheld" }
+  | { state: "idle"; actions?: PluginActions }
   | { state: "loading" }
-  | { state: "failed"; reason: string }
-  | { state: "ready"; inventory: PluginInventory };
+  | { state: "failed"; reason: string; actions?: PluginActions }
+  | { state: "ready"; inventory: PluginInventory; actions?: PluginActions };
 
 /* -------------------------------------------------------------------------- */
 /*                                   wording                                  */
@@ -366,6 +405,20 @@ export function pluginsPreview(view: PluginsView): string | null {
  * A literal union rather than `PillTone` imported from the design system,
  * following `shareTone` — this module stays free of anything that renders.
  */
+/**
+ * Where a row came from, in words.
+ *
+ * Null for a vault plugin, because that is what this whole section is about and
+ * labelling every row "from your vault" is labelling nothing. A Context-managed
+ * install is the exception worth naming: it is the only kind Context put there,
+ * and the only kind it may change.
+ */
+export function sourceNote(plugin: ConsolePlugin): string | null {
+  return plugin.source === "context"
+    ? "Installed by Context, under .context/plugins/. Your vault is untouched."
+    : null;
+}
+
 export function verdictPill(verdict: PluginVerdict): {
   tone: "ok" | "warn" | "crit" | "neutral";
   dashed: boolean;
@@ -400,4 +453,57 @@ export function installPending(verdict: PluginVerdict): string | null {
     "Context can read this plugin, and running it here is not built yet. " +
     "It keeps working in Obsidian against this same bucket in the meantime."
   );
+}
+
+/* -------------------------------------------------------------------------- */
+/*                        the gateway's row, narrowed                          */
+/* -------------------------------------------------------------------------- */
+
+/** The action's row, exactly as `pluginInventoryValidator` returns it. */
+export interface InventoryRow {
+  source: "obsidian" | "context";
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  manifestError: string | null;
+  verdict: ConsolePlugin["verdict"];
+  evidence: Array<{ id: string; kind: "module" | "member" | "network" | "dynamic" | "scan"; reason: string }>;
+  notes: string[];
+  limitations: string[];
+  hosts: string[];
+}
+
+/**
+ * The gateway's row, narrowed to what the panel renders.
+ *
+ * Two shapes differ deliberately and are reconciled here rather than in the
+ * component. The action returns `""` for a manifest field that was absent and
+ * `null` for a manifest that would not parse; the view treats absence as
+ * absence, so the empty strings are dropped and the `null` becomes `undefined`.
+ * Doing it here keeps "absent is not empty" a property of one function instead
+ * of a habit every renderer has to remember.
+ *
+ * `folder`, `supported`, `isDesktopOnly`, `reason` and `bundleFingerprint` are
+ * deliberately not carried across yet: nothing on screen uses them, and a field
+ * in a view type that nothing renders is a field somebody later renders without
+ * deciding to. `bundleFingerprint` arrives with the grants work, where it is
+ * the thing that makes an updated bundle return to review.
+ */
+export function fromInventoryRow(row: InventoryRow): ConsolePlugin {
+  return {
+    id: row.id,
+    source: row.source,
+    name: row.name,
+    version: row.version === "" ? undefined : row.version,
+    author: row.author === "" ? undefined : row.author,
+    description: row.description === "" ? undefined : row.description,
+    manifestError: row.manifestError ?? undefined,
+    verdict: row.verdict,
+    evidence: row.evidence,
+    notes: row.notes,
+    limitations: row.limitations,
+    hosts: row.hosts,
+  };
 }
