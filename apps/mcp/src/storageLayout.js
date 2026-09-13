@@ -160,6 +160,41 @@ function validState(state) {
   );
 }
 
+/**
+ * What this bucket's own migration state says, without running anything.
+ *
+ * The state under `.context/` has always been authoritative and, until this
+ * existed, `migrateStorageLayout` was the only thing that read it — so the one
+ * way to find out whether a bucket had been migrated was to migrate it. The
+ * control plane therefore had nothing recorded for any context migrated before
+ * it started recording, and the console read that absence as "nobody has run
+ * it" and offered the update again, on every device, for ever.
+ *
+ * **`observed` and `state` are two different questions and both are answered.**
+ * `observed` is whether the bucket told us anything; `state` is what it said,
+ * and `null` means it genuinely has no migration state — nobody has ever run
+ * this here. Collapsing them would turn "we could not find out" into "never
+ * run", which records a false absence and is the nag again.
+ *
+ * Read-only by construction: one `get`, no `put`, no `delete`, and no
+ * capability requirement. A bucket that can never *run* the migration can
+ * still answer this, and answering is not the same as refusing — `unsupported`
+ * belongs to the path that refuses and is recorded there.
+ */
+export async function readStorageLayoutState(store) {
+  try {
+    const persisted = await readJson(store, STORAGE_LAYOUT_MIGRATION_KEY);
+    if (persisted.value === null) return { observed: true, state: null };
+    if (!validState(persisted.value)) return { observed: false, state: null };
+    return { observed: true, state: persisted.value.state };
+  } catch {
+    // Unreachable, oversized, or not JSON. `countNotes` makes the same choice
+    // for the same reason: a bucket that stops answering costs the observation
+    // and nothing else.
+    return { observed: false, state: null };
+  }
+}
+
 /** Read a v1 plumbing object, falling back to its pre-v1 key. */
 export async function getWithLegacyFallback(store, key, options = {}) {
   const current = await store.get(key);

@@ -674,6 +674,10 @@ export const applyDropboxBinding = internalMutation({
       // migrated inherits `complete` and is never offered it.
       storageLayoutState: undefined,
       storageLayoutAt: undefined,
+      // And the record that it was ever *asked*, which is the half that
+      // decides whether the console offers at all. Left behind, a new bucket
+      // reads as "checked, never run" and is never offered the migration.
+      storageLayoutCheckedAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,
     };

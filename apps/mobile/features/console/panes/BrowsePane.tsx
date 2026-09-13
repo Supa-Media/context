@@ -21,6 +21,7 @@ import {
   STORAGE_MIGRATION_OFFER,
   StorageMigrationActions,
   storageMigrationWorthOffering,
+  useStorageLayoutObservation,
   useStorageMigrationOffer,
 } from "../storage/StorageMigration";
 import { ShareDialog } from "../files/ShareDialog";
@@ -249,6 +250,22 @@ export function BrowsePane({
   */
   const noBucket = data.storage === null;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
+  /*
+    Ask the bucket before offering anything, once per context.
+
+    `storageMigrationWorthOffering` now needs the bucket to have *answered*
+    that it has never run this, and for a context migrated before any of that
+    was recorded the answer only exists once somebody asks. This asks — it runs
+    no migration and writes nothing to the bucket — and the notice below stays
+    away until it comes back. The owner gate is the same one the control has:
+    `updateStorageLayout` is `undefined` for anybody else, and so is this.
+  */
+  useStorageLayoutObservation(
+    files.updateStorageLayout === undefined ? null : files.contextId,
+    data.storage,
+    data.storageActions?.observeLayout,
+  );
+
   /**
    * The one-time storage-layout update, offered where it can be ignored.
    *

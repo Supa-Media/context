@@ -46,6 +46,7 @@ import {
   scaffoldContext,
 } from "./lib/scaffold";
 import { countNotes } from "./lib/noteCount";
+import { readStorageLayoutState } from "../../mcp/src/storageLayout.js";
 import {
   type ProbeResult,
   redactSecrets,
@@ -505,6 +506,33 @@ export const verifyStorageBinding = internalAction({
         });
       } catch {
         // Disconnected while we were walking. Same race `record` tolerates.
+      }
+    }
+
+    /*
+      And where the storage-layout migration got to, from the bucket's own
+      state file, in the same credential open as the count above.
+
+      This costs one `get` and it closes the gap that kept the update being
+      offered to people who had already run it: the column that answers the
+      console's offer was only ever written by a migration pass, so every
+      context migrated before that column existed looked exactly like one that
+      had never run it. A verification — on connect, or the one an owner asks
+      for from Settings — now answers the question without running anything.
+
+      A bucket that would not answer records nothing, exactly as the count
+      does. `observed: false` is the absence of an observation, and writing it
+      down as one would close the offer on a context that may still need it.
+    */
+    const layout = await readStorageLayoutState(store);
+    if (layout.observed) {
+      try {
+        await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+          workspaceId: args.workspaceId,
+          ...(layout.state === null ? {} : { state: layout.state }),
+        });
+      } catch {
+        // Disconnected while we were looking. Same race `record` tolerates.
       }
     }
 
