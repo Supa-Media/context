@@ -6,6 +6,7 @@ import {
   VERDICT_ORDER,
   byteLabel,
   foundLabel,
+  fromInventoryRow,
   groupPlugins,
   installPending,
   namedEvidence,
@@ -14,6 +15,7 @@ import {
   readLabel,
   routeOut,
   scanCoverage,
+  sourceNote,
   verdictCounts,
   verdictBlurb,
   verdictHeading,
@@ -52,6 +54,7 @@ import {
 function plugin(over: Partial<ConsolePlugin> & { verdict: PluginVerdict }): ConsolePlugin {
   return {
     id: over.id ?? `plugin-${over.verdict}`,
+    source: "obsidian",
     name: over.name ?? "A plugin",
     evidence: [],
     limitations: [],
@@ -288,9 +291,113 @@ describe("the notes that cannot be dropped from one surface and kept on another"
   });
 });
 
+/*
+  The seam between the gateway's row and the view. It is where two different
+  conventions for "this field has no value" meet, and getting it wrong is
+  invisible: an empty author renders as a stray separator, and a `null`
+  manifest error renders as the word "null" under a plugin's name.
+*/
+describe("the gateway's row, narrowed", () => {
+  const row = {
+    source: "obsidian" as const,
+    id: "highlightr-plugin",
+    name: "Highlightr",
+    version: "1.2.2",
+    author: "Chetachi",
+    description: "Highlight text in several colours.",
+    manifestError: null,
+    verdict: "runs" as const,
+    evidence: [],
+    notes: [],
+    limitations: [],
+    hosts: [],
+  };
+
+  test("an empty manifest field is absent, not an empty string", () => {
+    const mapped = fromInventoryRow({ ...row, version: "", author: "", description: "" });
+    expect(mapped.version).toBeUndefined();
+    expect(mapped.author).toBeUndefined();
+    expect(mapped.description).toBeUndefined();
+  });
+
+  test("a manifest that parsed carries no error, rather than the word null", () => {
+    expect(fromInventoryRow(row).manifestError).toBeUndefined();
+  });
+
+  test("a manifest that would not parse keeps the server's sentence", () => {
+    expect(
+      fromInventoryRow({ ...row, manifestError: "manifest.json is not valid JSON" }).manifestError,
+    ).toBe("manifest.json is not valid JSON");
+  });
+
+  test("a field that is present survives untouched", () => {
+    const mapped = fromInventoryRow(row);
+    expect(mapped.version).toBe("1.2.2");
+    expect(mapped.author).toBe("Chetachi");
+    expect(mapped.id).toBe("highlightr-plugin");
+  });
+
+  test("the verdict is carried, never re-derived from the evidence", () => {
+    /*
+      A row the server called `runs` with a finding attached stays `runs`. The
+      client has no business promoting it: the five gates that decide this live
+      in `scan.js`, and a UI that second-guesses them is a second security
+      policy nobody reviewed.
+    */
+    const mapped = fromInventoryRow({
+      ...row,
+      evidence: [{ id: "requestUrl", kind: "network" as const, reason: "calls a server" }],
+    });
+    expect(mapped.verdict).toBe("runs");
+    expect(mapped.evidence).toHaveLength(1);
+  });
+});
+
+/*
+  Two different objects wear the same name in this list. A vault plugin is
+  somebody else's software Context reports on and must never write to; a managed
+  one is Context's own install, which it may update or remove. Getting that
+  backwards on screen is how an Uninstall button ends up over a file in
+  `.obsidian/`.
+*/
+describe("where a plugin lives", () => {
+  test("a vault plugin is not labelled — that is what the whole section is about", () => {
+    expect(sourceNote(plugin({ verdict: "runs", source: "obsidian" }))).toBeNull();
+  });
+
+  test("a Context-managed install says so, and says the vault is untouched", () => {
+    const note = sourceNote(plugin({ verdict: "runs", source: "context" }));
+    expect(note).toContain(".context/plugins/");
+    expect(note).toContain("vault is untouched");
+  });
+
+  test("the source survives the row mapping rather than defaulting to one of them", () => {
+    expect(
+      fromInventoryRow({
+        source: "context",
+        id: "x",
+        name: "X",
+        version: "",
+        author: "",
+        description: "",
+        manifestError: null,
+        verdict: "runs",
+        evidence: [],
+        notes: [],
+        limitations: [],
+        hosts: [],
+      }).source,
+    ).toBe("context");
+  });
+});
+
 describe("the settings row never invents a claim out of an absence", () => {
-  test("a console that cannot ask says nothing", () => {
-    expect(pluginsPreview({ state: "unavailable" })).toBeNull();
+  test("a context whose plugins are not yours to read says nothing", () => {
+    expect(pluginsPreview({ state: "withheld" })).toBeNull();
+  });
+
+  test("a scan nobody has asked for yet says nothing", () => {
+    expect(pluginsPreview({ state: "idle" })).toBeNull();
   });
 
   test("a read in flight says nothing", () => {

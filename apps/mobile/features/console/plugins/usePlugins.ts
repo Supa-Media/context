@@ -1,36 +1,104 @@
-import type { PluginsView } from "./plugins";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useAction } from "convex/react";
+import { api } from "@context/convex/_generated/api";
+import type { Id } from "@context/convex/_generated/dataModel";
+import { describeQueryFailure } from "../failure";
+import { fromInventoryRow, type PluginsView } from "./plugins";
+
+type ScanState = Exclude<PluginsView, { state: "withheld" }>;
 
 /**
- * This context's plugin inventory, for the console.
+ * This context's plugin inventory, bound to the control plane.
  *
- * It has one honest answer today: `unavailable`. The gateway can already read
- * `.obsidian/plugins/` and return a full inventory — `apps/mcp/src/plugins/`,
- * reached through the `list_plugins` MCP tool — but the console has no
- * owner-only read of its own yet. Codex is building one
- * (`@supa/1-projects/context-lc-native-plugins/coordination.md` carries the
- * agreed shape and the field-by-field reasoning).
+ * `api.functions.files.listObsidianPlugins` is an **action**, not a query, and
+ * that shapes everything here. It reaches past Convex to the gateway, which
+ * lists `.obsidian/plugins/` and opens each plugin's `manifest.json` and
+ * `main.js` — dozens of object reads in the customer's own bucket. There is no
+ * subscription to hold and nothing to invalidate: what comes back is an answer
+ * with a date on it, which is why the gateway's own report has carried a
+ * `checkedAt` since it was written.
  *
- * ## Why this file exists at all, saying one word
+ * So this does not read on mount. The view rests at `idle`, the reader presses
+ * once, and the answer is held for as long as the console is open. A settings
+ * pane that silently rescans somebody's whole vault every time it is opened is
+ * a cost they did not ask for and cannot see.
  *
- * Two alternatives were available and both are worse.
+ * Owner-only, decided here rather than discovered from a thrown action. The
+ * backend gate is `authorizeFileAccess(minimum: "owner")`; sending the call for
+ * a member and rendering the refusal would be offering a button whose only
+ * possible outcome is a permission error — the rule `useShares` and
+ * `useAdvanced` already follow for `listShares` and `listEvents`.
  *
- * **Render fixture rows in the live console** until the action lands. That is
- * inventing plugin facts about somebody's vault, and it is the one thing the
- * frontend brief rules out flatly. A person reading "Dataview — won't run
- * here" has no way to tell that sentence came from a placeholder, and the cost
- * of being wrong is that they go and change their setup.
- *
- * **Hide the section** until there is data. That trades an inaccuracy for an
- * absence, which is better, but it also hides the thing the person came to
- * find out: Context has already read their plugins, and they can see the
- * report from any connected AI client today. The unavailable state says that,
- * and points at the route that works.
- *
- * So the section ships, the panel is real, and this is the single wiring point.
- * When the action is on `main` this becomes a `useQueries` subscription like
- * `useAdvanced`, mapping the four states of that subscription onto the four
- * members of `PluginsView`, and nothing else in the console changes.
+ * Called from `useLiveConsoleData`, which owns every subscription the console
+ * makes — do not call this from a pane.
  */
-export function usePlugins(): PluginsView {
-  return { state: "unavailable" };
+export function usePlugins(options: {
+  workspaceId: Id<"workspaces"> | null;
+  /** The caller's role in this context, or `undefined` while it is unknown. */
+  role: string | undefined;
+}): PluginsView {
+  const { workspaceId, role } = options;
+  const isOwner = role === "owner";
+  const listPlugins = useAction(api.functions.files.listObsidianPlugins);
+
+  /*
+    The states a scan can actually be in. `withheld` is not one of them — it is
+    decided from `role` before any call is made, so holding it here would be a
+    second place that answer could come from.
+  */
+  const [view, setView] = useState<ScanState>({ state: "idle" });
+
+  /*
+    Switching context must not leave the previous context's plugins on screen
+    under the new context's name — the whole section is per bucket. Reset to
+    `idle` rather than to a stale `ready`, and drop any answer still in flight
+    for the context we have navigated away from.
+  */
+  const requested = useRef(0);
+  useEffect(() => {
+    requested.current += 1;
+    setView({ state: "idle" });
+  }, [workspaceId, isOwner]);
+
+  const read = useCallback(async () => {
+    if (workspaceId === null || !isOwner) return;
+    const ticket = requested.current;
+    setView({ state: "loading" });
+    try {
+      const result = await listPlugins({ workspaceId });
+      if (ticket !== requested.current) return;
+      if (!result.available) {
+        /*
+          The provider's own words, quoted rather than paraphrased. `available:
+          false` is a storage failure and says nothing about the customer's
+          notes, which is the sentence the panel puts under it.
+        */
+        setView({ state: "failed", reason: result.reason ?? "the bucket could not be read" });
+        return;
+      }
+      setView({
+        state: "ready",
+        inventory: {
+          found: result.found,
+          scanned: result.scanned,
+          truncated: result.truncated,
+          checkedAt: result.checkedAt,
+          plugins: result.plugins.map(fromInventoryRow),
+        },
+      });
+    } catch (error) {
+      if (ticket !== requested.current) return;
+      const failure = describeQueryFailure(error, "the plugins in this bucket");
+      setView({
+        state: "failed",
+        reason: [failure.headline, failure.detail].filter(Boolean).join(" — "),
+      });
+    }
+  }, [isOwner, listPlugins, workspaceId]);
+
+  if (!isOwner) return { state: "withheld" };
+  if (workspaceId === null) return { state: "idle" };
+  // `loading` carries no control, so nothing can be pressed twice while a scan
+  // is in flight.
+  return view.state === "loading" ? view : { ...view, actions: { read } };
 }

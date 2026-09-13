@@ -448,10 +448,11 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       And the same reason a third time, which is now the rule this fixture
       follows rather than three exceptions: the settings pane renders Plugins,
       and its view is a union with no tolerable absent member — `undefined`
-      there is not "no plugins", it is a pane that throws. `unavailable` is
-      what a live console answers today, so it is also the right stub.
+      there is not "no plugins", it is a pane that throws. `idle` is what a
+      live console rests at before anybody asks for a scan, so it is also the
+      right stub.
     */
-    plugins: { state: "unavailable" },
+    plugins: { state: "idle" },
     loading: false,
     failure: null,
   } as never;

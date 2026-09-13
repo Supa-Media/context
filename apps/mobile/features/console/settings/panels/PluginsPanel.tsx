@@ -1,4 +1,5 @@
 import { StyleSheet, View } from "react-native";
+import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
@@ -16,6 +17,7 @@ import {
   readLabel,
   routeOut,
   scanCoverage,
+  sourceNote,
   verdictBlurb,
   verdictCounts,
   verdictHeading,
@@ -42,22 +44,43 @@ import {
 export function PluginsPanel({ view }: { view: PluginsView }) {
   const styles = useThemedStyles(makeStyles);
 
-  if (view.state === "unavailable") {
+  if (view.state === "withheld") {
     return (
-      <View testID="plugins-unavailable">
+      <View testID="plugins-withheld">
         <Card>
-          <Text variant="rowTitle">Not in the console yet</Text>
+          <Text variant="rowTitle">Only an owner can read this</Text>
           <Text variant="rowSub" style={styles.lead}>
-            Context already reads the plugins in this context&apos;s bucket, and this console
-            cannot ask for them yet. Any AI client you have connected can: ask it to list your
-            Obsidian plugins, and it returns the same report — every plugin found, what each one
-            would be able to do here, and the evidence behind it.
+            A plugin inventory names every plugin in this context&apos;s bucket and what each one
+            would be able to reach, so it is the owner&apos;s to read. Ask an owner of this
+            context if you need it.
           </Text>
+        </Card>
+      </View>
+    );
+  }
+
+  if (view.state === "idle") {
+    return (
+      <View testID="plugins-idle">
+        <Card>
+          <Text variant="rowTitle">Read the plugins in this bucket</Text>
+          <Text variant="rowSub" style={styles.lead}>
+            Context opens each plugin&apos;s manifest and bundle in{" "}
+            <Text variant="mono">.obsidian/plugins/</Text> and tells you what it would be able to
+            do here. Nothing is executed, and nothing is written — the answer carries the date it
+            was read, so you ask again after you update a plugin rather than on every visit.
+          </Text>
+          <View style={styles.action}>
+            <Button
+              label="Read my plugins"
+              onPress={view.actions?.read}
+              disabled={view.actions === undefined}
+            />
+          </View>
           <Hint style={styles.hint}>
             <Text variant="hint">
-              Reading the inventory writes nothing at all. Context never writes to{" "}
-              <Text variant="mono">.obsidian/</Text> — it is the one part of your bucket that
-              belongs to another program.
+              Context never writes to <Text variant="mono">.obsidian/</Text> — it is the one part
+              of your bucket that belongs to another program.
             </Text>
           </Hint>
         </Card>
@@ -131,6 +154,9 @@ export function PluginsPanel({ view }: { view: PluginsView }) {
                 .join(" · ")}
             </Text>
           </Grow>
+          {view.actions ? (
+            <Button label="Read again" onPress={view.actions.read} />
+          ) : null}
         </Row>
         <View style={styles.counts}>
           {VERDICT_ORDER.map((verdict) => {
@@ -186,6 +212,7 @@ function PluginRow({ plugin }: { plugin: ConsolePlugin }) {
   const read = readLabel(plugin);
   const route = routeOut(plugin.verdict);
   const pending = installPending(plugin.verdict);
+  const from = sourceNote(plugin);
 
   return (
     <Row divided style={styles.pluginRow}>
@@ -241,6 +268,12 @@ function PluginRow({ plugin }: { plugin: ConsolePlugin }) {
           </Text>
         ) : null}
 
+        {from ? (
+          <Text variant="rowSub" style={styles.line}>
+            {from}
+          </Text>
+        ) : null}
+
         <Text variant="hint" style={styles.close}>
           {route ?? pending}
         </Text>
@@ -251,6 +284,7 @@ function PluginRow({ plugin }: { plugin: ConsolePlugin }) {
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   lead: { marginTop: 6 },
+  action: { marginTop: 13, alignItems: "flex-start" },
   hint: { marginTop: 12 },
   group: { marginTop: 11 },
   head: { alignItems: "flex-start", gap: 12 },

@@ -61,6 +61,7 @@ function panel(view: PluginsView): HTMLElement {
 function plugin(over: Partial<ConsolePlugin> & { verdict: PluginVerdict }): ConsolePlugin {
   return {
     id: over.id ?? `plugin-${over.verdict}`,
+    source: "obsidian",
     name: over.name ?? "A plugin",
     evidence: [],
     limitations: [],
@@ -101,9 +102,10 @@ const READY: PluginsView = {
   },
 };
 
-describe("the four states are four screens", () => {
+describe("the five states are five screens", () => {
   test("each state renders its own branch and no other", () => {
-    expect(panel({ state: "unavailable" }).querySelector("[data-testid='plugins-unavailable']")).not.toBeNull();
+    expect(panel({ state: "withheld" }).querySelector("[data-testid='plugins-withheld']")).not.toBeNull();
+    expect(panel({ state: "idle" }).querySelector("[data-testid='plugins-idle']")).not.toBeNull();
     expect(panel({ state: "loading" }).querySelector("[data-testid='plugins-loading']")).not.toBeNull();
     expect(
       panel({ state: "failed", reason: "storage: 403" }).querySelector("[data-testid='plugins-failed']"),
@@ -112,16 +114,34 @@ describe("the four states are four screens", () => {
   });
 
   /*
-    The guard against the mutation that matters most here. A live console with
-    no way to ask must render no plugin facts at all — not a name, not a
-    verdict, not a count.
+    The guard against the mutation that matters most here. A console that has
+    not read anything must render no plugin facts at all — not a name, not a
+    verdict, not a count. The same holds for a reader the inventory is withheld
+    from, who must additionally not be offered the control.
   */
-  test("a console that cannot ask renders no plugin facts", () => {
-    const text = panel({ state: "unavailable" }).textContent ?? "";
+  test("a scan nobody has run renders no plugin facts", () => {
+    const text = panel({ state: "idle" }).textContent ?? "";
     for (const invented of ["Highlightr", "Obsidian Git", "Dataview", "Runs here", "Won't run here"]) {
       expect(text).not.toContain(invented);
     }
     expect(text).toContain(".obsidian/");
+  });
+
+  test("a non-owner is told whose it is, and offered no control", () => {
+    const container = panel({ state: "withheld" });
+    expect(container.textContent).toContain("Only an owner");
+    expect(container.querySelectorAll("[role='button'], button")).toHaveLength(0);
+  });
+
+  test("the read control is disabled when the view carries no action", () => {
+    const container = panel({ state: "idle" });
+    const control = container.querySelector("[role='button'], button");
+    expect(control).not.toBeNull();
+    expect(control?.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  test("a scan in flight offers nothing to press twice", () => {
+    expect(panel({ state: "loading" }).querySelectorAll("[role='button'], button")).toHaveLength(0);
   });
 
   test("a failed read quotes the provider's own reason", () => {
