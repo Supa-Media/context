@@ -529,8 +529,16 @@ export async function runPluginChecks(check) {
       report.plugins.find((p) => p.id === "obsidian-git").verdict === "wont-run"
   );
   check(
+    "each complete plugin is bound to the exact manifest and bundle objects that were checked",
+    /^v1:[^:]+:[^:]+$/.test(report.plugins.find((p) => p.id === "dataview").bundleFingerprint) &&
+      report.plugins.find((p) => p.id === "dataview").bundleFingerprint !==
+        report.plugins.find((p) => p.id === "obsidian-git").bundleFingerprint
+  );
+  check(
     "a plugin with a manifest but no bundle is unknown, and the others still get verdicts",
-    report.plugins.find((p) => p.id === "broken").verdict === "unknown" && report.scanned === 3
+    report.plugins.find((p) => p.id === "broken").verdict === "unknown" &&
+      report.plugins.find((p) => p.id === "broken").bundleFingerprint === null &&
+      report.scanned === 3
   );
   check("the report dates itself", /^\d{4}-\d{2}-\d{2}/.test(report.checkedAt));
 

@@ -284,6 +284,7 @@ describe("Obsidian plugin inventory", () => {
         id: "highlightr-plugin",
         name: "Highlightr",
         version: "1.2.2",
+        bundleFingerprint: expect.stringMatching(/^v1:/),
         verdict: "runs",
         reason: "no-calls-outside-the-sandbox-found",
       }],

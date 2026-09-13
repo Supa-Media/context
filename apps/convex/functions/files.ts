@@ -330,6 +330,7 @@ const pluginValidator = v.object({
   version: v.string(),
   author: v.string(),
   description: v.string(),
+  bundleFingerprint: v.union(v.string(), v.null()),
   isDesktopOnly: v.boolean(),
   manifestError: v.union(v.string(), v.null()),
   verdict: pluginVerdictValidator,
@@ -370,6 +371,7 @@ type PluginInventory = {
     version: string;
     author: string;
     description: string;
+    bundleFingerprint: string | null;
     isDesktopOnly: boolean;
     manifestError: string | null;
     verdict: PluginVerdict;

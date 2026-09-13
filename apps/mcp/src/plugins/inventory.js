@@ -140,9 +140,15 @@ function isSafeFolder(folder) {
  */
 async function readPlugin(store, folder) {
   try {
-    const manifestText = await readText(store, `${PLUGIN_PREFIX}${folder}/manifest.json`);
-    const source = await readText(store, `${PLUGIN_PREFIX}${folder}/main.js`);
-    return scanPlugin({ id: folder, manifestText, source });
+    const manifest = await readText(store, `${PLUGIN_PREFIX}${folder}/manifest.json`);
+    const bundle = await readText(store, `${PLUGIN_PREFIX}${folder}/main.js`);
+    return {
+      ...scanPlugin({ id: folder, manifestText: manifest?.text ?? null, source: bundle?.text ?? null }),
+      // A grant is for the code that was reviewed, not forever for anything
+      // later synced into the same folder. ETags are the storage adapter's
+      // content identity and are already normalized before they reach here.
+      bundleFingerprint: fingerprintFor(manifest, bundle),
+    };
   } catch {
     // Nothing from the error reaches the caller: its message would carry an
     // object key, and keys are the customer's own paths.
@@ -156,8 +162,18 @@ async function readPlugin(store, folder) {
     // dependencies. So the property is covered and the structure is not; a
     // reader deleting this as redundant gets a green run, which is exactly why
     // this paragraph is here.
-    return scanPlugin({ id: folder, manifestText: null, source: null });
+    return {
+      ...scanPlugin({ id: folder, manifestText: null, source: null }),
+      bundleFingerprint: null,
+    };
   }
+}
+
+function fingerprintFor(manifest, bundle) {
+  if (!manifest || !bundle) return null;
+  const etags = [manifest.etag, bundle.etag];
+  if (etags.some((etag) => typeof etag !== "string" || !etag || etag.length > 256)) return null;
+  return `v1:${etags.map((etag) => encodeURIComponent(etag)).join(":")}`;
 }
 
 async function readText(store, key) {
@@ -168,7 +184,9 @@ async function readText(store, key) {
     // A bundle past the cap is handed on as-is; `scanBundle` is the one place
     // that decides what an over-long bundle means, so the size rule lives in
     // one file rather than two that could disagree about the number.
-    return typeof text === "string" ? text.slice(0, MAX_SCAN_BYTES + 1) : null;
+    return typeof text === "string"
+      ? { text: text.slice(0, MAX_SCAN_BYTES + 1), etag: object.etag }
+      : null;
   } catch {
     return null;
   }
