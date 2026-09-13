@@ -177,6 +177,26 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
 
+  /** Ephemeral execution health, never plugin output or note content. */
+  obsidianPluginRuntimeStates: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    status: v.union(
+      v.literal("loaded"),
+      v.literal("crash-looped"),
+      v.literal("blocked"),
+    ),
+    attempts: v.number(),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    rollbackFingerprint: v.optional(v.string()),
+    reportedBy: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
   /**
    * A named set of people inside one workspace, for a folder rule to point at.
    *

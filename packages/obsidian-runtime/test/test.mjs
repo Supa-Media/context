@@ -31,6 +31,7 @@ const operations = [
   [{ kind: "vault.rename", from: "1-projects/a.md", to: "1-projects/b.md", expectedEtag: "etag-1" }, "vault:rename"],
   [{ kind: "vault.delete", path: "1-projects/a.md", expectedEtag: "etag-1" }, "vault:delete"],
   [{ kind: "settings.load" }, "settings:read"],
+  [{ kind: "settings.save", json: "{}", expectedEtag: null }, "settings:write"],
   [{ kind: "settings.save", json: "{}", expectedEtag: "etag-1" }, "settings:write"],
   [{ kind: "network.request", url: "https://api.example.test/v1/items", method: "GET", headers: [] }, "network:request"],
 ];
@@ -50,6 +51,7 @@ refused({ version: 1, requestId: "request_1", operation: { kind: "vault.modify",
 refused({ version: 1, requestId: "request_1", operation: { kind: "vault.delete", path: "note.md", expectedEtag: "" } }, "ETAG_REQUIRED");
 refused({ version: 1, requestId: "request_1", operation: { kind: "network.request", url: "http://127.0.0.1/secrets", method: "GET", headers: [] } }, "INVALID_URL");
 refused({ version: 1, requestId: "request_1", operation: { kind: "network.request", url: "https://user:pass@example.test", method: "GET", headers: [] } }, "INVALID_URL");
+refused({ version: 1, requestId: "request_1", operation: { kind: "network.request", url: "https://api.example.test:8443", method: "GET", headers: [] } }, "INVALID_URL");
 refused({ version: 1, requestId: "request_1", operation: { kind: "network.request", url: "https://api.example.test", method: "TRACE", headers: [] } }, "INVALID_METHOD");
 refused({ version: 1, requestId: "request_1", operation: { kind: "vault.read", path: "note.md", scope: "private" } }, "INVALID_OPERATION");
 

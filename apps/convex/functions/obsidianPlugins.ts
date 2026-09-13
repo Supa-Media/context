@@ -8,6 +8,10 @@
  */
 
 import { getAuthUserId } from "@convex-dev/auth/server";
+import {
+  authorizePluginRpcRequest,
+  parsePluginRpcRequest,
+} from "@context/obsidian-runtime";
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -22,6 +26,7 @@ import {
 } from "../_generated/server";
 import { recordAudit } from "./lib/audit";
 import { getMembership, workspaceNotFound } from "./lib/workspaceAuth";
+import { extractFields } from "../../mcp/src/search/indexer.js";
 
 const capabilityValidator = v.union(
   v.literal("vault:read"),
@@ -56,6 +61,32 @@ const grantSummaryValidator = v.object({
   revokedAt: v.optional(v.number()),
 });
 
+const runtimeStatusValidator = v.object({
+  pluginId: v.string(),
+  bundleFingerprint: v.string(),
+  status: v.union(v.literal("loaded"), v.literal("crash-looped"), v.literal("blocked")),
+  attempts: v.number(),
+  errorCode: v.optional(v.string()),
+  errorMessage: v.optional(v.string()),
+  rollbackFingerprint: v.optional(v.string()),
+  updatedAt: v.number(),
+});
+
+const pluginRpcResponseValidator = v.union(
+  v.object({
+    version: v.literal(1),
+    requestId: v.string(),
+    ok: v.literal(true),
+    result: v.any(),
+  }),
+  v.object({
+    version: v.literal(1),
+    requestId: v.string(),
+    ok: v.literal(false),
+    error: v.object({ code: v.string(), message: v.string() }),
+  }),
+);
+
 type GrantSummary = {
   pluginId: string;
   bundleFingerprint: string;
@@ -71,6 +102,8 @@ type GrantSummary = {
 const MAX_GRANTS_RETURNED = 200;
 const MAX_CAPABILITIES = 8;
 const MAX_NETWORK_HOSTS = 12;
+const MAX_NETWORK_RESPONSE_BYTES = 2 * 1024 * 1024;
+const MAX_NETWORK_REDIRECTS = 3;
 
 function pluginError(code: string, message: string): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
@@ -141,6 +174,11 @@ function summary(row: {
     updatedAt: row.updatedAt,
     revokedAt: row.revokedAt,
   };
+}
+
+function safeRuntimeText(value: string | undefined, maximum: number): string | undefined {
+  if (value === undefined) return undefined;
+  return value.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, maximum) || undefined;
 }
 
 /** Owner-only because installed software is private workspace metadata. */
@@ -261,6 +299,13 @@ export const persistGrant = internalMutation({
       });
       row = (await ctx.db.get(id))!;
     }
+    const runtime = await ctx.db
+      .query("obsidianPluginRuntimeStates")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (runtime) await ctx.db.delete(runtime._id);
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: args.actorUserId,
@@ -295,6 +340,20 @@ export const revokePlugin = mutation({
     if (!row || row.status === "revoked") return { revoked: false };
     const now = Date.now();
     await ctx.db.patch(row._id, { status: "revoked", revokedAt: now, updatedAt: now });
+    const runtime = await ctx.db
+      .query("obsidianPluginRuntimeStates")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (runtime) {
+      await ctx.db.patch(runtime._id, {
+        status: "blocked",
+        errorCode: "GRANT_REVOKED",
+        errorMessage: "Plugin access was revoked",
+        updatedAt: now,
+      });
+    }
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId,
@@ -326,5 +385,373 @@ export const resolveActiveGrant = internalQuery({
     const membership = await getMembership(ctx, args.workspaceId, row.grantedBy);
     if (membership?.role !== "owner") return null;
     return summary(row);
+  },
+});
+
+/** Latest runtime health for owner-facing status and crash recovery UI. */
+export const listRuntimeStates = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.array(runtimeStatusValidator),
+  handler: async (ctx, args) => {
+    const userId = await callerId(ctx);
+    await requireOwner(ctx, args.workspaceId, userId);
+    const rows = await ctx.db
+      .query("obsidianPluginRuntimeStates")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+      .order("desc")
+      .take(MAX_GRANTS_RETURNED);
+    return rows.map((row) => ({
+      pluginId: row.pluginId,
+      bundleFingerprint: row.bundleFingerprint,
+      status: row.status,
+      attempts: row.attempts,
+      errorCode: row.errorCode,
+      errorMessage: row.errorMessage,
+      rollbackFingerprint: row.rollbackFingerprint,
+      updatedAt: row.updatedAt,
+    }));
+  },
+});
+
+/** Called by the trusted sandbox host after load or a bounded crash retry. */
+export const reportRuntimeStatus = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    status: v.union(v.literal("loaded"), v.literal("crash-looped"), v.literal("blocked")),
+    attempts: v.number(),
+    errorCode: v.optional(v.string()),
+    errorMessage: v.optional(v.string()),
+    rollbackFingerprint: v.optional(v.string()),
+  },
+  returns: runtimeStatusValidator,
+  handler: async (ctx, args) => {
+    const actorUserId = await callerId(ctx);
+    await requireOwner(ctx, args.workspaceId, actorUserId);
+    if (!Number.isInteger(args.attempts) || args.attempts < 0 || args.attempts > 10) {
+      throw pluginError("INVALID_RUNTIME_STATUS", "Runtime attempts must be between 0 and 10");
+    }
+    const grant = await ctx.db
+      .query("obsidianPluginGrants")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (!grant || grant.status !== "active" || grant.bundleFingerprint !== args.bundleFingerprint) {
+      throw pluginError("PLUGIN_NOT_GRANTED", "Runtime status must match an active reviewed bundle");
+    }
+    const existing = await ctx.db
+      .query("obsidianPluginRuntimeStates")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    const now = Date.now();
+    const fields = {
+      workspaceId: args.workspaceId,
+      pluginId: args.pluginId,
+      bundleFingerprint: args.bundleFingerprint,
+      status: args.status,
+      attempts: args.attempts,
+      errorCode: safeRuntimeText(args.errorCode, 80),
+      errorMessage: safeRuntimeText(args.errorMessage, 500),
+      rollbackFingerprint: safeRuntimeText(args.rollbackFingerprint, 800),
+      reportedBy: actorUserId,
+      updatedAt: now,
+    };
+    if (existing) await ctx.db.patch(existing._id, fields);
+    else await ctx.db.insert("obsidianPluginRuntimeStates", fields);
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "plugin.runtime-status",
+      details: { pluginId: args.pluginId, status: args.status, attempts: args.attempts },
+    });
+    return {
+      pluginId: fields.pluginId,
+      bundleFingerprint: fields.bundleFingerprint,
+      status: fields.status,
+      attempts: fields.attempts,
+      errorCode: fields.errorCode,
+      errorMessage: fields.errorMessage,
+      rollbackFingerprint: fields.rollbackFingerprint,
+      updatedAt: fields.updatedAt,
+    };
+  },
+});
+
+type RpcOperation = {
+  kind: string;
+  path?: string;
+  prefix?: string;
+  text?: string;
+  expectedEtag?: string | null;
+  from?: string;
+  to?: string;
+  json?: string;
+  url?: string;
+  method?: string;
+  headers?: Array<{ name: string; value: string }>;
+  body?: string;
+};
+
+type PluginRpcResponse =
+  | { version: 1; requestId: string; ok: true; result: unknown }
+  | { version: 1; requestId: string; ok: false; error: { code: string; message: string } };
+
+type RuntimeStorageResult = {
+  kind: string;
+  path?: string;
+  text?: string;
+  etag?: string;
+  [key: string]: unknown;
+};
+
+function rpcSuccess(requestId: string, result: unknown): PluginRpcResponse {
+  return { version: 1, requestId, ok: true, result };
+}
+
+function rpcFailure(requestId: string, code: string, message: string): PluginRpcResponse {
+  return {
+    version: 1,
+    requestId,
+    ok: false as const,
+    error: { code, message },
+  };
+}
+
+/**
+ * The sole RPC door from a sandbox into Context capabilities.
+ *
+ * Workspace/plugin identity and the reviewed fingerprint come from the trusted
+ * host around the sandbox. The untrusted request can name only an operation;
+ * the parser, persisted grant, and exact bundle fingerprint all have to agree
+ * before any storage or network side effect happens.
+ */
+export const executePluginRequest = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    request: v.any(),
+  },
+  returns: pluginRpcResponseValidator,
+  handler: async (ctx, args): Promise<PluginRpcResponse> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const grant = await ctx.runQuery(internal.functions.obsidianPlugins.resolveActiveGrant, {
+      workspaceId: args.workspaceId,
+      pluginId: args.pluginId,
+      bundleFingerprint: args.bundleFingerprint,
+    });
+    if (!grant) throw pluginError("PLUGIN_NOT_GRANTED", "Review and enable this plugin first");
+
+    const parsed = parsePluginRpcRequest(args.request);
+    if (parsed.ok === false) {
+      return rpcFailure("invalid", parsed.error.code, parsed.error.message);
+    }
+    const authorized = authorizePluginRpcRequest(parsed.request, grant);
+    if (authorized.ok === false) {
+      return rpcFailure(parsed.request.requestId, authorized.error.code, authorized.error.message);
+    }
+
+    const operation = parsed.request.operation as RpcOperation;
+    try {
+      if (operation.kind === "network.request") {
+        const result = await brokerNetworkRequest(operation, grant.networkHosts);
+        await ctx.runMutation(internal.functions.obsidianPlugins.recordRuntimeAudit, {
+          workspaceId: args.workspaceId,
+          actorUserId,
+          pluginId: args.pluginId,
+          action: "plugin.network",
+          path: null,
+          host: new URL(operation.url!).hostname.toLowerCase(),
+          method: operation.method!,
+          status: result.status,
+        });
+        return rpcSuccess(parsed.request.requestId, result);
+      }
+
+      const storageOperation = toStorageOperation(args.pluginId, operation);
+      const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: "private",
+        operation: storageOperation,
+      }) as RuntimeStorageResult;
+      const response = operation.kind === "metadata.get" && result.kind === "file"
+        ? {
+            path: result.path,
+            etag: result.etag,
+            ...extractFields(result.path!, result.text!),
+          }
+        : result;
+      if (["vault.create", "vault.modify", "vault.rename", "vault.delete", "settings.save"].includes(operation.kind)) {
+        await ctx.runMutation(internal.functions.obsidianPlugins.recordRuntimeAudit, {
+          workspaceId: args.workspaceId,
+          actorUserId,
+          pluginId: args.pluginId,
+          action: operation.kind,
+          path: operation.path ?? operation.from ?? null,
+          host: null,
+          method: null,
+          status: null,
+        });
+      }
+      return rpcSuccess(parsed.request.requestId, response);
+    } catch (error) {
+      const data = (error as { data?: { code?: unknown; message?: unknown } }).data;
+      return rpcFailure(
+        parsed.request.requestId,
+        typeof data?.code === "string" ? data.code : "PLUGIN_OPERATION_FAILED",
+        typeof data?.message === "string" ? data.message : "Plugin operation failed",
+      );
+    }
+  },
+});
+
+type RuntimeStorageOperation =
+  | { kind: "list"; path: string }
+  | { kind: "read"; path: string }
+  | { kind: "write"; path: string; text: string; expectedEtag?: string }
+  | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
+  | { kind: "pluginDelete"; path: string; expectedEtag: string }
+  | { kind: "pluginSettingsRead"; pluginId: string }
+  | { kind: "pluginSettingsWrite"; pluginId: string; json: string; expectedEtag: string | null };
+
+function toStorageOperation(pluginId: string, operation: RpcOperation): RuntimeStorageOperation {
+  switch (operation.kind) {
+    case "vault.list":
+      return { kind: "list", path: operation.prefix! };
+    case "vault.read":
+    case "metadata.get":
+      return { kind: "read", path: operation.path! };
+    case "vault.create":
+      return { kind: "write", path: operation.path!, text: operation.text! };
+    case "vault.modify":
+      return {
+        kind: "write",
+        path: operation.path!,
+        text: operation.text!,
+        expectedEtag: operation.expectedEtag!,
+      };
+    case "vault.rename":
+      return {
+        kind: "pluginRename",
+        from: operation.from!,
+        to: operation.to!,
+        expectedEtag: operation.expectedEtag!,
+      };
+    case "vault.delete":
+      return {
+        kind: "pluginDelete",
+        path: operation.path!,
+        expectedEtag: operation.expectedEtag!,
+      };
+    case "settings.load":
+      return { kind: "pluginSettingsRead", pluginId };
+    case "settings.save":
+      return {
+        kind: "pluginSettingsWrite",
+        pluginId,
+        json: operation.json!,
+        expectedEtag: operation.expectedEtag!,
+      };
+    default:
+      throw pluginError("INVALID_OPERATION", "Unsupported plugin operation");
+  }
+}
+
+async function brokerNetworkRequest(operation: RpcOperation, allowedHosts: string[]) {
+  let url = operation.url!;
+  for (let redirects = 0; redirects <= MAX_NETWORK_REDIRECTS; redirects += 1) {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!allowedHosts.includes(host) || parsed.protocol !== "https:" || (parsed.port && parsed.port !== "443")) {
+      throw pluginError("NETWORK_HOST_DENIED", "Plugin was not granted this exact HTTPS host");
+    }
+    const response = await fetch(url, {
+      method: operation.method!,
+      headers: Object.fromEntries((operation.headers ?? []).map((header) => [header.name, header.value])),
+      body: operation.body,
+      redirect: "manual",
+    });
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const location = response.headers.get("location");
+      if (!location || redirects === MAX_NETWORK_REDIRECTS) {
+        throw pluginError("NETWORK_REDIRECT_DENIED", "Network redirect could not be followed safely");
+      }
+      url = new URL(location, url).toString();
+      continue;
+    }
+    const body = await boundedResponseBody(response);
+    const headers: Array<{ name: string; value: string }> = [];
+    response.headers.forEach((value, name) => {
+      if (name.toLowerCase() !== "set-cookie" && headers.length < 64) headers.push({ name, value });
+    });
+    return { status: response.status, headers, body };
+  }
+  throw pluginError("NETWORK_REDIRECT_DENIED", "Too many network redirects");
+}
+
+async function boundedResponseBody(response: Response): Promise<ArrayBuffer> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_NETWORK_RESPONSE_BYTES) {
+    throw pluginError("NETWORK_RESPONSE_TOO_LARGE", "Network response exceeds 2 MB");
+  }
+  if (!response.body) return new ArrayBuffer(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_NETWORK_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw pluginError("NETWORK_RESPONSE_TOO_LARGE", "Network response exceeds 2 MB");
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return joined.buffer;
+}
+
+export const recordRuntimeAudit = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    pluginId: v.string(),
+    action: v.string(),
+    path: v.union(v.string(), v.null()),
+    host: v.union(v.string(), v.null()),
+    method: v.union(v.string(), v.null()),
+    status: v.union(v.number(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    await requireOwner(ctx, args.workspaceId, args.actorUserId);
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: args.action,
+      paths: args.path ? [args.path] : [],
+      details: {
+        pluginId: args.pluginId,
+        host: args.host,
+        method: args.method,
+        status: args.status,
+      },
+    });
+    return null;
   },
 });

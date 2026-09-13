@@ -360,6 +360,12 @@ const pluginInventoryValidator = v.object({
   checkedAt: v.string(),
 });
 
+const pluginSettingsValidator = v.object({
+  kind: v.literal("pluginSettings"),
+  json: v.string(),
+  etag: v.union(v.string(), v.null()),
+});
+
 type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
 type PluginInventory = {
   available: boolean;
@@ -717,6 +723,7 @@ const operationResultValidator = v.union(
   imageWrittenValidator,
   imageValidator,
   pluginInventoryValidator,
+  pluginSettingsValidator,
   vaultImportResultValidator,
   vaultClearResultValidator,
   searchResultsValidator,
@@ -823,6 +830,20 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
+  v.object({
+    kind: v.literal("pluginRename"),
+    from: v.string(),
+    to: v.string(),
+    expectedEtag: v.string(),
+  }),
+  v.object({ kind: v.literal("pluginDelete"), path: v.string(), expectedEtag: v.string() }),
+  v.object({ kind: v.literal("pluginSettingsRead"), pluginId: v.string() }),
+  v.object({
+    kind: v.literal("pluginSettingsWrite"),
+    pluginId: v.string(),
+    json: v.string(),
+    expectedEtag: v.union(v.string(), v.null()),
+  }),
   v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
@@ -920,6 +941,10 @@ type FileOperation =
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "pluginInventory" }
+  | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
+  | { kind: "pluginDelete"; path: string; expectedEtag: string }
+  | { kind: "pluginSettingsRead"; pluginId: string }
+  | { kind: "pluginSettingsWrite"; pluginId: string; json: string; expectedEtag: string | null }
   | {
       kind: "form";
       path: string;
@@ -944,6 +969,7 @@ type OperationResult =
   | ({ kind: "formApplied" } & FormResult)
   | ({ kind: "searchResults" } & SearchResults)
   | ({ kind: "pluginInventory" } & PluginInventory)
+  | { kind: "pluginSettings"; json: string; etag: string | null }
   | { kind: "notePaths"; paths: string[] | null }
   | {
       kind: "indexMaintained";
@@ -1043,6 +1069,18 @@ type OperationResult =
     }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer };
+
+/** Product-owned shadow settings; `.obsidian/` remains read-only. */
+function pluginSettingsKey(pluginId: string): string {
+  if (
+    pluginId.length === 0 ||
+    pluginId.length > 300 ||
+    /[\u0000-\u001f\u007f]/.test(pluginId)
+  ) {
+    throw new FileOpError("PATH_INVALID", "That plugin id is not valid.");
+  }
+  return `.context/plugins/${encodeURIComponent(pluginId)}/data.json`;
+}
 
 /* -------------------------------------------------------------------------- */
 /*                               authorization                                */
@@ -2323,6 +2361,72 @@ export async function executeOperation(
       case "pluginInventory": {
         const inventory = await inventoryPlugins(store) as PluginInventory;
         return { kind: "pluginInventory", ...inventory };
+      }
+      case "pluginSettingsRead": {
+        const object = await store.get(pluginSettingsKey(operation.pluginId));
+        if (!object) return { kind: "pluginSettings", json: "{}", etag: null };
+        return { kind: "pluginSettings", json: await object.text(), etag: object.etag };
+      }
+      case "pluginSettingsWrite": {
+        const key = pluginSettingsKey(operation.pluginId);
+        const existing = await store.get(key);
+        if (operation.expectedEtag === null ? existing !== null : existing?.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "Plugin settings changed while they were being edited.",
+            existing?.etag,
+          );
+        }
+        const onlyIf: { etagMatches?: string; absent?: true } = existing
+          ? { etagMatches: existing.etag }
+          : { absent: true as const };
+        const written = (existing || store.capabilities?.conditionalCreate === true)
+          ? await store.put(key, operation.json, { onlyIf })
+          : await store.put(key, operation.json);
+        if (written === null) {
+          const current = await store.get(key);
+          throw new FileOpError(
+            "CONFLICT",
+            "Plugin settings changed while they were being edited.",
+            current?.etag,
+          );
+        }
+        return { kind: "pluginSettings", json: operation.json, etag: written.etag };
+      }
+      case "pluginRename": {
+        const source = await store.get(operation.from);
+        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+        if (source.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while the plugin was using it.",
+            source.etag,
+          );
+        }
+        const moved = await movePath(store, {
+          from: operation.from,
+          to: operation.to,
+          scope,
+          now,
+        });
+        return { kind: "moved", ...moved };
+      }
+      case "pluginDelete": {
+        const source = await store.get(operation.path);
+        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+        if (source.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while the plugin was using it.",
+            source.etag,
+          );
+        }
+        const deleted = await deletePath(store, {
+          path: operation.path,
+          confirmation: DELETE_CONFIRMATION,
+          scope,
+        });
+        return { kind: "deleted", ...deleted };
       }
       case "list": {
         const listing = await listFolder(store, { path: operation.path, scope });

@@ -354,6 +354,204 @@ describe("Obsidian plugin inventory", () => {
     );
     expect(grants).toEqual([approved]);
 
+    const read = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "read_1",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    );
+    expect(read).toMatchObject({
+      version: 1,
+      requestId: "read_1",
+      ok: true,
+      result: { kind: "file", text: "# Shared\n" },
+    });
+    const denied = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "write_1",
+          operation: { kind: "vault.create", path: "1-projects/plugin.md", text: "# Plugin\n" },
+        },
+      },
+    );
+    expect(denied).toMatchObject({ ok: false, error: { code: "CAPABILITY_DENIED" } });
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      capabilities: [
+        "vault:read",
+        "vault:write",
+        "vault:rename",
+        "vault:delete",
+        "settings:read",
+        "settings:write",
+      ],
+      networkHosts: [],
+    });
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: { version: 1, requestId: "settings_1", operation: { kind: "settings.load" } },
+      },
+    );
+    expect(loaded).toMatchObject({
+      ok: true,
+      result: { kind: "pluginSettings", json: "{}", etag: null },
+    });
+    const saved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "settings_2",
+          operation: { kind: "settings.save", json: "{\"color\":\"yellow\"}", expectedEtag: null },
+        },
+      },
+    );
+    expect(saved).toMatchObject({
+      ok: true,
+      result: { kind: "pluginSettings", json: "{\"color\":\"yellow\"}" },
+    });
+    expect(f.backend.snapshot()).not.toHaveProperty(".obsidian/plugins/highlightr-plugin/data.json");
+    expect(f.backend.snapshot()).toHaveProperty(".context/plugins/highlightr-plugin/data.json");
+
+    const created = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "create_1",
+          operation: { kind: "vault.create", path: "1-projects/plugin.md", text: "# Plugin\n" },
+        },
+      },
+    );
+    if (!created.ok) throw new Error("expected plugin create to succeed");
+    const createdEtag = (created.result as { etag: string }).etag;
+    const conflict = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "modify_bad",
+          operation: {
+            kind: "vault.modify",
+            path: "1-projects/plugin.md",
+            text: "changed",
+            expectedEtag: "stale",
+          },
+        },
+      },
+    );
+    expect(conflict).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    const modified = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "modify_1",
+          operation: {
+            kind: "vault.modify",
+            path: "1-projects/plugin.md",
+            text: "changed",
+            expectedEtag: createdEtag,
+          },
+        },
+      },
+    );
+    if (!modified.ok) throw new Error("expected plugin modify to succeed");
+    const modifiedEtag = (modified.result as { etag: string }).etag;
+    const renamed = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "rename_1",
+          operation: {
+            kind: "vault.rename",
+            from: "1-projects/plugin.md",
+            to: "1-projects/plugin-renamed.md",
+            expectedEtag: modifiedEtag,
+          },
+        },
+      },
+    );
+    expect(renamed).toMatchObject({ ok: true, result: { kind: "moved" } });
+    const renamedRead = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "read_renamed",
+          operation: { kind: "vault.read", path: "1-projects/plugin-renamed.md" },
+        },
+      },
+    );
+    if (!renamedRead.ok) throw new Error("expected renamed plugin file to be readable");
+    const deleted = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "delete_1",
+          operation: {
+            kind: "vault.delete",
+            path: "1-projects/plugin-renamed.md",
+            expectedEtag: (renamedRead.result as { etag: string }).etag,
+          },
+        },
+      },
+    );
+    expect(deleted).toMatchObject({ ok: true, result: { kind: "deleted" } });
+    await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.reportRuntimeStatus, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      status: "loaded",
+      attempts: 1,
+    });
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listRuntimeStates,
+      { workspaceId: f.workspaceId },
+    )).toMatchObject([{ pluginId: "highlightr-plugin", status: "loaded", attempts: 1 }]);
+
     f.backend.seed(
       ".obsidian/plugins/highlightr-plugin/main.js",
       'const { Plugin } = require("obsidian"); class Changed extends Plugin {}',
@@ -377,6 +575,10 @@ describe("Obsidian plugin inventory", () => {
       api.functions.obsidianPlugins.listPluginGrants,
       { workspaceId: f.workspaceId },
     ))[0].status).toBe("revoked");
+    expect((await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listRuntimeStates,
+      { workspaceId: f.workspaceId },
+    ))[0]).toMatchObject({ status: "blocked", errorCode: "GRANT_REVOKED" });
   });
 
   test("only an owner can grant a plugin and a blocked bundle cannot be granted", async () => {
@@ -456,6 +658,45 @@ describe("Obsidian plugin inventory", () => {
       },
     );
     expect(approved.networkHosts).toEqual(["api.example.com"]);
+
+    const storageFetch = f.backend.fetchImpl;
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(typeof input === "string" ? input : String(input));
+      if (url.hostname === "api.example.com") {
+        return new Response("{\"ok\":true}", {
+          status: 200,
+          headers: { "content-type": "application/json", "set-cookie": "secret=value" },
+        });
+      }
+      return await storageFetch(input, init);
+    });
+    const response = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        request: {
+          version: 1,
+          requestId: "network_1",
+          operation: {
+            kind: "network.request",
+            url: "https://api.example.com/items",
+            method: "GET",
+            headers: [],
+          },
+        },
+      },
+    );
+    if (!response.ok) throw new Error("expected brokered request to succeed");
+    const networkResult = response.result as {
+      status: number;
+      headers: Array<{ name: string; value: string }>;
+      body: ArrayBuffer;
+    };
+    expect(response).toMatchObject({ ok: true, result: { status: 200 } });
+    expect(networkResult.headers).not.toContainEqual(expect.objectContaining({ name: "set-cookie" }));
+    expect(new TextDecoder().decode(networkResult.body)).toBe("{\"ok\":true}");
   });
 });
 

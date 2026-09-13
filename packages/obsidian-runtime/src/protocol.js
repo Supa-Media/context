@@ -146,7 +146,7 @@ function parseOperation(value) {
       if (!hasExactKeys(value, ["kind"])) return invalidOperation();
       return success({ kind: value.kind });
     case "settings.save":
-      if (!isEtag(value.expectedEtag)) return etagRequired();
+      if (value.expectedEtag !== null && !isEtag(value.expectedEtag)) return etagRequired();
       if (!hasExactKeys(value, ["kind", "json", "expectedEtag"])) return invalidOperation();
       if (!isBoundedString(value.json, MAX_SETTINGS_LENGTH) || !isJsonObject(value.json)) {
         return failure("INVALID_SETTINGS", "Settings must be a JSON object within the size limit");
@@ -203,7 +203,12 @@ function isHttpsUrl(value) {
   if (typeof value !== "string" || value.length > 2_048) return false;
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && url.username === "" && url.password === "" && url.hash === "" && url.hostname !== "";
+    return url.protocol === "https:" &&
+      (url.port === "" || url.port === "443") &&
+      url.username === "" &&
+      url.password === "" &&
+      url.hash === "" &&
+      url.hostname !== "";
   } catch {
     return false;
   }

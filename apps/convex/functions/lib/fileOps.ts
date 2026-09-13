@@ -150,7 +150,7 @@ export interface FileStore extends ScaffoldStore {
     key: string,
     options?: { onlyIf?: { etagMatches?: string } },
   ): Promise<void | null>;
-  capabilities?: { conditionalWrite: boolean };
+  capabilities?: { conditionalWrite: boolean; conditionalCreate?: boolean };
 }
 
 /** Keys removed per retryable replacement pass. Small enough for every provider. */
