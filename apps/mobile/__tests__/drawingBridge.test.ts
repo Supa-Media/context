@@ -40,7 +40,9 @@ import { describe, expect, test } from "@jest/globals";
 
 import {
   DRAWING_CHANNEL,
+  DRAWING_EDITOR_PATH,
   envelope,
+  isEditorPageUrl,
   readFromEditor,
   readToEditor,
 } from "../features/console/files/drawingBridge";
@@ -81,6 +83,58 @@ describe("origin is checked before anything is read", () => {
       theme: "dark",
       editable: true,
     });
+  });
+});
+
+describe("the page that sent it is the page we loaded", () => {
+  /*
+    The native half has no `event.origin`. It has `event.nativeEvent.url`, and
+    it used to reduce that to an origin with a regex and compare origins —
+    with `?? origin` behind it, so **a url the regex could not read counted as
+    ours**. Fail-open, in the one check standing between an arbitrary page and
+    a splice into somebody's file.
+
+    `file:///…` is the case that makes it concrete: the host is empty, so the
+    regex matches nothing, the fallback fires, and the check passes for a page
+    we never loaded. That is not hypothetical — a downloaded offline copy is
+    exactly the change that would introduce it, which is how it was found.
+
+    So the comparison is the whole url now, not an origin distilled out of it,
+    and an unreadable one is refused rather than assumed.
+  */
+  const PAGE = `${OURS}${DRAWING_EDITOR_PATH}`;
+
+  test("the exact page is ours", () => {
+    expect(isEditorPageUrl(PAGE, PAGE)).toBe(true);
+  });
+
+  test("a fragment or a query does not make it somebody else's", () => {
+    // A WebView reports what it loaded, and Excalidraw puts state in the hash.
+    expect(isEditorPageUrl(`${PAGE}#zoom=2`, PAGE)).toBe(true);
+    expect(isEditorPageUrl(`${PAGE}?v=2`, PAGE)).toBe(true);
+  });
+
+  test("another path on our own origin is not the editor", () => {
+    expect(isEditorPageUrl(`${OURS}/console/@seyi`, PAGE)).toBe(false);
+    expect(isEditorPageUrl(`${OURS}/drawing-assets/editor/other.html`, PAGE)).toBe(false);
+  });
+
+  test("another origin at the same path is not the editor", () => {
+    expect(isEditorPageUrl(`${THEIRS}${DRAWING_EDITOR_PATH}`, PAGE)).toBe(false);
+  });
+
+  test("a url with no readable host is refused rather than assumed", () => {
+    // The fail-open case, named. Every one of these used to be "ours".
+    expect(isEditorPageUrl("file:///var/mobile/editor/index.html", PAGE)).toBe(false);
+    expect(isEditorPageUrl("about:blank", PAGE)).toBe(false);
+    expect(isEditorPageUrl("", PAGE)).toBe(false);
+    expect(isEditorPageUrl(undefined, PAGE)).toBe(false);
+  });
+
+  test("a prefix of the page is not the page", () => {
+    // `startsWith` would accept this, and it is a real url somebody can serve.
+    expect(isEditorPageUrl(`${PAGE}.evil`, PAGE)).toBe(false);
+    expect(isEditorPageUrl(`${OURS}/drawing-assets/editor/index.html.evil`, PAGE)).toBe(false);
   });
 });
 

@@ -44,7 +44,7 @@ import { createRoot } from "react-dom/client";
 import { compressToBase64, parseDrawing, serializeDrawing } from "@context/drawings";
 
 import { DrawingEditor } from "../features/console/files/DrawingEditor.web";
-import { DRAWING_EDITOR_PATH } from "../features/console/files/drawingBridge";
+import { DRAWING_CHANNEL, DRAWING_EDITOR_PATH } from "../features/console/files/drawingBridge";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -140,6 +140,68 @@ describe("the editor never enters the console's bundle", () => {
     expect(sandbox).not.toContain("allow-popups");
     expect(sandbox).not.toContain("allow-downloads");
     expect(sandbox).not.toContain("allow-forms");
+  });
+});
+
+describe("only the frame we loaded may drive a save", () => {
+  /*
+    THE ORIGIN CHECK IS NOT AN IDENTITY CHECK.
+
+    `readFromEditor` compares `event.origin` against `window.location.origin`,
+    which is exactly right for keeping another site out and says nothing about
+    *which* same-origin window sent the message. The editor page is served from
+    our own origin, so every other same-origin window — the console's own, any
+    other frame it ever embeds, anything a `window.open` left behind — clears
+    that bar and reaches the branch that splices elements into somebody's file.
+
+    The frame is a `ref` the component already holds, so the identity is free:
+    a message that is not from `frame.current.contentWindow` is not from the
+    editor. Belt to the sandbox's braces rather than a replacement for it.
+  */
+  function post(source: Window | null, elements: unknown[]): void {
+    act(() => {
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { channel: DRAWING_CHANNEL, type: "change", elements },
+          origin: window.location.origin,
+          source,
+        }),
+      );
+    });
+  }
+
+  const CHANGED = [{ ...ELEMENTS[0], width: 999 }];
+
+  test("a same-origin message from anywhere else is not a save", () => {
+    const saved: string[] = [];
+    const container = mount({
+      path: PATH,
+      source: drawingFile(ELEMENTS),
+      canEdit: true,
+      onChange: (next) => saved.push(next),
+    });
+    expect(container.querySelector("iframe")).not.toBeNull();
+
+    // The console's own window, which passes the origin check every time.
+    post(window, CHANGED);
+    expect(saved).toEqual([]);
+  });
+
+  test("…and the message from the frame itself is", () => {
+    // The positive control. Without it the check above passes on a component
+    // that ignores every message, including the real ones.
+    const saved: string[] = [];
+    const container = mount({
+      path: PATH,
+      source: drawingFile(ELEMENTS),
+      canEdit: true,
+      onChange: (next) => saved.push(next),
+    });
+
+    const frame = container.querySelector("iframe") as HTMLIFrameElement;
+    post(frame.contentWindow, CHANGED);
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toContain("keep-me: yes");
   });
 });
 
