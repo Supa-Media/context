@@ -61,9 +61,11 @@ export const ROUTE_SEGMENTS = new Set([
   "meetings",
   "new",
   "note",
+  "privacy",
   "s",
   "search",
   "settings",
+  "terms",
   "welcome",
   "workspace",
 ]);
