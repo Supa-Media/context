@@ -678,6 +678,8 @@ export function BrowsePane({
           of, which is the case the feature was built for.
         */
         onSubmitForm={files.submitForm}
+        onReadFormResponses={files.readFormResponses}
+        onVoteForm={files.voteForm}
         /*
           What the note's own frontmatter cannot say. `visibility:` in a note
           is prose — `privacy.md` decides access — so the Properties panel

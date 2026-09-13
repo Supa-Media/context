@@ -47,6 +47,7 @@ import type { SyntaxNode } from "@lezer/common";
 import {
   FORM_FENCE_LANG,
   parseFormBlocks,
+  parseResponsesFile,
   validateSubmission,
 } from "../../../../mcp/src/forms.js";
 
@@ -81,6 +82,14 @@ interface ParsedBlock {
   config?: FormConfig;
   error?: string;
   line: number;
+}
+
+interface ParsedResponse {
+  readonly id: string;
+  readonly by: string;
+  readonly at: string;
+  readonly values: Readonly<Record<string, string>>;
+  readonly votes: readonly string[];
 }
 
 /**
@@ -123,6 +132,18 @@ export interface FormOutcome {
   readonly message: string;
 }
 
+export interface FormResponsesOutcome {
+  readonly ok: boolean;
+  readonly text?: string;
+  readonly message: string;
+}
+
+export interface FormVote {
+  readonly formId: string;
+  readonly responseId: string;
+  readonly vote: "up" | "none";
+}
+
 /**
  * The host's half: how a submission leaves this editor.
  *
@@ -136,10 +157,16 @@ export interface FormOutcome {
 export interface FormHostContext {
   /** Send one submission. Never called with values that fail validation here. */
   submit(submission: FormSubmission): Promise<FormOutcome>;
+  /** Read the declared sister file. A refusal reveals nothing about its existence. */
+  readResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+  /** Add or remove the signed-in person's named vote. */
+  vote?: (vote: FormVote) => Promise<FormOutcome>;
 }
 
 export interface FormHostRef {
   current: FormHostContext | null;
+  /** Incremented when the editor replaces one note with another document. */
+  generation?: number;
 }
 
 export const formHost = Facet.define<FormHostRef, FormHostRef | null>({
@@ -297,11 +324,14 @@ function el<K extends keyof HTMLElementTagNameMap>(
  * inside it never moves the caret out from under the person typing.
  */
 export class FormWidget extends WidgetType {
+  private readonly hostGeneration: number;
+
   constructor(
     private readonly fence: FormFence,
     private readonly host: FormHostRef | null,
   ) {
     super();
+    this.hostGeneration = host?.generation ?? 0;
   }
 
   /*
@@ -313,7 +343,10 @@ export class FormWidget extends WidgetType {
     that reached the document.
   */
   eq(other: FormWidget): boolean {
-    return other.fence.source === this.fence.source;
+    return (
+      other.fence.source === this.fence.source &&
+      other.hostGeneration === this.hostGeneration
+    );
   }
 
   toDOM(): HTMLElement {
@@ -355,6 +388,8 @@ export class FormWidget extends WidgetType {
     status.setAttribute("aria-live", "polite");
     foot.append(button, status);
     wrap.append(foot);
+
+    const reloadResponses = this.drawResponses(wrap, config);
 
     if (this.host === null) {
       button.disabled = true;
@@ -418,6 +453,7 @@ export class FormWidget extends WidgetType {
             }
             input.disabled = true;
           }
+          void reloadResponses();
         })
         .catch((error: unknown) => {
           button.disabled = false;
@@ -426,6 +462,144 @@ export class FormWidget extends WidgetType {
     });
 
     return wrap;
+  }
+
+  /**
+   * Draw the sister response file only when an ordinary note read succeeds.
+   *
+   * A missing section does not mean "no responses". It means this viewer
+   * cannot read the response note, whether because it is private, missing, or
+   * offline. Those cases stay deliberately indistinguishable. Once the read
+   * succeeds, the shared parser decides whether the file is valid and every
+   * submitted string reaches the DOM through textContent.
+   */
+  private drawResponses(
+    wrap: HTMLElement,
+    config: FormConfig,
+  ): () => Promise<void> {
+    const section = el("div", "cm-lp-form-responses");
+    const host = this.host;
+    let generation = 0;
+    const read = async (): Promise<void> => {
+      const request = ++generation;
+      const current = host?.current ?? null;
+      if (current?.readResponses === undefined) {
+        section.remove();
+        return;
+      }
+      let outcome: FormResponsesOutcome;
+      try {
+        outcome = await current.readResponses(config.responses);
+      } catch {
+        if (request === generation) section.remove();
+        return;
+      }
+      if (request !== generation) return;
+      if (!outcome.ok || outcome.text === undefined) {
+        section.remove();
+        return;
+      }
+      const parsed = parseResponsesFile(outcome.text, config) as {
+        responses?: ParsedResponse[];
+        error?: string;
+      };
+      section.replaceChildren(el("div", "cm-lp-form-responses-title", "Responses"));
+      if (parsed.error !== undefined || parsed.responses === undefined) {
+        section.append(
+          el(
+            "div",
+            "cm-lp-form-responses-status",
+            `Responses can’t be displayed: ${parsed.error ?? "the response file is unreadable"}.`,
+          ),
+        );
+        return;
+      }
+      if (parsed.responses.length === 0) {
+        section.append(el("div", "cm-lp-form-responses-status", "No responses yet."));
+        return;
+      }
+      section.append(this.responsesTable(config, parsed.responses, read));
+    };
+
+    if (host?.current?.readResponses !== undefined) {
+      section.append(el("div", "cm-lp-form-responses-status", "Loading responses…"));
+      wrap.append(section);
+      void read();
+    }
+    return read;
+  }
+
+  private responsesTable(
+    config: FormConfig,
+    responses: readonly ParsedResponse[],
+    reload: () => Promise<void>,
+  ): HTMLDivElement {
+    const scroll = el("div", "cm-lp-form-responses-scroll");
+    const table = document.createElement("table");
+    table.className = "cm-lp-form-responses-table";
+    const head = document.createElement("thead");
+    const headings = document.createElement("tr");
+    for (const label of [
+      ...config.fields.map((field) => field.name.replace(/_/g, " ")),
+      "By",
+      "At",
+    ]) {
+      headings.append(el("th", "", label));
+    }
+    if (config.votes === "named") headings.append(el("th", "", "Votes"));
+    head.append(headings);
+    table.append(head);
+
+    const body = document.createElement("tbody");
+    for (const response of responses) {
+      const row = document.createElement("tr");
+      for (const field of config.fields) {
+        row.append(el("td", "", response.values[field.name] ?? ""));
+      }
+      row.append(el("td", "", response.by), el("td", "", response.at));
+      if (config.votes === "named") {
+        const cell = document.createElement("td");
+        const voters = el(
+          "div",
+          "cm-lp-form-voters",
+          response.votes.length === 0 ? "No votes" : response.votes.join(", "),
+        );
+        cell.append(voters);
+        const vote = this.host?.current?.vote;
+        if (vote !== undefined) {
+          const controls = el("div", "cm-lp-form-vote-controls");
+          const add = el("button", "cm-lp-form-vote", "Upvote");
+          const remove = el(
+            "button",
+            "cm-lp-form-vote cm-lp-form-vote-remove",
+            "Remove vote",
+          );
+          add.type = remove.type = "button";
+          const run = async (next: "up" | "none"): Promise<void> => {
+            add.disabled = remove.disabled = true;
+            const outcome = await (this.host?.current?.vote?.({
+              formId: config.id,
+              responseId: response.id,
+              vote: next,
+            }) ?? Promise.resolve({ ok: false, message: "Voting is unavailable." }));
+            if (outcome.ok) await reload();
+            else {
+              voters.textContent = outcome.message;
+              add.disabled = remove.disabled = false;
+            }
+          };
+          add.addEventListener("click", () => void run("up"));
+          remove.addEventListener("click", () => void run("none"));
+          controls.append(add, remove);
+          cell.append(controls);
+        }
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    scroll.append(table);
+    return scroll;
   }
 
   private drawField(
