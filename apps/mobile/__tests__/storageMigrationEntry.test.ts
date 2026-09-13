@@ -36,7 +36,7 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted. 9 checks in this file.
+ * Run as temporary local edits and reverted. 8 checks in this file.
  *
  *   the settings row drawn for everyone (its guard dropped)                  1
  *   `useStorageMigrationOffer` ignoring the stored dismissal                 2
@@ -44,8 +44,8 @@
  *   the dismissal held in component state and never written down             1
  *   running the update not answering the offer (the notice stays)            1
  *   the notice's `storageMigrationWorthOffering` condition dropped           1
- *   the settings card's row not wrapping (`flexWrap` dropped)                 1
- *   the text column's `minWidth` floor dropped                                1
+ *   the settings card's row not wrapping (`flexWrap` dropped)                1
+ *   the text column's `minWidth` floor dropped                               1
  *
  * One mutation is **not** detected and is worth naming rather than leaving to
  * be discovered: dropping `storageMigration.visible` from the notice's own

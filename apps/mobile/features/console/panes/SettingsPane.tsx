@@ -255,11 +255,15 @@ export function SettingsPane({
 
         Gated on nothing but the action's presence, which is the guard it has
         always had: `useFileBrowser` hands `updateStorageLayout` to an owner
-        and to nobody else, so an absent function is an absent row. Not
-        additionally gated on `storage.connected`: a binding that is not
-        answering right now is not a context whose owner may no longer ask for
-        this, and inventing a second condition here is how the two entry
-        points would start disagreeing about who may run it.
+        and to nobody else, so an absent function is an absent row.
+
+        The console's *notice* takes one further condition — a connected
+        binding, `storageMigrationWorthOffering` — and this row deliberately
+        does not. The asymmetry is the difference between the two surfaces
+        rather than an oversight in one of them: an offer that appears in
+        front of somebody has to earn the interruption, while a row they went
+        looking for should still be here when a probe is mid-flight. Neither
+        condition decides who may run it.
       */}
       {data.files.updateStorageLayout !== undefined ? (
         <View style={styles.migration}>
