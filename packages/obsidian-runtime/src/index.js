@@ -5,3 +5,5 @@ export {
   capabilityForOperation,
   parsePluginRpcRequest,
 } from "./protocol.js";
+
+export { parsePluginSandboxMessage, pluginSandboxDocument } from "./sandbox.js";
