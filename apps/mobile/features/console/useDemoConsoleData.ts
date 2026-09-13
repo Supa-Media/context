@@ -5,6 +5,7 @@ import { viewerIdentity } from "./identity";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
 import type { ConsoleAuditEvent } from "./advanced/advanced";
+import type { ConsolePlugin } from "./plugins/plugins";
 import type { ConsoleShare } from "./shares/shares";
 import type {
   ConsoleClient,
@@ -29,6 +30,89 @@ import type {
  * their ingestion rules all change with the selection — see
  * `placeholderData.ts`.
  */
+
+/**
+ * Five plugins, one per verdict, chosen because each is the clearest case of
+ * its own kind rather than because five is a tidy number.
+ *
+ * Highlightr is the reference `runs` plugin and the one the native-plugin
+ * milestone is built around. Readwise names hosts, which is the consent
+ * screen's whole content. Excalidraw and Obsidian Git both carry curated notes
+ * in `capabilities.js`, and they are the two halves of "nothing is stranded" —
+ * one whose format Context reads, one whose job Context does differently.
+ * Dataview is `unknown` for the reason that matters most: a bundle past the
+ * read cap, where a partial read reporting no blockers would otherwise look
+ * exactly like a clean one.
+ */
+const DEMO_PLUGINS: ConsolePlugin[] = [
+  {
+    id: "highlightr-plugin",
+    name: "Highlightr",
+    version: "1.2.2",
+    author: "Chetachi",
+    verdict: "runs",
+    evidence: [],
+    limitations: [],
+    notes: [],
+    bytesRead: 84_000,
+    bytesTotal: 84_000,
+  },
+  {
+    id: "readwise-official",
+    name: "Readwise Official",
+    version: "2.1.1",
+    author: "Readwise",
+    verdict: "needs-approval",
+    evidence: [{ id: "requestUrl", reason: "uses Obsidian's requestUrl to call a server" }],
+    hosts: ["readwise.io", "api.readwise.io"],
+    limitations: [],
+    notes: [],
+  },
+  {
+    id: "obsidian-excalidraw-plugin",
+    name: "Excalidraw",
+    version: "2.4.2",
+    author: "Zsolt Viczián",
+    verdict: "files-only",
+    evidence: [],
+    limitations: [],
+    notes: ["Your .excalidraw.md files stay intact, versioned and searchable here."],
+  },
+  {
+    id: "obsidian-git",
+    name: "Obsidian Git",
+    version: "2.24.1",
+    author: "Vinzent",
+    verdict: "wont-run",
+    evidence: [
+      {
+        id: "child_process",
+        reason: "runs another program; there is no process to start in a browser tab",
+      },
+    ],
+    limitations: [],
+    notes: [
+      "Context keeps an audit trail of every write. For version history, turn on object versioning at your storage provider — that also captures what you edit in Obsidian directly.",
+    ],
+  },
+  {
+    id: "dataview",
+    name: "Dataview",
+    version: "0.5.67",
+    author: "Michael Brenan",
+    verdict: "unknown",
+    evidence: [
+      {
+        id: "read-cap",
+        reason: "the bundle is larger than the check reads, so a clean result would describe only the part it reached",
+      },
+    ],
+    limitations: [],
+    notes: [],
+    bytesRead: 512_000,
+    bytesTotal: 1_800_000,
+  },
+];
 
 const DEMO_CONTEXTS: ConsoleContext[] = [
   { id: "seyi", slug: "seyi", displayName: "seyi", role: "owner", kind: "personal", status: "ok" },
@@ -385,6 +469,31 @@ export function useDemoConsoleData(): ConsoleData {
         failure: null,
       },
       keyExport: undefined,
+    },
+    /*
+      The one place fixture plugin rows are allowed.
+
+      The live console answers `unavailable` rather than inventing an
+      inventory, because a sentence about somebody's own vault that nobody
+      checked is the failure this whole section is shaped to avoid. The landing
+      page's console is a product shot with no bucket behind it at all, so
+      there is no real answer to get wrong — and the screen is worth showing,
+      because "Context has already read your plugins and can tell you which of
+      them run here" is most of the pitch.
+
+      Every verdict, finding and note below is copied from
+      `apps/mcp/src/plugins/capabilities.js`, so the demo agrees with what the
+      gateway would actually say about these five.
+    */
+    plugins: {
+      state: "ready",
+      inventory: {
+        found: 5,
+        scanned: 5,
+        truncated: false,
+        checkedAt: "2026-09-12",
+        plugins: DEMO_PLUGINS,
+      },
     },
     loading: false,
     // Nothing here is fetched, so nothing here can fail: the landing page's

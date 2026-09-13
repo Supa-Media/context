@@ -577,7 +577,85 @@ function planIsPayingStatus(raw: string): boolean {
   return premiumStateOf(raw) === "premium";
 }
 
-/** "$5 a month" — the price, in the words on the row. */
+/**
+ * THE PRICE IS AN EARLY-TESTER PRICE, AND THAT IS A PROMISE WITH A BILL.
+ *
+ * $5 is what Premium costs while Context is in early testing, and the product
+ * no longer presents it as what Premium costs full stop: it goes up for people
+ * who join later. The half of that sentence worth writing down once, rather
+ * than improvising per screen, is the second half — **whoever is paying it now
+ * keeps it for as long as they keep the subscription.**
+ *
+ * That is a commitment on the billing side and not a turn of phrase. A Stripe
+ * Price amount is immutable, so raising the price means a *new* Price that new
+ * subscriptions are created against, with the existing ones left where they
+ * are — never a migration of live subscriptions onto the new amount, which is
+ * the one operation that would make this sentence a lie retroactively, for
+ * everybody who read it, at once. See `docs/decisions/billing.md`, "The $5 is
+ * an early-tester price, and it is held for the people already on it".
+ *
+ * One constant for the same reason `EXPORT_PROMISE` is one: a guarantee
+ * restated in three components is a guarantee that will read differently in
+ * three places, and the weakest of the three wordings is the one somebody
+ * quotes back.
+ */
+export const EARLY_TESTER_PRICE_NOTE =
+  "This is what Premium costs while Context is in early testing. It goes up " +
+  "for people who join later; yours stays at this price for as long as you " +
+  "keep it.";
+
+/**
+ * The same promise where a card has one line and not a paragraph.
+ *
+ * Shorter, and deliberately not *weaker*: it still carries the held-price
+ * half, because a badge that said only "early tester price" would announce a
+ * rise and offer nothing, which is a worse thing to put on the card somebody
+ * is deciding from than saying nothing at all.
+ */
+export const EARLY_TESTER_PRICE_SHORT =
+  "Early tester price, held for as long as you keep it.";
+
+/**
+ * Where the held-price sentence may be said, and where it would be a lie.
+ *
+ * The promise is tied to *keeping* a subscription, so it belongs on the states
+ * where somebody is deciding to start one or is paying for one now — `free`,
+ * `premium`, `past_due` (a declined card is a subscription they still have).
+ *
+ * It is withheld on `canceled`, and that withholding is the entire reason this
+ * is a function rather than a constant like the sentence above it. A cancelled
+ * context has not kept anything; `describePremium` already tells it that
+ * starting again "is a payment rather than a set-up", and that payment is a
+ * new subscription at whatever Premium costs on the day. Rendering "yours
+ * stays at this price" underneath "Premium has ended for this context" would
+ * promise a rate nobody held and nobody paid for — and it would be read as an
+ * inducement to come back, which is the reading that makes it dishonest
+ * rather than merely wrong.
+ *
+ * `unavailable` draws no price at all, so it has no price to frame.
+ */
+export function earlyTesterPriceNote(state: PremiumState): string | null {
+  switch (state) {
+    case "free":
+    case "premium":
+    case "past_due":
+      return EARLY_TESTER_PRICE_NOTE;
+    case "canceled":
+    case "unavailable":
+    default:
+      return null;
+  }
+}
+
+/**
+ * "$5 a month" — the price, in the words on the row.
+ *
+ * Money and nothing else. The early-tester framing is `EARLY_TESTER_PRICE_NOTE`
+ * beside it rather than a suffix here, so a price row, a badge and a receipt
+ * can each show the number without every one of them carrying a promise — and
+ * so that promise never ends up inside a currency formatter, where no test
+ * about promises would think to look for it.
+ */
 export function formatPrice(status: PremiumStatus): string {
   const amount = status.priceCents / 100;
   const rendered =

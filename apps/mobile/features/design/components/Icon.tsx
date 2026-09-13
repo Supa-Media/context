@@ -330,6 +330,21 @@ export const ICON_NAMES = [
   "drive",
   /** Advanced: two sliders, off their defaults. */
   "sliders",
+  /**
+   * Plugins — a board with one piece joined to its corner.
+   *
+   * Not a puzzle piece, which is the obvious mark and undrawable here: a
+   * jigsaw tab is a path with two concave shoulders, and there is no clipping
+   * in this set (see `globe` and `drive`, which record the same refusal). Two
+   * rounded rectangles meeting at a corner say the thing that actually matters
+   * about this section anyway — something of somebody else's, attached to
+   * what you already have — and the filled one is the *added* half, so the
+   * drawing has a subject.
+   *
+   * Deliberately not `grid`, which is AI apps: four equal panes are a set of
+   * peers, and a plugin is not a peer of the vault it runs against.
+   */
+  "plugin",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -1154,6 +1169,12 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         rect("b", u, w, c, { x0: 0.54, y0: 0.12, x1: 0.88, y1: 0.46, radius: 0.1 }),
         rect("c", u, w, c, { x0: 0.12, y0: 0.54, x1: 0.46, y1: 0.88, radius: 0.1 }),
         rect("d", u, w, c, { x0: 0.54, y0: 0.54, x1: 0.88, y1: 0.88, radius: 0.1 }),
+      ];
+
+    case "plugin":
+      return [
+        rect("board", u, w, c, { x0: 0.12, y0: 0.36, x1: 0.64, y1: 0.88, radius: 0.12 }),
+        rect("piece", u, w, c, { x0: 0.58, y0: 0.12, x1: 0.88, y1: 0.42, radius: 0.1, fill: c }),
       ];
 
     case "person":

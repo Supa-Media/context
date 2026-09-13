@@ -54,7 +54,11 @@ jest.mock("convex/react", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { StorageStepBody } from "../features/onboarding/steps/StorageStep";
-import { EXPORT_PROMISE, type PremiumStatus } from "../features/console/settings/panels/premium";
+import {
+  EARLY_TESTER_PRICE_SHORT,
+  EXPORT_PROMISE,
+  type PremiumStatus,
+} from "../features/console/settings/panels/premium";
 import type { ManagedOffer } from "../features/onboarding/useManagedOffer";
 
 const roots: (() => void)[] = [];
@@ -144,6 +148,16 @@ describe("offering storage we keep", () => {
     expect(card).not.toBeNull();
     expect(card?.textContent ?? "").toContain("$5 a month");
     expect(card?.textContent ?? "").toContain("50 GB");
+    /*
+      And what kind of price it is. The card is the last surface somebody sees
+      before the confirm screen, so a number here with no framing is a number
+      they will reasonably read as permanent — and `EARLY_TESTER_PRICE_SHORT`
+      is asserted rather than a literal so shortening it for space cannot
+      quietly drop the half that promises them anything.
+    */
+    expect(card?.textContent ?? "").toContain(EARLY_TESTER_PRICE_SHORT);
+    expect(EARLY_TESTER_PRICE_SHORT).toMatch(/early tester/i);
+    expect(EARLY_TESTER_PRICE_SHORT).toMatch(/as long as you keep it/i);
     expect(container.textContent ?? "").not.toContain("Recommended");
     // The two product paths are peers. Provider details are not a third tier.
     const order = [...container.querySelectorAll("[data-testid]")]

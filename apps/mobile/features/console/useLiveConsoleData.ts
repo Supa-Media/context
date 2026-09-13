@@ -21,6 +21,7 @@ import { useFastSearch } from "./search/useFastSearch";
 import { useGroups } from "./groups/useGroups";
 import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
+import { usePlugins } from "./plugins/usePlugins";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
@@ -545,6 +546,14 @@ export function useLiveConsoleData(): ConsoleData {
   // not passed: `status` answers the authorization question with the server's
   // answer, and a second one derived here could disagree with it.
   const fastSearch = useFastSearch({ workspaceId: selectedContextId });
+  /*
+    One call, one honest answer, and the single place that changes when the
+    owner-only inventory read lands. It takes no arguments today because the
+    gateway's own read takes none — `list_plugins` cannot be aimed, which is
+    what keeps a tool that reads outside the privacy manifest's reach from
+    becoming a way to read around it.
+  */
+  const plugins = usePlugins();
 
   // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
   // this hook decides for itself, from `role`, whether to subscribe at all.
@@ -723,6 +732,7 @@ export function useLiveConsoleData(): ConsoleData {
     shares,
     groups,
     advanced,
+    plugins,
     fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the

@@ -333,6 +333,25 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    /*
+      Between Search and Advanced, and inside "Your notes" rather than a group
+      of its own.
+
+      A plugin here is not an integration in the sense the other groups mean —
+      it is code that reads and writes the Markdown in this context's bucket,
+      which is exactly what this group is about. It sits after Search because
+      the two answer questions in the same order a person asks them: what is in
+      my notes, and then what else is touching them.
+    */
+    key: "plugins",
+    keywords: "obsidian plugin plugins vault dataview templater excalidraw community addon extension compatible",
+    scope: "context",
+    label: "Plugins",
+    group: "Your notes",
+    icon: "plugin",
+    personalOnly: false,
+  },
+  {
     key: "advanced",
     keywords: "audit history log trail export key keys encryption rotate activity",
     scope: "context",
