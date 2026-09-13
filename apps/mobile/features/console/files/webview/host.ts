@@ -76,6 +76,10 @@ export function themeVars(
     "--lp-muted": colors.text2,
     "--lp-link": colors.codeKey,
     "--lp-code-bg": colors.well,
+    // Hairlines. See the web half's note: a rule that wants an edge used to
+    // borrow the code fence's fill, which is not one.
+    "--lp-line": colors.line,
+    "--lp-line-strong": colors.lineStrong,
     "--lp-caret": colors.text,
     "--lp-selection": colors.accentDim,
     // `fonts.body` is `undefined` on native on purpose — there are no bundled

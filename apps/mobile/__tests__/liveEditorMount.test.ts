@@ -570,6 +570,21 @@ describe("toggling reading mode redraws the note on the spot", () => {
     m.unmount();
   });
 
+  test("a table becomes a grid on the same press", () => {
+    const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |", ""].join("\n");
+    const m = mount({ value: `# Notes\n\n${TABLE}`, editable: true });
+    expect(m.container.querySelector(".cm-lp-grid")).toBeNull();
+
+    m.update({ editable: false });
+    const grid = m.container.querySelector(".cm-lp-grid table");
+    expect(grid).not.toBeNull();
+    // The header's own cells, rather than the dashes that described them.
+    expect([...(grid?.querySelectorAll("th") ?? [])].map((th) => th.textContent)).toEqual(["a", "b"]);
+    expect(grid?.textContent).not.toContain("---");
+
+    m.unmount();
+  });
+
   test("and turning it back off puts the source back, also with no click", () => {
     const m = mount({ value: FORM, editable: false });
     expect(m.container.querySelector(".cm-lp-form")).not.toBeNull();

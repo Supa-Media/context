@@ -48,6 +48,8 @@ export function guestStyles(): string {
   --lp-muted: #666666;
   --lp-link: #2a5db0;
   --lp-code-bg: rgba(0,0,0,0.06);
+  --lp-line: rgba(0,0,0,0.09);
+  --lp-line-strong: rgba(0,0,0,0.18);
   --lp-caret: #222222;
   --lp-selection: rgba(37,99,235,0.20);
   --lp-mono: ui-monospace, Menlo, monospace;

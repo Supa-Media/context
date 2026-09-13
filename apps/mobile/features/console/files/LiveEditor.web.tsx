@@ -227,6 +227,14 @@ function ensureStyles(colors: Colors): void {
   */
   --lp-content: ${colors.text2};
   /*
+    Hairlines, which this file had no token for at all — a rule that needed one
+    borrowed --lp-code-bg, and that is the code fence's *fill*: #F5F5F5 on a
+    #FFFFFF ground, which is not an edge. The palette has had the right two
+    values the whole time.
+  */
+  --lp-line: ${colors.line};
+  --lp-line-strong: ${colors.lineStrong};
+  /*
     What the note is drawn *on*. The editor itself is transparent (below), so
     this names the surface behind it rather than painting one. The checkbox's
     tick is cut out of the filled box in this colour.
