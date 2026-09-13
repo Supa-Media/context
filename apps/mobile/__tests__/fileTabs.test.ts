@@ -401,6 +401,23 @@ describe("tab labels", () => {
     expect(tabLabel(state, "1-projects/notes.md")).toBe("1-projects/notes");
     expect(tabLabel(state, "2-areas/notes.md")).toBe("2-areas/notes");
   });
+
+  test("a drawing drops both of its extensions", () => {
+    // `plan.excalidraw.md` is a file called `plan`; the `.excalidraw` is
+    // filing exactly as the `.md` is, and a strip of `…excalidraw`s reads as
+    // the noise the trim exists to remove.
+    const state = pinned("4-resources/request-path.excalidraw.md");
+    expect(tabLabel(state, "4-resources/request-path.excalidraw.md")).toBe("request-path");
+  });
+
+  test("and a drawing collides with the note of the same name", () => {
+    // The disambiguation runs on the label, so it has to see the same name
+    // this does: `plan.md` and `plan.excalidraw.md` in one strip are two tabs
+    // called `plan`, and neither should be a coin toss.
+    const state = pinned("1-projects/plan.md", "2-areas/plan.excalidraw.md");
+    expect(tabLabel(state, "1-projects/plan.md")).toBe("1-projects/plan");
+    expect(tabLabel(state, "2-areas/plan.excalidraw.md")).toBe("2-areas/plan");
+  });
 });
 
 describe("nothing is mutated in place", () => {

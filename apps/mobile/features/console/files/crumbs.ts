@@ -62,6 +62,8 @@
  * scrolls.
  */
 
+import { drawingName } from "@context/drawings";
+
 /** One element of the path line. */
 export type Crumb =
   /** An ancestor folder. Pressable: it opens that folder's listing. */
@@ -121,8 +123,15 @@ export function crumbsFor(
  * back to the filename, so the two cannot disagree about what a note is called.
  *
  * Only the extension, and only at the end: `notes.md` as a *folder* name keeps
- * its own spelling, because that is the folder's name.
+ * its own spelling, because that is the folder's name — which is why this is
+ * applied to the leaf and nothing else.
+ *
+ * A drawing carries **two** extensions and `drawingName` is the one place that
+ * knows it: `plan.excalidraw.md` is a file called `plan`, and trimming only the
+ * outer half left `plan.excalidraw` in the band. It matters here rather than
+ * only in `noteHeading` because this is the label whenever the editor is not
+ * holding the note, which is every listing.
  */
 function stripMarkdown(name: string): string {
-  return name.replace(/\.md$/i, "");
+  return drawingName(name);
 }
