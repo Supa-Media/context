@@ -358,7 +358,8 @@ export function validateCustomFolders(
  * byte-identical in everything but the rules — no spurious whole-file diff
  * appearing in the customer's Obsidian vault the first time they share a
  * folder. The markers moved there with it; they are on-bucket format, so the
- * legacy "BRAIN" wording stays even though the product noun is "context".
+ * legacy "BRAIN" wording stays even though the word is retired from the
+ * product's copy (2026-09-13). Changing it is a storage-layout migration.
  */
 function renderStartingRulesBlock(
   folderDefaults: readonly string[],

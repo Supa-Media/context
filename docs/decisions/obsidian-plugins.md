@@ -141,11 +141,11 @@ schema is empty rather than optional.
 The scan is the foundation, not the feature. Three things it stops short of, and
 what each would take:
 
-- **Running plugins.** An `obsidian` API shim over the storage adapter, plugin
-  bundles in a sandboxed worker in the console. The editor half is unusually
-  cheap because Context's editor is already CodeMirror 6, the same as Obsidian's
-  — `SUPPORTED_MEMBERS` is written against what that shim would answer, so the
-  table is the shim's specification as much as the scan's input.
+- **Running plugins (built in the first client runtime below).** This required
+  an `obsidian` API shim over the storage adapter and one browser-process
+  sandbox per bundle. `SUPPORTED_MEMBERS` became the shim's initial
+  specification; frontend rendering of the registrations it emits remains
+  follow-up work.
 - **The grant model for `needs-approval`.** A plugin that reaches a host should
   be a grant like any other: scoped to declared folders and hosts, approved by
   the owner, recorded in the audit trail under its own name, revocable in one
@@ -161,3 +161,190 @@ The rule that governs all three, and the reason none of them is a small step:
 context.** `team` means named people the owner granted access to, and none of
 them consented to somebody else's plugin. Whatever the runtime ends up being, it
 is scoped below the context, not equal to it.
+
+## Drawings: read the file, describe it, and refuse to write over it
+
+`.excalidraw.md` was listed above as a format we do not parse and therefore
+cannot corrupt. That is still the floor, and it is no longer the whole answer:
+a drawing is now **read** — described in words for an agent and drawn as a
+picture in the console — and still never rewritten.
+
+The reason the floor stopped being enough is that a drawing is a `.md` file, so
+every rule in the gateway already applied to it and each one was wrong in the
+same way. `list_notes` showed it as an ordinary note. The indexer tokenized a
+megabyte of LZ-String base64 into terms no query can produce, crowding out the
+ones that can — the argument the fallback scan already makes for an encrypted
+note ("matching a needle against base64 would produce hits nobody asked for"),
+arriving by a different route. And `read_note` returned the whole file,
+uncapped, so asking about a diagram spent a caller's entire context on a blob it
+could not decode.
+
+`packages/drawings` is the one parser, imported by the Worker by relative path
+(no dependency, no build step — the `packages/meetings` arrangement) and by the
+console as `@context/drawings`. One parse feeds both the description and the
+render, so the words an agent is given and the picture a person sees cannot
+drift into describing different drawings.
+
+### The guard is the load-bearing half, and describing created the need for it
+
+Returning a description introduces a failure that did not exist before it: a
+client reads a note, edits a line, writes the whole thing back — and replaces
+the diagram with a paragraph *about* the diagram. The only copy of those
+elements was the file it just destroyed. That is the data-loss shape this
+document already refuses, arriving through the gateway rather than through a
+tidy-up.
+
+So a write to a `.excalidraw.md` path must itself parse as a drawing. The test
+is "does this carry a payload", not "is the caller trusted" and not "did the
+caller pass a flag": a real drawing from a real editor passes it, text that only
+describes one cannot, and creating a new drawing through the gateway still
+works. The console enforces the same rule from the other side — `NoteEditor`
+renders a drawing instead of opening it in `LiveEditor`, because an editor over
+that buffer is one keystroke away from a payload nothing can decompress and a
+file that still looks like a file.
+
+### Everything degrades to "we could not read it", never to a refusal
+
+Missing, oversized, undecodable or unrecognised payloads all parse to a drawing
+with `elements: null` and whatever labels the Markdown half carried — which is
+usually all of them, because the plugin writes them out as plain text precisely
+so they stay searchable. The reply then says which of those happened and that
+the file is untouched.
+
+This is a deliberate ceiling on what a bug in the decoder can cost. LZ-String is
+vendored (the gateway has no dependencies and cannot have one), and a vendored
+decompressor is exactly the kind of code that is subtly wrong on a subset of
+inputs. Every caller therefore treats a decode failure as "payload unavailable",
+so the worst case is a missing preview rather than a file that will not open.
+
+### The render is true, not hand-drawn, and that is the trade
+
+Excalidraw's look comes from `roughjs` re-stroking every edge several times from
+a seeded RNG. Reproducing it is a large amount of code whose output is *meant*
+to be imprecise and which changes upstream — and it cannot run in the gateway at
+all, which has no DOM. `scene.js` lays elements out as plain primitives and
+`DrawingView` draws them with `react-native-svg` (already in `native-deps.json`,
+so no new native dependency, and the same component on web, iOS and Android).
+Hachure fills flatten to reduced-opacity solids for the same reason.
+
+A preview that looks slightly too tidy is worth more than one that is wrong in
+ways nobody can predict, and the file stays portable either way: the real
+rendering is one click away in Obsidian or on excalidraw.com. **That is the
+point of keeping the file plain, so the renderer is allowed to be the
+approximate half.**
+
+### What is deliberately not built
+
+- **Editing.** The console draws a drawing; it does not change one. Authoring
+  means the real Excalidraw editor — React DOM, so a lazy web chunk and a
+  webview on native, deliberately *not* folded into the committed CodeMirror
+  bundle that ships over the air.
+- **Images inside a drawing.** Excalidraw stores those bytes in the payload's
+  `files` map; they render as placeholder boxes until that is wired to the asset
+  store.
+- **Serving a drawing as an image over MCP.** `read_image` refuses SVG on
+  purpose, and rasterising needs a renderer the Worker cannot host. An agent
+  gets the description, which is the form it can actually use.
+
+### The browser is the process boundary, and the runtime token never crosses it
+
+The first client runtime uses one sandboxed iframe on web and one WebView on
+native per loaded bundle. The web frame has `allow-scripts` and deliberately no
+`allow-same-origin`; both hosts load a fixed document with a deny-by-default CSP
+that blocks direct network, workers, child frames, forms, objects and external
+assets. A real Chromium and WebKit check proves that plugin code cannot touch the
+parent document or fetch directly.
+
+The opaque runtime token stays in the trusted React host. The frame receives an
+Obsidian shim and can send only a versioned operation with a request id. The host
+adds no identity from that message: it calls `executePluginRequest` with the
+token it retained, and the server resolves the workspace, plugin, reviewed
+fingerprint and grant. RPC replies omit the host's sandbox nonce because plugin
+code can observe events in its own realm; revealing the nonce would let it forge
+the load-health messages the host records.
+
+Start and Stop are separate from approve and revoke. Approval grants authority
+to an exact bundle; Start loads it. Stop removes the frame and deletes every
+bearer session without withdrawing the approval, while revoke still removes the
+authority itself. A previous `loaded` state is resumed when an owner reopens the
+console, tokens rotate before expiry, and three failed loads become
+`crash-looped` rather than retrying forever.
+
+The first shim covers conflict-safe vault reads and mutations, metadata, the
+plugin's own settings, notices, command registration and lifecycle cleanup.
+Rendering plugin-provided editor extensions, settings controls, ribbon actions
+and views remains a frontend integration step; the sandbox is now the place
+  those registrations come from rather than a reason they cannot be built.
+## The drawing editor is a page, because a dynamic import is not a lazy chunk
+
+Drawings became editable by embedding the real Excalidraw — the only way to be
+sure a drawing made here is one Excalidraw and Obsidian open unchanged, since
+anything we wrote ourselves would author a subset and diverge the first time
+upstream shipped a feature.
+
+The obvious way to carry that cost is a dynamic `import()`, on the reasoning
+that it produces a chunk fetched on demand. **Measured, under Expo's Metro, it
+does not.** `expo export --platform web` put the editor in a `__common` chunk
+that `index.html` loads with a plain blocking `<script src>`:
+
+| | total web JS | eager |
+|---|---|---|
+| before | 5.7MB | entry only |
+| `import()` inside the console | **14.6MB** | entry + a 5.1MB `__common` |
+| editor as its own page | 5.7MB | entry only |
+
+Nine megabytes on every console page load, for a feature most sessions never
+open. The numbers are here rather than in a commit message because the next
+person to reach for `import()` will reach for it for the same good reason.
+
+So `apps/mobile/drawing-editor/` is built separately by
+`scripts/build-drawing-editor.mjs` into `public/drawing-assets/editor/` and
+loaded in an `<iframe>` on web and a `WebView` on native. The console's bundle
+is unchanged; the editor (8MB, 2.4MB gzipped) is fetched the first time somebody
+opens a drawing.
+
+**It also made the native half exist.** The first attempt had phones showing a
+read-only view with an apology, because folding Excalidraw into
+`bundle.generated.ts` — committed, shipped over the air to every phone on every
+update — was rightly unthinkable. One page, loaded from the console's own
+origin, serves both platforms. The honest cost is that *editing* on a phone
+needs network; reading does not, because `DrawingView` renders from the file the
+console already holds.
+
+### The page never sees the customer's Markdown
+
+Elements go in, elements come back, and `serializeDrawing` splices them into the
+original bytes on the console side. So the editor cannot produce a file body at
+all — which means neither a bug in it nor anything that manages to talk to that
+frame can corrupt one. `postMessage` is a channel anything on the page can post
+to, so `drawingBridge.ts` checks the origin of every message before reading it,
+checks a channel name, and requires `elements` to be an array; the iframe's
+sandbox allows scripts and same-origin and withholds navigation, popups, forms
+and downloads.
+
+### Fonts are served from our own origin, and that is not a preference
+
+Excalidraw resolves fonts against `window.EXCALIDRAW_ASSET_PATH` and falls back
+to **esm.sh** — a request to a third party fired at the moment somebody opens
+their own private drawing, from a page whose URL identifies this product. The
+share renderer already refuses the same thing in different clothes: "a remote
+image in a shared note is a tracking pixel that reports every read to whoever
+wrote it". A font is that request with a different extension.
+
+The build copies the font files next to the bundle and the page points at them
+relatively, so a self-hosted deployment serves its own. Verified by loading the
+built page in a browser and recording every request: zero off our own origin.
+That check is manual and worth re-running on every upgrade of the package —
+saying so is more useful than implying the code comment is a guarantee.
+
+`Xiaolai` is excluded: 13MB on its own, more than the rest of the editor
+together, for Chinese handwriting. A drawing using it falls back to a system
+font here and still renders correctly in Excalidraw and Obsidian.
+
+### What this costs, stated plainly
+
+`@excalidraw/excalidraw` brings about thirty runtime dependencies and some two
+hundred transitively into a repository whose gateway is dependency-free by rule.
+None of it reaches the gateway or the console bundle — it is confined to one
+built page — but it is a real supply-chain surface in a public repository, and
+the version is pinned exactly rather than ranged for that reason.

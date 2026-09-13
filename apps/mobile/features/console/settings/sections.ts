@@ -6,7 +6,7 @@
  * order here is how often a thing is actually touched, and the grouping is the
  * question a person is asking rather than the subsystem that answers it:
  *
- *  - **What comes in** — everything that fills a workspace without being typed
+ *  - **Integrations** — everything that fills a workspace without being typed
  *    into it: the mailboxes and calendars we read, the chats, this Mac, and
  *    the address mail can be forwarded to. It was one section, on the argument
  *    that it is one question. It is four now, because it is four: a person
@@ -27,7 +27,7 @@
  * rather than disabled where they do not apply — a greyed row inviting
  * somebody to press it is a worse answer than no row. The line that rule stops
  * at is the *explanation*: a shared workspace has no capture address at all,
- * and the sentence saying so is worth a section of its own, so "What comes in"
+ * and the sentence saying so is worth a section of its own, so "Integrations"
  * is listed for one and every panel under it refuses in its own words.
  */
 
@@ -35,7 +35,7 @@ import type { IconName } from "../../design/components/Icon";
 
 export type SettingsGroup =
   | "Your account"
-  | "What comes in"
+  | "Integrations"
   | "Who can see it"
   | "Your notes";
 
@@ -234,39 +234,39 @@ export const SETTINGS_SECTIONS = [
   {
     key: "email",
     keywords:
-      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google",
+      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google integration integrations sync",
     scope: "context",
     label: "Email",
-    group: "What comes in",
+    group: "Integrations",
     icon: "mail",
     personalOnly: false,
   },
   {
     key: "calendar",
-    keywords: "calendar calendars ical events event schedule agenda appointments google",
+    keywords: "calendar calendars ical events event schedule agenda appointments google integration integrations sync",
     scope: "context",
     label: "Calendar",
-    group: "What comes in",
+    group: "Integrations",
     icon: "calendar",
     personalOnly: false,
   },
   {
     key: "chats",
     keywords:
-      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac",
+      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac icloud integration integrations sync",
     scope: "context",
     label: "Chats",
-    group: "What comes in",
+    group: "Integrations",
     icon: "chat",
     personalOnly: false,
   },
   {
     key: "meetings",
     keywords:
-      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop",
+      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
     scope: "context",
     label: "Meetings",
-    group: "What comes in",
+    group: "Integrations",
     icon: "mic",
     personalOnly: false,
   },

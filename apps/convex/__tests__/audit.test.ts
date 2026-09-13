@@ -360,7 +360,7 @@ describe("audit details are allow-listed, not deny-listed", () => {
  * kind of thing an audit trail exists to tell the people in a context.
  */
 describe("the allow-list's own criteria are applied to the allow-list", () => {
-  async function sharedBrainWith(action: string, details: Record<string, string | number | boolean | null>) {
+  async function sharedWorkspaceWith(action: string, details: Record<string, string | number | boolean | null>) {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const member = await createUser(t, "member@example.invalid");
@@ -390,14 +390,14 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
 
   for (const action of ["file.move", "file.copy", "file.duplicate", "file.archive"]) {
     test(`a member cannot subtract a private-note count out of ${action}`, async () => {
-      const row = await sharedBrainWith(action, { files: 6, recoverable: true });
+      const row = await sharedWorkspaceWith(action, { files: 6, recoverable: true });
       expect(row?.action, "the event itself is not hidden").toBe(action);
       expect(row?.details, "the count was taken at the owner's clearance").toBeUndefined();
     });
   }
 
   test("a member cannot read another person's granted scopes", async () => {
-    const row = await sharedBrainWith("grant.created", {
+    const row = await sharedWorkspaceWith("grant.created", {
       scopes: "context:read context:write context:private",
       tier: "private",
     });
@@ -406,7 +406,7 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
   });
 
   test("nor what an authorization was granted", async () => {
-    const row = await sharedBrainWith("oauth.authorized", {
+    const row = await sharedWorkspaceWith("oauth.authorized", {
       grantedScope: "context:read context:private",
       tier: "private",
     });
@@ -414,7 +414,7 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
   });
 
   test("but a revocation still says it happened and why", async () => {
-    const row = await sharedBrainWith("grant.revoked", { reason: "refresh_token_reuse" });
+    const row = await sharedWorkspaceWith("grant.revoked", { reason: "refresh_token_reuse" });
     expect(
       row?.details?.reason,
       "it names no scope, no client and no third party"
@@ -430,7 +430,7 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
    * for above.
    */
   test("a member cannot tell a note's visibility differs from its folder's default", async () => {
-    const row = await sharedBrainWith("visibility.note", {
+    const row = await sharedWorkspaceWith("visibility.note", {
       visibility: "private",
       exception: true,
     });
@@ -448,7 +448,7 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
    * on the allow-list deliberately, not by oversight.
    */
   test("but a folder's own default is visible, having no exception field", async () => {
-    const row = await sharedBrainWith("visibility.folder", { visibility: "team" });
+    const row = await sharedWorkspaceWith("visibility.folder", { visibility: "team" });
     expect(row?.details?.visibility).toBe("team");
   });
 });

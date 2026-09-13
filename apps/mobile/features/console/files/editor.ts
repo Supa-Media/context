@@ -521,11 +521,24 @@ export function guardLeaving(state: EditorState): { allowed: boolean; prompt?: s
  * that matches the bucket has nothing owed to anybody, and a dim "Save" sitting
  * over it read as a chore somebody had not got round to. It says "Saved".
  *
- * The button does not disappear, and the two states it is pressable in are why:
- * a save that failed and a conflict are exactly the cases autosave refuses
- * (`autosaves`), so the manual route has to stay reachable. ⌘S keeps working in
- * `dirty` too — every editor lets somebody save now rather than in two seconds
- * — and pressing it is the same conditional write autosave would have made.
+ * The two states it is pressable in are why it exists at all: a save that
+ * failed and a conflict are exactly the cases autosave refuses (`autosaves`),
+ * so the manual route has to stay reachable. ⌘S keeps working in `dirty` too —
+ * every editor lets somebody save now rather than in two seconds — and pressing
+ * it is the same conditional write autosave would have made.
+ *
+ * **This used to end "the button does not disappear", and it does now.** That
+ * sentence was written about the *label*, and it was right about the label: a
+ * dim "Save" over a note with nothing owed is a chore somebody had not got
+ * round to, so the resting word became "Saved". What it was wrong about is the
+ * control. `NoteEditor` draws this only where `disabled` is false, because a
+ * pill that cannot be pressed is not a control, it is status — and it was
+ * status printed a second time, in a second visual language, at the far end of
+ * the row from the sentence that had already said it. The disabled arms are
+ * still computed and still returned: this function answers what the button
+ * *would* say, `autosave.test.ts` checks every arm of it, and the two arms that
+ * can be pressed are the ones that reach the screen. See `NoteEditor`'s status
+ * row and `docs/decisions/app-and-console.md`.
  */
 export function saveButton(state: EditorState): { label: string; disabled: boolean } {
   // Before the `readOnly` arm, because both are true for an encrypted note and

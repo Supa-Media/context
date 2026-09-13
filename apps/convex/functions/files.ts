@@ -1989,12 +1989,12 @@ function classifyForwardSyncError(error: unknown): { code: string; message: stri
   ) {
     return {
       code: "GOOGLE_SYNC_TIMEOUT",
-      message: "Gmail or storage took too long. The next scheduled pass resumes from the same cursor.",
+      message: "Gmail or storage took too long. The next scheduled pass resumes from the same place.",
     };
   }
   return {
     code: "GOOGLE_SYNC_FAILED",
-    message: "This mailbox did not sync. The next scheduled pass resumes from the same cursor.",
+    message: "This mailbox did not sync. The next scheduled pass resumes from the same place.",
   };
 }
 
@@ -2536,7 +2536,7 @@ async function runGoogleGmailBackfill(
     workspaceId,
     runId,
     errorCode: "GOOGLE_GMAIL_BACKFILL_DISABLED",
-    message: "Historical Gmail imports are disabled. This account will sync new mail from its current cursor.",
+    message: "Historical Gmail imports are disabled. This account will sync new mail from its current position.",
   });
   return {
     kind: "googleSyncRun",

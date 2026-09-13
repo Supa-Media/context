@@ -12,9 +12,9 @@
  *  2. **Storage is not first.** It is touched at setup and at a key rotation
  *     and then never again, and it used to occupy the entire first screen.
  *     The order here is how often a thing is actually opened.
- *  3. **The groups are questions, not subsystems.** "What comes in" is
- *     answerable by somebody who has never heard of a bucket; "Integrations"
- *     was not.
+ *  3. **The groups are questions, not plumbing.** "Integrations" is the
+ *     word somebody looking for connected mail, calendars and chats reaches
+ *     for before they know which provider owns the setup.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -67,7 +67,7 @@ describe("the order and the grouping", () => {
       expect([
         null,
         "Your account",
-        "What comes in",
+        "Integrations",
         "Who can see it",
         "Your notes",
       ]).toContain(section.group);

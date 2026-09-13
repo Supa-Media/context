@@ -47,7 +47,7 @@ import {
  * each surface already has: `consoleChrome.test.ts` counts the phone console's
  * landmarks and its bottom row, `meetingsFlow.test.ts` presses the sheet's row
  * and follows it to `/meetings`, `meetingsEntry.test.ts` presses the rail's,
- * `railSections.test.ts` holds the rail's groups. What is genuinely new here is
+ * `railGroup.test.ts` holds the rail's groups. What is genuinely new here is
  * the *completeness* claim, which none of those can make.
  *
  * ## The guard's own guard

@@ -748,6 +748,61 @@ async function deleteWorkspaceCascade(
     }
   }
 
+  /*
+    EVERYTHING THE OBSIDIAN PLUGIN SUBSYSTEM RECORDED ABOUT THIS CONTEXT.
+
+    None of it is sealed credential material, so `cascadeCoverage.test.ts`
+    does not cover it — that guard derives an `encrypted…` field and names, in
+    its own header, the shapes that escape it. These are one of them, and the
+    reason they still belong here is that this cascade's contract has never
+    been "sweep the credentials": it sweeps `ingestionSettings`,
+    `vaultImportJobs`, `workspaceInvitations` and `auditEvents` too, none of
+    which hold one. What it sweeps is everything that is only true because
+    this workspace exists.
+
+    A grant is authority over one reviewed bundle, and `listPluginGrants`
+    calls the set of them "private workspace metadata" in its own docstring —
+    which software somebody ran and which hosts it was allowed to reach. A
+    session is a hashed bearer binding; it is already fail-closed once the
+    memberships above are gone, because `executePluginRequest` re-authorizes
+    at `minimum: "owner"` on every call, but the cascade's own rule about a
+    parked ticket applies whether or not the door it opens still exists. A
+    runtime state carries free text somebody reported about their own plugin's
+    failures, which can name their own note paths.
+
+    `obsidianPluginRuntimeRequests` is the one with no `workspaceId` at all —
+    it is keyed by `tokenHash` — so it is reachable only through the session
+    that owns it, and it is swept inside that loop rather than after it.
+    Sweeping the four indexed tables and stopping would leave it behind.
+  */
+  const pluginSessions = await ctx.db
+    .query("obsidianPluginRuntimeSessions")
+    .withIndex("by_workspace_plugin", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const session of pluginSessions) {
+    const claims = await ctx.db
+      .query("obsidianPluginRuntimeRequests")
+      .withIndex("by_session_request", (q) => q.eq("tokenHash", session.tokenHash))
+      .collect();
+    for (const claim of claims) await ctx.db.delete(claim._id);
+    await ctx.db.delete(session._id);
+  }
+  const pluginGrants = await ctx.db
+    .query("obsidianPluginGrants")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const grant of pluginGrants) await ctx.db.delete(grant._id);
+  const pluginLifecycles = await ctx.db
+    .query("obsidianPluginLifecycles")
+    .withIndex("by_workspace_plugin", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const lifecycle of pluginLifecycles) await ctx.db.delete(lifecycle._id);
+  const pluginRuntimeStates = await ctx.db
+    .query("obsidianPluginRuntimeStates")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const state of pluginRuntimeStates) await ctx.db.delete(state._id);
+
   // Every AI-client grant on this context, whoever holds it. A grant is
   // authority over a workspace; the workspace is ceasing to exist, so an
   // editor's still-active grant must not survive as a dangling credential.

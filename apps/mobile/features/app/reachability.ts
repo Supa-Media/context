@@ -82,7 +82,7 @@
  * nothing — so "the control is on screen at that width" is asserted by the
  * mounted tests each surface already has (`consoleChrome.test.ts` for the phone
  * console, `meetingsEntry.test.ts` and `meetingsFlow.test.ts` for the meetings
- * entries, `railSections.test.ts` for the rail) rather than restated here.
+ * entries, `railGroup.test.ts` for the rail) rather than restated here.
  *
  * This is the same shape as `frame.ts`'s "what is deliberately kept although no
  * density reaches it": a list whose worth is that it is read, kept honest by

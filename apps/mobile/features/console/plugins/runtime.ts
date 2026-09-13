@@ -36,6 +36,21 @@ export interface RuntimeView {
   /** Absent until the owner-only query answers, and for anyone who is not the owner. */
   states?: RuntimeState[];
   loading: boolean;
+  /** The trusted, invisible host. Render once at console scope. */
+  host?: ReactNode;
+  /** Absent for anyone the server would refuse, and in the demo. */
+  actions?: RuntimeActions;
+}
+
+export interface ActiveSandbox {
+  bundle: import("./sandboxTypes").PluginRuntimeBundle;
+  nonce: string;
+  attempts: number;
+}
+
+export interface RuntimeActions {
+  start: (pluginId: string, bundleFingerprint: string) => Promise<void>;
+  stop: (pluginId: string, bundleFingerprint: string) => Promise<void>;
 }
 
 /**
@@ -146,5 +161,10 @@ export function isRevocation(state: RuntimeState): boolean {
   return state.status === "blocked" && state.errorCode === "GRANT_REVOKED";
 }
 
+export function isOwnerStop(state: RuntimeState): boolean {
+  return state.status === "blocked" && state.errorCode === "OWNER_DISABLED";
+}
+
 export const REVOKED_NOTE =
   "You revoked its access, so Context stopped it. Approve it again whenever you want it back.";
+import type { ReactNode } from "react";

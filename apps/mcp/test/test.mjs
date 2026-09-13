@@ -27,6 +27,7 @@ import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
+import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
@@ -4278,6 +4279,7 @@ await runPluginChecks(check);
 // worker of its own — see the file header for why it does not share this
 // fixture.
 await runLinkChecks(check);
+await runDrawingChecks(check);
 
 /*
   A MESSAGE DEEP LINK IS A KEY THE READ TOOLS ACCEPT.

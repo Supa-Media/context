@@ -1632,7 +1632,7 @@ const schema = defineSchema({
    * guessable from a slug that is itself public addressing. Anything that
    * lands there becomes a note, and notes are read back by the owner's AI
    * clients *as trusted context*. So an open inbox is not a spam problem, it
-   * is a durable prompt-injection channel into somebody's second brain.
+   * is a durable prompt-injection channel into somebody's own notes.
    *
    * Hence the shape: an allowlist that starts closed, and one explicit boolean
    * to open it. There is no "allow" wildcard string, no regex field, and no

@@ -271,6 +271,70 @@ describe("deleteAccount", () => {
         expiresAt: Date.now() + 600_000,
         createdAt: Date.now(),
       });
+      /*
+        THE PLUGIN TABLES, ALL FIVE OF THEM.
+
+        `listPluginGrants` calls a grant row "private workspace metadata" in
+        its own docstring — which software somebody ran, and which hosts it was
+        allowed to reach. A runtime state row carries free text reported about
+        their plugin's failures, and a session row is a hashed bearer binding.
+        None of it is credential material, so `cascadeCoverage.test.ts` does
+        not claim it: that guard derives an `encrypted…` field and says in its
+        own header which shapes escape it. This is one of them, so it is
+        asserted by hand here.
+
+        `obsidianPluginRuntimeRequests` is keyed by `tokenHash` alone and has
+        no `workspaceId`, so it can only be reached through the session it
+        belongs to — the same shape the connect-attempt sweep already handles,
+        and the reason a sweep of the four indexed tables would still leave a
+        row behind.
+      */
+      const runtimeTokenHash = "fake-runtime-token-hash-not-real";
+      await ctx.db.insert("obsidianPluginGrants", {
+        workspaceId,
+        pluginId: "fake-plugin",
+        bundleFingerprint: "v2:fake-manifest-etag:fake-main-etag:absent",
+        capabilities: ["vault:read"],
+        networkHosts: [],
+        status: "active",
+        grantedBy: owner,
+        grantedAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("obsidianPluginLifecycles", {
+        workspaceId,
+        pluginId: "fake-plugin",
+        generation: 1,
+        busy: false,
+        operation: "installing",
+        updatedAt: Date.now(),
+      });
+      await ctx.db.insert("obsidianPluginRuntimeSessions", {
+        workspaceId,
+        pluginId: "fake-plugin",
+        bundleFingerprint: "v2:fake-manifest-etag:fake-main-etag:absent",
+        tokenHash: runtimeTokenHash,
+        createdBy: owner,
+        createdAt: Date.now(),
+        expiresAt: Date.now() + 900_000,
+      });
+      await ctx.db.insert("obsidianPluginRuntimeRequests", {
+        tokenHash: runtimeTokenHash,
+        requestId: "fake-request-id",
+        operation: "vault.read",
+        claimedAt: Date.now(),
+      });
+      await ctx.db.insert("obsidianPluginRuntimeStates", {
+        workspaceId,
+        pluginId: "fake-plugin",
+        bundleFingerprint: "v2:fake-manifest-etag:fake-main-etag:absent",
+        status: "crash-looped",
+        attempts: 3,
+        errorCode: "PLUGIN_LOAD_FAILED",
+        errorMessage: "could not read 1-projects/whatever.md",
+        reportedBy: owner,
+        updatedAt: Date.now(),
+      });
       await ctx.db.insert("ingestionTickets", {
         hashedTicket: "fake-hashed-ticket-not-real",
         workspaceId,
@@ -348,6 +412,11 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("authSessions").collect()).toHaveLength(1);
       expect(await ctx.db.query("workspaceDataKeys").collect()).toHaveLength(2);
       expect(await ctx.db.query("workspaceKeyRotations").collect()).toHaveLength(1);
+      expect(await ctx.db.query("obsidianPluginGrants").collect()).toHaveLength(1);
+      expect(await ctx.db.query("obsidianPluginLifecycles").collect()).toHaveLength(1);
+      expect(await ctx.db.query("obsidianPluginRuntimeSessions").collect()).toHaveLength(1);
+      expect(await ctx.db.query("obsidianPluginRuntimeRequests").collect()).toHaveLength(1);
+      expect(await ctx.db.query("obsidianPluginRuntimeStates").collect()).toHaveLength(1);
     });
 
     const result = await asUser(t, owner).mutation(
@@ -378,6 +447,15 @@ describe("deleteAccount", () => {
       expect(await ctx.db.query("ingestionTickets").collect()).toHaveLength(0);
       expect(await ctx.db.query("cloudflareProvisioning").collect()).toHaveLength(0);
       expect(await ctx.db.query("oauthGrants").collect()).toHaveLength(0);
+      // Everything the Obsidian plugin subsystem recorded about this context.
+      // A grant is authority over a bundle, a session is a hashed bearer
+      // binding, and a runtime state carries text about somebody's own notes;
+      // none of the three has anything left to be true about.
+      expect(await ctx.db.query("obsidianPluginGrants").collect()).toHaveLength(0);
+      expect(await ctx.db.query("obsidianPluginLifecycles").collect()).toHaveLength(0);
+      expect(await ctx.db.query("obsidianPluginRuntimeSessions").collect()).toHaveLength(0);
+      expect(await ctx.db.query("obsidianPluginRuntimeRequests").collect()).toHaveLength(0);
+      expect(await ctx.db.query("obsidianPluginRuntimeStates").collect()).toHaveLength(0);
 
       /*
         THE TWO ENCRYPTION TABLES PART COMPANY AT A TEARDOWN, DELIBERATELY.

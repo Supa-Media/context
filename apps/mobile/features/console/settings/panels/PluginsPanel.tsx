@@ -313,7 +313,7 @@ function PluginRow({
           {route ?? pending}
         </Text>
 
-        <PluginRuntimeCard plugin={plugin} view={runtime} />
+        <PluginRuntimeCard plugin={plugin} view={runtime} grants={grants} />
         <PluginGrantCard plugin={plugin} view={grants} />
         <PluginManagedCard plugin={plugin} view={browse} />
       </Grow>

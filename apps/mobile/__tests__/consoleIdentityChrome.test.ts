@@ -21,7 +21,7 @@ import { createRoot } from "react-dom/client";
  *     indistinguishable at the moment of choosing which to open.
  *  3. The identity at the foot of the rail changed with the viewed context.
  *
- * `storagePill.test.ts`, `railSections.test.ts` and `viewerIdentity.test.ts`
+ * `storagePill.test.ts`, `railGroup.test.ts` and `viewerIdentity.test.ts`
  * prove the rules; this proves the real layout is wired to them, which is the
  * failure that actually shipped — the words on the glass, the press that
  * navigates, the headings in the rendered rail. The identity wiring from the

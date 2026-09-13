@@ -738,6 +738,56 @@ describe("Obsidian plugin inventory", () => {
       { workspaceId: f.workspaceId },
     )).toMatchObject([{ pluginId: "highlightr-plugin", status: "loaded", attempts: 1 }]);
 
+    const stopped = await asUser(f.t, f.owner).mutation(
+      api.functions.obsidianPlugins.stopPlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    );
+    expect(stopped).toMatchObject({ status: "blocked", errorCode: "OWNER_DISABLED" });
+    const stoppedToken = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_stop",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(stoppedToken)).toBe("PLUGIN_SESSION_INVALID");
+    runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    const editorStop = await captureError(() => asUser(f.t, f.editor).mutation(
+      api.functions.obsidianPlugins.stopPlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    ));
+    expect(errorCode(editorStop)).toBe("INSUFFICIENT_ROLE");
+    expect(await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_editor_stop",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    )).toMatchObject({ ok: true });
+
     f.backend.seed(
       ".obsidian/plugins/highlightr-plugin/main.js",
       'const { Plugin } = require("obsidian"); class Changed extends Plugin {}',
