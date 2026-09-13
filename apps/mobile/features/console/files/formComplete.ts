@@ -68,6 +68,7 @@ const CONFIG_KEYS: ReadonlyArray<FormChoice> = [
   { label: "layout", insert: "layout: table", detail: "table or sections" },
   { label: "submit", insert: "submit: member", detail: "lowest role that may answer" },
   { label: "edit_own", insert: "edit_own: true", detail: "may people change their answer" },
+  { label: "show_responses", insert: "show_responses: true", detail: "draw readable responses below" },
   { label: "votes", insert: "votes: named", detail: "named or off" },
   { label: "fields", insert: "fields:\n  - { name: , type: line, max: 120 }", caretBack: 26, detail: "the questions, one per line" },
 ];
@@ -108,6 +109,10 @@ const VALUES: ReadonlyMap<string, ReadonlyArray<FormChoice>> = new Map([
     { label: "true", detail: "a submitter may change or withdraw theirs" },
     { label: "false", detail: "answers are final once sent" },
   ]],
+  ["show_responses", [
+    { label: "true", detail: "show responses when the viewer may read them" },
+    { label: "false", detail: "keep responses out of the form" },
+  ]],
   ["required", [{ label: "true" }, { label: "false" }]],
 ]);
 
@@ -127,6 +132,7 @@ responses: feedback-responses.md
 layout: table
 submit: member
 edit_own: true
+show_responses: false
 votes: named
 fields:
   - { name: summary, type: line, max: 120, required: true }

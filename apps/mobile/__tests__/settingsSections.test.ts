@@ -12,9 +12,9 @@
  *  2. **Storage is not first.** It is touched at setup and at a key rotation
  *     and then never again, and it used to occupy the entire first screen.
  *     The order here is how often a thing is actually opened.
- *  3. **The groups are questions, not subsystems.** "What comes in" is
- *     answerable by somebody who has never heard of a bucket; "Integrations"
- *     was not.
+ *  3. **The groups are questions, not plumbing.** "Integrations" is the
+ *     word somebody looking for connected mail, calendars and chats reaches
+ *     for before they know which provider owns the setup.
  */
 
 import { describe, expect, test } from "@jest/globals";
@@ -67,7 +67,7 @@ describe("the order and the grouping", () => {
       expect([
         null,
         "Your account",
-        "What comes in",
+        "Integrations",
         "Who can see it",
         "Your notes",
       ]).toContain(section.group);
@@ -176,6 +176,18 @@ describe("searching the list", () => {
     ["audit log", "advanced"],
     ["export keys", "advanced"],
     /*
+      The four somebody types when they are done with a workspace. Every one of
+      them matched *nothing* before: "delete this workspace" has been at the
+      bottom of Advanced since it shipped and none of its own words were in any
+      haystack. The bare "delete" is the one that was actively wrong rather than
+      merely missing — see below.
+    */
+    ["delete workspace", "advanced"],
+    ["remove workspace", "advanced"],
+    ["delete this workspace", "advanced"],
+    ["destroy a workspace", "advanced"],
+
+    /*
       The four somebody types when they are worried. "public" is the one that
       matters most and the one our own vocabulary would never have caught: the
       product has no public tier, so the word appears in no label and in no
@@ -207,6 +219,33 @@ describe("searching the list", () => {
       (section) => section.key,
     );
     expect(hits).toContain(key);
+  });
+
+  /*
+    The two destructive screens, kept apart.
+
+    They are one word away from each other — "delete" — and the wrong answer is
+    unrecoverable in a way no other mis-hit here is: somebody who wants one
+    workspace off their list must never be handed the screen that closes their
+    account. So each is reachable by its own noun and neither answers for the
+    other's. This is the assertion that fails if a later edit "helpfully" adds
+    `workspace` to the account row's keywords.
+  */
+  test("deleting a workspace and deleting an account are not the same search", () => {
+    const all = settingsSectionsFor("personal");
+    const keysFor = (query: string) =>
+      matchSettingsSections(all, query).map((section) => section.key);
+
+    expect(keysFor("delete workspace")).toEqual(["advanced"]);
+    expect(keysFor("delete my account")).toEqual(["account"]);
+    // A brain goes with the account it belongs to — the sentence
+    // `deletionBlockedReason` gives for refusing it in Advanced — so the noun
+    // has to land on the screen that can actually do it.
+    expect(keysFor("delete my brain")).toEqual(["account"]);
+    // The bare verb is ambiguous and should say so by offering both, rather
+    // than silently picking the more destructive one. That is what it did
+    // before: "delete" matched the account row alone.
+    expect(keysFor("delete")).toEqual(expect.arrayContaining(["account", "advanced"]));
   });
 
   test("a section is always findable by the words on its own row", () => {

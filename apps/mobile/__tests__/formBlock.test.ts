@@ -54,6 +54,7 @@ const FORM = [
   "layout: table",
   "submit: member",
   "edit_own: true",
+  "show_responses: true",
   "votes: named",
   "fields:",
   "  - { name: summary, type: line, max: 120, required: true }",
@@ -222,6 +223,63 @@ describe("the drawn form", () => {
     expect(dom.textContent).toContain("<img src=x>");
   });
 
+  /**
+   * A READER CAN SEE WHERE THEIR ANSWER IS GOING.
+   *
+   * `responses:` names a sister note, and that is the load-bearing half of the
+   * whole design — who may read an answer is whatever visibility that one file
+   * has. An author sees the key in the block. A reader saw a box and a Submit
+   * button and had no way at all to find out which note their words land in,
+   * which in a shared workspace is the thing they might reasonably want to
+   * check before typing.
+   */
+  describe("the head says what the box is and where it sends", () => {
+    test("the responses note is named to the person filling it in", () => {
+      const head = drawn().querySelector<HTMLElement>(".cm-lp-form-head");
+      expect(head).not.toBeNull();
+      expect(head?.textContent).toContain("bugs-responses.md");
+    });
+
+    test("and the form is named by its own id, not by a guess at a title", () => {
+      expect(drawn().querySelector<HTMLElement>(".cm-lp-form-kind")?.textContent).toContain("bugs");
+    });
+
+    /*
+      Through `textContent` like every other string in this file. A path is
+      author-supplied text reaching the screen, so the rule that holds for a
+      select option holds here: there is no `innerHTML` in this widget.
+    */
+    test("a path that looks like markup is drawn as characters", () => {
+      const doc = [
+        "```form",
+        "id: x",
+        "responses: <img src=x onerror=alert(1)>.md",
+        "layout: table",
+        "fields:",
+        "  - { name: a, type: line, max: 10 }",
+        "```",
+      ].join("\n");
+      const state = stateFor(doc);
+      const [fence] = formFences(state);
+      // Whether the grammar accepts this path at all is `forms.js`'s call; what
+      // is asserted here is that if it reaches the DOM it reaches it as text.
+      if (fence.config === null) return;
+      const dom = new FormWidget(fence, null).toDOM();
+      expect(dom.querySelector("img")).toBeNull();
+      expect(dom.textContent).toContain("<img src=x onerror=alert(1)>.md");
+    });
+  });
+
+  /**
+   * The count is a limit, and a limit read after the control it applies to is
+   * one you find out about by running out of room. It shares the label's line.
+   */
+  test("the character count sits on the label's own row", () => {
+    const top = drawn().querySelector<HTMLElement>(".cm-lp-form-top");
+    expect(top?.querySelector(".cm-lp-form-label")).not.toBeNull();
+    expect(top?.querySelector(".cm-lp-form-count")?.textContent).toBe("0 / 120");
+  });
+
   test("says it cannot send when the surface has no host, rather than offering a dead button", () => {
     const dom = drawn(null);
     expect(dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.disabled).toBe(true);
@@ -243,6 +301,8 @@ describe("the drawn form", () => {
         ].join("\n"),
       }),
       vote: async () => ({ ok: true, message: "Vote added." }),
+      update: async () => ({ ok: true, message: "Updated." }),
+      retract: async () => ({ ok: true, message: "Deleted." }),
     };
     const dom = drawn(host);
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -251,7 +311,7 @@ describe("the drawn form", () => {
     expect(responses?.textContent).toContain("Search is slow");
     expect(responses?.textContent).toContain("@alex");
     expect(responses?.textContent).toContain("@sam");
-    expect(responses?.querySelectorAll("button")).toHaveLength(2);
+    expect(responses?.querySelectorAll("button")).toHaveLength(4);
   });
 
   test("does not claim private responses are empty", async () => {
@@ -265,6 +325,24 @@ describe("the drawn form", () => {
 
     expect(dom.querySelector(".cm-lp-form-responses")).toBeNull();
     expect(dom.textContent).not.toContain("No responses");
+  });
+
+  test("does not read responses unless the form explicitly shows them", async () => {
+    let reads = 0;
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => {
+        reads++;
+        return { ok: true, text: "", message: "" };
+      },
+    };
+    const hidden = FORM.replace("show_responses: true\n", "");
+    const state = stateFor(hidden, { host });
+    const dom = new FormWidget(formFences(state)[0], { current: host }).toDOM();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(reads).toBe(0);
+    expect(dom.querySelector(".cm-lp-form-responses")).toBeNull();
   });
 
   test("casts a vote and refreshes the visible voters", async () => {
@@ -298,6 +376,64 @@ describe("the drawn form", () => {
 
     expect(votes).toEqual([{ formId: "bugs", responseId: "r-1234abcd", vote: "up" }]);
     expect(dom.querySelector(".cm-lp-form-voters")?.textContent).toBe("@seyi");
+  });
+
+  test("edits and deletes a response from the response row", async () => {
+    let title = "Search is slow";
+    let deleted = false;
+    const updates: unknown[] = [];
+    const retractions: unknown[] = [];
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({
+        ok: true,
+        message: "",
+        text: [
+          "<!-- context:form responses id=bugs layout=table -->",
+          "",
+          "| Id | By | At | summary | detail | area | Votes |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
+          ...(deleted
+            ? []
+            : [`| r-1234abcd | @seyi | 2026-09-13T03:20Z | ${title} | | app | — |`]),
+        ].join("\n"),
+      }),
+      update: async (change) => {
+        updates.push(change);
+        title = change.values.find((entry) => entry.field === "summary")?.value ?? title;
+        return { ok: true, message: "Updated." };
+      },
+      retract: async (change) => {
+        retractions.push(change);
+        deleted = true;
+        return { ok: true, message: "Deleted." };
+      },
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    dom.querySelector<HTMLButtonElement>(".cm-lp-form-edit")?.click();
+    const summary = dom.querySelector<HTMLInputElement>("#cm-form-bugs-summary")!;
+    expect(summary.value).toBe("Search is slow");
+    summary.value = "Search is fast";
+    dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(updates).toEqual([
+      expect.objectContaining({ formId: "bugs", responseId: "r-1234abcd" }),
+    ]);
+    expect(dom.querySelector(".cm-lp-form-responses")?.textContent).toContain("Search is fast");
+
+    const remove = dom.querySelector<HTMLButtonElement>(".cm-lp-form-delete")!;
+    remove.click();
+    expect(remove.textContent).toBe("Confirm delete");
+    remove.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(retractions).toEqual([{ formId: "bugs", responseId: "r-1234abcd" }]);
+    expect(dom.querySelector(".cm-lp-form-responses")?.textContent).toContain("No responses yet");
   });
 });
 

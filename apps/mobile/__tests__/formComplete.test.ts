@@ -197,6 +197,7 @@ describe("every offer parses", () => {
       layout: "layout: table",
       submit: "submit: member",
       edit_own: "edit_own: true",
+      show_responses: "show_responses: true",
       votes: "votes: named",
     };
     /** What has to follow a completion that stops at `key: `. */
@@ -228,7 +229,7 @@ describe("every offer parses", () => {
   });
 
   test("every layout, role and vote mode is one the grammar takes", () => {
-    for (const key of ["layout", "submit", "votes", "edit_own"] as const) {
+    for (const key of ["layout", "submit", "votes", "edit_own", "show_responses"] as const) {
       for (const choice of formChoicesFor({ kind: "key-value", key })) {
         const block =
           `${OPEN}id: x\nresponses: r.md\nlayout: table\n` +

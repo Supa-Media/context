@@ -263,6 +263,59 @@ describe("form response messages", () => {
       ok: true,
     });
   });
+
+  test("routes response updates and retractions through their form actions", async () => {
+    const sent: string[] = [];
+    const changes: unknown[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onUpdateFormResponse: async (change) => {
+        changes.push(change);
+        return { ok: true, message: "Updated." };
+      },
+      onRetractFormResponse: async (change) => {
+        changes.push(change);
+        return { ok: true, message: "Deleted." };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-update",
+        token: "u1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        values: [{ field: "summary", value: "Fixed" }],
+      }),
+    );
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-retract",
+        token: "d1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+      }),
+    );
+    await settle();
+
+    expect(changes).toEqual([
+      {
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        values: [{ field: "summary", value: "Fixed" }],
+      },
+      { formId: "bugs", responseId: "r-1234abcd" },
+    ]);
+    expect(sent.map((raw) => JSON.parse(raw))).toEqual([
+      expect.objectContaining({ type: "form-result", token: "u1", ok: true }),
+      expect.objectContaining({ type: "form-result", token: "d1", ok: true }),
+    ]);
+  });
 });
 
 describe("how much of the note the keyboard is covering", () => {

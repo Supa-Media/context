@@ -23,6 +23,8 @@ import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
 import { usePlugins } from "./plugins/usePlugins";
 import { useGrants } from "./plugins/useGrants";
+import { useLifecycle } from "./plugins/useLifecycle";
+import { useRuntime } from "./plugins/useRuntime";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
@@ -557,6 +559,24 @@ export function useLiveConsoleData(): ConsoleData {
   // A live subscription, unlike the inventory above — a Revoke pressed here has
   // to stop reading as "Approved" in the same frame. See `useGrants`.
   const pluginGrants = useGrants({ workspaceId: selectedContextId, role: selected?.role });
+  /*
+    `onChanged` is the inventory's own re-read. Installing or removing a plugin
+    leaves the list on screen describing a bucket that no longer exists, and the
+    scan is the only thing that knows the new one — so the lifecycle asks it
+    rather than trying to patch rows itself.
+  */
+  // `withheld` and `loading` are the two states with no `read` to call: one is
+  // a viewer who may not scan, the other is a scan already running.
+  const pluginRuntime = useRuntime({ workspaceId: selectedContextId, role: selected?.role });
+  const rereadPlugins =
+    plugins.state === "loading" || plugins.state === "withheld"
+      ? undefined
+      : plugins.actions?.read;
+  const pluginBrowse = useLifecycle({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+    onChanged: rereadPlugins,
+  });
 
   // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
   // this hook decides for itself, from `role`, whether to subscribe at all.
@@ -737,6 +757,8 @@ export function useLiveConsoleData(): ConsoleData {
     advanced,
     plugins,
     pluginGrants,
+    pluginBrowse,
+    pluginRuntime,
     fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the

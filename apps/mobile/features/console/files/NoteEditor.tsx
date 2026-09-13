@@ -22,6 +22,8 @@ import { LiveEditor, type EditorControls } from "./LiveEditor";
 import type {
   FormOutcome,
   FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
   FormSubmission,
   FormVote,
 } from "./formBlock";
@@ -117,6 +119,8 @@ export function NoteEditor({
   onSubmitForm,
   onReadFormResponses,
   onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
   encryption,
 }: {
   state: EditorState;
@@ -147,6 +151,8 @@ export function NoteEditor({
   onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
   /** Add or remove the signed-in person's vote on one response. */
   onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
+  onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
@@ -595,6 +601,8 @@ export function NoteEditor({
             onSubmitForm={onSubmitForm}
             onReadFormResponses={onReadFormResponses}
             onVoteForm={onVoteForm}
+            onUpdateFormResponse={onUpdateFormResponse}
+            onRetractFormResponse={onRetractFormResponse}
           />
           {pressed === null || onOpenLink === undefined ? null : (
             <Confirm

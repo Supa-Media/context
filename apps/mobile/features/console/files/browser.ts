@@ -28,6 +28,8 @@ import type { EditorState } from "./editor";
 import type {
   FormOutcome,
   FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
   FormSubmission,
   FormVote,
 } from "./formBlock";
@@ -462,6 +464,12 @@ export interface FileBrowser {
 
   /** Add or remove the signed-in person's named vote on one response. */
   voteForm?: (vote: FormVote) => Promise<FormOutcome>;
+
+  /** Replace answers on a response when the server allows this viewer to. */
+  updateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+
+  /** Delete a response when the server allows this viewer to. */
+  retractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
 
   /**
    * Every live share on this context, or `undefined` while the query is in

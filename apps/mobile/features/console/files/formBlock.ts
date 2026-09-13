@@ -74,6 +74,7 @@ export interface FormConfig {
   readonly layout: "table" | "sections";
   readonly submit: "member" | "editor" | "owner";
   readonly edit_own: boolean;
+  readonly show_responses: boolean;
   readonly votes: "named" | "off";
   readonly fields: readonly FormField[];
 }
@@ -144,6 +145,17 @@ export interface FormVote {
   readonly vote: "up" | "none";
 }
 
+export interface FormResponseUpdate {
+  readonly formId: string;
+  readonly responseId: string;
+  readonly values: ReadonlyArray<{ field: string; value: string }>;
+}
+
+export interface FormResponseRetract {
+  readonly formId: string;
+  readonly responseId: string;
+}
+
 /**
  * The host's half: how a submission leaves this editor.
  *
@@ -161,6 +173,10 @@ export interface FormHostContext {
   readResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
   /** Add or remove the signed-in person's named vote. */
   vote?: (vote: FormVote) => Promise<FormOutcome>;
+  /** Replace the answers on a response, subject to the server's ownership check. */
+  update?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  /** Delete a response, subject to the server's ownership check. */
+  retract?: (change: FormResponseRetract) => Promise<FormOutcome>;
 }
 
 export interface FormHostRef {
@@ -374,9 +390,19 @@ export class FormWidget extends WidgetType {
   private drawForm(wrap: HTMLElement, config: FormConfig): HTMLElement {
     const inputs = new Map<string, HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>();
 
+    wrap.append(this.drawHead(config));
+
+    /*
+      The fields in their own box rather than loose in the card, so the card can
+      carry a header and a footer with rules between them. The gap is here and
+      not as a margin on each row, or the first and last rows fight the box's
+      own padding — see the stylesheet.
+    */
+    const fields = el("div", "cm-lp-form-fields");
     for (const field of config.fields) {
-      wrap.append(this.drawField(field, config, inputs));
+      fields.append(this.drawField(field, config, inputs));
     }
+    wrap.append(fields);
 
     const foot = el("div", "cm-lp-form-foot");
     const button = el("button", "cm-lp-form-submit", "Submit");
@@ -389,21 +415,41 @@ export class FormWidget extends WidgetType {
     foot.append(button, status);
     wrap.append(foot);
 
-    const reloadResponses = this.drawResponses(wrap, config);
-
-    if (this.host === null) {
-      button.disabled = true;
-      status.textContent = "This preview can’t send responses.";
-      status.classList.add("cm-lp-form-status-quiet");
-      return wrap;
-    }
-
     const say = (message: string, kind: "ok" | "bad" | "quiet"): void => {
       status.textContent = message;
       status.classList.toggle("cm-lp-form-status-ok", kind === "ok");
       status.classList.toggle("cm-lp-form-status-bad", kind === "bad");
       status.classList.toggle("cm-lp-form-status-quiet", kind === "quiet");
     };
+
+    let editingId: string | null = null;
+    const edit = (response: ParsedResponse): void => {
+      editingId = response.id;
+      for (const field of config.fields) {
+        const input = inputs.get(field.name);
+        if (input === undefined) continue;
+        const value = response.values[field.name] ?? "";
+        if (input instanceof HTMLInputElement && input.type === "checkbox") {
+          input.checked = value === "true";
+        } else {
+          input.value = value;
+          input.dispatchEvent(new Event("input"));
+        }
+        input.disabled = false;
+      }
+      button.disabled = false;
+      button.textContent = "Save changes";
+      say("Editing your response.", "quiet");
+      inputs.values().next().value?.focus();
+    };
+
+    const reloadResponses = this.drawResponses(wrap, config, edit);
+
+    if (this.host === null) {
+      button.disabled = true;
+      say("This preview can’t send responses.", "quiet");
+      return wrap;
+    }
 
     button.addEventListener("click", () => {
       const host = this.host?.current ?? null;
@@ -429,16 +475,23 @@ export class FormWidget extends WidgetType {
         return;
       }
 
+      const responseId = editingId;
+      const operation =
+        responseId === null
+          ? host.submit({ formId: config.id, values })
+          : host.update?.({ formId: config.id, responseId, values }) ??
+            Promise.resolve({ ok: false, message: "Editing is unavailable here." });
       button.disabled = true;
-      say("Sending…", "quiet");
-      host
-        .submit({ formId: config.id, values })
+      say(responseId === null ? "Sending…" : "Saving…", "quiet");
+      operation
         .then((outcome) => {
           say(outcome.message, outcome.ok ? "ok" : "bad");
           if (!outcome.ok) {
             button.disabled = false;
             return;
           }
+          editingId = null;
+          button.textContent = "Submit";
           /*
             The boxes are cleared and the button stays off after a success. A
             form that comes back ready to send again invites the double-press
@@ -465,6 +518,33 @@ export class FormWidget extends WidgetType {
   }
 
   /**
+   * The strip that says what this box is and where what you type into it goes.
+   *
+   * **The destination is the part worth the row.** `responses:` is in the
+   * block, so an author sees it; a reader gets a form with a Submit button and
+   * no way at all to find out which note their answer lands in — and in a
+   * shared workspace that is the one thing they might reasonably want to check
+   * before typing. It is the same fact `docs/decisions/forms.md` rests the
+   * whole design on ("responses live in a sister file"), and it was invisible
+   * on the only surface where it matters.
+   *
+   * Plain text rather than a link, deliberately. Following one means resolving
+   * a path against the open note and navigating, which is `noteLinks`' job and
+   * reaches this widget through a ref it has not got. A link that looks
+   * followable and is not is worse than the name on its own, so the name is
+   * what is drawn — the file is one press of the eye away in the block itself.
+   */
+  private drawHead(config: FormConfig): HTMLElement {
+    const head = el("div", "cm-lp-form-head");
+    head.append(el("span", "cm-lp-form-kind", `Form · ${config.id}`));
+
+    const dest = el("span", "cm-lp-form-dest", "Answers go to ");
+    dest.append(el("span", "cm-lp-form-dest-path", config.responses));
+    head.append(dest);
+    return head;
+  }
+
+  /**
    * Draw the sister response file only when an ordinary note read succeeds.
    *
    * A missing section does not mean "no responses". It means this viewer
@@ -476,7 +556,9 @@ export class FormWidget extends WidgetType {
   private drawResponses(
     wrap: HTMLElement,
     config: FormConfig,
+    edit: (response: ParsedResponse) => void,
   ): () => Promise<void> {
+    if (!config.show_responses) return async () => {};
     const section = el("div", "cm-lp-form-responses");
     const host = this.host;
     let generation = 0;
@@ -518,7 +600,7 @@ export class FormWidget extends WidgetType {
         section.append(el("div", "cm-lp-form-responses-status", "No responses yet."));
         return;
       }
-      section.append(this.responsesTable(config, parsed.responses, read));
+      section.append(this.responsesTable(config, parsed.responses, read, edit));
     };
 
     if (host?.current?.readResponses !== undefined) {
@@ -533,6 +615,7 @@ export class FormWidget extends WidgetType {
     config: FormConfig,
     responses: readonly ParsedResponse[],
     reload: () => Promise<void>,
+    edit: (response: ParsedResponse) => void,
   ): HTMLDivElement {
     const scroll = el("div", "cm-lp-form-responses-scroll");
     const table = document.createElement("table");
@@ -547,6 +630,7 @@ export class FormWidget extends WidgetType {
       headings.append(el("th", "", label));
     }
     if (config.votes === "named") headings.append(el("th", "", "Votes"));
+    if (config.edit_own) headings.append(el("th", "", "Actions"));
     head.append(headings);
     table.append(head);
 
@@ -595,6 +679,50 @@ export class FormWidget extends WidgetType {
         }
         row.append(cell);
       }
+      if (config.edit_own) {
+        const cell = document.createElement("td");
+        const controls = el("div", "cm-lp-form-response-controls");
+        if (this.host?.current?.update !== undefined) {
+          const change = el("button", "cm-lp-form-response-action cm-lp-form-edit", "Edit");
+          change.type = "button";
+          change.addEventListener("click", () => edit(response));
+          controls.append(change);
+        }
+        const retract = this.host?.current?.retract;
+        if (retract !== undefined) {
+          const remove = el(
+            "button",
+            "cm-lp-form-response-action cm-lp-form-delete",
+            "Delete",
+          );
+          remove.type = "button";
+          let confirmed = false;
+          remove.addEventListener("click", () => {
+            if (!confirmed) {
+              confirmed = true;
+              remove.textContent = "Confirm delete";
+              return;
+            }
+            remove.disabled = true;
+            void retract({ formId: config.id, responseId: response.id })
+              .then((outcome) => {
+                if (outcome.ok) void reload();
+                else {
+                  remove.disabled = false;
+                  remove.textContent = outcome.message;
+                }
+              })
+              .catch((error: unknown) => {
+                remove.disabled = false;
+                remove.textContent =
+                  error instanceof Error ? error.message : "That response wasn’t deleted.";
+              });
+          });
+          controls.append(remove);
+        }
+        cell.append(controls);
+        row.append(cell);
+      }
       body.append(row);
     }
     table.append(body);
@@ -610,14 +738,23 @@ export class FormWidget extends WidgetType {
     const row = el("div", "cm-lp-form-row");
     const id = `cm-form-${config.id}-${field.name}`;
 
+    /*
+      The label and the character count share one line above the box. The count
+      used to sit under it, which put the limit *after* the control it applies
+      to — you found out how much room you had by running out of it — and cost
+      a whole row per field in a card that is already a stack of rows.
+    */
+    const top = el("div", "cm-lp-form-top");
+
     const label = el("label", "cm-lp-form-label");
     label.htmlFor = id;
     label.textContent = field.name.replace(/_/g, " ");
     if (field.required) {
-      const mark = el("span", "cm-lp-form-required", "required");
+      const mark = el("span", "cm-lp-form-required", "· required");
       label.append(" ", mark);
     }
-    row.append(label);
+    top.append(label);
+    row.append(top);
 
     const input = buildInput(field);
     input.id = id;
@@ -639,7 +776,8 @@ export class FormWidget extends WidgetType {
         count.textContent = `${[...input.value].length} / ${field.max}`;
       };
       input.addEventListener("input", update);
-      row.append(count);
+      // Onto the label's line, beside the name it is a limit on.
+      top.append(count);
     }
     return row;
   }

@@ -50,7 +50,16 @@ const FIELD_TYPES = new Map([
 ]);
 
 /** Every key the block accepts. Anything else is an error, not a warning. */
-const CONFIG_KEYS = new Set(["id", "responses", "layout", "submit", "edit_own", "votes", "fields"]);
+const CONFIG_KEYS = new Set([
+  "id",
+  "responses",
+  "layout",
+  "submit",
+  "edit_own",
+  "show_responses",
+  "votes",
+  "fields",
+]);
 
 /** Every key one field entry accepts. */
 const FIELD_KEYS = new Set(["name", "type", "max", "min", "required", "options"]);
@@ -285,6 +294,11 @@ function normalizeConfig(raw, fieldMaps) {
   const editOwn = raw.has("edit_own") ? parseBool(raw.get("edit_own")) : true;
   if (editOwn === null) return { error: '"edit_own" must be true or false' };
 
+  const showResponses = raw.has("show_responses")
+    ? parseBool(raw.get("show_responses"))
+    : false;
+  if (showResponses === null) return { error: '"show_responses" must be true or false' };
+
   const votes = raw.has("votes") ? raw.get("votes") : "off";
   if (!VOTE_MODES.has(votes)) return { error: '"votes" must be named or off' };
 
@@ -302,7 +316,18 @@ function normalizeConfig(raw, fieldMaps) {
     fields.push(field);
   }
 
-  return { config: { id, responses, layout, submit, edit_own: editOwn, votes, fields } };
+  return {
+    config: {
+      id,
+      responses,
+      layout,
+      submit,
+      edit_own: editOwn,
+      show_responses: showResponses,
+      votes,
+      fields,
+    },
+  };
 }
 
 function normalizeField(map) {

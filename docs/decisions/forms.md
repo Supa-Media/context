@@ -262,18 +262,22 @@ somebody who has never seen one cannot complete their way in one key at a time.
 - **Notifications on submission**, response export, closing a form to new
   responses, and per-field conditional logic. None are foreclosed.
 
-## Public responses are drawn under the form
+## Response display is explicit, and privacy still decides
 
-The console reads the sister response file through the ordinary note-read path.
-If `privacy.md` lets the viewer read it, the form widget draws the responses
-under the submit button and offers named vote controls. A successful submission
-or vote reloads that file. If the read is refused, missing, or offline, the
-response section is absent. It never says "no responses," because that would
-turn an unreadable file into a claim about its contents.
+`show_responses: true` asks the console to draw responses under the submit
+button. It defaults to false, so forms such as private bug-report intake do not
+show a response table even to somebody who can separately open the triage note.
+The flag is presentation, not access control: the console still reads the
+sister file through the ordinary note-read path, and draws nothing when
+`privacy.md` refuses the viewer. A successful submission, edit, deletion, or
+vote reloads that file. An unreadable response file never appears as empty,
+because that would turn a refusal into a claim about its contents.
 
 The widget parses the response file with `parseResponsesFile`; it does not parse
 the Markdown table a second way. The native editor asks its host over the
 versioned WebView protocol, and the host runs the same Convex `readNote` and
-`voteForm` actions as the web console. A WebView may name a response path only
-for a read, and the server still applies the caller's note visibility before
-returning a byte.
+form actions as the web console. A WebView may name a response path only for a
+read, and the server still applies the caller's note visibility before
+returning a byte. Edit and Delete controls use `updateSubmission` and
+`retractSubmission`; the server remains the authority on ownership and editor
+rights.

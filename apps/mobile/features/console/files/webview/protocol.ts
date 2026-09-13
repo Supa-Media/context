@@ -303,6 +303,21 @@ export type ToHost =
       formId: string;
       responseId: string;
       vote: "up" | "none";
+    }
+  | {
+      v: number;
+      type: "form-update";
+      token: string;
+      formId: string;
+      responseId: string;
+      values: ReadonlyArray<{ field: string; value: string }>;
+    }
+  | {
+      v: number;
+      type: "form-retract";
+      token: string;
+      formId: string;
+      responseId: string;
     };
 
 export function encode(message: ToGuest | ToHost): string {
@@ -362,6 +377,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "form-submit",
   "form-responses",
   "form-vote",
+  "form-update",
+  "form-retract",
 ] as const);
 
 /**

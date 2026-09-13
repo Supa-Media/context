@@ -60,8 +60,10 @@ function enableMailSync() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 interface Scenario {
@@ -917,6 +919,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
           "https://www.googleapis.com/auth/chat.spaces.readonly",
         ],
         nonceSeed: "fixture-chat-nonce-seed-b",
+        lastSyncedAt: Date.now() - MINUTE,
       },
     });
 
@@ -936,6 +939,50 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       contributorSourceIds: expect.arrayContaining([connectionId, siblingId]),
     });
     expect(JSON.stringify(job)).not.toContain("refresh");
+  });
+
+  test("Chat does not wait forever on a disconnected account that never contributed", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    const historicalId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "history@example.invalid",
+    });
+    const emptyId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "never-synced@example.invalid",
+    });
+    for (const [id, disconnectedAt, lastSyncedAt] of [
+      [connectionId, undefined, undefined],
+      [historicalId, Date.now(), Date.now() - MINUTE],
+      [emptyId, Date.now(), undefined],
+    ] as const) {
+      await patchConnection(t, id, {
+        products: ["chat"],
+        gmail: undefined,
+        disconnectedAt,
+        chat: {
+          scopes: [
+            "https://www.googleapis.com/auth/chat.messages.readonly",
+            "https://www.googleapis.com/auth/chat.spaces.readonly",
+          ],
+          nonceSeed: `fixture-chat-nonce-seed-${id}`,
+          lastSyncedAt,
+        },
+      });
+    }
+
+    const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+      workspaceId,
+      connectionId,
+    });
+    expect(job).toMatchObject({
+      kind: "run",
+      product: "chat",
+      contributorSourceIds: expect.arrayContaining([connectionId, historicalId]),
+    });
+    expect((job as { contributorSourceIds: string[] }).contributorSourceIds).not.toContain(emptyId);
   });
 
   test("a Calendar-only connection is handed its cursor and every contributor for the destination", async () => {
@@ -1682,6 +1729,10 @@ describe("one pass, end to end, through the credential barrier", () => {
   });
 
   test("a Calendar cursor advances only after its shared day is written", async () => {
+    // Keep this fixture's event inside the full-sync horizon regardless of
+    // the wall-clock date on which the suite runs.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T16:00:00.000Z"));
     const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
     await patchConnection(t, connectionId, {
       products: ["calendar"],
@@ -1692,6 +1743,24 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     const google = calendarAndBucket({ backend });
     vi.stubGlobal("fetch", google.fetchImpl);
+    /*
+      PINNED, BECAUSE THE ASSERTIONS BELOW NAME PARTICULAR DAYS.
+
+      `lastFullSyncDate` is today in the *calendar's* zone, and this fixture's
+      calendar is `America/New_York` — so a test hardcoding `2026-09-12` only
+      passes while it is still that day in New York, and this one started
+      failing at 04:00 UTC when it stopped being. It had nothing to do with any
+      change; the suite simply rots once a day, in a way CI notices only if a
+      run happens to land after the boundary.
+
+      `shouldAdvanceTime` keeps real timers running underneath, because
+      convex-test drives scheduled functions on them and a frozen clock would
+      hang them.
+    */
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-12T18:00:00.000Z"),
+    });
 
     const result = await runPass(t, workspaceId, connectionId);
 
@@ -1702,6 +1771,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     const row = await readConnection(t, connectionId);
     expect(row.calendar?.syncToken).toBe("calendar-token-2");
+    // 14:00 on the 12th in New York, so "today" there is the 12th.
     expect(row.calendar?.lastFullSyncDate).toBe("2026-09-12");
     expect(row.calendar?.lastSyncedAt).toBeTypeOf("number");
     const view = (

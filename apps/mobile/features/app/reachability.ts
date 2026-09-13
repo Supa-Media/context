@@ -246,6 +246,50 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     marker: "Every URL that matched nothing",
   },
   {
+    route: "/privacy",
+    file: "app/privacy.tsx",
+    reachable: true,
+    from: [
+      {
+        surface: "Privacy link in the public landing page footer",
+        control: {
+          file: "features/landing/Landing.tsx",
+          contains: ['href="/privacy"', "Privacy"],
+        },
+        navigation: [
+          {
+            file: "features/landing/Landing.tsx",
+            contains: ['<Link href="/privacy"'],
+          },
+        ],
+        region: "screen",
+        densities: EVERY_DENSITY,
+      },
+    ],
+  },
+  {
+    route: "/terms",
+    file: "app/terms.tsx",
+    reachable: true,
+    from: [
+      {
+        surface: "Terms link in the public landing page footer",
+        control: {
+          file: "features/landing/Landing.tsx",
+          contains: ['href="/terms"', "Terms"],
+        },
+        navigation: [
+          {
+            file: "features/landing/Landing.tsx",
+            contains: ['<Link href="/terms"'],
+          },
+        ],
+        region: "screen",
+        densities: EVERY_DENSITY,
+      },
+    ],
+  },
+  {
     route: "/admin",
     file: "app/(app)/admin/index.tsx",
     reachable: false,

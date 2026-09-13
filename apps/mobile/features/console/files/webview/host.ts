@@ -76,6 +76,13 @@ export function themeVars(
     "--lp-muted": colors.text2,
     "--lp-link": colors.codeKey,
     "--lp-code-bg": colors.well,
+    // Hairlines. See the web half's note: a rule that wants an edge used to
+    // borrow the code fence's fill, which is not one.
+    "--lp-line": colors.line,
+    "--lp-line-strong": colors.lineStrong,
+    // The wash behind a focused control. `accentDim` is already that colour;
+    // `--lp-selection` is the same value for the same reason.
+    "--lp-focus-ring": colors.accentDim,
     "--lp-caret": colors.text,
     "--lp-selection": colors.accentDim,
     // `fonts.body` is `undefined` on native on purpose — there are no bundled
@@ -241,6 +248,15 @@ export interface HostSink {
     formId: string;
     responseId: string;
     vote: "up" | "none";
+  }) => Promise<{ ok: boolean; message: string }>;
+  onUpdateFormResponse?: (change: {
+    formId: string;
+    responseId: string;
+    values: ReadonlyArray<{ field: string; value: string }>;
+  }) => Promise<{ ok: boolean; message: string }>;
+  onRetractFormResponse?: (change: {
+    formId: string;
+    responseId: string;
   }) => Promise<{ ok: boolean; message: string }>;
 }
 
@@ -536,6 +552,38 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
             .then((outcome) => reply(outcome.ok, outcome.message))
             .catch((error: unknown) =>
               reply(false, error instanceof Error ? error.message : "That vote didn’t send."),
+            );
+          return;
+        }
+        case "form-update": {
+          const { token, formId, responseId, values } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const update = sink.onUpdateFormResponse;
+          if (update === undefined) {
+            reply(false, "Editing is unavailable here.");
+            return;
+          }
+          update({ formId, responseId, values })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "Those changes didn’t save."),
+            );
+          return;
+        }
+        case "form-retract": {
+          const { token, formId, responseId } = message;
+          const reply = (ok: boolean, text: string): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "form-result", token, ok, message: text }));
+          const retract = sink.onRetractFormResponse;
+          if (retract === undefined) {
+            reply(false, "Deleting is unavailable here.");
+            return;
+          }
+          retract({ formId, responseId })
+            .then((outcome) => reply(outcome.ok, outcome.message))
+            .catch((error: unknown) =>
+              reply(false, error instanceof Error ? error.message : "That response wasn’t deleted."),
             );
           return;
         }
