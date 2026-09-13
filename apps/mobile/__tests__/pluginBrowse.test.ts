@@ -184,6 +184,72 @@ describe("the registry is not fetched until somebody asks", () => {
   });
 });
 
+/*
+  `PLUGIN_LIFECYCLE_BUSY` arrives for two opposite situations — an operation
+  that is running, and one that stopped part-way — and nothing on the client can
+  tell them apart. So both sentences are shown and the reader decides, rather
+  than the console offering a recovery for a job that is simply still going.
+*/
+describe("a stuck lifecycle offers recovery, and only to the row it refused", () => {
+  const refused = (over: Partial<BrowseView> = {}): BrowseView => ({
+    query: "",
+    searching: false,
+    failure: "Plugin files are changing; try again when it finishes",
+    failureCode: "PLUGIN_LIFECYCLE_BUSY",
+    failedPluginId: "highlightr-plugin",
+    actions: actions(),
+    ...over,
+  });
+
+  test("both sentences are shown, so the reader picks which one they are in", () => {
+    const container = mount(
+      createElement(PluginManagedCard, {
+        plugin: plugin({ id: "highlightr-plugin", source: "context" }),
+        view: refused(),
+      }),
+    );
+    expect(container.textContent).toContain("Wait for it to finish");
+    expect(container.textContent).toContain("stopped part-way");
+    expect(container.textContent).toContain("never deletes a note");
+  });
+
+  test("the control lands on the row that was refused, not on its neighbours", () => {
+    const container = mount(
+      createElement(PluginManagedCard, {
+        plugin: plugin({ id: "obsidian-git", source: "context" }),
+        view: refused(),
+      }),
+    );
+    expect(container.querySelector("[data-testid='plugin-stuck-obsidian-git']")).toBeNull();
+  });
+
+  test("an unrelated refusal offers no recovery at all", () => {
+    const container = mount(
+      createElement(PluginManagedCard, {
+        plugin: plugin({ id: "highlightr-plugin", source: "context" }),
+        view: refused({ failureCode: "PLUGIN_NOT_FOUND" }),
+      }),
+    );
+    expect(container.querySelector("[data-testid='plugin-stuck-highlightr-plugin']")).toBeNull();
+  });
+
+  test("recovering takes two presses", () => {
+    const recovered: string[] = [];
+    const container = mount(
+      createElement(PluginManagedCard, {
+        plugin: plugin({ id: "highlightr-plugin", source: "context" }),
+        view: refused({
+          actions: { ...actions()!, recover: async (id) => { recovered.push(id); } },
+        }),
+      }),
+    );
+    press(container, "It's stuck: recover");
+    expect(recovered).toHaveLength(0);
+    press(container, "Recover — press again");
+    expect(recovered).toEqual(["highlightr-plugin"]);
+  });
+});
+
 describe("a result says what installing it would do to this bucket", () => {
   const opened = (installedPlugins: ConsolePlugin[]) => {
     const container = mount(

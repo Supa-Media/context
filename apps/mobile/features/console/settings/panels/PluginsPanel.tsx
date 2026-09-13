@@ -10,6 +10,8 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { PluginBrowse } from "./PluginBrowse";
 import { PluginGrantCard } from "./PluginGrantCard";
 import { PluginManagedCard } from "./PluginManagedCard";
+import { PluginRuntimeCard } from "./PluginRuntimeCard";
+import type { RuntimeView } from "../../plugins/runtime";
 import type { BrowseView } from "../../plugins/lifecycle";
 import type { GrantsView } from "../../plugins/grants";
 import {
@@ -50,10 +52,12 @@ export function PluginsPanel({
   view,
   grants,
   browse,
+  runtime,
 }: {
   view: PluginsView;
   grants: GrantsView;
   browse: BrowseView;
+  runtime: RuntimeView;
 }) {
   const styles = useThemedStyles(makeStyles);
 
@@ -195,7 +199,13 @@ export function PluginsPanel({
             <Pill tone="neutral">{`${group.plugins.length}`}</Pill>
           </Row>
           {group.plugins.map((plugin) => (
-            <PluginRow key={plugin.id} plugin={plugin} grants={grants} browse={browse} />
+            <PluginRow
+              key={plugin.id}
+              plugin={plugin}
+              grants={grants}
+              browse={browse}
+              runtime={runtime}
+            />
           ))}
         </Card>
       ))}
@@ -224,10 +234,12 @@ function PluginRow({
   plugin,
   grants,
   browse,
+  runtime,
 }: {
   plugin: ConsolePlugin;
   grants: GrantsView;
   browse: BrowseView;
+  runtime: RuntimeView;
 }) {
   const styles = useThemedStyles(makeStyles);
   const { tone, dashed } = verdictPill(plugin.verdict);
@@ -301,6 +313,7 @@ function PluginRow({
           {route ?? pending}
         </Text>
 
+        <PluginRuntimeCard plugin={plugin} view={runtime} />
         <PluginGrantCard plugin={plugin} view={grants} />
         <PluginManagedCard plugin={plugin} view={browse} />
       </Grow>

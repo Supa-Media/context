@@ -39,6 +39,18 @@ export interface BrowseView {
   searching: boolean;
   /** The server's own sentence when a search or an install was refused. */
   failure: string | null;
+  /**
+   * The code beside it, so the one refusal that needs a person can be told from
+   * the several that do not.
+   *
+   * `PLUGIN_LIFECYCLE_BUSY` is ordinary and resolves itself; the same code after
+   * an operation that never finished needs `recoverPluginLifecycle`. The client
+   * cannot tell those apart and must not guess, so it shows both sentences and
+   * lets the reader say which they are looking at.
+   */
+  failureCode?: string;
+  /** The plugin the refusal was about, so a recovery control lands on the right row. */
+  failedPluginId?: string;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: LifecycleActions;
 }

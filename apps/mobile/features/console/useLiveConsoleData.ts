@@ -24,6 +24,7 @@ import { useAdvanced } from "./advanced/useAdvanced";
 import { usePlugins } from "./plugins/usePlugins";
 import { useGrants } from "./plugins/useGrants";
 import { useLifecycle } from "./plugins/useLifecycle";
+import { useRuntime } from "./plugins/useRuntime";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
 import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
@@ -566,6 +567,7 @@ export function useLiveConsoleData(): ConsoleData {
   */
   // `withheld` and `loading` are the two states with no `read` to call: one is
   // a viewer who may not scan, the other is a scan already running.
+  const pluginRuntime = useRuntime({ workspaceId: selectedContextId, role: selected?.role });
   const rereadPlugins =
     plugins.state === "loading" || plugins.state === "withheld"
       ? undefined
@@ -756,6 +758,7 @@ export function useLiveConsoleData(): ConsoleData {
     plugins,
     pluginGrants,
     pluginBrowse,
+    pluginRuntime,
     fastSearch,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the

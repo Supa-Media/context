@@ -47,6 +47,14 @@ export function useLifecycle(options: {
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  const [failureCode, setFailureCode] = useState<string | undefined>(undefined);
+  const [failedPluginId, setFailedPluginId] = useState<string | undefined>(undefined);
+
+  const clearFailure = useCallback(() => {
+    setFailure(null);
+    setFailureCode(undefined);
+    setFailedPluginId(undefined);
+  }, []);
 
   /*
     A registry search and the bucket it is compared against both belong to one
@@ -58,8 +66,8 @@ export function useLifecycle(options: {
     ticket.current += 1;
     setResults(undefined);
     setQuery("");
-    setFailure(null);
-  }, [workspaceId, isOwner]);
+    clearFailure();
+  }, [clearFailure, workspaceId, isOwner]);
 
   const search = useCallback(
     async (next: string) => {
@@ -67,7 +75,7 @@ export function useLifecycle(options: {
       const mine = ticket.current;
       setQuery(next);
       setSearching(true);
-      setFailure(null);
+      clearFailure();
       try {
         const rows = await searchAction({ workspaceId, query: next });
         if (mine !== ticket.current) return;
@@ -75,11 +83,12 @@ export function useLifecycle(options: {
       } catch (error) {
         if (mine !== ticket.current) return;
         setFailure(lifecycleFailure(error));
+        setFailureCode(lifecycleErrorCode(error));
       } finally {
         if (mine === ticket.current) setSearching(false);
       }
     },
-    [isOwner, searchAction, workspaceId],
+    [clearFailure, isOwner, searchAction, workspaceId],
   );
 
   /**
@@ -90,10 +99,10 @@ export function useLifecycle(options: {
    * stops a fourth operation arriving later and quietly not refreshing.
    */
   const run = useCallback(
-    async (operation: () => Promise<unknown>) => {
+    async (pluginId: string, operation: () => Promise<unknown>) => {
       if (workspaceId === null || !isOwner) return;
       const mine = ticket.current;
-      setFailure(null);
+      clearFailure();
       try {
         await operation();
         if (mine !== ticket.current) return;
@@ -101,20 +110,24 @@ export function useLifecycle(options: {
       } catch (error) {
         if (mine !== ticket.current) return;
         setFailure(lifecycleFailure(error));
+        setFailureCode(lifecycleErrorCode(error));
+        setFailedPluginId(pluginId);
       }
     },
-    [isOwner, onChanged, workspaceId],
+    [clearFailure, isOwner, onChanged, workspaceId],
   );
 
   const install = useCallback(
     (pluginId: string) =>
-      run(() => installAction({ workspaceId: workspaceId as Id<"workspaces">, pluginId })),
+      run(pluginId, () =>
+        installAction({ workspaceId: workspaceId as Id<"workspaces">, pluginId }),
+      ),
     [installAction, run, workspaceId],
   );
 
   const uninstall = useCallback(
     (pluginId: string, bundleFingerprint: string) =>
-      run(() =>
+      run(pluginId, () =>
         uninstallAction({
           workspaceId: workspaceId as Id<"workspaces">,
           pluginId,
@@ -126,7 +139,7 @@ export function useLifecycle(options: {
 
   const recover = useCallback(
     (pluginId: string) =>
-      run(() =>
+      run(pluginId, () =>
         recoverAction({
           workspaceId: workspaceId as Id<"workspaces">,
           pluginId,
@@ -141,6 +154,8 @@ export function useLifecycle(options: {
     query,
     searching,
     failure,
+    failureCode,
+    failedPluginId,
     actions:
       isOwner && workspaceId !== null ? { search, install, uninstall, recover } : undefined,
   };

@@ -2,6 +2,7 @@ import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { GrantsView } from "./plugins/grants";
 import type { BrowseView } from "./plugins/lifecycle";
+import type { RuntimeView } from "./plugins/runtime";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
@@ -378,6 +379,14 @@ export interface ConsoleData {
    * network, so nothing about it may ride along with a read of the bucket.
    */
   pluginBrowse: BrowseView;
+  /**
+   * What the sandbox host says each plugin is doing.
+   *
+   * The only thing in `ConsoleData` entitled to say a plugin is *running*. A
+   * grant means allowed and an install means present; neither means loaded, and
+   * nothing else in this console may claim otherwise.
+   */
+  pluginRuntime: RuntimeView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

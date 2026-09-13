@@ -33,6 +33,7 @@ import { createRoot } from "react-dom/client";
 import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
 import type { GrantsView } from "../features/console/plugins/grants";
 import type { BrowseView } from "../features/console/plugins/lifecycle";
+import type { RuntimeView } from "../features/console/plugins/runtime";
 import {
   SCOPE_NOTE,
   type ConsolePlugin,
@@ -55,6 +56,7 @@ function panel(
   view: PluginsView,
   grants: GrantsView = { grants: [], loading: false },
   browse: BrowseView = { query: "", searching: false, failure: null },
+  runtime: RuntimeView = { states: [], loading: false },
 ): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -64,7 +66,7 @@ function panel(
     container.remove();
   });
   act(() => {
-    root.render(createElement(PluginsPanel, { view, grants, browse }));
+    root.render(createElement(PluginsPanel, { view, grants, browse, runtime }));
   });
   return container;
 }
