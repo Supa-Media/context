@@ -197,6 +197,25 @@ describe("an owner can edit their context", () => {
     expect(
       events.find((event) => event.action === "storage.layout_migration_requested")?.paths,
     ).toEqual([]);
+
+    /*
+      AND THE OUTCOME IS WRITTEN SOMEWHERE A QUERY CAN READ IT.
+
+      The bucket has always known — `migrateStorageLayout` keeps its state
+      under `.context/` and short-circuits on `complete`. Nothing outside it
+      did, so the console could not tell a bucket that still needs this from
+      one migrated last week, and the offer was answered by a flag on one
+      device: it came back on the next browser, for a workspace already
+      migrated. This is the half that travels with the workspace.
+    */
+    const binding = await asUser(f.t, f.owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId: f.workspaceId },
+    );
+    // Whatever the passes above reached — the point is that the row is no
+    // longer silent, not which of the six words it landed on.
+    expect(binding?.storageLayoutState).toBeDefined();
+    expect(binding?.storageLayoutAt).toBeGreaterThan(0);
   });
 
   test("lists a folder", async () => {

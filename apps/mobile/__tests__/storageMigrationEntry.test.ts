@@ -117,6 +117,7 @@ beforeEach(() => {
 function console_(
   calls: string[],
   over: Partial<FileBrowser> = {},
+  storage: Record<string, unknown> = {},
 ): ConsoleData {
   const files = {
     canEdit: true,
@@ -161,6 +162,9 @@ function console_(
       provider: "r2",
       bucket: "notes",
       conditionalWrite: true,
+      // Absent `layoutState` is the default on purpose: it is what a bucket
+      // nobody has migrated reports, and the only state that still offers.
+      ...storage,
     },
     endpoint: "https://mcp.example",
     ingestionAddress: "seyi@example",
@@ -348,5 +352,96 @@ describe("the console offers it as a notice, not as a modal", () => {
   test("and an editor is offered nothing at all", async () => {
     const host = await browse(console_([], { updateStorageLayout: undefined }));
     expect(host.querySelector('[data-testid="browse-storage-migration"]')).toBeNull();
+  });
+});
+
+describe("a recorded outcome, not a flag on one device", () => {
+  /*
+    THE NAG THIS ENDS.
+
+    The migration has always written its own state into the bucket — under
+    `.context/`, where `migrateStorageLayout` reads it and short-circuits on
+    `complete`. Nothing outside the bucket could see it, so the console's
+    "available" was as close to "pending" as it could get and the offer was
+    answered by a `localStorage` flag: per browser, per device, per context.
+    Run it on a laptop and the phone offered it again; clear site data and the
+    laptop did too. The owner who reported this had pressed it "so many times".
+
+    `storageBindings.storageLayoutState` is now that outcome, recorded on every
+    pass, so the answer travels with the workspace instead of with the device.
+    Each case below sets it and asserts against a **clean** device store —
+    `beforeEach` clears it — so nothing here can pass on a leftover dismissal.
+  */
+  const noticeIn = (host: HTMLElement) =>
+    host.querySelector('[data-testid="browse-storage-migration"]');
+
+  test("a migrated bucket is not offered the migration, on a device that never ran it", async () => {
+    const host = await browse(console_([], {}, { layoutState: "complete" }));
+    expect(noticeIn(host)).toBeNull();
+    // The positive control: the same console with nothing recorded still
+    // offers, so this cannot pass on a pane that drew no band at all.
+    const fresh = await browse(console_([]));
+    expect(noticeIn(fresh)).not.toBeNull();
+  });
+
+  test("nor is one in the middle of it, or one that can never run it", async () => {
+    for (const state of ["copying", "copied", "cleaning", "unsupported", "conflict"] as const) {
+      while (roots.length > 0) roots.pop()!();
+      const host = await browse(console_([], {}, { layoutState: state }));
+      expect(noticeIn(host)).toBeNull();
+    }
+  });
+
+  test("Settings says where it got to instead of offering it again", async () => {
+    const done = await settingsStorage(console_([], {}, { layoutState: "complete" }));
+    expect(done.querySelector('[data-testid="settings-storage-migration"]')).not.toBeNull();
+    // The row stays — it is the permanent home, and "already done" is exactly
+    // what somebody who went looking came to find out.
+    expect(done.textContent ?? "").toContain("already on the current layout");
+    expect(done.querySelector('[data-testid="settings-storage-migration-run"]')).toBeNull();
+  });
+
+  test("and says so for a bucket that cannot run it at all", async () => {
+    const host = await settingsStorage(console_([], {}, { layoutState: "unsupported" }));
+    // `runStorageLayoutMigration` refuses without conflict-safe writes. A
+    // button whose only outcome is that refusal is worse than a sentence.
+    expect(host.textContent ?? "").toContain("conflict-safe writes");
+    expect(host.querySelector('[data-testid="settings-storage-migration-run"]')).toBeNull();
+  });
+
+  test("a stalled migration keeps its way out", async () => {
+    // `conflict` is the one answered state that is still somebody's to act on:
+    // a destination changed under the copy. Not offered in the band — an
+    // interruption is for an offer, not for a retry — but the control stays
+    // where they would look for it.
+    const calls: string[] = [];
+    const host = await settingsStorage(console_(calls, {}, { layoutState: "conflict" }));
+    expect(host.querySelector('[data-testid="settings-storage-migration-run"]')).not.toBeNull();
+    press(host, '[data-testid="settings-storage-migration-run"]');
+    pressLabel(STORAGE_MIGRATION_CONFIRM_LABEL);
+    expect(calls).toEqual(["updateStorageLayout"]);
+  });
+
+  test("running it from Settings answers the notice too", async () => {
+    /*
+      The gap that made "I keep clicking it" literally true. The notice's own
+      text sends people to Settings → Storage, and running it there never
+      wrote the dismissal — so until the recorded state came back through the
+      subscription, the band still offered what they had just started.
+
+      The device flag is belt and braces now rather than the whole mechanism,
+      and it is what covers that window.
+    */
+    const calls: string[] = [];
+    const host = await settingsStorage(console_(calls));
+    press(host, '[data-testid="settings-storage-migration-run"]');
+    pressLabel(STORAGE_MIGRATION_CONFIRM_LABEL);
+    expect(calls).toEqual(["updateStorageLayout"]);
+    expect(window.localStorage.getItem(storageMigrationDismissedKey(WORKSPACE))).not.toBeNull();
+
+    // And the band is quiet on the next mount, before any state has landed.
+    while (roots.length > 0) roots.pop()!();
+    const second = await browse(console_(calls));
+    expect(noticeIn(second)).toBeNull();
   });
 });

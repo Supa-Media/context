@@ -669,6 +669,11 @@ export const applyDropboxBinding = internalMutation({
       noteCount: undefined,
       noteCountedAt: undefined,
       noteCountTruncated: undefined,
+      // Where the storage-layout migration got to described the S3 bucket this
+      // replaces. Carried forward, a Dropbox account that has never been
+      // migrated inherits `complete` and is never offered it.
+      storageLayoutState: undefined,
+      storageLayoutAt: undefined,
       boundBy: args.boundBy,
       updatedAt: now,
     };

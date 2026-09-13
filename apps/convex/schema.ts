@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { supaAuthTables } from "@supa-media/convex/schema";
+import { storageLayoutStateValidator } from "./functions/lib/storageLayout";
 
 /**
  * Control-plane schema for Context.
@@ -895,6 +896,32 @@ const schema = defineSchema({
     noteCount: v.optional(v.number()),
     noteCountedAt: v.optional(v.number()),
     noteCountTruncated: v.optional(v.boolean()),
+    /**
+     * WHERE THE STORAGE-LAYOUT MIGRATION GOT TO, AND WHEN WE LAST HEARD.
+     *
+     * The authoritative record is in the bucket — `migrateStorageLayout`
+     * persists it under `.context/` and short-circuits on `complete` — and
+     * that is where it stays: this is a **copy of an outcome we observed**, in
+     * the same category as `scaffolded` and `noteCount`, kept because a query
+     * cannot read somebody's bucket and a console cannot ask.
+     *
+     * Without it the console could not tell "this bucket still needs the
+     * update" from "it ran last week", so the offer to run it was answered by
+     * a flag on one device: it came back on the next browser, the next phone,
+     * and after clearing site data, however many times it had already been
+     * run. Absent means nobody has run it *through us* — the honest answer for
+     * a bucket we have never migrated, and the one state that still offers.
+     *
+     * Six words, the migration's own (`apps/mcp/src/storageLayout.js`), rather
+     * than a boolean: `copying` and `cleaning` are under way, `copied` is
+     * waiting out the rollback window, `conflict` needs somebody, and
+     * `unsupported` is a bucket without conflict-safe writes, which no amount
+     * of pressing will change.
+     *
+     * Metadata about our own plumbing. No key names, no note content.
+     */
+    storageLayoutState: v.optional(storageLayoutStateValidator),
+    storageLayoutAt: v.optional(v.number()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

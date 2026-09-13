@@ -69,11 +69,105 @@ export const STORAGE_MIGRATION_OFFER =
  * place somebody went looking rather than something that appeared in front of
  * them, and a control that vanishes from its permanent home because a probe
  * is mid-flight is a control people stop trusting is there.
+ *
+ * ## And whether there is anything left to offer
+ *
+ * The second condition is the one this notice was missing entirely.
+ * `layoutState` is what the binding remembers of the migration — recorded by
+ * the migration itself, so it is the same on every device this person signs in
+ * on. **Absent means nobody has run it through us**, and it is the only state
+ * that is still an offer: every other one is an answer, and an offer to do
+ * something already done is the nag this control kept becoming.
+ *
+ * Before it, the only thing that could quieten the notice was a flag on the
+ * device, so running the migration on a laptop left the phone offering it
+ * again, for ever. See `docs/decisions/storage-and-credentials.md`.
+ *
+ * The settings row does not take this condition either — it reports the state
+ * instead, which is what somebody who went looking came to find out.
  */
 export function storageMigrationWorthOffering(
-  storage: { connected?: boolean } | null | undefined,
+  storage: { connected?: boolean; layoutState?: StorageLayoutState } | null | undefined,
 ): boolean {
-  return storage?.connected === true;
+  return storage?.connected === true && storage.layoutState === undefined;
+}
+
+/**
+ * Where the storage-layout migration got to, as the binding remembers it.
+ *
+ * The migration's own six words — see `functions/lib/storageLayout.ts`, which
+ * is where they are defined and where the union that validates them lives.
+ */
+export type StorageLayoutState =
+  | "copying"
+  | "copied"
+  | "cleaning"
+  | "conflict"
+  | "unsupported"
+  | "complete";
+
+/**
+ * What Settings → Storage says about a state somebody went looking for, and
+ * whether it still has a control.
+ *
+ * `offer: false` for a state with nothing left to press, which is most of
+ * them: a migration that is done, under way, or waiting out its rollback
+ * window is a fact to report, and a button whose outcome is "no change"
+ * teaches people to distrust the ones that do something. `unsupported` is the sharpest case —
+ * `runStorageLayoutMigration` refuses a bucket without conflict-safe writes on
+ * every call, so a button there could only ever produce that refusal again.
+ *
+ * `conflict` keeps its button. It is the one answered state that is still
+ * somebody's to act on, and the migration is resumable by construction.
+ */
+export function storageMigrationRow(state: StorageLayoutState | undefined): {
+  sub: string;
+  offer: boolean;
+} {
+  switch (state) {
+    case undefined:
+      return {
+        sub:
+          "A one-time reorganization of Context's own hidden files under .context/. Your notes " +
+          "are not touched, and nothing here is required — an older layout keeps working.",
+        offer: true,
+      };
+    case "complete":
+      return {
+        sub: "Done. Context's hidden files are already on the current layout.",
+        offer: false,
+      };
+    case "copying":
+    case "cleaning":
+      return {
+        sub:
+          "Under way. It runs in the background, in bounded passes, and picks up where it left " +
+          "off — nothing here needs to stay open.",
+        offer: false,
+      };
+    case "copied":
+      return {
+        sub:
+          "Copied and verified. The old system copies are kept for the seven-day rollback " +
+          "window and then removed automatically.",
+        offer: false,
+      };
+    case "conflict":
+      return {
+        sub:
+          "Stopped: something under .context/ changed while it was copying. Nothing was deleted. " +
+          "Running it again picks up from where it stopped.",
+        offer: true,
+      };
+    case "unsupported":
+      return {
+        sub:
+          "This bucket does not support conflict-safe writes, so the update cannot run here. " +
+          "Nothing is wrong with the context — the older layout keeps working, and stays " +
+          "readable.",
+        offer: false,
+      };
+  }
 }
 
 /** The dialog, raised once somebody has chosen to run it from either home. */
@@ -103,31 +197,49 @@ export function StorageMigrationConfirm({
  * tooltip. It owns the confirmation state so the panel around it does not have
  * to; the panel decides only whether this context has the action at all.
  */
-export function StorageMigrationCard({ run }: { run: () => void }) {
+export function StorageMigrationCard({
+  run,
+  state,
+  workspaceId = null,
+}: {
+  run: () => void;
+  /** What the binding remembers. `undefined` is "nobody has run it". */
+  state?: StorageLayoutState;
+  /**
+   * Whose offer running it here answers.
+   *
+   * The row's own text sends nobody anywhere, but the *notice*'s text sends
+   * people here — and running it here used to leave that notice sitting in the
+   * console restating something already under way, until the recorded state
+   * came back through the subscription. Answering the offer from both surfaces
+   * closes that window. `null` where there is no workspace to answer for.
+   */
+  workspaceId?: string | null;
+}) {
   const styles = useThemedStyles(makeStyles);
   const [confirming, setConfirming] = useState(false);
+  const row = storageMigrationRow(state);
   return (
     <Card testID="settings-storage-migration">
       <Row divided style={styles.row}>
         <Grow style={styles.grow}>
           <Text variant="rowTitle">{STORAGE_MIGRATION_TITLE}</Text>
-          <Text variant="rowSub">
-            A one-time reorganization of Context&apos;s own hidden files under .context/. Your
-            notes are not touched, and nothing here is required — an older layout keeps
-            working.
-          </Text>
+          <Text variant="rowSub">{row.sub}</Text>
         </Grow>
-        <Button
-          label={STORAGE_MIGRATION_TITLE}
-          onPress={() => setConfirming(true)}
-          testID="settings-storage-migration-run"
-        />
+        {row.offer ? (
+          <Button
+            label={STORAGE_MIGRATION_TITLE}
+            onPress={() => setConfirming(true)}
+            testID="settings-storage-migration-run"
+          />
+        ) : null}
       </Row>
       {confirming ? (
         <StorageMigrationConfirm
           onCancel={() => setConfirming(false)}
           onConfirm={() => {
             setConfirming(false);
+            if (workspaceId !== null) dismissStorageMigrationOffer(workspaceId);
             run();
           }}
         />
@@ -208,14 +320,29 @@ export function useStorageMigrationOffer(workspaceId: string | null): {
   const dismiss = useCallback(() => {
     setDismissed(true);
     if (workspaceId === null) return;
-    // Fire and forget, on `writeStoredScheme`'s model: what a lost write costs
-    // here is seeing the notice once more, not anybody's typing.
-    void openStore()
-      .set(storageMigrationDismissedKey(workspaceId), "1")
-      .catch(() => {});
+    dismissStorageMigrationOffer(workspaceId);
   }, [workspaceId]);
 
   return { visible: workspaceId !== null && answered === workspaceId && !dismissed, dismiss };
+}
+
+/**
+ * Remember that this context's offer has been answered, on this device.
+ *
+ * Belt and braces rather than the mechanism: the answer that travels is the
+ * binding's `layoutState`, recorded by the migration itself and the same on
+ * every device this person signs in on. This covers the seconds between
+ * pressing and that state arriving, and it is the whole of the answer for
+ * "Not now" — which records a preference rather than an outcome, and so has
+ * nothing on the binding to record.
+ *
+ * Fire and forget, on `writeStoredScheme`'s model: what a lost write costs
+ * here is seeing the notice once more, not anybody's typing.
+ */
+export function dismissStorageMigrationOffer(workspaceId: string): void {
+  void openStore()
+    .set(storageMigrationDismissedKey(workspaceId), "1")
+    .catch(() => {});
 }
 
 /**
