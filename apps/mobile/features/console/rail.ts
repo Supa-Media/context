@@ -1,100 +1,91 @@
 /**
- * How the rail groups the contexts a person can reach.
+ * How the rail lists the contexts a person can reach.
  *
- * **The split is on kind — Brains and Workspaces — and it used to be on
- * ownership.** That earlier split ("Yours" / "Shared with you") was answering a
- * real question, *whose notes am I about to open?*, and it was answering it in
- * the wrong place. Two things were wrong with it:
+ * **One list, with the person's own workspace pinned to the top of it.** The
+ * rail used to draw two headed groups, BRAINS and WORKSPACES, splitting on
+ * `kind`. That split was the shape of a vocabulary that no longer exists: a
+ * "brain" was only ever a workspace one person owns, and the owner retired the
+ * word (2026-09-13, `docs/decisions/vocabulary-and-workspaces.md`). Once both
+ * kinds are called the same thing, a heading over each of them is a division
+ * with nothing to divide — two words for one noun, drawn as structure.
  *
- *  - **It named neither of the product's nouns.** The vocabulary decision gives
- *    the two kinds two words — a **brain** is one person's context, a
- *    **workspace** is a shared one — and the rail is the one surface where a
- *    person meets both. Heading them "Yours" and "Shared with you" made the
- *    switcher the only place in the product that talks about contexts without
- *    using either word for them.
- *  - **For a brain, the row already answered it.** `@sayo` is Sayo's brain;
- *    nobody reads that row and wonders whose notes are behind it. The section
- *    boundary was spending the rail's strongest structural device on a fact the
- *    handle carries for free — and paying for it by scattering the workspaces,
- *    where whose-is-it is genuinely ambiguous, across both sections according
- *    to something the rail never showed.
+ * What the split was genuinely carrying survives, in the two places that can
+ * carry it more cheaply:
  *
- * So ownership moves from a section boundary to a **mark on one row**:
- * `ownBrain` finds the single context that is this person's own brain, and it
- * is pinned first in its group and labelled. Exactly one row can ever carry it
- * — `createWorkspace` writes one personal context per person — which is what
- * makes a marker the right shape for it and a section the wrong one.
+ *  - **Whose notes am I about to open?** `@sayo` already says whose the row
+ *    is, and the one row that is *yours* is pinned first and marked "yours".
+ *    Exactly one row can ever carry that mark — `createWorkspace` writes one
+ *    personal context per person and there is no transfer path — which is what
+ *    makes a marker the right shape for it and a section the wrong one.
+ *  - **Personal or shared?** Ownership of a *shared* workspace is deliberately
+ *    still not marked: it is shared by construction, and what differs is your
+ *    role in it, which is four states on the members card rather than one bit
+ *    in a switcher.
  *
- * Ownership of a *workspace* is deliberately not marked. A workspace is shared
- * by construction, the thing that differs is your role in it, and a role is
- * four states shown on the members card rather than one bit in a switcher.
+ * The pin is a pin and not a sort. Everything after the first row keeps the
+ * order the control plane sent, so the list is stable and muscle memory works.
  *
- * A section with nothing to show and nothing to offer is omitted, header and
- * all: a heading over nothing reads as something failing to load. Each section
- * survives an empty list only while it still has something to say — Brains
- * while it can offer "Claim your @name", Workspaces while it can offer "New
- * workspace" — and Brains is also where the "Nothing here yet" empty state of
- * an account with nothing at all lands.
+ * The group is unconditional now, where each of the two used to survive an
+ * empty list only while it still had something to offer. With one group there
+ * is nothing its absence could say: it is where "Nothing here yet" lands for
+ * an account with nothing at all, and where both offers — "Claim your @name"
+ * and "New workspace" — hang.
  */
 
 import type { ConsoleContext } from "./types";
 
-export interface RailSection {
-  key: "brains" | "workspaces";
+export interface RailGroup {
   heading: string;
+  /** The contexts, own personal workspace first. */
   contexts: ConsoleContext[];
   /**
-   * The Brains section carries the "Claim your @name" entry.
-   *
-   * It belongs here rather than anywhere else because this group is the one
-   * that raises the question it answers: a person looking at a list of brains,
-   * none of which is theirs, is being shown the gap.
+   * Whether to draw the "Claim your @name" entry, which takes the **pinned
+   * top slot** — it is the placeholder for exactly the row that would be
+   * there. It is drawn accented, because the person it is for arrived through
+   * somebody else's invitation and has no reason to suspect the product does
+   * anything else, and it stops existing the moment it is used.
    */
   claim: boolean;
   /**
-   * The Workspaces section carries the "New workspace" entry.
+   * Whether to draw the "New workspace" entry, at the **foot** of the list.
    *
    * Separate from `claim` rather than folded into it because the two are true
-   * at different times and are drawn differently. `claim` is "you have no brain
-   * of your own", which stops being true forever the moment it is used, and it
-   * is drawn accented because the person it is for has no reason to suspect the
-   * product does anything else. This is an ordinary verb that is true from the
-   * first session and stays true, so it is drawn quietly — an accent on it
-   * would be an advertisement on every screen of every session.
-   *
-   * It goes last in its own group, under the workspaces it makes more of.
+   * at different times and are drawn differently. This is an ordinary verb
+   * that is true from the first session and stays true, so it is drawn quietly
+   * — an accent on it would be an advertisement on every screen of every
+   * session.
    */
   create: boolean;
 }
 
 /**
- * Is this row the signed-in person's own brain?
+ * Is this row the signed-in person's own workspace?
  *
  * Both halves are required and neither is sufficient. `kind === "personal"`
- * alone is any brain, including one somebody shared with you; `role ===
- * "owner"` alone includes every workspace you created. Exactly one context can
- * satisfy both, because `createWorkspace` writes one personal context per
- * person and there is no transfer path — which is the property that lets this
- * be a mark on a row rather than a section of its own.
+ * alone is any personal workspace, including one somebody shared with you;
+ * `role === "owner"` alone includes every shared workspace you created.
+ * Exactly one context can satisfy both, because `createWorkspace` writes one
+ * personal context per person and there is no transfer path — which is the
+ * property that lets this be a mark on a row and a pin of one row.
  */
-export function isOwnBrain(context: ConsoleContext): boolean {
+export function isOwnWorkspace(context: ConsoleContext): boolean {
   return context.kind === "personal" && context.role === "owner";
 }
 
 /**
- * The person's own brain, or `null`.
+ * The person's own workspace, or `null`.
  *
  * Exported because the rail is not the only surface that wants it, and because
  * "there is at most one" is a claim worth stating in one place rather than
  * re-deriving with a `.filter()[0]` at each call site.
  */
-export function ownBrain(
+export function ownWorkspace(
   contexts: readonly ConsoleContext[],
 ): ConsoleContext | null {
-  return contexts.find(isOwnBrain) ?? null;
+  return contexts.find(isOwnWorkspace) ?? null;
 }
 
-export function railSections({
+export function railGroup({
   contexts,
   claimable,
   creatable = false,
@@ -108,40 +99,24 @@ export function railSections({
    * — keeps rendering without it.
    */
   creatable?: boolean;
-}): RailSection[] {
-  // Your own brain first, and everything else in the order it arrived.
+}): RailGroup {
+  const own = ownWorkspace(contexts);
+  // Your own workspace first, and everything else in the order it arrived.
   // `filter` is stable, so this is a pin rather than a sort: the control plane
   // decides the rest of the order and this does not second-guess it.
-  const brains = contexts.filter((context) => context.kind === "personal");
   const ordered = [
-    ...brains.filter(isOwnBrain),
-    ...brains.filter((context) => !isOwnBrain(context)),
+    ...(own === null ? [] : [own]),
+    ...contexts.filter((context) => context !== own),
   ];
-  const workspaces = contexts.filter((context) => context.kind !== "personal");
 
-  const sections: RailSection[] = [];
-  // The empty console — no contexts and nothing to offer — still needs one
-  // group to hold "Nothing here yet", and Brains is where a person with
-  // nothing is going to end up first.
-  const brainsHasSomethingToSay =
-    ordered.length > 0 || claimable || (contexts.length === 0 && !creatable);
-  if (brainsHasSomethingToSay) {
-    sections.push({
-      key: "brains",
-      heading: "Brains",
-      contexts: ordered,
-      claim: claimable,
-      create: false,
-    });
-  }
-  if (workspaces.length > 0 || creatable) {
-    sections.push({
-      key: "workspaces",
-      heading: "Workspaces",
-      contexts: workspaces,
-      claim: false,
-      create: creatable,
-    });
-  }
-  return sections;
+  return {
+    heading: "Workspaces",
+    contexts: ordered,
+    // The claim entry occupies the pinned slot, so it cannot be offered beside
+    // the row it stands in for. `offerOwnContext` already counts owned
+    // personal contexts before asking; this is the second lock, in the one
+    // place that knows what is about to be drawn in that slot.
+    claim: claimable && own === null,
+    create: creatable,
+  };
 }

@@ -638,7 +638,7 @@ describe("the ends of the list", () => {
       onClaimContext: () => {},
     });
     expect(invitee.need("context-strip-claim").getAttribute("aria-label")).toBe(
-      "Claim your name and create your own brain",
+      "Claim your name and create your own workspace",
     );
   });
 

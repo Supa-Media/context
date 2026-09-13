@@ -104,7 +104,7 @@ const SHARED_CONTEXT: ConsoleContext = {
   status: "ok",
 };
 
-/** A workspace the viewer created. `owner`, and deliberately not a brain. */
+/** A shared workspace the viewer created. `owner`, and deliberately not personal. */
 const WORKSPACE_CONTEXT: ConsoleContext = {
   id: "w3",
   slug: "acme-eng",
@@ -326,15 +326,22 @@ describe("the storage pill on every other binding", () => {
 
 /* -------------------------------------------------------------------------- */
 
-describe("the rail's two context sections, rendered", () => {
-  test("brains and workspaces sit under the product's own two nouns", () => {
+describe("the rail's one context list, rendered", () => {
+  /**
+   * The shape the retired vocabulary left behind. There is one heading, it
+   * says Workspaces, and the word the product no longer uses is nowhere on
+   * the glass — see `docs/decisions/vocabulary-and-workspaces.md`.
+   */
+  test("every context sits in one list, under one heading", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
     const text = app.text();
 
-    expect(text).toContain("Brains");
     expect(text).toContain("Workspaces");
-    // The headings the ownership split used to draw are gone from the rail.
+    expect(text).not.toMatch(/brain/i);
+    // The headings the old splits drew are gone from the rail: the ownership
+    // one it dropped first, and the kind one it drew until the word went.
     expect(text).not.toContain("Shared with you");
+    expect(text.match(/Workspaces/g)?.length ?? 0).toBe(1);
     // Every row is still a reachable entry.
     expect(app.container.querySelector('[aria-label="Open @seyi"]')).not.toBeNull();
     expect(app.container.querySelector('[aria-label="Open @lk"]')).not.toBeNull();
@@ -344,19 +351,45 @@ describe("the rail's two context sections, rendered", () => {
   });
 
   /**
-   * Where ownership went. Somebody else's brain sits in the same group as
-   * yours, so the mark is the only thing separating them — and it must appear
-   * exactly once, on the right row.
+   * The pin, on the glass rather than in `railGroup`'s return value. The
+   * viewer's own workspace arrives third here and must still be drawn first —
+   * personal and shared contexts interleaved in one run is exactly the case
+   * the two headed groups used to make impossible.
    */
-  test("only the viewer's own brain is marked", () => {
+  test("the viewer's own workspace is drawn first, whatever order it arrived in", () => {
+    const app = mountConsole({
+      contexts: [WORKSPACE_GUEST, WORKSPACE_CONTEXT, OWN_CONTEXT, SHARED_CONTEXT],
+    });
+    const opened = [...app.container.querySelectorAll("[aria-label]")]
+      .map((node) => node.getAttribute("aria-label") ?? "")
+      .filter((label) => label.startsWith("Open @"));
+
+    expect(opened[0]).toBe("Open @seyi");
+    // A pin and not a sort: the rest keep the order they came in.
+    expect(opened).toEqual([
+      "Open @seyi",
+      "Open @public-worship",
+      "Open @acme-eng",
+      "Open @lk",
+    ]);
+
+    app.unmount();
+  });
+
+  /**
+   * Where ownership went. Somebody else's personal context sits in the same
+   * list as yours, so the mark is the only thing separating them — and it must
+   * appear exactly once, on the right row.
+   */
+  test("only the viewer's own workspace is marked", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
     expect(app.text().match(/yours/g)?.length ?? 0).toBe(1);
 
     const own = app.container.querySelector('[aria-label="Open @seyi"]');
     expect(own?.textContent).toContain("yours");
-    // Not on somebody else's brain, and not on a workspace the viewer created —
-    // `WORKSPACE_CONTEXT` is `role: "owner"`, which is the half of the test
-    // that fails if the mark is derived from role alone.
+    // Not on somebody else's personal context, and not on a shared workspace
+    // the viewer created — `WORKSPACE_CONTEXT` is `role: "owner"`, which is the
+    // half of the test that fails if the mark is derived from role alone.
     expect(
       app.container.querySelector('[aria-label="Open @lk"]')?.textContent,
     ).not.toContain("yours");
@@ -367,22 +400,33 @@ describe("the rail's two context sections, rendered", () => {
     app.unmount();
   });
 
-  test("an account in no workspaces still gets the group, because the entry is in it", () => {
+  test("an account in no shared workspace still gets the new-workspace entry", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT] });
     expect(app.text()).toContain("Workspaces");
     expect(app.find("rail-create-workspace")).not.toBeNull();
     app.unmount();
   });
 
-  test("an invited-only account sees the claim entry in an otherwise empty Brains group", () => {
+  /**
+   * The claim entry stands in for the pinned row, so it is drawn *where that
+   * row would be* — above the contexts, not under them. Somebody invited into
+   * one workspace and owning nothing is the only person who ever sees it.
+   */
+  test("an invited-only account sees the claim entry in the pinned top slot", () => {
     const app = mountConsole({ contexts: [WORKSPACE_GUEST] });
-    // `offerOwnContext` answers yes for an invitee, so the group survives to
-    // hold the one entry that matters to them…
-    expect(app.find("rail-claim-context")).not.toBeNull();
-    expect(app.text()).toContain("Brains");
-    // …and the workspace they were let into is under its own heading, not
-    // beside the claim entry.
+    // `offerOwnContext` answers yes for an invitee…
+    const claim = app.find("rail-claim-context");
+    expect(claim).not.toBeNull();
     expect(app.text()).toContain("Workspaces");
+    expect(app.text()).not.toMatch(/brain/i);
+
+    // …and it leads the list, ahead of the workspace they were let into.
+    const entry = app.container.querySelector('[aria-label="Open @public-worship"]');
+    expect(entry).not.toBeNull();
+    expect(
+      claim!.compareDocumentPosition(entry!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
     app.unmount();
   });
 });

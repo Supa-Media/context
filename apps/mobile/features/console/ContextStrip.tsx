@@ -215,7 +215,7 @@ export function ContextStrip({
         {claim ? (
           <Pill
             label="Claim your @name"
-            accessibilityLabel="Claim your name and create your own brain"
+            accessibilityLabel="Claim your name and create your own workspace"
             accented
             leading={<Icon name="plus" size={13} />}
             onPress={onClaimContext!}

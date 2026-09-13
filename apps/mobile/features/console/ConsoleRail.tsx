@@ -20,7 +20,7 @@ import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
 import type { MenuItem } from "./files/menu";
 import { selectContextRoute, type ConsoleRoute } from "./nav";
-import { isOwnBrain, railSections } from "./rail";
+import { isOwnWorkspace, railGroup } from "./rail";
 import type { ConsoleData } from "./types";
 
 /**
@@ -136,6 +136,14 @@ export function ConsoleRail({
     contexts: data.contexts,
     loading: data.loading,
   });
+  // One list, computed once: the contexts with this person's own workspace
+  // pinned first, and whether each of the two offers is being made. See
+  // `rail.ts` for why there is no longer a group per kind.
+  const group = railGroup({
+    contexts: data.contexts,
+    claimable,
+    creatable: onCreateWorkspace !== undefined,
+  });
 
   return (
     // The rail's own root, named so a test can assert the *order* of its three
@@ -229,171 +237,166 @@ export function ConsoleRail({
           on which control you had pressed. Obsidian has one sidebar whose
           *contents* switch; it never becomes a different panel.
 
-          So this is the vault switcher and nothing else — the brains and
-          workspaces you can open, and who you are signed in as. Map and
+          So this is the vault switcher and nothing else — the workspaces you
+          can open, and who you are signed in as. Map and
           Connections are facts about a context rather than places inside one,
           and they live in that context's settings, behind the gear at the foot
           of the tree. Their routes are unchanged and still addressable; what
           moved is where you reach them from. See `SettingsPane`.
         */}
         {/*
-          Two groups, and they split on **kind**: the brains you can open, and
-          the workspaces you can open. Ownership is a mark on one row rather
-          than a section boundary — exactly one context can ever be your own
-          brain, and `@sayo` already says whose the others are. A section with
-          nothing to show and nothing to offer is omitted, header and all — see
+          **One list, not a group per kind.** Every context a person can reach
+          is a workspace, so a heading for each kind was a division with
+          nothing to divide. What the split carried is carried by the pin and
+          the mark instead: this person's own workspace leads the list and says
+          "yours", and `@sayo` already says whose the others are. See
           `rail.ts`.
         */}
-        {railSections({
-          contexts: data.contexts,
-          claimable,
-          creatable: onCreateWorkspace !== undefined,
-        }).map((section) => (
-          <Group
-            key={section.key}
-            heading={section.heading}
-            icons={icons}
-            // Derived from the one piece of state that already knows, rather
-            // than a second answer to the same question.
-            raised={section.contexts.some((context) => menuOpenOn(context.slug))}
-          >
-            {section.key === "brains" && data.contexts.length === 0 && !data.loading ? (
-              icons ? null : (
-                <Text variant="rowSub" style={styles.empty}>
-                  Nothing here yet
-                </Text>
-              )
-            ) : null}
-            {section.contexts.map((context) => (
-              // Right-clicking a context offers its verbs — Settings, sharing
-              // — because the rail entry is the visible handle for the
-              // context, and the storage pill in the corner was findable only
-              // by people who already knew it was there.
-              <RightClickTarget
-                key={context.id}
-                open={menuOpenOn(context.slug)}
-                onOpenMenu={() => setMenuSlug(context.slug)}
-              >
-                <RailEntry
-                  label={atName(context.slug)}
-                  // A context has no icon of its own, so the initial stands in —
-                  // the same letter the avatar uses, which is what makes a
-                  // collapsed rail learnable rather than a row of identical
-                  // marks. It is a *letter*, which is why `RailEntry` takes an
-                  // initial and an icon separately rather than one "mark":
-                  // there is no icon that means "@seyi" and drawing a generic
-                  // one for every context is the row of identical dots this
-                  // avoids.
-                  initial={context.slug.slice(0, 1).toUpperCase()}
-                  icons={icons}
-                  touch={touch}
-                  accessibilityLabel={`Open ${atName(context.slug)}`}
-                  selected={route.kind === "context" && route.slug === context.slug}
-                  onPress={() => onNavigate(selectContextRoute(context.slug))}
-                  leading={<Dot tone={context.status} />}
-                  /*
-                    Where ownership went when it stopped being a section.
+        <Group
+          heading={group.heading}
+          icons={icons}
+          // Derived from the one piece of state that already knows, rather
+          // than a second answer to the same question.
+          raised={group.contexts.some((context) => menuOpenOn(context.slug))}
+        >
+          {data.contexts.length === 0 && !data.loading && !group.claim ? (
+            icons ? null : (
+              <Text variant="rowSub" style={styles.empty}>
+                Nothing here yet
+              </Text>
+            )
+          ) : null}
+          {/*
+            The way to have a workspace of your own, for somebody who does not.
 
-                    Only ever on one row — `isOwnBrain` requires a personal
-                    context you own, and there is one of those per person. It is
-                    a quiet label rather than a badge: the row it marks is the
-                    one the person recognises fastest anyway, so this only has
-                    to settle the question, not raise it.
+            **It takes the pinned top slot** — the one a person's own workspace
+            sits in for everybody else — because that is precisely what it is a
+            placeholder for, and `railGroup` refuses to offer it beside the row
+            it stands in for. Below the list, or in a group of its own, it
+            would read as a verb about the application rather than as the gap
+            at the top of this one.
 
-                    Dropped in the collapsed rail with the rest of the trailing
-                    slot. Nothing is lost — the account block at the foot names
-                    the signed-in person, so the initial that matches it is the
-                    same answer in less space.
-                  */
-                  trailing={
-                    isOwnBrain(context) ? (
-                      <Text variant="foot" style={styles.yours}>
-                        yours
-                      </Text>
-                    ) : null
+            It is drawn accented rather than as another quiet row on purpose.
+            The person this is for arrived through somebody else's invitation
+            and has no reason to suspect the product does anything else; a row
+            that matched its neighbours would be discoverable only by reading
+            every word in the rail. This is the one entry that has to be
+            noticed, and it stops existing the moment it is used.
+          */}
+          {group.claim ? (
+            <RailEntry
+              label="Claim your @name"
+              icon="plus"
+              icons={icons}
+              touch={touch}
+              accessibilityLabel="Claim your name and create your own workspace"
+              onPress={onClaimContext!}
+              style={styles.claim}
+              labelStyle={styles.claimLabel}
+              testID="rail-claim-context"
+            />
+          ) : null}
+          {group.contexts.map((context) => (
+            // Right-clicking a context offers its verbs — Settings, sharing
+            // — because the rail entry is the visible handle for the
+            // context, and the storage pill in the corner was findable only
+            // by people who already knew it was there.
+            <RightClickTarget
+              key={context.id}
+              open={menuOpenOn(context.slug)}
+              onOpenMenu={() => setMenuSlug(context.slug)}
+            >
+              <RailEntry
+                label={atName(context.slug)}
+                // A context has no icon of its own, so the initial stands in —
+                // the same letter the avatar uses, which is what makes a
+                // collapsed rail learnable rather than a row of identical
+                // marks. It is a *letter*, which is why `RailEntry` takes an
+                // initial and an icon separately rather than one "mark":
+                // there is no icon that means "@seyi" and drawing a generic
+                // one for every context is the row of identical dots this
+                // avoids.
+                initial={context.slug.slice(0, 1).toUpperCase()}
+                icons={icons}
+                touch={touch}
+                accessibilityLabel={`Open ${atName(context.slug)}`}
+                selected={route.kind === "context" && route.slug === context.slug}
+                onPress={() => onNavigate(selectContextRoute(context.slug))}
+                leading={<Dot tone={context.status} />}
+                /*
+                  Where ownership went when it stopped being a section.
+
+                  Only ever on one row — `isOwnWorkspace` requires a
+                  personal context you own, and there is one of those per
+                  person. It is
+                  a quiet label rather than a badge: the row it marks is the
+                  one the person recognises fastest anyway, so this only has
+                  to settle the question, not raise it.
+
+                  Dropped in the collapsed rail with the rest of the trailing
+                  slot. Nothing is lost — the account block at the foot names
+                  the signed-in person, so the initial that matches it is the
+                  same answer in less space.
+                */
+                trailing={
+                  isOwnWorkspace(context) ? (
+                    <Text variant="foot" style={styles.yours}>
+                      yours
+                    </Text>
+                  ) : null
+                }
+              />
+              {menuOpenOn(context.slug) ? (
+                <ContextRowMenu
+                  slug={context.slug}
+                  // The role, not the row's place in the list. Some of
+                  // these workspaces are yours and some are not, and leaving
+                  // is only ever for the ones that are not — see
+                  // `contextMenuItems`.
+                  canLeave={context.role !== "owner"}
+                  onSelect={(target) => {
+                    setMenuSlug(null);
+                    onNavigate(target);
+                  }}
+                  onLeave={
+                    onLeaveContext
+                      ? () => {
+                          setMenuSlug(null);
+                          onLeaveContext(context.id);
+                        }
+                      : undefined
                   }
+                  onDismiss={() => setMenuSlug(null)}
                 />
-                {menuOpenOn(context.slug) ? (
-                  <ContextRowMenu
-                    slug={context.slug}
-                    // The role, not the section. Every workspace is "shared"
-                    // under this grouping and some of them are yours — see
-                    // `contextMenuItems`.
-                    canLeave={context.role !== "owner"}
-                    onSelect={(target) => {
-                      setMenuSlug(null);
-                      onNavigate(target);
-                    }}
-                    onLeave={
-                      onLeaveContext
-                        ? () => {
-                            setMenuSlug(null);
-                            onLeaveContext(context.id);
-                          }
-                        : undefined
-                    }
-                    onDismiss={() => setMenuSlug(null)}
-                  />
-                ) : null}
-              </RightClickTarget>
-            ))}
-            {/*
-              The way to have a brain of your own, for somebody who does not.
+              ) : null}
+            </RightClickTarget>
+          ))}
+          {/*
+            The foot of the list, under the workspaces it makes more of.
 
-              It sits *in* the Brains group and last, under the brains you can
-              already reach, because that is exactly the question it answers:
-              these are the brains you can open, and none of them is yours.
-              Above the group, or in a group of its own, it would read as a verb
-              about the application rather than a gap in this list.
+            Quiet rather than accented, unlike the claim entry: that one is
+            drawn loudly because it is for somebody who has no reason to
+            suspect the product does anything else, and it disappears the
+            moment it is used. This one is permanent, so an accent on it would
+            be an advertisement on every screen of every session. It reads as
+            what it is — a verb at the foot of the list it adds to.
 
-              It is drawn accented rather than as another quiet row on purpose.
-              The person this is for arrived through somebody else's invitation
-              and has no reason to suspect the product does anything else; a row
-              that matched its neighbours would be discoverable only by reading
-              every word in the rail. This is the one entry that has to be
-              noticed, and it stops existing the moment it is used.
-            */}
-            {section.claim ? (
-              <RailEntry
-                label="Claim your @name"
-                icon="plus"
-                icons={icons}
-                touch={touch}
-                accessibilityLabel="Claim your name and create your own brain"
-                onPress={onClaimContext!}
-                style={styles.claim}
-                labelStyle={styles.claimLabel}
-                testID="rail-claim-context"
-              />
-            ) : null}
-            {/*
-              The foot of the Workspaces group, under the workspaces it makes
-              more of.
-
-              Quiet rather than accented, unlike the claim entry: that one is
-              drawn loudly because it is for somebody who has no reason to
-              suspect the product does anything else, and it disappears the
-              moment it is used. This one is permanent, so an accent on it would
-              be an advertisement on every screen of every session. It reads as
-              what it is — a verb at the foot of the list it adds to.
-
-              It is also the *whole* group for somebody who is in no workspaces
-              yet, which is how a person who has only ever had a brain finds out
-              that workspaces exist.
-            */}
-            {section.create ? (
-              <RailEntry
-                label="New workspace"
-                icon="plus"
-                icons={icons}
-                touch={touch}
-                accessibilityLabel="Create a new shared workspace"
-                onPress={onCreateWorkspace!}
-                testID="rail-create-workspace"
-              />
-            ) : null}
-          </Group>
-        ))}
+            It is also the only *offer* for somebody who is in no shared
+            workspace yet, which is how a person who has only ever had their
+            own finds out that shared ones exist.
+          */}
+          {group.create ? (
+            <RailEntry
+              label="New workspace"
+              icon="plus"
+              icons={icons}
+              touch={touch}
+              accessibilityLabel="Create a new shared workspace"
+              onPress={onCreateWorkspace!}
+              testID="rail-create-workspace"
+            />
+          ) : null}
+        </Group>
       </ScrollView>
 
       <View style={[styles.account, icons && styles.accountIcons]}>{account}</View>
