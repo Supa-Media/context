@@ -663,12 +663,37 @@ export function NoteEditor({
             the row menu acts on a file in the tree, and this acts on the draft
             in front of you. A control removed because its neighbour was
             duplicated is a capability lost to a layout decision.
+
+            **And it is drawn only when pressing it does something**, which is
+            the second half of the same argument one form factor over. Measured
+            in a browser at 1440×900: a resting note carried the sentence
+            "Saved in your bucket" at the leading edge of this row and a dimmed
+            pill reading "Saved" at the trailing edge of it — the same claim,
+            twice, in two visual languages, at opposite ends of one row. A
+            phone drew the sentence alone. So the wider the window, the more
+            ways the console found to say one thing, and the second of them
+            reads as an unstyled placeholder rather than as status.
+
+            `editor.ts` already says which half is which: the pill exists
+            because "a save that failed and a conflict are exactly the cases
+            autosave refuses, so the manual route has to stay reachable" — a
+            statement about the states it can be **pressed** in. In every other
+            state it is disabled, and in every one of those the sentence beside
+            it has already said the same thing in words it can say more
+            truthfully: "Saved in your bucket" over "Saved", a queued draft's
+            own message over "Queued", and — for `Read-only` and `Encrypted` —
+            the notice at the head of the note rather than one word at the foot
+            of it.
+
+            So `button.disabled` decides whether this is drawn rather than how
+            it looks. Nothing that can be pressed is removed: Save in `dirty`
+            and `error`, and "Overwrite theirs" in `conflict`, are exactly the
+            arms of `saveButton` that are pressable.
           */}
-          {compact ? null : (
+          {compact || button.disabled ? null : (
             <Button
               label={button.label}
               variant={state.status === "conflict" ? "danger" : "white"}
-              disabled={button.disabled}
               onPress={onSave}
             />
           )}

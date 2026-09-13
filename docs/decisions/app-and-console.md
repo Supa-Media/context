@@ -3441,3 +3441,45 @@ invisible in light mode, and two separate pieces of work reached that conclusion
 independently within a day. `--lp-line`, `--lp-line-strong` and
 `--lp-focus-ring` come from the palette's own `line`, `lineStrong` and
 `accentDim`; the guard above is what keeps both hosts declaring them.
+
+### One save status, and a control only where pressing it does something
+
+Measured in a real browser against `/e2e-fixture`, at 1440×900: the foot of a
+resting note carried the sentence **"Saved in your bucket"** at x=16 and a grey
+pill reading **"Saved"** at x=1344 — same row, same moment, same claim, two
+visual languages, opposite ends of the window. The same note at 390×844 carried
+the sentence alone. So the console said one thing twice, and only on the screen
+with the most room to say it once.
+
+The sentence is the half that stays. `NoteEditor`'s own header calls it the
+strongest promise in the product, and it is the only half that can tell the
+truth about the two states that reach it falsely — a queued draft is on this
+device and not in the bucket, a cached body came off this device — which a
+one-word pill has no room to do.
+
+The pill is not deleted, because in two states it is not status at all:
+`saveButton` is pressable exactly where autosave refuses, a failed save and a
+conflict, and the manual route has to stay reachable there. So the rule is the
+one that keeps that reason and drops the duplication: **the save control is
+drawn when pressing it does something, and not otherwise.** `NoteEditor`'s
+status row reads `button.disabled` as *whether to draw this*, not as *how it
+should look*.
+
+Every arm it removes is an arm whose sentence already said the same thing, in
+words that say it better: `Saved` under "Saved in your bucket", `Saving…` under
+"Saving…", `Queued` under a queued draft's own message, and `Read-only` and
+`Encrypted` under the notice at the head of the note rather than one word at the
+foot of it. `saveButton` still computes all of them and `autosave.test.ts` still
+checks all of them — what changed is which reach the screen.
+
+What it costs: a person on a pointer layout no longer has a permanent target at
+the foot of the note to aim at, so "where is Save" is answered by the state
+rather than by muscle memory. That is the trade, and the states where somebody
+actually needs it are exactly the states that still draw it.
+
+The guard is `offlineEditorRender.test.ts`'s "the save status at a pointer
+width", which mounts the editor at 1440 and at 390 and asserts the same save
+controls at both — and asserts each width alone, because `mount` fires a
+`resize` that every editor still on screen listens to, so two held open and
+compared afterwards compare one width against itself. Written that way, the case
+was green against the defect it exists to catch.
