@@ -174,6 +174,20 @@ export interface ConsoleStorage {
   noteCount?: number;
   noteCountedAt?: number;
   noteCountTruncated?: boolean;
+  /**
+   * Where the one-time storage-layout migration got to, and when we last
+   * heard — the six words in `functions/lib/storageLayout.ts`.
+   *
+   * **Absent is the load-bearing value.** It means nobody has run it through
+   * us, and it is the only state that still offers to. Every other one is an
+   * answer: under way, done, waiting out the rollback window, needs somebody,
+   * or a bucket that can never run it. Before this field existed the console
+   * had no way to tell the first from the last, so it offered the update to
+   * everybody for ever and the only thing that quietened it was a flag on one
+   * device — which is why the notice came back on the next browser.
+   */
+  layoutState?: "copying" | "copied" | "cleaning" | "conflict" | "unsupported" | "complete";
+  layoutStateAt?: number;
   lastError?: string;
   /**
    * The machine-readable companion to `lastError`, from the closed set in

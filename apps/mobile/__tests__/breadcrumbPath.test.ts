@@ -165,6 +165,25 @@ describe("what a title does to the last segment", () => {
     const crumbs = crumbsFor("0-inbox/note.md", { title: "Something" });
     expect(crumbs[0]).toEqual({ kind: "folder", label: "0-inbox", path: "0-inbox" });
   });
+
+  /*
+    A drawing carries two extensions, and the trim knew about one.
+
+    `plan.excalidraw.md` is one file whose name is `plan`: the `.excalidraw`
+    is as much filing as the `.md` beside it. Trimming only the outer one put
+    `plan.excalidraw` in the band — and this is the crumb somebody sees
+    whenever the editor is not holding the note, which is every listing.
+  */
+  test("the leaf drops .excalidraw.md whole", () => {
+    expect(labels("4-resources/engineering/request-path.excalidraw.md")).toEqual([
+      "4-resources",
+      "engineering",
+      "request-path",
+    ]);
+    // Still only at the end, and still only the extension: a folder that
+    // happens to be called `plan.excalidraw.md` keeps its own spelling.
+    expect(labels("plan.excalidraw.md/inner.md")).toEqual(["plan.excalidraw.md", "inner"]);
+  });
 });
 
 /*

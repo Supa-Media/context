@@ -796,3 +796,55 @@ either guard call fails one of those two, which was checked by deleting them.
 export or hand-off path, because it is not built. Non-negotiable #1's promise
 that the exit is free, identical on both plans and works after cancellation is
 a commitment this decision makes and a later change has to keep.
+
+## The migration's outcome is recorded, because an offer nobody can answer is a nag
+
+The storage-layout migration has always kept its own state in the bucket:
+`migrateStorageLayout` persists it under `.context/` and short-circuits on
+`complete`, so running it twice is a no-op. Nothing outside the bucket could
+read it. A Convex query cannot open somebody's storage, so the console had no
+way to tell **"this bucket still needs the update"** from **"it ran last
+week"** — "the owner may run it" was as close to "pending" as it could get.
+
+So the console's offer was answered by a flag on the device: `localStorage`,
+per browser, per context. Run the migration on a laptop and the phone offered
+it again. Clear site data and the laptop did too. Run it from Settings →
+Storage — where the notice's own text sends people — and nothing was recorded
+at all. The owner who reported it had pressed the button "so many times", on a
+context that was already migrated, and every press was correct behaviour.
+
+`storageBindings.storageLayoutState` is that outcome, written by
+`recordStorageLayoutState` on **every** pass of the chain and on the
+`unsupported` refusal, which never reaches the chain at all. It is the same
+category as `scaffolded` and `noteCount`: something we observed while holding a
+credential, which a query cannot recompute without becoming a public function
+that opens one. The bucket stays authoritative; this is a copy that travels
+with the workspace instead of with the device.
+
+**Absent is a state, and it is the only one that still offers.** It means
+nobody has run this through us. The other six are answers: `copying` and
+`cleaning` are under way, `copied` is waiting out the seven-day rollback
+window, `complete` is done, `conflict` needs somebody, and `unsupported` is a
+bucket without conflict-safe writes, where pressing again could only produce
+the same refusal. Settings → Storage reports each of them and keeps a button
+for exactly one — `conflict`, the resumable one.
+
+**A rebind clears it, for the same reason a rebind clears `lastVerifiedAt` and
+the note count, and with a worse failure if it does not.** A `complete` carried
+onto a bucket that has never been migrated is a bucket the console never offers
+the migration to: pre-v1 plumbing left where it is, dual reads carrying it, and
+nothing on any screen saying so. Silent, unlike a stale green check.
+
+The device flag stays, as belt and braces rather than as the mechanism. It
+covers the seconds between pressing and the recorded state arriving, and it is
+the whole of the answer for "Not now" — a preference, not an outcome, with
+nothing on the binding to record.
+
+**What a simplification costs.** Dropping the recorded state puts the nag back
+for every device a person signs in on. Dropping the rebind clear silently
+strands a new bucket on the old layout. Clamping the state to owners, the way
+`noteCount` is clamped, would be a category error: that number is about private
+notes, and this names no key and counts nothing of the customer's.
+`apps/convex/__tests__/storage.test.ts` and the migration's end-to-end case in
+`files.test.ts` fail; so do four checks in
+`apps/mobile/__tests__/storageMigrationEntry.test.ts`.

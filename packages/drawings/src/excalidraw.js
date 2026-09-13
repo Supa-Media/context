@@ -142,6 +142,22 @@ const SECTIONS = [
 ];
 
 /**
+ * The `%%` that opens the payload comment, as a line of its own.
+ *
+ * A line, not an occurrence: `100%% off ^id` is somebody's label and the
+ * plugin's own wrapper is a bare `%%`. Written once because two things stop at
+ * it — `splitSections`, which decides what a label *is*, and
+ * `textElementsSpan`, which decides which bytes `serialize.js` splices over.
+ * A drawing where those two disagreed would be one whose labels are read from
+ * one span and rewritten over another.
+ */
+const PAYLOAD_COMMENT = "%%[ \\t]*$";
+const PAYLOAD_COMMENT_LINE = new RegExp(`^${PAYLOAD_COMMENT}`);
+
+/** The next boundary after a section's heading: any heading, or that comment. */
+const NEXT_SECTION = new RegExp(`^(?:#{1,6}[ \\t]+\\S|${PAYLOAD_COMMENT})`, "m");
+
+/**
  * Split `text` into a drawing.
  *
  * Returns `{ name, textElements, elementLinks, embeddedFiles, elements,
@@ -219,6 +235,19 @@ function stripFrontmatter(text) {
  *
  * A heading it does not know ends the section it is in, so prose somebody added
  * under their own heading never lands inside `Text Elements`.
+ *
+ * **And so does `%%`.** The plugin writes it on its own line to hide the
+ * payload from Obsidian, and for a drawing that links to nothing — no `Element
+ * Links`, no `Embedded Files`, which is most drawings — it is the line directly
+ * after the last label. Ending only at a heading read it as one more label, so
+ * `%%` appeared in a drawing's label list, in `drawingSearchText` for every
+ * drawing in the index, and in the description of an unreadable drawing, which
+ * is the case those labels exist for.
+ *
+ * `textElementsSpan` has always stopped there. Two places deciding where
+ * somebody's labels end is exactly the reader/writer disagreement that
+ * function's own comment refuses, so the rule is written once, below, and both
+ * of them use it.
  */
 function splitSections(text) {
   const out = {};
@@ -231,6 +260,11 @@ function splitSections(text) {
   };
 
   for (const line of text.split("\n")) {
+    if (PAYLOAD_COMMENT_LINE.test(line)) {
+      flush();
+      current = null;
+      continue;
+    }
     if (/^#{1,6}\s+/.test(line)) {
       const match = SECTIONS.find(([, pattern]) => pattern.test(line));
       flush();
@@ -296,7 +330,7 @@ export function textElementsSpan(text) {
   if (!heading) return null;
   const start = heading.index + heading[0].length + 1;
   const rest = text.slice(start);
-  const next = /^(?:#{1,6}[ \t]+\S|%%[ \t]*$)/m.exec(rest);
+  const next = NEXT_SECTION.exec(rest);
   return { start, end: next ? start + next.index : text.length };
 }
 
@@ -318,25 +352,42 @@ export function textElementsSpan(text) {
  * call this, which is the point — a locator the reader and the writer disagree
  * about is worse than either rule alone.
  *
- * Only the `Text Elements` block is skipped, and deliberately not "every
- * section": it is the one whose content is free text by design. `Element
- * Links` and `Embedded Files` are `id: target` lines the plugin composes, and a
- * heading nobody knows ends the block it is in (`splitSections`), so prose
- * added by hand does not land here either. A file with no `Text Elements` block
- * at all — including a bare fence with no headings, which the tests cover —
- * behaves exactly as before.
+ * ## The last one, not the first, and that is the load-bearing half
+ *
+ * Skipping the label span was the first answer and it was not enough: the span
+ * **ends at a bare `%%`**, a label is verbatim text, so a label containing a
+ * `%%` line closes the span from inside it and everything after that is
+ * outside the skip. A span whose end the attacker writes is not a boundary.
+ *
+ * So position decides. The plugin writes the payload **last** — inside the
+ * `%%` comment at the end of the file, after every section a reader sees — and
+ * taking the last qualifying fence matches that producer rather than guessing
+ * around it. A decoy above the real payload now loses on where it is, whatever
+ * it does to the sections in between.
+ *
+ * The span skip stays as well. It is still right, it is still cheap, and it
+ * covers the one case position does not: a label below the payload in a file
+ * whose sections are out of the plugin's order.
+ *
+ * `Element Links` and `Embedded Files` are `id: target` lines the plugin
+ * composes rather than free text, and an unknown heading ends the block it is
+ * in (`splitSections`). A file with no `Text Elements` block at all —
+ * including a bare fence with no headings, and one missing its `%%` wrapper,
+ * both of which the tests cover — has exactly one qualifying fence, so first
+ * and last are the same fence and nothing changes for it.
  */
 export function payloadFence(text) {
   const labels = textElementsSpan(text);
   const fence = /^[ \t]*```(compressed-json|json)[ \t]*$/gm;
+  let found = null;
   for (let opener = fence.exec(text); opener !== null; opener = fence.exec(text)) {
     if (labels && opener.index >= labels.start && opener.index < labels.end) continue;
-    return {
+    found = {
       compressed: opener[1] === "compressed-json",
       start: opener.index + opener[0].length + 1,
     };
   }
-  return null;
+  return found;
 }
 
 /** The drawing payload's text, or null when there is no fence to read. */

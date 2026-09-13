@@ -1579,3 +1579,138 @@ describe("audit of storage changes names the acting identity", () => {
     expect(rebind?.actorEmail).toBe("bob@example.invalid");
   });
 });
+
+describe("where the storage-layout migration got to", () => {
+  /*
+    The migration has always written its own state into the bucket, under
+    `.context/`, and short-circuits on `complete`. Nothing outside the bucket
+    could read it, so the console had no way to tell "this bucket still needs
+    the update" from "it ran last week" — and answered the offer with a flag on
+    one device, which is why the notice came back on every other one.
+
+    This is the copy that travels with the workspace. Same category as
+    `noteCount`: something we observed while holding a credential, which no
+    query can recompute without becoming a public function that opens one.
+  */
+  test("a fresh binding has none, which is what still offers the migration", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBeUndefined();
+    expect(binding?.storageLayoutAt).toBeUndefined();
+  });
+
+  test("a recorded outcome is readable, and stamped", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBe("complete");
+    expect(binding?.storageLayoutAt).toBeGreaterThan(0);
+  });
+
+  test("a later pass overwrites an earlier one", async () => {
+    // The chain records on every pass — `copying` while it walks, then the
+    // terminal state — so the last write is the current answer rather than the
+    // first one to land.
+    const { t, owner, workspaceId } = await boundWorkspace();
+    for (const state of ["copying", "copied", "complete"] as const) {
+      await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+        workspaceId,
+        state,
+      });
+    }
+    expect(
+      (
+        await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+          workspaceId,
+        })
+      )?.storageLayoutState,
+    ).toBe("complete");
+  });
+
+  test("it is not clamped to the owner, unlike the note count", async () => {
+    /*
+      Deliberate, and the reason is the difference between the two: the count
+      is a number about private notes, and this names no key and counts nothing
+      of the customer's. Every member already sees the provider, the bucket and
+      the verification status, and this says less than any of them.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    const member = await createUser(t, "member@example.invalid");
+    await addMember(t, workspaceId, member, "member");
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+    await t.mutation(internal.functions.storage.recordNoteCount, {
+      workspaceId,
+      notes: 42,
+      truncated: false,
+    });
+
+    const seen = await asUser(t, member).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(seen?.storageLayoutState).toBe("complete");
+    // The clamp beside it still holds, so this is not a test that stopped
+    // checking anything.
+    expect(seen?.noteCount).toBeUndefined();
+  });
+
+  test("rebinding clears it, so a different bucket is offered the migration", async () => {
+    /*
+      The failure this exists for is silent. A `complete` carried onto a bucket
+      that has never been migrated is a bucket the console never offers it to:
+      the pre-v1 plumbing stays where it is, dual reads keep carrying it, and
+      no screen ever says so. Same argument as `lastVerifiedAt` and the note
+      count above, and a worse outcome than either.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    await bindFakeStorage(t, owner, workspaceId, { bucket: "somewhere-else" });
+
+    const rebound = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    expect(rebound?.bucket).toBe("somewhere-else");
+    expect(rebound?.storageLayoutState).toBeUndefined();
+    expect(rebound?.storageLayoutAt).toBeUndefined();
+  });
+
+  test("a binding that went away drops the write rather than resurrecting a row", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.delete(binding!._id);
+    });
+
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "complete",
+    });
+
+    expect(
+      await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+        workspaceId,
+      }),
+    ).toBeNull();
+  });
+});

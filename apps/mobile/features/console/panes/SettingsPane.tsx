@@ -257,17 +257,27 @@ export function SettingsPane({
         always had: `useFileBrowser` hands `updateStorageLayout` to an owner
         and to nobody else, so an absent function is an absent row.
 
-        The console's *notice* takes one further condition — a connected
-        binding, `storageMigrationWorthOffering` — and this row deliberately
-        does not. The asymmetry is the difference between the two surfaces
-        rather than an oversight in one of them: an offer that appears in
-        front of somebody has to earn the interruption, while a row they went
-        looking for should still be here when a probe is mid-flight. Neither
-        condition decides who may run it.
+        The console's *notice* takes two further conditions — a connected
+        binding and nothing recorded yet, `storageMigrationWorthOffering` —
+        and this row deliberately takes neither. The asymmetry is the
+        difference between the two surfaces rather than an oversight in one of
+        them: an offer that appears in front of somebody has to earn the
+        interruption, while a row they went looking for should still be here
+        when a probe is mid-flight, and should still be here to *answer* them
+        once the migration has run. Neither condition decides who may run it.
+
+        So the row stays and its words change: `storageMigrationRow` turns the
+        binding's recorded state into what somebody who came looking wants to
+        know, and drops the button for the states where pressing it would do
+        nothing.
       */}
       {data.files.updateStorageLayout !== undefined ? (
         <View style={styles.migration}>
-          <StorageMigrationCard run={data.files.updateStorageLayout} />
+          <StorageMigrationCard
+            run={data.files.updateStorageLayout}
+            state={data.storage?.layoutState}
+            workspaceId={data.files.contextId}
+          />
         </View>
       ) : null}
 

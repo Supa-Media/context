@@ -30,6 +30,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
 - A migration pass is walked in waves, and an unchanged object is read twice
+- The migration's outcome is recorded, because an offer nobody can answer is a nag
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -292,6 +293,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The drawing editor is a page, because a dynamic import is not a lazy chunk
 - The page never sees the customer's Markdown
 - Fonts are served from our own origin, and that is not a preference
+- A drawing is named by its file, never by `# Excalidraw Data`
+- A bare `%%` ends a section, and that rule has one definition
 
 ## [Testing and guards](./testing.md)
 
