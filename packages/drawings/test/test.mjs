@@ -452,6 +452,69 @@ function drawingFile(payload, { fence = "compressed-json", heading = "##", wrap 
   check("the renderer's own cap is reported", capped.truncated === true && capped.nodes.length === 5);
 }
 
+/* -- a fence inside a text label is not the payload ------------------------ */
+
+{
+  /*
+   * THE MARKDOWN HALF IS NOT ALL WRITTEN BY THE PLUGIN.
+   *
+   * `findPayload` took the first ```compressed-json or ```json fence anywhere
+   * in the file, and said why: "these two fence languages do not appear in the
+   * Markdown half — the plugin writes that half itself." The `Text Elements`
+   * block is the counter-example, and it is not an edge case — it is the one
+   * section whose content is a person's own typing, copied in verbatim by the
+   * plugin and by `renderTextElements` alike, newlines and all.
+   *
+   * So a drawing whose text label contains a fence puts a second payload above
+   * the real one, and the reader took it. Nobody has to be attacked for this to
+   * matter — a label that quotes a snippet of a drawing file does it by
+   * accident — but the file can also arrive by email into `0-inbox/`, which is
+   * the ingestion design rather than a gap in it.
+   *
+   * Two consequences, and the write side is the worse one: `serializeDrawing`
+   * splices into the same fence it reads, so an edit lands in the decoy and the
+   * customer's real drawing keeps its old contents while both sit in the file.
+   */
+  const decoy = compressToBase64(
+    JSON.stringify({ type: "excalidraw", version: 2, files: {}, appState: {},
+      elements: [{ id: "decoy", type: "text", x: 0, y: 0, text: "not yours" }] })
+  );
+  const real = compressToBase64(
+    JSON.stringify({ type: "excalidraw", version: 2, files: {}, appState: {},
+      elements: [{ id: "real", type: "rectangle", x: 0, y: 0, width: 4, height: 4 }] })
+  );
+  const file = [
+    "---", "excalidraw-plugin: parsed", "---",
+    "",
+    "# Excalidraw Data",
+    "",
+    "## Text Elements",
+    "see the format:",
+    "```compressed-json",
+    decoy,
+    "```",
+    "^t1",
+    "",
+    "%%",
+    "## Drawing",
+    "```compressed-json",
+    real,
+    "```",
+    "%%",
+    "",
+  ].join("\n");
+
+  const parsed = parseDrawing(file, "1-projects/plan.excalidraw.md");
+  check(
+    "a fence inside a text label is not read as the payload",
+    parsed.elements?.length === 1 && parsed.elements[0].id === "real"
+  );
+  check(
+    "and the decoy's elements are nowhere in the result",
+    !JSON.stringify(parsed.elements ?? []).includes("decoy")
+  );
+}
+
 /* --------------------------------- report --------------------------------- */
 
 function chunk(value, size) {

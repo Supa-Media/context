@@ -280,23 +280,74 @@ function parseIdMap(section) {
 }
 
 /**
- * The drawing payload: the first ```json or ```compressed-json fence in the file.
+ * Where the `Text Elements` block's content sits, as offsets into `text`.
  *
- * Found by fence rather than by walking into the `## Drawing` section, so the
- * `%%` comment wrapper is irrelevant and a file that lost its heading still
- * reads. Scanning the whole body is safe because these two fence languages do
- * not appear in the Markdown half — the plugin writes that half itself.
+ * From the end of the heading line to the start of the next heading — any
+ * heading, known or not — or the `%%` that opens the payload comment. Offsets
+ * rather than content because both callers need to ask "is this position
+ * inside that block", which is a question `splitSections` cannot answer.
+ *
+ * Exported because `serialize.js` splices this exact span, and two copies of a
+ * span calculation are two chances for the reader and the writer to disagree
+ * about where somebody's labels are.
  */
-function findPayload(text) {
+export function textElementsSpan(text) {
+  const heading = /^#{1,6}[ \t]+Text Elements[ \t]*$/im.exec(text);
+  if (!heading) return null;
+  const start = heading.index + heading[0].length + 1;
+  const rest = text.slice(start);
+  const next = /^(?:#{1,6}[ \t]+\S|%%[ \t]*$)/m.exec(rest);
+  return { start, end: next ? start + next.index : text.length };
+}
+
+/**
+ * The opening fence of the drawing payload: `{ compressed, start }`, or null.
+ *
+ * ## Why this is not simply the first fence
+ *
+ * It was, and the reason given was that "these two fence languages do not
+ * appear in the Markdown half — the plugin writes that half itself". **The
+ * plugin does not write all of it.** `Text Elements` is a person's own typing,
+ * copied in verbatim by the plugin and by `renderTextElements` alike, newlines
+ * and all — so a drawing with a label that quotes a drawing file puts a second
+ * `compressed-json` fence above the real one, and the first-fence rule took it.
+ *
+ * That is a wrong picture on the read side and a lost drawing on the write
+ * side: `serialize.js` splices the span this function finds, so an edit would
+ * land in the label while the real payload kept its old contents. Both sides
+ * call this, which is the point — a locator the reader and the writer disagree
+ * about is worse than either rule alone.
+ *
+ * Only the `Text Elements` block is skipped, and deliberately not "every
+ * section": it is the one whose content is free text by design. `Element
+ * Links` and `Embedded Files` are `id: target` lines the plugin composes, and a
+ * heading nobody knows ends the block it is in (`splitSections`), so prose
+ * added by hand does not land here either. A file with no `Text Elements` block
+ * at all — including a bare fence with no headings, which the tests cover —
+ * behaves exactly as before.
+ */
+export function payloadFence(text) {
+  const labels = textElementsSpan(text);
   const fence = /^[ \t]*```(compressed-json|json)[ \t]*$/gm;
-  const opener = fence.exec(text);
+  for (let opener = fence.exec(text); opener !== null; opener = fence.exec(text)) {
+    if (labels && opener.index >= labels.start && opener.index < labels.end) continue;
+    return {
+      compressed: opener[1] === "compressed-json",
+      start: opener.index + opener[0].length + 1,
+    };
+  }
+  return null;
+}
+
+/** The drawing payload's text, or null when there is no fence to read. */
+function findPayload(text) {
+  const opener = payloadFence(text);
   if (!opener) return null;
-  const start = opener.index + opener[0].length + 1;
-  const close = text.indexOf("\n```", start - 1);
+  const close = text.indexOf("\n```", opener.start - 1);
   const end = close === -1 ? text.length : close;
   return {
-    compressed: opener[1] === "compressed-json",
-    text: text.slice(start, end).trim(),
+    compressed: opener.compressed,
+    text: text.slice(opener.start, end).trim(),
   };
 }
 
