@@ -95,7 +95,6 @@ export function StorageStepBody({
         }}
         contextName={contextName}
         onUseOwnStorage={managed.back}
-        onCarryOn={onSkip}
         onRetry={managed.retry}
       />
     );

@@ -180,6 +180,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A message body is rendered, never linkified
 - A diagram lives in the note, and the browser is the only thing that makes it safe
 - A phone gets Recent, because it could never get a second tab
+- A connected account is one card, and its consequence is armed
 
 ## [Meetings](./meetings.md)
 
@@ -194,6 +195,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A microphone is never opened for a meeting nothing will transcribe
 - A chunk of audio is a whole file, and every recorder cuts on the same clock
 - A client-supplied id is bounded where it enters, not where it lands
+- The folder is a setting; the question is not
 - The recorder is one interface with two implementations, and nothing above it knows which
 - The watch is a remote control, never a recorder
 - Detection judgement is a pure function, and the desktop app only collects evidence
@@ -233,6 +235,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The forward sync loop: a pull, on a floor of five minutes
 - What is deliberately not built
 - iMessage reads `chat.db` in place, through the one binary every Mac already has
+- The destination rule is shared, so the field can say something before Save
 
 ## [The desktop shell](./desktop.md)
 

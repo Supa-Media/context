@@ -35,6 +35,15 @@ export interface ConsoleContext {
   role: string;
   kind: string;
   status: StatusTone;
+  /**
+   * Where meetings land in this context, when its owner has chosen one.
+   *
+   * Absent is the default, resolved by `features/meetings/destination.ts`
+   * rather than substituted here — the constant lives beside the rules that
+   * decide whether a folder can be filed into at all, and a second copy on the
+   * console would be a second place for it to drift.
+   */
+  meetingsFolder?: string;
 }
 
 /**
@@ -175,6 +184,8 @@ export interface ConsoleStorage {
    */
   updatedAt: number;
   lastVerifiedAt?: number;
+  /** Storage operated by Context, whose credential cannot be rotated or disconnected here. */
+  managed?: boolean;
 }
 
 /**

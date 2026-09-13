@@ -24,6 +24,7 @@ import { runAnchorChecks } from "./anchors.test.mjs";
 import { runChatChecks } from "./chat.test.mjs";
 import { runCalendarChecks } from "./calendar.test.mjs";
 import { runContactChecks } from "./contacts.test.mjs";
+import { runDestinationChecks } from "./destination.test.mjs";
 import { runEstimateChecks } from "./estimate.test.mjs";
 import { runNoteChecks } from "./note.test.mjs";
 import { runPathChecks } from "./paths.test.mjs";
@@ -131,7 +132,7 @@ check(
     stripComments('const c = "http://x"; // y') === 'const c = "http://x"; '
 );
 
-const SOURCES = ["protocol.js", "paths.js", "anchors.js", "note.js", "contacts.js", "estimate.js", "index.js"].map((name) =>
+const SOURCES = ["protocol.js", "paths.js", "anchors.js", "note.js", "contacts.js", "destination.js", "estimate.js", "index.js"].map((name) =>
   stripComments(readFileSync(new URL(`../src/${name}`, import.meta.url), "utf8"))
 );
 check(
@@ -231,6 +232,10 @@ for (const name of [
   "activityLink",
   "estimateMailboxBackfill",
   "estimateBackfillWindows",
+  "normalizeDestinationFolder",
+  "destinationPattern",
+  "resolveDestinationPattern",
+  "suggestDestinationFolders",
 ]) {
   check(`index re-exports ${name}`, index[name] !== undefined);
 }
@@ -245,6 +250,7 @@ runAnchorChecks(check);
 runNoteChecks(check);
 runChatChecks(check);
 runContactChecks(check);
+runDestinationChecks(check);
 runEstimateChecks(check);
 // Calendar carries its own contract, public-surface and purity checks — see
 // `runCalendarChecks` in `calendar.test.mjs` — rather than duplicating them

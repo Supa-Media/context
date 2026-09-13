@@ -347,7 +347,9 @@ export function PremiumBody({
                     {migration.percent}% through this step
                   </Text>
                 )}
-                {migration.failed && view.retryManagedStorage !== undefined ? (
+                {migration.failed &&
+                migration.canRetry !== false &&
+                view.retryManagedStorage !== undefined ? (
                   <Button
                     label={working ? "Trying again…" : "Try copy again"}
                     variant="mini"

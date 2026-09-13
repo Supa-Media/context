@@ -36,6 +36,7 @@ import {
 
 const MIGRATION_PAGE_SIZE = 25;
 const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
+const MANAGED_STORAGE_SETUP_TIMEOUT_MS = 2 * 60 * 1000;
 
 /**
  * Tear down resources belonging to the dedicated CUJ account only.
@@ -199,6 +200,10 @@ export const provisionManagedStorage = internalAction({
       );
       return { ok: true };
     }
+    await ctx.runMutation(
+      internal.functions.managedProvisioning.recordManagedProvisioning,
+      { workspaceId: args.workspaceId, state: "running" },
+    );
     if (standing.migrationStatus !== undefined) {
       const resumed: boolean = await ctx.runMutation(
         internal.functions.managedProvisioning.resumeManagedStorageMigration,
@@ -893,13 +898,14 @@ export const runManagedStorageMigration = internalAction({
 });
 
 /**
- * Bind the bucket and mark the plan ready, in one transaction.
+ * Bind the bucket, then let verification mark the plan ready.
  *
  * Through `applyBinding` rather than an insert here, for the reason
  * `completeProvisioning` gives on the BYO path: the field resets, the audit
  * event and the scheduled verification are all that function's, and a second
  * copy of them would drift. A managed binding is written by exactly the code
- * that writes a pasted one.
+ * that writes a pasted one, but remains `running` until that scheduled probe
+ * proves the newly minted credential works.
  */
 export const completeManagedProvisioning = internalMutation({
   args: {
@@ -931,6 +937,7 @@ export const completeManagedProvisioning = internalMutation({
         bucket: args.bucket,
         accessKeyId: args.accessKeyId,
         encryptedSecretAccessKey: args.encryptedSecretAccessKey,
+        verificationRetryUntil: Date.now() + MANAGED_STORAGE_SETUP_TIMEOUT_MS,
       });
       await recordAudit(ctx, {
         workspaceId: args.workspaceId,
@@ -940,18 +947,6 @@ export const completeManagedProvisioning = internalMutation({
         // support needs to find it in the dashboard. No credential, no
         // endpoint, and nothing about what is in it.
         details: { bucket: args.bucket },
-      });
-    }
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (plan !== null) {
-      await ctx.db.patch(plan._id, {
-        managedProvisioning: "ready",
-        managedProvisioningError: undefined,
-        managedProvisioningAt: Date.now(),
-        updatedAt: Date.now(),
       });
     }
     return null;

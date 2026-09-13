@@ -20,9 +20,9 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  *    "not yet" is the ordinary case rather than a fault.
  * 2. **It never spins without a sentence.** A spinner alone is the screen a
  *    person reads as broken, and this is the worst possible moment for that.
- * 3. **It gives permission to leave.** The work finishes on the server whether
- *    or not this tab is open, and saying so is the difference between waiting
- *    anxiously and going away.
+ * 3. **It holds the hand-off until storage answers.** Cloudflare may need up to
+ *    two minutes to propagate a new key, so leaving early would turn a normal
+ *    wait into a red storage screen elsewhere in the app.
  *
  * ## Named steps, not a bar
  *
@@ -33,8 +33,8 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
  * ## Three outcomes, and they are not the same screen
  *
  * **Waiting** is the ordinary case. **Slow** is the same wait once "a few
- * seconds" has stopped being true — different words, same spinner, and the two
- * ways out that always work. **Failed** is an answer rather than a wait: the
+ * seconds" has stopped being true — different words and the same spinner.
+ * **Failed** is an answer rather than a wait: the
  * control plane says provisioning will not finish, and the screen says the
  * payment and the notes are safe, that a retry cannot duplicate anything, and
  * offers the free path out.
@@ -65,15 +65,12 @@ export function ManagedSettling({
   state,
   contextName,
   onUseOwnStorage,
-  onCarryOn,
   onRetry,
 }: {
   state: ManagedSettlingState;
   contextName: string;
   /** The free path out, which is always available and never a punishment. */
   onUseOwnStorage: () => void;
-  /** Leave the flow; the work finishes without this tab. */
-  onCarryOn: () => void;
   /** Another go at making the bucket. Safe by construction — see the action. */
   onRetry: () => void;
 }) {
@@ -140,9 +137,9 @@ export function ManagedSettling({
       </View>
       <Text variant="rowSub" style={styles.lede}>
         {state.slow
-          ? "Stripe has your payment and we are still setting up. You can close this — " +
-            "we will finish on our own, and your context will be ready when you come back."
-          : `Setting up storage for ${contextName}. This usually takes a few seconds.`}
+          ? "Still creating and verifying your storage; this can take up to 2 minutes. " +
+            "Keep this page open until we confirm it is ready."
+          : `Setting up storage for ${contextName}; this can take up to 2 minutes, so keep this page open until it is ready.`}
       </Text>
 
       <Card style={styles.card}>
@@ -169,28 +166,12 @@ export function ManagedSettling({
 
       {state.slow ? (
         <View>
-          {/*
-            Two ways out, and neither is a dead end. The first is free and
-            immediate; the second is a person. Offered only once the wait has
-            stopped being ordinary, because offering them at second three would
-            read as expecting this to fail.
-          */}
-          <Notice tone="warn" style={styles.card} testID="managed-settling-slow">
+          <Notice style={styles.card} testID="managed-settling-slow">
             <Text variant="rowSub">
-              Longer than it should be. Your payment is safe and nothing has been lost. You
-              can carry on and we will finish in the background, or connect storage you own
-              instead — tell us if you do, and we will stop the subscription.
+              Your payment is safe and nothing has been lost; we are keeping this screen
+              here until the bucket itself confirms that it is usable.
             </Text>
           </Notice>
-          <Row style={styles.actions}>
-            <Button label="Carry on" onPress={onCarryOn} testID="managed-settling-carry-on" />
-            <Button
-              label="Connect storage I own"
-              variant="ghost"
-              onPress={onUseOwnStorage}
-              testID="managed-settling-own"
-            />
-          </Row>
         </View>
       ) : null}
     </View>

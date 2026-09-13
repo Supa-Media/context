@@ -65,7 +65,11 @@ import {
   requireWorkspaceAccess,
   requireWorkspaceRole,
 } from "./lib/workspaceAuth";
-import { managedAccountId, refuseManagedEndpoint } from "./lib/managedStorage";
+import {
+  managedAccountId,
+  managedBucketName,
+  refuseManagedEndpoint,
+} from "./lib/managedStorage";
 
 const providerValidator = v.union(
   v.literal("r2"),
@@ -535,6 +539,8 @@ export const applyBinding = internalMutation({
     accessKeyId: v.string(),
     encryptedSecretAccessKey: v.string(),
     forcePathStyle: v.optional(v.boolean()),
+    /** Keep a newly minted managed credential amber while IAM propagates. */
+    verificationRetryUntil: v.optional(v.number()),
   },
   returns: v.object({ bindingId: v.id("storageBindings"), status: v.string() }),
   handler: async (ctx, args) => {
@@ -698,7 +704,11 @@ export const applyBinding = internalMutation({
     await ctx.scheduler.runAfter(
       0,
       internal.functions.provisioning.verifyStorageBinding,
-      { workspaceId: args.workspaceId, actorUserId: args.actorUserId },
+      {
+        workspaceId: args.workspaceId,
+        actorUserId: args.actorUserId,
+        retryUntil: args.verificationRetryUntil,
+      },
     );
 
     return { bindingId, status: "unverified" };
@@ -846,6 +856,31 @@ export const recordVerification = internalMutation({
       scaffoldMissing: args.scaffoldMissing ?? binding.scaffoldMissing,
       updatedAt: now,
     });
+
+    // A managed bucket is not delivered when its row is written; it is
+    // delivered when the exact credential the gateway will use has answered.
+    // Transient failures inside the IAM propagation window never reach this
+    // mutation (the verifier reschedules them), so a failure here is final for
+    // this attempt and may truthfully replace the running state.
+    if (binding.bucket === managedBucketName(args.workspaceId)) {
+      const plan = await ctx.db
+        .query("workspacePlans")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
+        .unique();
+      if (
+        plan !== null &&
+        plan.managedStorage === true &&
+        (plan.managedProvisioning === "running" ||
+          plan.managedProvisioning === "failed")
+      ) {
+        await ctx.db.patch(plan._id, {
+          managedProvisioning: args.ok ? "ready" : "failed",
+          managedProvisioningError: args.ok ? undefined : args.errorCode,
+          managedProvisioningAt: now,
+          updatedAt: now,
+        });
+      }
+    }
 
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
@@ -2071,6 +2106,8 @@ export const getStorageBinding = query({
       noteCountedAt: v.optional(v.number()),
       noteCountTruncated: v.optional(v.boolean()),
       updatedAt: v.number(),
+      /** True only for the deterministic bucket this service operates. */
+      managed: v.boolean(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -2116,6 +2153,7 @@ export const getStorageBinding = query({
       noteCountedAt: isOwner ? binding.noteCountedAt : undefined,
       noteCountTruncated: isOwner ? binding.noteCountTruncated : undefined,
       updatedAt: binding.updatedAt,
+      managed: binding.bucket === managedBucketName(args.workspaceId),
     };
   },
 });
@@ -2263,6 +2301,14 @@ export const disconnectStorage = mutation({
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
     if (binding === null) return { disconnected: false };
+
+    if (binding.bucket === managedBucketName(args.workspaceId)) {
+      throw new ConvexError({
+        code: "MANAGED_STORAGE",
+        message:
+          "Managed storage cannot be disconnected here; move or export the notes first.",
+      });
+    }
 
     // A Dropbox disconnect also disables the grant at Dropbox — otherwise we
     // forget our copy of the credential while the authorization lives on in

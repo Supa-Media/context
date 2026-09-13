@@ -53,6 +53,7 @@ export function EmailPanel({
           connections={data.googleConnections}
           actions={data.googleActions}
           loading={data.loading}
+          folders={loadedFolders(data.files.listings)}
         />
       ) : (
         <WorkspaceRefusalCard title="A mailbox belongs to a brain">

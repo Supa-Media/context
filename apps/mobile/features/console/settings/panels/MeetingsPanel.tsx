@@ -1,5 +1,5 @@
 import { StyleSheet } from "react-native";
-import { Card } from "../../../design/components/Card";
+
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import { atName } from "../../format";
@@ -12,7 +12,8 @@ import { selectedContext, type ConsoleData } from "../../types";
 */
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
 import { AUDIO_SENTENCE } from "../../../meetings/components/DestinationSheet";
-import { INBOX_FOLDER } from "../../../meetings/destination";
+import { loadedFolders } from "../../files/browser";
+import { MeetingsDestination } from "./MeetingsDestination";
 import { PanelHead } from "./PanelHead";
 
 /**
@@ -67,23 +68,34 @@ export function MeetingsPanel({
 
       {personal ? <ThisMachineCard focus="meetings" /> : null}
 
-      <Card>
-        <Text variant="rowTitle">Where the notes land</Text>
-        <Text variant="rowSub" style={styles.rowSub}>
-          {`The first offer is always your own brain, in ${INBOX_FOLDER}. `}
-          {personal
-            ? "Whatever you are looking at when you press record is offered second, with its audience written on it."
-            : `${atName(current?.slug ?? "this workspace")} is offered second, with its audience written on it — everyone here would be able to read the note.`}
-        </Text>
-        <Text variant="rowSub" style={styles.rowSub}>
-          {AUDIO_SENTENCE}
-        </Text>
-      </Card>
+      {/*
+        A control, where there used to be a paragraph.
+
+        This block read `The first offer is always your own brain, in
+        ${INBOX_FOLDER}` — a constant, interpolated into prose, with nothing
+        beside it. Email, Calendar and Chat each let somebody choose where
+        their captures land; meetings was the one that did not, and the
+        docstring above defended that with the "asked every time" rule, which
+        is about a different question. It still holds: the sheet asks before
+        every recording. What is settable is the folder the first offer names.
+      */}
+      <MeetingsDestination
+        workspaceId={current?.id ?? null}
+        slug={atName(current?.slug ?? "this context")}
+        kind={current?.kind ?? "personal"}
+        role={current?.role}
+        folder={current?.meetingsFolder}
+        folders={loadedFolders(data.files.listings)}
+      />
+
+      <Text variant="foot" style={styles.audio}>
+        {AUDIO_SENTENCE}
+      </Text>
     </>
   );
 }
 
 const makeStyles = () =>
   StyleSheet.create({
-    rowSub: { marginTop: 6 },
+    audio: { marginTop: 12, maxWidth: 546 },
   });
