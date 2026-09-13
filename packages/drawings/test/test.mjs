@@ -582,6 +582,90 @@ function drawingFile(payload, { fence = "compressed-json", heading = "##", wrap 
   );
 }
 
+/* -- a label that ends the label block does not hand over the payload ------ */
+
+{
+  /*
+   * THE VARIANT THE FIRST FIX MISSED, AND WHY THE SHAPE OF THE FIX WAS WRONG.
+   *
+   * "A fence inside a text label is not the payload" skipped fences inside the
+   * `Text Elements` span. But that span **ends at a bare `%%`** — the plugin's
+   * own payload comment — and a label is verbatim text, so a label containing
+   * a `%%` line closes the span from inside it. Everything the attacker writes
+   * after that sits outside the skip and is read as the payload again.
+   *
+   * Skipping a span whose end the attacker controls is not a fix, it is a
+   * detour. The locator now prefers the **last** qualifying fence instead,
+   * which is where the plugin actually writes it — inside the `%%` comment at
+   * the end of the file — so a decoy anywhere above the real payload loses on
+   * position rather than on a span calculation. The span skip stays, because
+   * it is still right and still cheap.
+   */
+  const decoy = compressToBase64(
+    JSON.stringify({ type: "excalidraw", version: 2, files: {}, appState: {},
+      elements: [{ id: "decoy", type: "text", x: 0, y: 0, text: "not yours" }] })
+  );
+  const real = compressToBase64(
+    JSON.stringify({ type: "excalidraw", version: 2, files: {}, appState: {},
+      elements: [{ id: "real", type: "rectangle", x: 0, y: 0, width: 4, height: 4 }] })
+  );
+  const withLabel = (label) => [
+    "---", "excalidraw-plugin: parsed", "---",
+    "", "# Excalidraw Data", "",
+    "## Text Elements",
+    label,
+    "",
+    "%%", "## Drawing", "```compressed-json", real, "```", "%%", "",
+  ].join("\n");
+
+  const closed = withLabel(
+    ["see the format:", "%%", "```compressed-json", decoy, "```", "^t1"].join("\n")
+  );
+  const parsed = parseDrawing(closed, "1-projects/plan.excalidraw.md");
+  check(
+    "a label that closes the label block early is still not the payload",
+    parsed.elements?.length === 1 && parsed.elements[0].id === "real"
+  );
+  check(
+    "and the decoy's scene is nowhere in the result",
+    !JSON.stringify(parsed.elements ?? []).includes("decoy")
+  );
+
+  // The plain case has to keep working, or "prefer the last" is just a
+  // different way to be wrong.
+  const ordinary = withLabel("Cassowary ^labelA");
+  check(
+    "an ordinary drawing still reads its own payload",
+    parseDrawing(ordinary).elements?.[0]?.id === "real"
+  );
+
+  /*
+   * AND THE HALF THAT POSITION DOES NOT COVER.
+   *
+   * "Prefer the last" answers a decoy above the payload. It cannot answer one
+   * *below* it, and a file's sections are in whatever order its author typed:
+   * put `## Text Elements` after the payload and the label's fence is the last
+   * one in the file. The span skip is what refuses it, and this is the check
+   * that makes that skip load-bearing rather than decoration — removing it
+   * turns nothing else in this suite red.
+   *
+   * Not a file the plugin writes. Very much a file somebody can send.
+   */
+  const inverted = [
+    "---", "excalidraw-plugin: parsed", "---",
+    "", "# Excalidraw Data", "",
+    "%%", "## Drawing", "```compressed-json", real, "```", "%%",
+    "",
+    "## Text Elements",
+    "see the format:", "```compressed-json", decoy, "```", "^t1",
+    "",
+  ].join("\n");
+  check(
+    "a label below the payload does not become the payload either",
+    parseDrawing(inverted).elements?.[0]?.id === "real"
+  );
+}
+
 /* --------------------------------- report --------------------------------- */
 
 function chunk(value, size) {

@@ -352,25 +352,42 @@ export function textElementsSpan(text) {
  * call this, which is the point — a locator the reader and the writer disagree
  * about is worse than either rule alone.
  *
- * Only the `Text Elements` block is skipped, and deliberately not "every
- * section": it is the one whose content is free text by design. `Element
- * Links` and `Embedded Files` are `id: target` lines the plugin composes, and a
- * heading nobody knows ends the block it is in (`splitSections`), so prose
- * added by hand does not land here either. A file with no `Text Elements` block
- * at all — including a bare fence with no headings, which the tests cover —
- * behaves exactly as before.
+ * ## The last one, not the first, and that is the load-bearing half
+ *
+ * Skipping the label span was the first answer and it was not enough: the span
+ * **ends at a bare `%%`**, a label is verbatim text, so a label containing a
+ * `%%` line closes the span from inside it and everything after that is
+ * outside the skip. A span whose end the attacker writes is not a boundary.
+ *
+ * So position decides. The plugin writes the payload **last** — inside the
+ * `%%` comment at the end of the file, after every section a reader sees — and
+ * taking the last qualifying fence matches that producer rather than guessing
+ * around it. A decoy above the real payload now loses on where it is, whatever
+ * it does to the sections in between.
+ *
+ * The span skip stays as well. It is still right, it is still cheap, and it
+ * covers the one case position does not: a label below the payload in a file
+ * whose sections are out of the plugin's order.
+ *
+ * `Element Links` and `Embedded Files` are `id: target` lines the plugin
+ * composes rather than free text, and an unknown heading ends the block it is
+ * in (`splitSections`). A file with no `Text Elements` block at all —
+ * including a bare fence with no headings, and one missing its `%%` wrapper,
+ * both of which the tests cover — has exactly one qualifying fence, so first
+ * and last are the same fence and nothing changes for it.
  */
 export function payloadFence(text) {
   const labels = textElementsSpan(text);
   const fence = /^[ \t]*```(compressed-json|json)[ \t]*$/gm;
+  let found = null;
   for (let opener = fence.exec(text); opener !== null; opener = fence.exec(text)) {
     if (labels && opener.index >= labels.start && opener.index < labels.end) continue;
-    return {
+    found = {
       compressed: opener[1] === "compressed-json",
       start: opener.index + opener[0].length + 1,
     };
   }
-  return null;
+  return found;
 }
 
 /** The drawing payload's text, or null when there is no fence to read. */
