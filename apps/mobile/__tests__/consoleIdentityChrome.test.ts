@@ -176,7 +176,9 @@ function mockConsoleData(): never {
     demo: false,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     contexts: shape.contexts ?? [OWN_CONTEXT],
-    selectedContextId: (shape.contexts ?? [OWN_CONTEXT])[0]!.id,
+    // `?? null` rather than `[0]!.id`: an account with *no* contexts is a
+    // state this file now mounts — it is where the claim entry lives.
+    selectedContextId: (shape.contexts ?? [OWN_CONTEXT])[0]?.id ?? null,
     selectContext: () => {},
     graph: { nodes: [], edges: [] },
     stats: [],
@@ -404,6 +406,21 @@ describe("the rail's one context list, rendered", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT] });
     expect(app.text()).toContain("Workspaces");
     expect(app.find("rail-create-workspace")).not.toBeNull();
+    app.unmount();
+  });
+
+  /**
+   * The empty state and the claim entry are alternatives, not neighbours.
+   *
+   * Both are for an account with nothing in the list, and the old two-group
+   * rail could draw them together — "Nothing here yet" sitting above a live
+   * offer, which reads as a screen that failed to load *and* a screen that
+   * works. With one group the rail has to choose, and it chooses the offer.
+   */
+  test("an empty account offered a name gets the offer, not 'Nothing here yet'", () => {
+    const app = mountConsole({ contexts: [] });
+    expect(app.find("rail-claim-context")).not.toBeNull();
+    expect(app.text()).not.toContain("Nothing here yet");
     app.unmount();
   });
 

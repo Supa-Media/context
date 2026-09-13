@@ -4,7 +4,7 @@
  * **One list, with the person's own workspace pinned to the top of it.** The
  * rail used to draw two headed groups, BRAINS and WORKSPACES, splitting on
  * `kind`. That split was the shape of a vocabulary that no longer exists: a
- * a "brain" was only ever a workspace one person owns, and the owner retired the
+ * "brain" was only ever a workspace one person owns, and the owner retired the
  * word (2026-09-13, `docs/decisions/vocabulary-and-workspaces.md`). Once both
  * kinds are called the same thing, a heading over each of them is a division
  * with nothing to divide — two words for one noun, drawn as structure.

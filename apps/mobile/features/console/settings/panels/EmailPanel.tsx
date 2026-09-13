@@ -57,8 +57,8 @@ export function EmailPanel({
         />
       ) : (
         <WorkspaceRefusalCard title="A mailbox belongs to a personal workspace">
-          Switch to a personal workspace to connect a Google account. A shared one is shared,
-          and somebody&apos;s mailbox is not.
+          Switch to a personal workspace to connect a Google account. This one is
+          shared, and somebody&apos;s mailbox is not.
         </WorkspaceRefusalCard>
       )}
 

@@ -259,6 +259,14 @@ export function ConsoleRail({
           // than a second answer to the same question.
           raised={group.contexts.some((context) => menuOpenOn(context.slug))}
         >
+          {/*
+            "Nothing here yet" and the claim entry are alternatives, never
+            neighbours. Both are for an account with nothing in the list, and
+            the two-group rail could draw them together — an empty state above
+            a live offer, which reads as a screen that failed to load *and* a
+            screen that works. One group has to choose, and it chooses the
+            offer.
+          */}
           {data.contexts.length === 0 && !data.loading && !group.claim ? (
             icons ? null : (
               <Text variant="rowSub" style={styles.empty}>
