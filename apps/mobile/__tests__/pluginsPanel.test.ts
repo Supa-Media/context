@@ -155,6 +155,13 @@ describe("a successful read that found nothing", () => {
 });
 
 describe("the ready list", () => {
+  test("the summary counts read as sentences, not as noun phrases", () => {
+    const text = panel(READY).textContent ?? "";
+    expect(text).toContain("Runs here · 1");
+    expect(text).toContain("Needs approval · 0");
+    expect(text).toContain("Couldn't be checked · 1");
+  });
+
   test("draws a group heading for every verdict present", () => {
     const text = panel(READY).textContent ?? "";
     expect(text).toContain("Runs here");

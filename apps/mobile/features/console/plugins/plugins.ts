@@ -315,6 +315,16 @@ export function byteLabel(bytes: number): string {
 export function readLabel(plugin: ConsolePlugin): string | null {
   const { bytesRead, bytesTotal } = plugin;
   if (bytesRead === undefined || bytesTotal === undefined) return null;
+  /*
+    Two sentences rather than one sentence and a silence.
+
+    "84 KB of 84 KB read" on every complete row is noise, and dropping the
+    line there instead would leave "this one was read in full" to be inferred
+    from an absence — the habit this module argues against in three other
+    places. A full read gets its own short form, so both facts are stated and
+    neither is a deduction.
+  */
+  if (bytesRead >= bytesTotal) return `read in full — ${byteLabel(bytesTotal)}`;
   return `${byteLabel(bytesRead)} of ${byteLabel(bytesTotal)} read`;
 }
 
@@ -335,7 +345,8 @@ export function pluginsPreview(view: PluginsView): string | null {
   const { inventory } = view;
   if (inventory.found === 0) return "None found";
   const runs = verdictCounts(inventory.plugins).runs;
-  return runs === 0 ? `${foundLabel(inventory)} found` : `${runs} run here`;
+  if (runs === 0) return `${foundLabel(inventory)} found`;
+  return `${runs} run${runs === 1 ? "s" : ""} here`;
 }
 
 /**

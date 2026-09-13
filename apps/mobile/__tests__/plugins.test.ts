@@ -237,6 +237,22 @@ describe("how much of a bundle was read", () => {
     ).toBe("512 KB of 1.8 MB read");
   });
 
+  /*
+    A complete read says so rather than going quiet, so "this one was read in
+    full" is never a deduction from a missing line.
+  */
+  test("a bundle read in full says so, in its own words", () => {
+    expect(readLabel(plugin({ verdict: "runs", bytesRead: 84_000, bytesTotal: 84_000 }))).toBe(
+      "read in full — 84 KB",
+    );
+  });
+
+  test("a partial read is never phrased as a complete one", () => {
+    expect(
+      readLabel(plugin({ verdict: "unknown", bytesRead: 512_000, bytesTotal: 1_800_000 })),
+    ).not.toContain("in full");
+  });
+
   test("byte labels stay in the units a storage provider bills in", () => {
     expect(byteLabel(840)).toBe("840 B");
     expect(byteLabel(84_000)).toBe("84 KB");
@@ -289,15 +305,28 @@ describe("the settings row never invents a claim out of an absence", () => {
     expect(pluginsPreview({ state: "ready", inventory: inventory() })).toBe("None found");
   });
 
+  test("one plugin running here takes the singular verb", () => {
+    expect(
+      pluginsPreview({
+        state: "ready",
+        inventory: inventory({ plugins: [plugin({ verdict: "runs" })] }),
+      }),
+    ).toBe("1 runs here");
+  });
+
   test("a successful read leads with what runs here", () => {
     expect(
       pluginsPreview({
         state: "ready",
         inventory: inventory({
-          plugins: [plugin({ verdict: "runs" }), plugin({ verdict: "wont-run" })],
+          plugins: [
+            plugin({ verdict: "runs", id: "a" }),
+            plugin({ verdict: "runs", id: "b" }),
+            plugin({ verdict: "wont-run", id: "c" }),
+          ],
         }),
       }),
-    ).toBe("1 run here");
+    ).toBe("2 run here");
   });
 
   test("nothing running here reports the count rather than a cheerful zero", () => {

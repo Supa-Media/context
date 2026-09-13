@@ -137,7 +137,7 @@ export function PluginsPanel({ view }: { view: PluginsView }) {
             const { tone, dashed } = verdictPill(verdict);
             return (
               <Pill key={verdict} tone={tone} dashed={dashed}>
-                {`${counts[verdict]} ${verdictHeading(verdict).toLowerCase()}`}
+                {`${verdictHeading(verdict)} · ${counts[verdict]}`}
               </Pill>
             );
           })}
@@ -223,14 +223,14 @@ function PluginRow({ plugin }: { plugin: ConsolePlugin }) {
           </Text>
         ) : null}
 
-        {plugin.limitations.map((limitation) => (
-          <Text key={limitation} variant="rowSub" style={styles.line}>
+        {plugin.limitations.map((limitation, index) => (
+          <Text key={`${plugin.id}-limitation-${index}`} variant="rowSub" style={styles.line}>
             {limitation}
           </Text>
         ))}
 
-        {plugin.notes.map((note) => (
-          <Text key={note} variant="rowSub" style={styles.line}>
+        {plugin.notes.map((note, index) => (
+          <Text key={`${plugin.id}-note-${index}`} variant="rowSub" style={styles.line}>
             {note}
           </Text>
         ))}
