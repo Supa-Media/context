@@ -982,10 +982,24 @@ describe("the palette", () => {
     w.destroy();
   });
 
-  test("the measure changes with the density, not with a second breakpoint", () => {
+  /*
+    The note's type is one size, and the density decides other things.
+
+    This used to assert 16px against 14.5px and was named for the measure
+    changing with the density. Both halves were wrong to keep: the pointer's
+    14.5px had nothing arguing for it, and because the measure is a multiple
+    of the type it shrank the column as well as the glyphs. The size is now
+    the same at both densities and this asserts that it is — a re-split is a
+    decision, not a tidy-up, and it would move the column too.
+
+    What still branches is drawn here alongside it, so a reader can see the
+    difference is deliberate rather than left over: a phone reads the note in
+    full-strength text, a pointer inspects it beside a file tree in the
+    quieter one.
+  */
+  test("the note's type is one size at both densities, and the tone is not", () => {
     expect(themeVars(darkColors, "Menlo", true)["--lp-size"]).toBe("16px");
     expect(themeVars(darkColors, "Menlo", false)["--lp-size"]).toBe("16px");
-    // A phone reads the note; a pointer inspects it beside a file tree.
     expect(themeVars(darkColors, "Menlo", true)["--lp-content"]).toBe(darkColors.text);
     expect(themeVars(darkColors, "Menlo", false)["--lp-content"]).toBe(darkColors.text2);
   });
