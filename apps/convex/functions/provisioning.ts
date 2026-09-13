@@ -156,6 +156,8 @@ export interface VerificationOutcome {
   writable: boolean;
   /** Observed, never declared. `false` on B2/Wasabi and any backend that lies. */
   conditionalWrite: boolean;
+  conditionalCreate?: boolean;
+  conditionalDelete?: boolean;
   scaffolded: boolean;
   scaffoldReason: ScaffoldState;
   /**
@@ -290,6 +292,8 @@ export const verifyStorageBinding = internalAction({
     reachable: v.boolean(),
     writable: v.boolean(),
     conditionalWrite: v.boolean(),
+    conditionalCreate: v.optional(v.boolean()),
+    conditionalDelete: v.optional(v.boolean()),
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
     scaffoldMissing: v.optional(v.array(v.string())),
@@ -358,7 +362,7 @@ export const verifyStorageBinding = internalAction({
       // exercises is the store that will serve the workspace. A probe that
       // addressed the storage differently would certify a configuration that
       // does not actually work.
-      store = storeForBinding(credential) as unknown as ScaffoldStore;
+      store = storeForBinding(credential, undefined, { probeCapabilities: true }) as unknown as ScaffoldStore;
     } catch (error) {
       // Bad configuration rather than a bad bucket: an endpoint whose
       // addressing style is ambiguous, a bucket name with a slash in it.
@@ -422,6 +426,8 @@ export const verifyStorageBinding = internalAction({
         reachable: summary.reachable,
         writable: summary.writable,
         conditionalWrite: summary.capabilities.conditionalWrite,
+        conditionalCreate: summary.capabilities.conditionalCreate,
+        conditionalDelete: summary.capabilities.conditionalDelete,
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(summary.error ?? "Verification failed.", secrets),
@@ -477,6 +483,8 @@ export const verifyStorageBinding = internalAction({
       reachable: true,
       writable: true,
       conditionalWrite: summary.capabilities.conditionalWrite,
+      conditionalCreate: summary.capabilities.conditionalCreate,
+      conditionalDelete: summary.capabilities.conditionalDelete,
       scaffolded,
       scaffoldReason,
       scaffoldMissing,
@@ -547,7 +555,11 @@ async function record(
     await ctx.runMutation(internal.functions.storage.recordVerification, {
       workspaceId: args.workspaceId,
       ok: outcome.verified,
-      capabilities: { conditionalWrite: outcome.conditionalWrite },
+      capabilities: {
+        conditionalWrite: outcome.conditionalWrite,
+        conditionalCreate: outcome.conditionalCreate ?? false,
+        conditionalDelete: outcome.conditionalDelete ?? false,
+      },
       error,
       errorCode: outcome.errorCode,
       // Only when we actually looked. A probe that failed before it reached the

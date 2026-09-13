@@ -595,7 +595,7 @@ export interface S3GatewayBinding {
    * decide", which is what the gateway's `nativeStore` already passes through.
    */
   forcePathStyle?: boolean;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
   status: string;
 }
 
@@ -610,7 +610,7 @@ export interface DropboxGatewayBinding {
   provider: "dropbox";
   accessToken: string;
   rootPrefix?: string;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
   status: string;
 }
 
@@ -734,7 +734,7 @@ const s3BindingValidator = v.object({
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
   forcePathStyle: v.optional(v.boolean()),
-  capabilities: v.object({ conditionalWrite: v.boolean() }),
+  capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
   status: v.string(),
 });
 
@@ -744,7 +744,7 @@ const dropboxBindingValidator = v.object({
   provider: v.literal("dropbox"),
   accessToken: v.string(),
   rootPrefix: v.optional(v.string()),
-  capabilities: v.object({ conditionalWrite: v.boolean() }),
+  capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
   status: v.string(),
 });
 

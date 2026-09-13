@@ -89,11 +89,13 @@ const providerValidator = v.union(
  * failure mode a notes product cannot have.
  */
 function initialCapabilities(): StorageCapabilities {
-  return { conditionalWrite: false };
+  return { conditionalWrite: false, conditionalCreate: false, conditionalDelete: false };
 }
 
 export interface StorageCapabilities {
   conditionalWrite: boolean;
+  conditionalCreate?: boolean;
+  conditionalDelete?: boolean;
 }
 
 /** What the binding write returns. Named so the action can annotate itself. */
@@ -789,7 +791,11 @@ export const recordVerification = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     ok: v.boolean(),
-    capabilities: v.optional(v.object({ conditionalWrite: v.boolean() })),
+    capabilities: v.optional(v.object({
+      conditionalWrite: v.boolean(),
+      conditionalCreate: v.optional(v.boolean()),
+      conditionalDelete: v.optional(v.boolean()),
+    })),
     error: v.optional(v.string()),
     /**
      * The machine-readable companion to `error`. See the schema's `errorCode`
@@ -965,7 +971,7 @@ export const getBindingRow = internalQuery({
       accessTokenExpiresAt: v.optional(v.number()),
       dropboxAccountId: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
       status: v.string(),
     }),
   ),
@@ -1030,14 +1036,14 @@ export const getBindingForGateway = internalAction({
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
       status: v.string(),
     }),
     v.object({
       provider: v.literal("dropbox"),
       accessToken: v.string(),
       rootPrefix: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
       status: v.string(),
     }),
   ),
@@ -2050,7 +2056,7 @@ export const getStorageBinding = query({
        * console never caches the account it showed last.
        */
       dropboxAccountId: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
       status: v.string(),
       lastVerifiedAt: v.optional(v.number()),
       lastError: v.optional(v.string()),

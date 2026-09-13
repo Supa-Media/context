@@ -25,7 +25,12 @@ import {
   scanPlugin,
   summarize,
 } from "../src/plugins/scan.js";
-import { PLUGIN_PREFIX, inventoryPlugins, listPluginFolders } from "../src/plugins/inventory.js";
+import {
+  MANAGED_PLUGIN_PREFIX,
+  PLUGIN_PREFIX,
+  inventoryPlugins,
+  listPluginFolders,
+} from "../src/plugins/inventory.js";
 import { renderPluginReport } from "../src/plugins/report.js";
 
 /**
@@ -512,6 +517,15 @@ export async function runPluginChecks(check) {
   bucket.seed(`${PLUGIN_PREFIX}obsidian-git/manifest.json`, manifestFor("obsidian-git", { name: "Obsidian Git" }));
   bucket.seed(`${PLUGIN_PREFIX}obsidian-git/main.js`, `require("child_process")`);
   bucket.seed(`${PLUGIN_PREFIX}broken/manifest.json`, manifestFor("broken"));
+  bucket.seed(`${MANAGED_PLUGIN_PREFIX}virtual-linker/current.json`, JSON.stringify({
+    id: "virtual-linker",
+    version: "1.0.0",
+  }));
+  bucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}virtual-linker/releases/1.0.0/manifest.json`,
+    manifestFor("virtual-linker", { name: "Virtual Linker" })
+  );
+  bucket.seed(`${MANAGED_PLUGIN_PREFIX}virtual-linker/releases/1.0.0/main.js`, CLEAN_BUNDLE);
   bucket.seed("1-projects/real-note.md", "# a note\n");
   bucket.seed(".obsidian/app.json", "{}");
 
@@ -522,15 +536,47 @@ export async function runPluginChecks(check) {
   );
 
   const report = await inventoryPlugins(store);
-  check("every folder found is checked when under the cap", report.scanned === 3 && !report.truncated);
+  check("every folder found is checked when under the cap", report.scanned === 4 && !report.truncated);
+  check(
+    "managed installs are scanned beside Obsidian without writing into .obsidian",
+    report.plugins.find((p) => p.id === "virtual-linker").source === "context" &&
+      report.plugins.find((p) => p.id === "dataview").source === "obsidian"
+  );
   check(
     "a clean plugin runs and a shelling one does not, in the same report",
     report.plugins.find((p) => p.id === "dataview").verdict === "runs" &&
       report.plugins.find((p) => p.id === "obsidian-git").verdict === "wont-run"
   );
   check(
+    "each complete plugin is bound to the exact manifest and bundle objects that were checked",
+    /^v2:[^:]+:[^:]+:[^:]+$/.test(
+      report.plugins.find((p) => p.id === "dataview").bundleFingerprint
+    ) &&
+      report.plugins.find((p) => p.id === "dataview").bundleFingerprint !==
+        report.plugins.find((p) => p.id === "obsidian-git").bundleFingerprint
+  );
+  const dataviewFingerprint = report.plugins.find(
+    (p) => p.id === "dataview"
+  ).bundleFingerprint;
+  bucket.seed(`${PLUGIN_PREFIX}dataview/styles.css`, ".changed{}");
+  const styleChangedReport = await inventoryPlugins(store);
+  check(
+    "a styles-only change invalidates the reviewed bundle fingerprint",
+    styleChangedReport.plugins.find((p) => p.id === "dataview").bundleFingerprint !==
+      dataviewFingerprint
+  );
+  bucket.objects.get(`${PLUGIN_PREFIX}dataview/styles.css`).explode = true;
+  const unreadableStyleReport = await inventoryPlugins(store);
+  check(
+    "an unreadable optional stylesheet cannot be mistaken for an absent reviewed one",
+    unreadableStyleReport.plugins.find((p) => p.id === "dataview").bundleFingerprint === null
+  );
+  delete bucket.objects.get(`${PLUGIN_PREFIX}dataview/styles.css`).explode;
+  check(
     "a plugin with a manifest but no bundle is unknown, and the others still get verdicts",
-    report.plugins.find((p) => p.id === "broken").verdict === "unknown" && report.scanned === 3
+    report.plugins.find((p) => p.id === "broken").verdict === "unknown" &&
+      report.plugins.find((p) => p.id === "broken").bundleFingerprint === null &&
+      report.scanned === 4
   );
   check("the report dates itself", /^\d{4}-\d{2}-\d{2}/.test(report.checkedAt));
 
@@ -539,6 +585,69 @@ export async function runPluginChecks(check) {
   check(
     "and it does not touch notes, only .obsidian/plugins/",
     [...bucket.objects.keys()].includes("1-projects/real-note.md")
+  );
+
+  const managedEdgeBucket = makeBucket();
+  managedEdgeBucket.seed(`${MANAGED_PLUGIN_PREFIX}data-only/data.json`, "{}");
+  managedEdgeBucket.seed(`${MANAGED_PLUGIN_PREFIX}broken-pointer/current.json`, "{");
+  const encodedId = encodeURIComponent("plugin with spaces");
+  const encodedVersion = encodeURIComponent("1.0.0/beta");
+  managedEdgeBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}${encodedId}/current.json`,
+    JSON.stringify({ id: "plugin with spaces", version: "1.0.0/beta" })
+  );
+  managedEdgeBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}${encodedId}/releases/${encodedVersion}/manifest.json`,
+    manifestFor("plugin with spaces")
+  );
+  managedEdgeBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}${encodedId}/releases/${encodedVersion}/main.js`,
+    CLEAN_BUNDLE
+  );
+  const managedEdges = await inventoryPlugins(new R2Store(managedEdgeBucket));
+  check(
+    "managed plugin ids and versions are decoded only after staying inert path segments",
+    managedEdges.plugins.find((p) => p.id === "plugin with spaces").verdict === "runs"
+  );
+  check(
+    "a corrupt managed pointer is visible but unknown, never a failed inventory",
+    managedEdges.plugins.find((p) => p.id === "broken-pointer").verdict === "unknown" &&
+      managedEdges.available
+  );
+  check(
+    "managed settings without a current release are not mistaken for an install",
+    managedEdges.found === 2 && !managedEdges.plugins.some((p) => p.id === "data-only")
+  );
+
+  const crossSourceCap = await inventoryPlugins(store, { cap: 3 });
+  check(
+    "Obsidian and managed installs share one honest scan cap",
+    crossSourceCap.found === 4 && crossSourceCap.scanned === 3 && crossSourceCap.truncated
+  );
+
+  const collisionBucket = makeBucket();
+  collisionBucket.seed(`${PLUGIN_PREFIX}same-plugin/manifest.json`, manifestFor("same-plugin"));
+  collisionBucket.seed(`${PLUGIN_PREFIX}same-plugin/main.js`, CLEAN_BUNDLE);
+  collisionBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/current.json`,
+    JSON.stringify({ id: "same-plugin", version: "2.0.0" })
+  );
+  collisionBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/manifest.json`,
+    manifestFor("same-plugin", { version: "2.0.0" })
+  );
+  collisionBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/main.js`,
+    `require("child_process")`
+  );
+  const collisionReport = await inventoryPlugins(new R2Store(collisionBucket));
+  check(
+    "a managed release deterministically replaces the same Obsidian plugin id",
+    collisionReport.found === 1 &&
+      collisionReport.scanned === 1 &&
+      collisionReport.plugins[0].source === "context" &&
+      collisionReport.plugins[0].version === "2.0.0" &&
+      collisionReport.plugins[0].verdict === "wont-run"
   );
 
   // A backend that ignores the delimiter must produce the same folder list, or

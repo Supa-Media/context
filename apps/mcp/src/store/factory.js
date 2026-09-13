@@ -130,7 +130,7 @@ const BUILDERS = new Map([
  *
  * @param {object} binding the binding exactly as the control plane returned it
  * @param {object} [env] the Worker environment, for a native R2 binding only
- * @param {{fetchImpl?: typeof fetch}} [options] forwarded to the adapter. The
+ * @param {{fetchImpl?: typeof fetch, probeCapabilities?: boolean}} [options] forwarded to the adapter. The
  *   control plane builds stores from this same table — for the connect probe
  *   and the console file browser — and needs a `fetch` with a timeout on it.
  *   A second switch there would be the third place to forget a new backend,
@@ -148,7 +148,13 @@ export function storeForBinding(binding, env, options = {}) {
   if (!entry) throw new StorageUnavailable("unknown provider");
 
   assertNoForeignCredential(binding, entry.kind);
-  return withProbedCapabilities(entry.build(binding, env, options), binding);
+  const store = entry.build(binding, env, options);
+  // Verification must observe what the provider actually enforces. Applying
+  // yesterday's persisted result first would make a false capability
+  // impossible to discover as true on reconnect.
+  return options.probeCapabilities === true
+    ? store
+    : withProbedCapabilities(store, binding);
 }
 
 /**

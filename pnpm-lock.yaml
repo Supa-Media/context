@@ -25,6 +25,9 @@ importers:
 
   apps/convex:
     dependencies:
+      '@context/obsidian-runtime':
+        specifier: workspace:*
+        version: link:../../packages/obsidian-runtime
       '@context/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -457,6 +460,12 @@ importers:
   packages/hook: {}
 
   packages/meetings: {}
+
+  packages/obsidian-runtime:
+    devDependencies:
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
 
   packages/shared:
     dependencies:

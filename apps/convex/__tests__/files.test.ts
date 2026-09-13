@@ -20,7 +20,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
@@ -111,7 +111,11 @@ async function fixture(
       bucket: FAKE_STORAGE.bucket,
       accessKeyId: FAKE_STORAGE.accessKeyId,
       encryptedSecretAccessKey,
-      capabilities: { conditionalWrite },
+      capabilities: {
+        conditionalWrite,
+        conditionalCreate: true,
+        conditionalDelete: true,
+      },
       status: "connected" as const,
       lastVerifiedAt: Date.now(),
       boundBy: owner,
@@ -245,6 +249,647 @@ describe("an owner can edit their context", () => {
     );
     expect(result.exception).toBe(true);
     expect(f.backend.snapshot()[PRIVACY_KEY]).toContain("1-projects/shared.md: private");
+  });
+});
+
+describe("Obsidian plugin inventory", () => {
+  test("returns structured compatibility data to an owner without changing the bucket", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        version: "1.2.2",
+        author: "Example Author",
+        minAppVersion: "1.0.0",
+        description: "Highlight text",
+      }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const before = f.backend.snapshot();
+
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+
+    expect(result).toMatchObject({
+      available: true,
+      found: 1,
+      scanned: 1,
+      truncated: false,
+      counts: { runs: 1 },
+      plugins: [{
+        source: "obsidian",
+        folder: "highlightr-plugin",
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        version: "1.2.2",
+        bundleFingerprint: expect.stringMatching(/^v2:/),
+        verdict: "runs",
+        reason: "no-calls-outside-the-sandbox-found",
+      }],
+    });
+    expect(result.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(f.backend.snapshot()).toEqual(before);
+  });
+
+  test("is owner-only and keeps a non-member indistinguishable from a missing workspace", async () => {
+    const f = await fixture();
+    const editorError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const missingId = await danglingWorkspaceId(f.t);
+    const stranger = asUser(f.t, f.stranger);
+    const existingError = await captureError(() => stranger.action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    const missingError = await captureError(() => stranger.action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: missingId },
+    ));
+    expect(errorShape(existingError)).toBe(errorShape(missingError));
+    expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  test("installs, updates, loads, and uninstalls an official plugin without touching Obsidian", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/virtual-linker/manifest.json",
+      JSON.stringify({ id: "virtual-linker", name: "Obsidian copy", version: "0.9.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/virtual-linker/main.js",
+      'const { Plugin } = require("obsidian"); class Old extends Plugin {}',
+    );
+    const storageFetch = f.backend.fetchImpl;
+    let version = "1.0.0";
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
+      if (url.href.includes("obsidian-releases/HEAD/community-plugins.json")) {
+        return new Response(JSON.stringify([{
+          id: "virtual-linker",
+          name: "Virtual Linker",
+          author: "Example",
+          description: "Links notes",
+          repo: "example/virtual-linker",
+        }]));
+      }
+      if (url.href.includes("example/virtual-linker/HEAD/manifest.json")) {
+        return new Response(JSON.stringify({ id: "virtual-linker", version }));
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/manifest.json")) {
+        return new Response(JSON.stringify({ id: "virtual-linker", name: "Virtual Linker", version }));
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/main.js")) {
+        return new Response(`const { Plugin } = require("obsidian"); class V${version.replaceAll(".", "")} extends Plugin {}`);
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/styles.css")) {
+        return new Response(".virtual-linker { color: blue; }");
+      }
+      return await storageFetch(input, init);
+    });
+
+    const search = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.searchCommunityPlugins,
+      { workspaceId: f.workspaceId, query: "virtual" },
+    );
+    expect(search).toMatchObject([{ id: "virtual-linker", repository: "example/virtual-linker" }]);
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+    });
+    let inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    expect(inventory.plugins).toHaveLength(1);
+    expect(inventory.plugins[0]).toMatchObject({
+      source: "context",
+      id: "virtual-linker",
+      version: "1.0.0",
+      verdict: "runs",
+    });
+    const firstFingerprint = inventory.plugins[0].bundleFingerprint!;
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+      bundleFingerprint: firstFingerprint,
+      capabilities: ["vault:read"],
+      networkHosts: [],
+    });
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "virtual-linker",
+        bundleFingerprint: firstFingerprint,
+      },
+    );
+    expect(loaded).toMatchObject({ version: "1.0.0", mainJs: expect.stringContaining("class V100") });
+    const request = {
+      version: 1,
+      requestId: "at_most_once",
+      operation: { kind: "vault.read", path: "1-projects/shared.md" },
+    };
+    expect(await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+      runtimeToken: loaded.runtimeToken,
+      request,
+    })).toMatchObject({ ok: true });
+    expect(await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+      runtimeToken: loaded.runtimeToken,
+      request,
+    })).toMatchObject({ ok: false, error: { code: "REQUEST_REPLAYED" } });
+
+    version = "1.1.0";
+    const bindingId = await f.t.run(async (ctx) => (await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+      .unique())!._id);
+    await f.t.run((ctx) => ctx.db.patch(bindingId, {
+      capabilities: { conditionalWrite: true, conditionalCreate: false, conditionalDelete: true },
+    }));
+    const failedUpdate = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.installCommunityPlugin,
+      { workspaceId: f.workspaceId, pluginId: "virtual-linker" },
+    ));
+    expect(errorCode(failedUpdate)).toBe("STORAGE_UNSAFE");
+    expect((await asUser(f.t, f.owner).query(api.functions.obsidianPlugins.listPluginGrants, {
+      workspaceId: f.workspaceId,
+    }))[0].status).toBe("revoked");
+    const revokedSession = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_failed_update",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(revokedSession)).toBe("PLUGIN_SESSION_INVALID");
+    await f.t.run((ctx) => ctx.db.patch(bindingId, {
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    }));
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+    });
+    inventory = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(inventory.plugins[0].version).toBe("1.1.0");
+    expect(inventory.plugins[0].bundleFingerprint).not.toBe(firstFingerprint);
+    expect((await asUser(f.t, f.owner).query(api.functions.obsidianPlugins.listPluginGrants, {
+      workspaceId: f.workspaceId,
+    }))[0].status).toBe("revoked");
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.uninstallCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+      bundleFingerprint: inventory.plugins[0].bundleFingerprint!,
+    });
+    const after = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(after.plugins[0]).toMatchObject({ source: "obsidian", version: "0.9.0" });
+    expect(f.backend.snapshot()).not.toHaveProperty(".context/plugins/virtual-linker/current.json");
+    expect(f.backend.snapshot()).toHaveProperty(
+      ".context/plugins/virtual-linker/releases/1.1.0/main.js",
+    );
+    expect(f.backend.snapshot()).toHaveProperty(".obsidian/plugins/virtual-linker/main.js");
+  });
+
+  test("an owner grants capabilities to the exact bundle that was checked", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({ id: "highlightr-plugin", name: "Highlightr", version: "1.2.2" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const approved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "metadata:read"],
+        networkHosts: [],
+      },
+    );
+    let runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    expect(approved).toMatchObject({
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      status: "active",
+      capabilities: ["metadata:read", "vault:read"],
+    });
+
+    const grants = await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listPluginGrants,
+      { workspaceId: f.workspaceId },
+    );
+    expect(grants).toEqual([approved]);
+
+    const read = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_1",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    );
+    expect(read).toMatchObject({
+      version: 1,
+      requestId: "read_1",
+      ok: true,
+      result: { kind: "file", text: "# Shared\n" },
+    });
+    const denied = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "write_1",
+          operation: { kind: "vault.create", path: "1-projects/plugin.md", text: "# Plugin\n" },
+        },
+      },
+    );
+    expect(denied).toMatchObject({ ok: false, error: { code: "CAPABILITY_DENIED" } });
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      capabilities: [
+        "vault:read",
+        "vault:write",
+        "vault:rename",
+        "vault:delete",
+        "settings:read",
+        "settings:write",
+      ],
+      networkHosts: [],
+    });
+    runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: { version: 1, requestId: "settings_1", operation: { kind: "settings.load" } },
+      },
+    );
+    expect(loaded).toMatchObject({
+      ok: true,
+      result: { kind: "pluginSettings", json: "{}", etag: null },
+    });
+    const saved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "settings_2",
+          operation: { kind: "settings.save", json: "{\"color\":\"yellow\"}", expectedEtag: null },
+        },
+      },
+    );
+    expect(saved).toMatchObject({
+      ok: true,
+      result: { kind: "pluginSettings", json: "{\"color\":\"yellow\"}" },
+    });
+    expect(f.backend.snapshot()).not.toHaveProperty(".obsidian/plugins/highlightr-plugin/data.json");
+    expect(f.backend.snapshot()).toHaveProperty(".context/plugins/highlightr-plugin/data.json");
+
+    const created = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "create_1",
+          operation: { kind: "vault.create", path: "1-projects/plugin.md", text: "# Plugin\n" },
+        },
+      },
+    );
+    if (!created.ok) throw new Error("expected plugin create to succeed");
+    const createdEtag = (created.result as { etag: string }).etag;
+    const conflict = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "modify_bad",
+          operation: {
+            kind: "vault.modify",
+            path: "1-projects/plugin.md",
+            text: "changed",
+            expectedEtag: "stale",
+          },
+        },
+      },
+    );
+    expect(conflict).toMatchObject({ ok: false, error: { code: "CONFLICT" } });
+    const modified = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "modify_1",
+          operation: {
+            kind: "vault.modify",
+            path: "1-projects/plugin.md",
+            text: "changed",
+            expectedEtag: createdEtag,
+          },
+        },
+      },
+    );
+    if (!modified.ok) throw new Error("expected plugin modify to succeed");
+    const modifiedEtag = (modified.result as { etag: string }).etag;
+    const renamed = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "rename_1",
+          operation: {
+            kind: "vault.rename",
+            from: "1-projects/plugin.md",
+            to: "1-projects/plugin-renamed.md",
+            expectedEtag: modifiedEtag,
+          },
+        },
+      },
+    );
+    expect(renamed).toMatchObject({ ok: true, result: { kind: "moved" } });
+    const renamedRead = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_renamed",
+          operation: { kind: "vault.read", path: "1-projects/plugin-renamed.md" },
+        },
+      },
+    );
+    if (!renamedRead.ok) throw new Error("expected renamed plugin file to be readable");
+    const deleted = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "delete_1",
+          operation: {
+            kind: "vault.delete",
+            path: "1-projects/plugin-renamed.md",
+            expectedEtag: (renamedRead.result as { etag: string }).etag,
+          },
+        },
+      },
+    );
+    expect(deleted).toMatchObject({ ok: true, result: { kind: "deleted" } });
+    await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.reportRuntimeStatus, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: fingerprint,
+      status: "loaded",
+      attempts: 1,
+    });
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listRuntimeStates,
+      { workspaceId: f.workspaceId },
+    )).toMatchObject([{ pluginId: "highlightr-plugin", status: "loaded", attempts: 1 }]);
+
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Changed extends Plugin {}',
+    );
+    const changedInventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    expect(changedInventory.plugins[0].bundleFingerprint).not.toBe(fingerprint);
+    expect(await f.t.query(internal.functions.obsidianPlugins.resolveActiveGrant, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint: changedInventory.plugins[0].bundleFingerprint!,
+    })).toBeNull();
+
+    await asUser(f.t, f.owner).mutation(api.functions.obsidianPlugins.revokePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+    });
+    expect((await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listPluginGrants,
+      { workspaceId: f.workspaceId },
+    ))[0].status).toBe("revoked");
+    expect((await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.listRuntimeStates,
+      { workspaceId: f.workspaceId },
+    ))[0]).toMatchObject({ status: "blocked", errorCode: "GRANT_REVOKED" });
+    const revokedToken = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_revoke",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(revokedToken)).toBe("PLUGIN_SESSION_INVALID");
+  });
+
+  test("only an owner can grant a plugin and a blocked bundle cannot be granted", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/shell/manifest.json",
+      JSON.stringify({ id: "shell", name: "Shell", version: "1.0.0" }),
+    );
+    f.backend.seed(".obsidian/plugins/shell/main.js", 'require("child_process")');
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const editorError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "shell",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+      },
+    ));
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const blockedError = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "shell",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+      },
+    ));
+    expect(errorCode(blockedError)).toBe("PLUGIN_NOT_RUNNABLE");
+  });
+
+  test("network authority is limited to hosts found in the reviewed bundle", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/web/manifest.json",
+      JSON.stringify({ id: "web", name: "Web", version: "1.0.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/web/main.js",
+      'requestUrl("https://api.example.com/items")',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    const widened = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["evil.example"],
+      },
+    ));
+    expect(errorCode(widened)).toBe("INVALID_NETWORK_GRANT");
+
+    const unavailable = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["API.EXAMPLE.COM"],
+      },
+    ));
+    expect(errorCode(unavailable)).toBe("NETWORK_RUNTIME_UNAVAILABLE");
+  });
+
+  test("a lifecycle generation prevents review and runtime issuance from racing bundle changes", async () => {
+    const f = await fixture();
+    const pluginId = "race-safe";
+    const fingerprint = "v2:reviewed-bundle";
+    const reviewedGeneration = await f.t.query(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: f.workspaceId, pluginId },
+    );
+    expect(reviewedGeneration).toBe(0);
+
+    const generation = await f.t.mutation(internal.functions.obsidianPlugins.recordLifecycle, {
+      workspaceId: f.workspaceId,
+      actorUserId: f.owner,
+      pluginId,
+      version: "1.0.0",
+      action: "installing",
+    });
+    const staleReview = await captureError(() => f.t.mutation(
+      internal.functions.obsidianPlugins.persistGrant,
+      {
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        pluginId,
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+        expectedLifecycleGeneration: reviewedGeneration,
+      },
+    ));
+    expect(errorCode(staleReview)).toBe("PLUGIN_LIFECYCLE_CHANGED");
+    const midLifecycleReview = await captureError(() => f.t.query(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: f.workspaceId, pluginId },
+    ));
+    expect(errorCode(midLifecycleReview)).toBe("PLUGIN_LIFECYCLE_BUSY");
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.recoverPluginLifecycle, {
+      workspaceId: f.workspaceId,
+      pluginId,
+      confirmation: "RECOVER_PLUGIN",
+    });
+    const staleWriter = await captureError(() => f.t.action(
+      internal.functions.files.runFileOperation,
+      {
+        workspaceId: f.workspaceId,
+        scope: "private",
+        operation: {
+          kind: "pluginManagedInstall",
+          pluginId,
+          version: "1.0.0",
+          repository: "example/race-safe",
+          manifestJson: JSON.stringify({ id: pluginId, version: "1.0.0" }),
+          mainJs: "class RaceSafe {}",
+          stylesCss: null,
+          lifecycleGeneration: generation,
+        },
+      },
+    ));
+    expect(errorCode(staleWriter)).toBe("CONFLICT");
+    expect(await f.t.query(internal.functions.obsidianPlugins.snapshotLifecycle, {
+      workspaceId: f.workspaceId,
+      pluginId,
+    })).toBe(generation + 1);
+    expect(f.backend.snapshot()[".context/plugins/race-safe/current.json"]).toContain(
+      `"lifecycleGeneration":${generation + 1}`,
+    );
   });
 });
 
@@ -1276,6 +1921,10 @@ describe("a stranger cannot reach another workspace's files", () => {
 
     const calls: Array<(workspaceId: Id<"workspaces">) => Promise<unknown>> = [
       (workspaceId) => as.action(api.functions.files.listFiles, { workspaceId, path: "" }),
+      // `.obsidian/` is outside the privacy manifest entirely, so the plugin
+      // inventory must establish ownership before its fixed read path opens.
+      (workspaceId) =>
+        as.action(api.functions.files.listObsidianPlugins, { workspaceId }),
       (workspaceId) =>
         as.action(api.functions.files.readNote, { workspaceId, path: "1-projects/shared.md" }),
       (workspaceId) =>

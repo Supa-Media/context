@@ -83,6 +83,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { inventoryPlugins } from "../../mcp/src/plugins/inventory.js";
 // The gateway's D1 wire, imported rather than ported, for the same reason
 // `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
 // which is Convex's runtime too. It holds the write token for the life of one
@@ -206,6 +207,7 @@ import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
 const REQUEST_TIMEOUT_MS = 20_000;
+const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -304,6 +306,120 @@ const imageValidator = v.object({
   kind: v.literal("image"),
   bytes: v.bytes(),
 });
+
+const pluginVerdictValidator = v.union(
+  v.literal("runs"),
+  v.literal("needs-approval"),
+  v.literal("files-only"),
+  v.literal("wont-run"),
+  v.literal("unknown"),
+);
+
+const pluginEvidenceValidator = v.object({
+  id: v.string(),
+  kind: v.union(
+    v.literal("module"),
+    v.literal("member"),
+    v.literal("network"),
+    v.literal("dynamic"),
+    v.literal("scan"),
+  ),
+  reason: v.string(),
+});
+
+const pluginValidator = v.object({
+  source: v.union(v.literal("obsidian"), v.literal("context")),
+  folder: v.string(),
+  id: v.string(),
+  name: v.string(),
+  version: v.string(),
+  author: v.string(),
+  description: v.string(),
+  bundleFingerprint: v.union(v.string(), v.null()),
+  isDesktopOnly: v.boolean(),
+  manifestError: v.union(v.string(), v.null()),
+  verdict: pluginVerdictValidator,
+  evidence: v.array(pluginEvidenceValidator),
+  notes: v.array(v.string()),
+  limitations: v.array(v.string()),
+  hosts: v.array(v.string()),
+  reason: v.string(),
+  supported: v.array(v.string()),
+});
+
+const pluginInventoryValidator = v.object({
+  kind: v.literal("pluginInventory"),
+  available: v.boolean(),
+  reason: v.union(v.string(), v.null()),
+  plugins: v.array(pluginValidator),
+  counts: v.object({
+    runs: v.number(),
+    "needs-approval": v.number(),
+    "files-only": v.number(),
+    "wont-run": v.number(),
+    unknown: v.number(),
+  }),
+  found: v.number(),
+  scanned: v.number(),
+  truncated: v.boolean(),
+  checkedAt: v.string(),
+});
+
+const pluginSettingsValidator = v.object({
+  kind: v.literal("pluginSettings"),
+  json: v.string(),
+  etag: v.union(v.string(), v.null()),
+});
+
+const pluginManagedValidator = v.object({
+  kind: v.literal("pluginManaged"),
+  pluginId: v.string(),
+  version: v.string(),
+});
+
+const pluginBundleValidator = v.object({
+  kind: v.literal("pluginBundle"),
+  pluginId: v.string(),
+  version: v.string(),
+  bundleFingerprint: v.string(),
+  manifestJson: v.string(),
+  mainJs: v.string(),
+  stylesCss: v.union(v.string(), v.null()),
+});
+
+type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
+type PluginInventory = {
+  available: boolean;
+  reason: string | null;
+  plugins: Array<{
+    source: "obsidian" | "context";
+    folder: string;
+    id: string;
+    name: string;
+    version: string;
+    author: string;
+    description: string;
+    bundleFingerprint: string | null;
+    isDesktopOnly: boolean;
+    manifestError: string | null;
+    verdict: PluginVerdict;
+    evidence: Array<{
+      id: string;
+      kind: "module" | "member" | "network" | "dynamic" | "scan";
+      reason: string;
+    }>;
+    notes: string[];
+    limitations: string[];
+    hosts: string[];
+    reason: string;
+    supported: string[];
+  }>;
+  counts: Record<PluginVerdict, number>;
+  found: number;
+  scanned: number;
+  truncated: boolean;
+  checkedAt: string;
+};
 
 const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),
@@ -628,6 +744,10 @@ const operationResultValidator = v.union(
   privacyResetValidator,
   imageWrittenValidator,
   imageValidator,
+  pluginInventoryValidator,
+  pluginSettingsValidator,
+  pluginManagedValidator,
+  pluginBundleValidator,
   vaultImportResultValidator,
   vaultClearResultValidator,
   searchResultsValidator,
@@ -733,6 +853,47 @@ const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
+  v.object({ kind: v.literal("pluginInventory") }),
+  v.object({
+    kind: v.literal("pluginManagedInstall"),
+    pluginId: v.string(),
+    version: v.string(),
+    repository: v.string(),
+    manifestJson: v.string(),
+    mainJs: v.string(),
+    stylesCss: v.union(v.string(), v.null()),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedUninstall"),
+    pluginId: v.string(),
+    expectedVersion: v.string(),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedFence"),
+    pluginId: v.string(),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginBundleRead"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+  }),
+  v.object({
+    kind: v.literal("pluginRename"),
+    from: v.string(),
+    to: v.string(),
+    expectedEtag: v.string(),
+  }),
+  v.object({ kind: v.literal("pluginDelete"), path: v.string(), expectedEtag: v.string() }),
+  v.object({ kind: v.literal("pluginSettingsRead"), pluginId: v.string() }),
+  v.object({
+    kind: v.literal("pluginSettingsWrite"),
+    pluginId: v.string(),
+    json: v.string(),
+    expectedEtag: v.union(v.string(), v.null()),
+  }),
   v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
@@ -833,6 +994,29 @@ type FileOperation =
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
+  | { kind: "pluginInventory" }
+  | {
+      kind: "pluginManagedInstall";
+      pluginId: string;
+      version: string;
+      repository: string;
+      manifestJson: string;
+      mainJs: string;
+      stylesCss: string | null;
+      lifecycleGeneration: number;
+    }
+  | {
+      kind: "pluginManagedUninstall";
+      pluginId: string;
+      expectedVersion: string;
+      lifecycleGeneration: number;
+    }
+  | { kind: "pluginManagedFence"; pluginId: string; lifecycleGeneration: number }
+  | { kind: "pluginBundleRead"; pluginId: string; bundleFingerprint: string }
+  | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
+  | { kind: "pluginDelete"; path: string; expectedEtag: string }
+  | { kind: "pluginSettingsRead"; pluginId: string }
+  | { kind: "pluginSettingsWrite"; pluginId: string; json: string; expectedEtag: string | null }
   | {
       kind: "form";
       path: string;
@@ -856,6 +1040,18 @@ type FileOperation =
 type OperationResult =
   | ({ kind: "formApplied" } & FormResult)
   | ({ kind: "searchResults" } & SearchResults)
+  | ({ kind: "pluginInventory" } & PluginInventory)
+  | { kind: "pluginSettings"; json: string; etag: string | null }
+  | { kind: "pluginManaged"; pluginId: string; version: string }
+  | {
+      kind: "pluginBundle";
+      pluginId: string;
+      version: string;
+      bundleFingerprint: string;
+      manifestJson: string;
+      mainJs: string;
+      stylesCss: string | null;
+    }
   | { kind: "notePaths"; paths: string[] | null }
   | {
       kind: "indexMaintained";
@@ -955,6 +1151,56 @@ type OperationResult =
     }
   | { kind: "imageWritten"; key: string; etag: string }
   | { kind: "image"; bytes: ArrayBuffer };
+
+/** Product-owned shadow settings; `.obsidian/` remains read-only. */
+function pluginSettingsKey(pluginId: string): string {
+  if (
+    pluginId.length === 0 ||
+    pluginId.length > 300 ||
+    /[\u0000-\u001f\u007f]/.test(pluginId)
+  ) {
+    throw new FileOpError("PATH_INVALID", "That plugin id is not valid.");
+  }
+  return `.context/plugins/${encodeURIComponent(pluginId)}/data.json`;
+}
+
+function managedPluginSegment(value: string, label: string): string {
+  if (value.length === 0 || value.length > 300 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new FileOpError("PATH_INVALID", `That plugin ${label} is not valid.`);
+  }
+  return encodeURIComponent(value);
+}
+
+function managedPluginRoot(pluginId: string): string {
+  return `.context/plugins/${managedPluginSegment(pluginId, "id")}`;
+}
+
+function managedPointerGeneration(pointer: Record<string, unknown>): number {
+  const generation = pointer.lifecycleGeneration;
+  return Number.isSafeInteger(generation) && (generation as number) >= 0
+    ? generation as number
+    : 0;
+}
+
+async function putImmutablePluginObject(store: FileStore, key: string, text: string): Promise<void> {
+  const existing = await store.get(key);
+  if (existing) {
+    if (await existing.text() !== text) {
+      throw new FileOpError("CONFLICT", "That plugin release already exists with different bytes.");
+    }
+    return;
+  }
+  if (store.capabilities?.conditionalCreate !== true) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
+  }
+  const written = await store.put(key, text, { onlyIf: { absent: true } });
+  if (written === null) {
+    const raced = await store.get(key);
+    if (!raced || await raced.text() !== text) {
+      throw new FileOpError("CONFLICT", "That plugin release changed during installation.");
+    }
+  }
+}
 
 /* -------------------------------------------------------------------------- */
 /*                               authorization                                */
@@ -2232,6 +2478,229 @@ export async function executeOperation(
 ): Promise<OperationResult> {
   try {
     switch (operation.kind) {
+      case "pluginInventory": {
+        const inventory = await inventoryPlugins(store) as PluginInventory;
+        return { kind: "pluginInventory", ...inventory };
+      }
+      case "pluginManagedInstall": {
+        if (
+          store.capabilities?.conditionalWrite !== true ||
+          store.capabilities?.conditionalCreate !== true
+        ) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
+        }
+        const root = managedPluginRoot(operation.pluginId);
+        const release = `${root}/releases/${managedPluginSegment(operation.version, "version")}`;
+        await putImmutablePluginObject(store, `${release}/manifest.json`, operation.manifestJson);
+        await putImmutablePluginObject(store, `${release}/main.js`, operation.mainJs);
+        const existingStyles = await store.get(`${release}/styles.css`);
+        if (operation.stylesCss === null && existingStyles) {
+          throw new FileOpError("CONFLICT", "That plugin release has unexpected stylesheet bytes.");
+        }
+        if (operation.stylesCss !== null) {
+          await putImmutablePluginObject(store, `${release}/styles.css`, operation.stylesCss);
+        }
+        const pointerKey = `${root}/current.json`;
+        const existing = await store.get(pointerKey);
+        if (existing) {
+          try {
+            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
+            const currentGeneration = managedPointerGeneration(current);
+            if (currentGeneration > operation.lifecycleGeneration) {
+              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+            }
+            if (
+              current.state === "uninstalling" &&
+              currentGeneration === operation.lifecycleGeneration
+            ) {
+              throw new FileOpError("CONFLICT", "That plugin is currently being uninstalled.");
+            }
+          } catch (error) {
+            if (error instanceof FileOpError) throw error;
+          }
+        }
+        const pointer = JSON.stringify({
+          id: operation.pluginId,
+          version: operation.version,
+          repository: operation.repository,
+          lifecycleGeneration: operation.lifecycleGeneration,
+        });
+        const written = await store.put(pointerKey, pointer, {
+          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
+        });
+        if (written === null) {
+          throw new FileOpError("CONFLICT", "The installed plugin changed during installation.");
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.version };
+      }
+      case "pluginManagedUninstall": {
+        const root = managedPluginRoot(operation.pluginId);
+        const pointerKey = `${root}/current.json`;
+        const pointer = await store.get(pointerKey);
+        if (!pointer) throw new FileOpError("FILE_NOT_FOUND", "That managed plugin is not installed.");
+        let current: Record<string, unknown>;
+        try {
+          current = JSON.parse(await pointer.text()) as { id?: unknown; version?: unknown };
+        } catch {
+          throw new FileOpError("CONFLICT", "That managed plugin pointer is invalid.");
+        }
+        if (current.id !== operation.pluginId || current.version !== operation.expectedVersion) {
+          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
+        }
+        if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
+          throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+        }
+        if (store.capabilities?.conditionalDelete !== true) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely uninstall plugins.");
+        }
+        const deleted = await store.delete(pointerKey, { onlyIf: { etagMatches: pointer.etag } });
+        if (deleted === null) {
+          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.expectedVersion };
+      }
+      case "pluginManagedFence": {
+        if (
+          store.capabilities?.conditionalWrite !== true ||
+          store.capabilities?.conditionalCreate !== true
+        ) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely recover plugins.");
+        }
+        const pointerKey = `${managedPluginRoot(operation.pluginId)}/current.json`;
+        const existing = await store.get(pointerKey);
+        if (existing) {
+          try {
+            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
+            if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
+              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+            }
+          } catch (error) {
+            if (error instanceof FileOpError) throw error;
+          }
+        }
+        const fence = JSON.stringify({
+          id: operation.pluginId,
+          state: "recovering",
+          lifecycleGeneration: operation.lifecycleGeneration,
+        });
+        const written = await store.put(pointerKey, fence, {
+          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
+        });
+        if (written === null) {
+          const raced = await store.get(pointerKey);
+          if (!raced || await raced.text() !== fence) {
+            throw new FileOpError("CONFLICT", "Plugin recovery lost a concurrent storage change.");
+          }
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: "" };
+      }
+      case "pluginBundleRead": {
+        const inventory = await inventoryPlugins(store) as PluginInventory;
+        const plugin = inventory.plugins.find((entry) =>
+          entry.id === operation.pluginId && entry.bundleFingerprint === operation.bundleFingerprint
+        );
+        if (!plugin || !plugin.bundleFingerprint) {
+          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
+        }
+        const base = plugin.source === "context"
+          ? `${managedPluginRoot(plugin.id)}/releases/${managedPluginSegment(plugin.version, "version")}`
+          : `.obsidian/plugins/${plugin.folder}`;
+        const manifest = await store.get(`${base}/manifest.json`);
+        const main = await store.get(`${base}/main.js`);
+        if (!manifest || !main) {
+          throw new FileOpError("FILE_NOT_FOUND", "That plugin bundle is incomplete.");
+        }
+        const styles = await store.get(`${base}/styles.css`);
+        const styleIdentity = styles ? `present:${styles.etag}` : "absent";
+        const currentFingerprint = `v2:${[manifest.etag, main.etag, styleIdentity]
+          .map((etag) => encodeURIComponent(etag)).join(":")}`;
+        if (currentFingerprint !== operation.bundleFingerprint) {
+          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
+        }
+        const manifestJson = await manifest.text();
+        const mainJs = await main.text();
+        const stylesCss = styles ? await styles.text() : null;
+        if (manifestJson.length + mainJs.length + (stylesCss?.length ?? 0) > MAX_PLUGIN_BUNDLE_BYTES) {
+          throw new FileOpError("PLUGIN_TOO_LARGE", "That plugin bundle is too large to load.");
+        }
+        return {
+          kind: "pluginBundle",
+          pluginId: plugin.id,
+          version: plugin.version,
+          bundleFingerprint: operation.bundleFingerprint,
+          manifestJson,
+          mainJs,
+          stylesCss,
+        };
+      }
+      case "pluginSettingsRead": {
+        const object = await store.get(pluginSettingsKey(operation.pluginId));
+        if (!object) return { kind: "pluginSettings", json: "{}", etag: null };
+        return { kind: "pluginSettings", json: await object.text(), etag: object.etag };
+      }
+      case "pluginSettingsWrite": {
+        const key = pluginSettingsKey(operation.pluginId);
+        const existing = await store.get(key);
+        if (operation.expectedEtag === null ? existing !== null : existing?.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "Plugin settings changed while they were being edited.",
+            existing?.etag,
+          );
+        }
+        const onlyIf: { etagMatches?: string; absent?: true } = existing
+          ? { etagMatches: existing.etag }
+          : { absent: true as const };
+        const written = (existing || store.capabilities?.conditionalCreate === true)
+          ? await store.put(key, operation.json, { onlyIf })
+          : await store.put(key, operation.json);
+        if (written === null) {
+          const current = await store.get(key);
+          throw new FileOpError(
+            "CONFLICT",
+            "Plugin settings changed while they were being edited.",
+            current?.etag,
+          );
+        }
+        return { kind: "pluginSettings", json: operation.json, etag: written.etag };
+      }
+      case "pluginRename": {
+        const source = await store.get(operation.from);
+        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+        if (source.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while the plugin was using it.",
+            source.etag,
+          );
+        }
+        const moved = await movePath(store, {
+          from: operation.from,
+          to: operation.to,
+          scope,
+          now,
+          expectedEtag: operation.expectedEtag,
+        });
+        return { kind: "moved", ...moved };
+      }
+      case "pluginDelete": {
+        const source = await store.get(operation.path);
+        if (!source) throw new FileOpError("FILE_NOT_FOUND", "That file does not exist.");
+        if (source.etag !== operation.expectedEtag) {
+          throw new FileOpError(
+            "CONFLICT",
+            "That file changed somewhere else while the plugin was using it.",
+            source.etag,
+          );
+        }
+        const deleted = await deletePath(store, {
+          path: operation.path,
+          confirmation: DELETE_CONFIRMATION,
+          scope,
+          expectedEtag: operation.expectedEtag,
+        });
+        return { kind: "deleted", ...deleted };
+      }
       case "list": {
         const listing = await listFolder(store, { path: operation.path, scope });
         return { kind: "listing", ...listing };
@@ -2644,6 +3113,37 @@ export const listFiles = action({
       operation: { kind: "list", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "listing" }>;
+  },
+});
+
+/**
+ * Structured Obsidian plugin compatibility for the first-party console.
+ *
+ * Owner-only because `.obsidian/` is outside the privacy manifest: a member
+ * may read the notes their scope permits, but that says nothing about whether
+ * they may inventory another person's installed software or its settings.
+ * The credential barrier returns only manifest metadata and scan findings;
+ * bundle text and `data.json` never leave it.
+ */
+export const listObsidianPlugins = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: pluginInventoryValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "pluginInventory" },
+    });
+    return result as Extract<OperationResult, { kind: "pluginInventory" }>;
   },
 });
 

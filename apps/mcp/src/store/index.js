@@ -338,6 +338,7 @@ function errorMessage(error) {
  *   conditionalCreate: {
  *     declared: boolean,
  *     verified: boolean,
+ *     acceptsAbsent: boolean,
  *     rejectsExisting: boolean,
  *     mismatch: boolean,
  *     detail: string,
@@ -397,6 +398,7 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
     conditionalCreate: {
       declared: declaredCreate,
       verified: false,
+      acceptsAbsent: false,
       rejectsExisting: false,
       mismatch: false,
       detail: declaredCreate ? "not tested" : "not declared",
@@ -543,7 +545,23 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
     result.conditionalWrite.rejectsStale;
 
   if (declaredCreate) {
+    const createKey = `${keyPrefix}${crypto.randomUUID()}.create-probe`;
     try {
+      const createAbsent = await store.put(createKey, original, {
+        onlyIf: { absent: true },
+      });
+      const landed = await readProbe(store, createKey);
+      if (createAbsent?.etag && landed === original) {
+        result.conditionalCreate.acceptsAbsent = true;
+      } else if ((createAbsent === null || createAbsent === undefined) && landed === original) {
+        result.conditionalCreate.detail =
+          "create-only write landed but reported refusal";
+        result.errors.push("conditional create reports refusal after creating");
+      } else {
+        result.conditionalCreate.detail =
+          "create-only write did not create an absent object with a usable etag";
+        result.errors.push("conditional create does not create absent objects");
+      }
       const createExisting = await store.put(key, overwrite, {
         onlyIf: { absent: true },
       });
@@ -567,10 +585,13 @@ export async function probeStore(store, { keyPrefix = PROBE_PREFIX } = {}) {
       }
     } catch (error) {
       result.conditionalCreate.detail = `create-only write raised instead of returning null: ${errorMessage(error)}`;
-      result.errors.push("conditional create did not return null on an existing destination");
+      result.errors.push("conditional create probe raised");
+    } finally {
+      await cleanUpProbe(store, createKey, result);
     }
   }
-  result.conditionalCreate.verified = result.conditionalCreate.rejectsExisting;
+  result.conditionalCreate.verified =
+    result.conditionalCreate.acceptsAbsent && result.conditionalCreate.rejectsExisting;
   result.capabilities.conditionalCreate = result.conditionalCreate.verified;
   result.conditionalCreate.mismatch = declaredCreate && !result.conditionalCreate.verified;
 
