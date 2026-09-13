@@ -43,6 +43,25 @@ import {
 } from "./lib/d1";
 import { PROJECTION_CHAIN } from "./lib/fastSearch";
 
+/** How long a D1 database that has only just been created may take to answer. */
+const D1_SETTLE_MS = 2 * 60 * 1000;
+const D1_SETTLE_POLL_MS = 5 * 1000;
+
+/**
+ * D1 failures that will answer the same way however long we wait.
+ *
+ * `UNAUTHORIZED` is the interesting one, and it is terminal here for a reason
+ * that does not hold on the R2 paths: the token this opens is standing
+ * deployment configuration, not a key minted moments ago, so a refusal means a
+ * staffer has to fix something and waiting two minutes only delays telling
+ * them. `REFUSED` is Cloudflare rejecting the request itself — a malformed
+ * statement will not become well-formed.
+ *
+ * Everything else — `NOT_FOUND` for a database that is not routable yet,
+ * `RATE_LIMITED`, `UNAVAILABLE` — is a wait.
+ */
+const TERMINAL_D1_ERRORS = new Set(["UNAUTHORIZED", "REFUSED"]);
+
 /**
  * Read both halves of the credential, or `null` if either is missing.
  *
@@ -87,6 +106,13 @@ export const provisionIndex = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     generation: v.literal("premium-v1"),
+    /**
+     * Deadline for the current run of failures, set when one first happens.
+     *
+     * Absent on the first attempt, which is how a fresh schedule always gets a
+     * full window rather than inheriting a spent one.
+     */
+    retryUntil: v.optional(v.number()),
   },
   handler: async (ctx, args): Promise<{ status: string }> => {
     const binding = await ctx.runQuery(
@@ -182,6 +208,36 @@ export const provisionIndex = internalAction({
       return { status: "backfilling" };
     } catch (error) {
       const code = error instanceof D1Error ? error.code : "REFUSED";
+      /*
+        A DATABASE CREATED A MOMENT AGO IS NOT A DATABASE THAT IS BROKEN.
+
+        This used to record `failed` on the first error of any kind, and that
+        state is a dead end rather than a setback: `sweepStalledBackfills` only
+        picks up rows that reached `backfilling`, so a single 404 for a database
+        that was not routable yet — or one rate-limited request — parked fast
+        search until the owner happened to notice and toggle the switch. The
+        same shape, and the same fix, as the managed copy's settling window.
+
+        Nothing is written while retrying. The row keeps whatever it had, which
+        matters more here than it looks: a `databaseId` recorded before the
+        schema was applied is the only handle this system has on a live D1
+        database, and the screen keeps saying `Preparing`, which is true.
+      */
+      const deadline = args.retryUntil ?? Date.now() + D1_SETTLE_MS;
+      const remaining = deadline - Date.now();
+      if (!TERMINAL_D1_ERRORS.has(code) && remaining > 0) {
+        const delay = Math.min(D1_SETTLE_POLL_MS, remaining);
+        await ctx.scheduler.runAfter(
+          delay,
+          internal.functions.fastSearchProvision.provisionIndex,
+          {
+            workspaceId: args.workspaceId,
+            generation: args.generation,
+            retryUntil: deadline,
+          },
+        );
+        return { status: "provisioning" };
+      }
       await ctx.runMutation(internal.functions.fastSearch.recordProvisionResult, {
         workspaceId: args.workspaceId,
         generation: args.generation,

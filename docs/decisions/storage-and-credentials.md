@@ -518,7 +518,7 @@ protecting. Hence one value, read on its own, with "absent" and "malformed"
 kept as different answers: absent is a self-hoster and refuses nothing;
 malformed throws.
 
-### A managed bucket is ready only after its credential answers
+### A bucket is ready only after its credential answers
 
 Creating an R2 bucket and minting its scoped key do not make it immediately
 usable: Cloudflare documents R2 IAM changes as eventually consistent for up to
@@ -526,7 +526,21 @@ one minute. The first production journey proved the consequence by probing the
 new key 266 milliseconds after minting it, painting the connection red, and
 then succeeding when the owner tried again ninety seconds later.
 
-Managed provisioning therefore remains `running` after the binding row is
+**This is a fact about R2, not about one flow, and every path that mints an R2
+credential and then uses it waits on the same window** — the customer's own
+"create a bucket for me", managed provisioning, and the readiness gate in front
+of the managed copy. The window lives once, as `R2_CREDENTIAL_SETTLE_MS` in
+`functions/lib/cloudflare.ts`, next to the calls that do the minting; three
+copies of it would be three chances to fix the race in only two places, which
+is exactly how the migration path and the customer's own path each kept it
+after the first fix.
+
+It does **not** extend to a credential somebody pasted. That one is as old as
+they are, there is no propagation to wait for, and the common failure is a typo
+— so a refusal is an answer and `bindStorage` reports it immediately rather than
+making somebody watch a spinner for two minutes to be told they mistyped a key.
+
+Provisioning therefore remains `running` after the binding row is
 written, retries a failed probe every five seconds for up to two minutes, and
 turns `ready` only after the exact credential the gateway will use has listed
 and written to the bucket successfully. Failures inside that window stay
@@ -541,9 +555,21 @@ it. The recovery for older inconsistent rows is the idempotent managed retry,
 which adopts the deterministic bucket rather than creating another one.
 
 The tests that fail if this is reversed are the managed provisioning cases in
-`apps/convex/__tests__/managedProvisioning.test.ts`, the managed disconnect
-case in `apps/convex/__tests__/storage.test.ts`, and the two-minute waiting
-states in the Premium and onboarding render suites.
+`apps/convex/__tests__/managedProvisioning.test.ts`, the settling case in
+`apps/convex/__tests__/cloudflare.test.ts` for the customer's own bucket, the
+managed disconnect case in `apps/convex/__tests__/storage.test.ts`, and the
+two-minute waiting states in the Premium and onboarding render suites.
+
+The same shape, one layer over, for the search database: `provisionIndex`
+creates a D1 database and applies its schema in the next breath, and a database
+that is not routable yet is a wait rather than a failure. It retries on its own
+two-minute window and keeps `failed` for what will answer the same way forever —
+a refused operator token, which is standing configuration rather than a freshly
+minted key, and a refused statement. Recording `failed` on the first error was a
+dead end rather than a setback: `sweepStalledBackfills` only picks up rows that
+reached `backfilling`, so nothing recovered it and the only cure was the owner
+toggling the switch. The tests are the settling cases in
+`apps/convex/__tests__/fastSearch.test.ts`.
 
 ### Moving an existing context into the managed bucket
 

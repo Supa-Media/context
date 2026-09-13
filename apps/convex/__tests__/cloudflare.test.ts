@@ -702,6 +702,60 @@ describe("the pieces of the Cloudflare API this flow needs", () => {
 /*                               the whole flow                               */
 /* -------------------------------------------------------------------------- */
 
+describe("a bucket this flow just made is given time to settle", () => {
+  /*
+    THE SAME RACE THE MANAGED PATH HAD, ON THE PATH EVERYBODY ELSE TAKES.
+
+    `storage-and-credentials.md` records why a newly minted R2 credential is
+    not usable the instant Cloudflare's API returns it — IAM changes are
+    eventually consistent for up to a minute, and the first production journey
+    probed a new key 266ms after minting it and painted the connection red.
+
+    That waiting was given to managed provisioning and to the managed copy, and
+    not to this flow, which mints a bucket-scoped token exactly the same way in
+    the customer's own account. Without it, "create a bucket for me" reports a
+    broken connection whenever R2 takes a moment, and Re-verify then fixes it —
+    a race being shown to somebody as a fault.
+
+    Asserted at the mutation rather than by running the probe, for the reason
+    `fixtures.helpers.ts` gives about fixtures that race themselves: what is
+    wrong here is the argument this flow fails to send, `record()` already
+    proves what the argument does, and a test that let the retry chain run would
+    leave it firing into the next test's stub on convex-test's real timer.
+  */
+  test("binding the new bucket hands the probe a two-minute window", async () => {
+    const t: TestConvex = setupTest();
+    const owner = await createUser(t, "settling@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "settling");
+
+    await t.mutation(internal.functions.cloudflare.completeProvisioning, {
+      workspaceId,
+      actorUserId: owner,
+      endpoint: `https://${FAKE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+      bucket: BUCKET,
+      accessKeyId: MINTED_TOKEN_ID,
+      encryptedSecretAccessKey: await encryptSecret("fake-secret", requireKeyset(), {
+        workspaceId,
+      }),
+    });
+
+    const scheduled = await t.run((ctx) =>
+      ctx.db.system.query("_scheduled_functions").collect(),
+    );
+    const verification = scheduled.find((job) =>
+      job.name.includes("verifyStorageBinding"),
+    );
+    const args = (
+      verification?.args as Array<{ workspaceId: string; retryUntil?: number }> | undefined
+    )?.[0];
+    expect(args).toMatchObject({ workspaceId });
+    // The same window `completeManagedProvisioning` gives its own bucket. A
+    // one-shot probe here is the bug; any window shorter than the documented
+    // propagation time is the bug wearing a number.
+    expect(args?.retryUntil).toBeGreaterThan(Date.now() + 110_000);
+  });
+});
+
 describe("provisioning a bucket in the customer's account", () => {
   test("writes a binding that is exactly what a manual connect would have written", async () => {
     const { t, owner, workspaceId, cloudflare } = await provisioning();
