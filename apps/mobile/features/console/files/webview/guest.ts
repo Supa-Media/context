@@ -245,7 +245,7 @@ export function mountGuest(
   };
 
   /**
-   * Submissions in flight, by the token that will answer them.
+   * Submissions and votes in flight, by the token that will answer them.
    *
    * A map rather than a single pending promise because two forms on one note
    * are two widgets with two buttons, and somebody can press both. The entry
@@ -254,6 +254,10 @@ export function mountGuest(
    * nothing and changes nothing.
    */
   const pendingForms = new Map<string, (outcome: { ok: boolean; message: string }) => void>();
+  const pendingResponses = new Map<
+    string,
+    (outcome: { ok: boolean; text?: string; message: string }) => void
+  >();
   let formToken = 0;
 
   /**
@@ -267,6 +271,7 @@ export function mountGuest(
    * including the absent-capability one for exactly this reason.
    */
   const forms: FormHostRef = {
+    generation: 0,
     current: {
       submit: (submission) =>
         new Promise((resolve) => {
@@ -279,6 +284,35 @@ export function mountGuest(
             formId: submission.formId,
             values: submission.values.map((entry) => ({ ...entry })),
           });
+        }),
+      readResponses: (responsesPath) =>
+        new Promise((resolve) => {
+          const token = `r${++formToken}`;
+          pendingResponses.set(token, resolve);
+          bridge.post({
+            v: PROTOCOL_VERSION,
+            type: "form-responses",
+            token,
+            responsesPath,
+          });
+        }),
+      vote: (vote) =>
+        new Promise((resolve) => {
+          const token = `v${++formToken}`;
+          pendingForms.set(token, resolve);
+          bridge.post({ v: PROTOCOL_VERSION, type: "form-vote", token, ...vote });
+        }),
+      update: (change) =>
+        new Promise((resolve) => {
+          const token = `u${++formToken}`;
+          pendingForms.set(token, resolve);
+          bridge.post({ v: PROTOCOL_VERSION, type: "form-update", token, ...change });
+        }),
+      retract: (change) =>
+        new Promise((resolve) => {
+          const token = `d${++formToken}`;
+          pendingForms.set(token, resolve);
+          bridge.post({ v: PROTOCOL_VERSION, type: "form-retract", token, ...change });
         }),
     },
   };
@@ -347,6 +381,7 @@ export function mountGuest(
       case "doc": {
         if (echoes(message.text, latest)) return;
         latest = message.text;
+        forms.generation = (forms.generation ?? 0) + 1;
         // Not an edit, the one write a read-only note still accepts, and not an
         // entry in the undo history. All three live in `replaceDocument`.
         replaceDocument(view, message.text);
@@ -375,6 +410,12 @@ export function mountGuest(
         // again cannot be answered by this same entry.
         pendingForms.delete(message.token);
         settle?.({ ok: message.ok, message: message.message });
+        return;
+      }
+      case "form-responses-result": {
+        const settle = pendingResponses.get(message.token);
+        pendingResponses.delete(message.token);
+        settle?.({ ok: message.ok, text: message.text, message: message.message });
         return;
       }
       case "links": {

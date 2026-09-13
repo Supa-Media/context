@@ -26,7 +26,14 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { onBucketWrite } from "./bucketWrites";
 import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
-import type { FormOutcome, FormSubmission } from "./formBlock";
+import type {
+  FormOutcome,
+  FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
+  FormSubmission,
+  FormVote,
+} from "./formBlock";
 import type { NoteShare } from "./shares";
 import { shareUrl } from "./shares";
 import { stepsTo, type NoteScope } from "./scope";
@@ -182,6 +189,9 @@ export function useFileBrowser(options: {
   const notePathsAction = useAction(api.functions.files.notePaths);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
+  const voteFormAction = useAction(api.functions.forms.voteForm);
+  const updateSubmissionAction = useAction(api.functions.forms.updateSubmission);
+  const retractSubmissionAction = useAction(api.functions.forms.retractSubmission);
   const createDirectory = useAction(api.functions.files.createDirectory);
   const moveEntry = useAction(api.functions.files.moveEntry);
   const copyEntry = useAction(api.functions.files.copyEntry);
@@ -475,6 +485,70 @@ export function useFileBrowser(options: {
       return { text: settled.value.text, etag: settled.value.etag };
     },
     [readNote, workspaceId],
+  );
+
+  const readFormResponses = useCallback(
+    async (responsesPath: string): Promise<FormResponsesOutcome> => {
+      const note = await readRaw(responsesPath);
+      return note === null
+        ? { ok: false, message: "That response file is not available." }
+        : { ok: true, text: note.text, message: "" };
+    },
+    [readRaw],
+  );
+
+  const voteForm = useCallback(
+    async (vote: FormVote): Promise<FormOutcome> => {
+      if (workspaceId === null) return { ok: false, message: "No context is open." };
+      const path = selectedPathRef.current;
+      if (path === null) return { ok: false, message: "No note is open." };
+      try {
+        await voteFormAction({ workspaceId, path, ...vote });
+        return {
+          ok: true,
+          message: vote.vote === "up" ? "Vote added." : "Vote removed.",
+        };
+      } catch (error) {
+        return { ok: false, message: toFileError(error).message };
+      }
+    },
+    [voteFormAction, workspaceId],
+  );
+
+  const updateFormResponse = useCallback(
+    async (change: FormResponseUpdate): Promise<FormOutcome> => {
+      if (workspaceId === null) return { ok: false, message: "No context is open." };
+      const path = selectedPathRef.current;
+      if (path === null) return { ok: false, message: "No note is open." };
+      try {
+        await updateSubmissionAction({
+          workspaceId,
+          path,
+          formId: change.formId,
+          responseId: change.responseId,
+          values: change.values.map((entry) => ({ ...entry })),
+        });
+        return { ok: true, message: "Response updated." };
+      } catch (error) {
+        return { ok: false, message: toFileError(error).message };
+      }
+    },
+    [updateSubmissionAction, workspaceId],
+  );
+
+  const retractFormResponse = useCallback(
+    async (change: FormResponseRetract): Promise<FormOutcome> => {
+      if (workspaceId === null) return { ok: false, message: "No context is open." };
+      const path = selectedPathRef.current;
+      if (path === null) return { ok: false, message: "No note is open." };
+      try {
+        await retractSubmissionAction({ workspaceId, path, ...change });
+        return { ok: true, message: "Response deleted." };
+      } catch (error) {
+        return { ok: false, message: toFileError(error).message };
+      }
+    },
+    [retractSubmissionAction, workspaceId],
   );
 
   const conflict = useConflictReview({
@@ -2434,6 +2508,10 @@ export function useFileBrowser(options: {
     () => ({
       canEdit: options.canEdit,
       submitForm,
+      readFormResponses,
+      voteForm,
+      updateFormResponse,
+      retractFormResponse,
       readOnlyReason: options.readOnlyReason,
       contextId,
       loading,
@@ -2517,6 +2595,10 @@ export function useFileBrowser(options: {
     }),
     [
       submitForm,
+      readFormResponses,
+      voteForm,
+      updateFormResponse,
+      retractFormResponse,
       archive,
       busy,
       clipboard,

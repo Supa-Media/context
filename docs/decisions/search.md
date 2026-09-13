@@ -292,6 +292,21 @@ Four consequences, each load-bearing rather than tidy:
   falls back to the R2 index the instant `optedIn` goes false, so the delete
   finishing is bookkeeping and not the switch.
 
+  **The handle is the whole mechanism, so nothing may clear it but a generation
+  change.** `releaseIndex` reaches a database only through `binding.databaseId`;
+  without it, it forgets the row and reports success having deleted nothing —
+  which is the orphan above, reached by a different route. Two states on the
+  current generation hold a live database and both look discardable: a `failed`
+  row, which records `databaseId` *before* applying the schema precisely so a
+  schema failure knows what it created, and a `releasing` row, which exists for
+  no other purpose. So a re-opt-in keeps those coordinates and reuses the
+  database; only a row from the retired generation lets go, because those name a
+  database in an account we no longer address. `enable` and
+  `syncPremiumSelection` are the same decision reached from the owner's switch
+  and from billing, and they had better agree — they did not, and the billing
+  one cleared unconditionally, so any ordinary renewal webhook stranded the
+  database a failed context had already created.
+
 **Off is a working state, not a degraded one.** Either condition false means the
 R2 shard index serves the search exactly as it does today. That is what makes
 off-by-default shippable: the fast path is an upgrade, and its absence is the

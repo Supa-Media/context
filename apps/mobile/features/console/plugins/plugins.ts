@@ -94,6 +94,16 @@ export interface ConsolePlugin {
    * touch.
    */
   source: "obsidian" | "context";
+  /**
+   * The exact bytes this verdict was reached about: manifest, JavaScript and
+   * stylesheet together.
+   *
+   * `null` when the scan could not identify the bundle, and that absence is
+   * load-bearing rather than missing data. A grant is bound to a fingerprint —
+   * `approvePlugin` re-scans and refuses anything else — so an unidentified
+   * bundle is one nothing can be approved *for*. See `grants.ts`.
+   */
+  bundleFingerprint: string | null;
   name: string;
   version?: string;
   author?: string;
@@ -462,6 +472,7 @@ export function installPending(verdict: PluginVerdict): string | null {
 /** The action's row, exactly as `pluginInventoryValidator` returns it. */
 export interface InventoryRow {
   source: "obsidian" | "context";
+  bundleFingerprint: string | null;
   id: string;
   name: string;
   version: string;
@@ -485,16 +496,17 @@ export interface InventoryRow {
  * Doing it here keeps "absent is not empty" a property of one function instead
  * of a habit every renderer has to remember.
  *
- * `folder`, `supported`, `isDesktopOnly`, `reason` and `bundleFingerprint` are
- * deliberately not carried across yet: nothing on screen uses them, and a field
- * in a view type that nothing renders is a field somebody later renders without
- * deciding to. `bundleFingerprint` arrives with the grants work, where it is
- * the thing that makes an updated bundle return to review.
+ * `folder`, `supported`, `isDesktopOnly` and `reason` are deliberately not
+ * carried across: nothing on screen uses them, and a field in a view type that
+ * nothing renders is a field somebody later renders without deciding to.
+ * `bundleFingerprint` arrived with the grants work, exactly as that note said it
+ * would — it is the thing that makes an updated bundle return to review.
  */
 export function fromInventoryRow(row: InventoryRow): ConsolePlugin {
   return {
     id: row.id,
     source: row.source,
+    bundleFingerprint: row.bundleFingerprint,
     name: row.name,
     version: row.version === "" ? undefined : row.version,
     author: row.author === "" ? undefined : row.author,

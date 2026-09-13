@@ -55,6 +55,7 @@ function plugin(over: Partial<ConsolePlugin> & { verdict: PluginVerdict }): Cons
   return {
     id: over.id ?? `plugin-${over.verdict}`,
     source: "obsidian",
+    bundleFingerprint: `fp-${over.id ?? over.verdict}`,
     name: over.name ?? "A plugin",
     evidence: [],
     limitations: [],
@@ -300,6 +301,7 @@ describe("the notes that cannot be dropped from one surface and kept on another"
 describe("the gateway's row, narrowed", () => {
   const row = {
     source: "obsidian" as const,
+    bundleFingerprint: "fp-highlightr",
     id: "highlightr-plugin",
     name: "Highlightr",
     version: "1.2.2",
@@ -375,6 +377,7 @@ describe("where a plugin lives", () => {
     expect(
       fromInventoryRow({
         source: "context",
+        bundleFingerprint: "fp-x",
         id: "x",
         name: "X",
         version: "",

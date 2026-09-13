@@ -54,6 +54,7 @@ const FORM = [
   "layout: table",
   "submit: member",
   "edit_own: true",
+  "show_responses: true",
   "votes: named",
   "fields:",
   "  - { name: summary, type: line, max: 120, required: true }",
@@ -284,6 +285,156 @@ describe("the drawn form", () => {
     expect(dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.disabled).toBe(true);
     expect(dom.textContent).toContain("can’t send responses");
   });
+
+  test("draws a readable response file underneath the form", async () => {
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({
+        ok: true,
+        message: "",
+        text: [
+          "<!-- context:form responses id=bugs layout=table -->",
+          "",
+          "| Id | By | At | summary | detail | area | Votes |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
+          "| r-1234abcd | @alex | 2026-09-13T03:20Z | Search is slow | | app | @sam |",
+        ].join("\n"),
+      }),
+      vote: async () => ({ ok: true, message: "Vote added." }),
+      update: async () => ({ ok: true, message: "Updated." }),
+      retract: async () => ({ ok: true, message: "Deleted." }),
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const responses = dom.querySelector(".cm-lp-form-responses");
+    expect(responses?.textContent).toContain("Search is slow");
+    expect(responses?.textContent).toContain("@alex");
+    expect(responses?.textContent).toContain("@sam");
+    expect(responses?.querySelectorAll("button")).toHaveLength(4);
+  });
+
+  test("does not claim private responses are empty", async () => {
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({ ok: false, message: "not found" }),
+      vote: async () => ({ ok: false, message: "not found" }),
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dom.querySelector(".cm-lp-form-responses")).toBeNull();
+    expect(dom.textContent).not.toContain("No responses");
+  });
+
+  test("does not read responses unless the form explicitly shows them", async () => {
+    let reads = 0;
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => {
+        reads++;
+        return { ok: true, text: "", message: "" };
+      },
+    };
+    const hidden = FORM.replace("show_responses: true\n", "");
+    const state = stateFor(hidden, { host });
+    const dom = new FormWidget(formFences(state)[0], { current: host }).toDOM();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(reads).toBe(0);
+    expect(dom.querySelector(".cm-lp-form-responses")).toBeNull();
+  });
+
+  test("casts a vote and refreshes the visible voters", async () => {
+    let voters = "—";
+    const votes: unknown[] = [];
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({
+        ok: true,
+        message: "",
+        text: [
+          "<!-- context:form responses id=bugs layout=table -->",
+          "",
+          "| Id | By | At | summary | detail | area | Votes |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
+          `| r-1234abcd | @alex | 2026-09-13T03:20Z | Search is slow | | app | ${voters} |`,
+        ].join("\n"),
+      }),
+      vote: async (vote) => {
+        votes.push(vote);
+        voters = "@seyi";
+        return { ok: true, message: "Vote added." };
+      },
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    dom.querySelector<HTMLButtonElement>(".cm-lp-form-vote")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(votes).toEqual([{ formId: "bugs", responseId: "r-1234abcd", vote: "up" }]);
+    expect(dom.querySelector(".cm-lp-form-voters")?.textContent).toBe("@seyi");
+  });
+
+  test("edits and deletes a response from the response row", async () => {
+    let title = "Search is slow";
+    let deleted = false;
+    const updates: unknown[] = [];
+    const retractions: unknown[] = [];
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({
+        ok: true,
+        message: "",
+        text: [
+          "<!-- context:form responses id=bugs layout=table -->",
+          "",
+          "| Id | By | At | summary | detail | area | Votes |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
+          ...(deleted
+            ? []
+            : [`| r-1234abcd | @seyi | 2026-09-13T03:20Z | ${title} | | app | — |`]),
+        ].join("\n"),
+      }),
+      update: async (change) => {
+        updates.push(change);
+        title = change.values.find((entry) => entry.field === "summary")?.value ?? title;
+        return { ok: true, message: "Updated." };
+      },
+      retract: async (change) => {
+        retractions.push(change);
+        deleted = true;
+        return { ok: true, message: "Deleted." };
+      },
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    dom.querySelector<HTMLButtonElement>(".cm-lp-form-edit")?.click();
+    const summary = dom.querySelector<HTMLInputElement>("#cm-form-bugs-summary")!;
+    expect(summary.value).toBe("Search is slow");
+    summary.value = "Search is fast";
+    dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(updates).toEqual([
+      expect.objectContaining({ formId: "bugs", responseId: "r-1234abcd" }),
+    ]);
+    expect(dom.querySelector(".cm-lp-form-responses")?.textContent).toContain("Search is fast");
+
+    const remove = dom.querySelector<HTMLButtonElement>(".cm-lp-form-delete")!;
+    remove.click();
+    expect(remove.textContent).toBe("Confirm delete");
+    remove.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(retractions).toEqual([{ formId: "bugs", responseId: "r-1234abcd" }]);
+    expect(dom.querySelector(".cm-lp-form-responses")?.textContent).toContain("No responses yet");
+  });
 });
 
 describe("submitting", () => {
@@ -423,6 +574,13 @@ describe("the widget is kept across an edit elsewhere", () => {
     const before = formFences(stateFor(FORM))[0];
     const after = formFences(stateFor(FORM.replace("max: 120", "max: 200")))[0];
     expect(new FormWidget(before, null).eq(new FormWidget(after, null))).toBe(false);
+  });
+
+  test("the same form source in a different note does not keep old responses", () => {
+    const fence = formFences(stateFor(FORM))[0];
+    const first = new FormWidget(fence, { current: null, generation: 1 });
+    const second = new FormWidget(fence, { current: null, generation: 2 });
+    expect(first.eq(second)).toBe(false);
   });
 });
 

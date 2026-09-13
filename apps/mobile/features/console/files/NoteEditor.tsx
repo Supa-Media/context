@@ -17,7 +17,14 @@ import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
-import type { FormOutcome, FormSubmission } from "./formBlock";
+import type {
+  FormOutcome,
+  FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
+  FormSubmission,
+  FormVote,
+} from "./formBlock";
 import { NoteAccessory } from "./NoteAccessory";
 import type { Visibility } from "./types";
 
@@ -108,6 +115,10 @@ export function NoteEditor({
   onOpenLink,
   notePaths,
   onSubmitForm,
+  onReadFormResponses,
+  onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
   encryption,
 }: {
   state: EditorState;
@@ -134,6 +145,12 @@ export function NoteEditor({
    * write they get".
    */
   onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
+  /** Read a form's response note through the same access check as opening it. */
+  onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+  /** Add or remove the signed-in person's vote on one response. */
+  onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
+  onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
@@ -555,6 +572,10 @@ export function NoteEditor({
             onOpenNote={onOpenLink === undefined ? undefined : (path) => onOpenLink(path)}
             onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
             onSubmitForm={onSubmitForm}
+            onReadFormResponses={onReadFormResponses}
+            onVoteForm={onVoteForm}
+            onUpdateFormResponse={onUpdateFormResponse}
+            onRetractFormResponse={onRetractFormResponse}
           />
           {pressed === null || onOpenLink === undefined ? null : (
             <Confirm

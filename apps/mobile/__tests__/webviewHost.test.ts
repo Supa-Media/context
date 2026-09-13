@@ -197,6 +197,127 @@ describe("the ready handshake", () => {
   });
 });
 
+describe("form response messages", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("reads a declared response note and returns its text", async () => {
+    const sent: string[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onReadFormResponses: async (path) => ({ ok: true, text: `read ${path}`, message: "" }),
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-responses",
+        token: "r1",
+        responsesPath: "bugs-responses.md",
+      }),
+    );
+    await settle();
+
+    expect(JSON.parse(sent[0]!)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "form-responses-result",
+      token: "r1",
+      ok: true,
+      text: "read bugs-responses.md",
+      message: "",
+    });
+  });
+
+  test("routes a named vote through the form action", async () => {
+    const sent: string[] = [];
+    const votes: unknown[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onVoteForm: async (vote) => {
+        votes.push(vote);
+        return { ok: true, message: "Vote added." };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-vote",
+        token: "v1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        vote: "up",
+      }),
+    );
+    await settle();
+
+    expect(votes).toEqual([{ formId: "bugs", responseId: "r-1234abcd", vote: "up" }]);
+    expect(JSON.parse(sent[0]!)).toMatchObject({
+      type: "form-result",
+      token: "v1",
+      ok: true,
+    });
+  });
+
+  test("routes response updates and retractions through their form actions", async () => {
+    const sent: string[] = [];
+    const changes: unknown[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onUpdateFormResponse: async (change) => {
+        changes.push(change);
+        return { ok: true, message: "Updated." };
+      },
+      onRetractFormResponse: async (change) => {
+        changes.push(change);
+        return { ok: true, message: "Deleted." };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-update",
+        token: "u1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        values: [{ field: "summary", value: "Fixed" }],
+      }),
+    );
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-retract",
+        token: "d1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+      }),
+    );
+    await settle();
+
+    expect(changes).toEqual([
+      {
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        values: [{ field: "summary", value: "Fixed" }],
+      },
+      { formId: "bugs", responseId: "r-1234abcd" },
+    ]);
+    expect(sent.map((raw) => JSON.parse(raw))).toEqual([
+      expect.objectContaining({ type: "form-result", token: "u1", ok: true }),
+      expect.objectContaining({ type: "form-result", token: "d1", ok: true }),
+    ]);
+  });
+});
+
 describe("how much of the note the keyboard is covering", () => {
   /**
    * Measured as an overlap rather than taken as the keyboard's height, so it is

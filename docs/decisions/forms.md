@@ -259,9 +259,25 @@ somebody who has never seen one cannot complete their way in one key at a time.
 ## What is deliberately not built
 
 - **A form builder screen.** Explicitly rejected: the file is what people edit.
-- **Reading the responses in the console.** The sister file is an ordinary note
-  and opens like one. A drawn table of responses under the form is the obvious
-  next thing and is not built, because it is a *read* of a file whose visibility
-  is `privacy.md`'s to answer, and the widget would have to learn that question.
 - **Notifications on submission**, response export, closing a form to new
   responses, and per-field conditional logic. None are foreclosed.
+
+## Response display is explicit, and privacy still decides
+
+`show_responses: true` asks the console to draw responses under the submit
+button. It defaults to false, so forms such as private bug-report intake do not
+show a response table even to somebody who can separately open the triage note.
+The flag is presentation, not access control: the console still reads the
+sister file through the ordinary note-read path, and draws nothing when
+`privacy.md` refuses the viewer. A successful submission, edit, deletion, or
+vote reloads that file. An unreadable response file never appears as empty,
+because that would turn a refusal into a claim about its contents.
+
+The widget parses the response file with `parseResponsesFile`; it does not parse
+the Markdown table a second way. The native editor asks its host over the
+versioned WebView protocol, and the host runs the same Convex `readNote` and
+form actions as the web console. A WebView may name a response path only for a
+read, and the server still applies the caller's note visibility before
+returning a byte. Edit and Delete controls use `updateSubmission` and
+`retractSubmission`; the server remains the authority on ownership and editor
+rights.

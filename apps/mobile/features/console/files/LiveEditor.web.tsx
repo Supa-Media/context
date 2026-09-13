@@ -50,7 +50,15 @@ import {
   type HandlerRef,
 } from "./editorSetup";
 import type { NoteLinkContext } from "./noteLinks";
-import type { FormHostContext, FormOutcome, FormSubmission } from "./formBlock";
+import type {
+  FormOutcome,
+  FormHostRef,
+  FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
+  FormSubmission,
+  FormVote,
+} from "./formBlock";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
 
@@ -161,6 +169,10 @@ export interface LiveEditorProps {
    * button that does nothing.
    */
   onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
+  onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+  onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
+  onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
 }
 
 /**
@@ -318,6 +330,10 @@ export function LiveEditor({
   notePath,
   notePaths,
   onSubmitForm,
+  onReadFormResponses,
+  onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -353,9 +369,23 @@ export function LiveEditor({
     handler at press time is what makes "submit this form" mean the form in
     front of you.
   */
-  const forms = useRef<FormHostContext | null>(null);
+  const forms = useRef<FormHostRef>({ current: null, generation: 0 }).current;
   forms.current =
-    onSubmitForm === undefined ? null : { submit: (submission) => onSubmitForm(submission) };
+    onSubmitForm === undefined
+      ? null
+      : {
+          submit: (submission) => onSubmitForm(submission),
+          ...(onReadFormResponses === undefined
+            ? {}
+            : { readResponses: (path: string) => onReadFormResponses(path) }),
+          ...(onVoteForm === undefined ? {} : { vote: (next: FormVote) => onVoteForm(next) }),
+          ...(onUpdateFormResponse === undefined
+            ? {}
+            : { update: (change: FormResponseUpdate) => onUpdateFormResponse(change) }),
+          ...(onRetractFormResponse === undefined
+            ? {}
+            : { retract: (change: FormResponseRetract) => onRetractFormResponse(change) }),
+        };
 
   /**
    * The note's colours, kept in step with the app's.
@@ -476,6 +506,7 @@ export function LiveEditor({
 
     view.current = created;
     latestValue.current = value;
+    forms.generation = (forms.generation ?? 0) + 1;
 
     /*
       The imperative handle, built against `created` rather than `view.current`

@@ -31,6 +31,9 @@ jest.mock("react-native-safe-area-context", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
+import type { GrantsView } from "../features/console/plugins/grants";
+import type { BrowseView } from "../features/console/plugins/lifecycle";
+import type { RuntimeView } from "../features/console/plugins/runtime";
 import {
   SCOPE_NOTE,
   type ConsolePlugin,
@@ -44,7 +47,17 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function panel(view: PluginsView): HTMLElement {
+/*
+  No grants and no actions by default: this file is about the inventory, and a
+  grant view carrying controls would put an Approve button into every assertion
+  about wording. `pluginGrants.test.ts` drives the other half.
+*/
+function panel(
+  view: PluginsView,
+  grants: GrantsView = { grants: [], loading: false },
+  browse: BrowseView = { query: "", searching: false, failure: null },
+  runtime: RuntimeView = { states: [], loading: false },
+): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -53,7 +66,7 @@ function panel(view: PluginsView): HTMLElement {
     container.remove();
   });
   act(() => {
-    root.render(createElement(PluginsPanel, { view }));
+    root.render(createElement(PluginsPanel, { view, grants, browse, runtime }));
   });
   return container;
 }
@@ -62,6 +75,7 @@ function plugin(over: Partial<ConsolePlugin> & { verdict: PluginVerdict }): Cons
   return {
     id: over.id ?? `plugin-${over.verdict}`,
     source: "obsidian",
+    bundleFingerprint: `fp-${over.id ?? over.verdict}`,
     name: over.name ?? "A plugin",
     evidence: [],
     limitations: [],

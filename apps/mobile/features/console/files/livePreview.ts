@@ -769,13 +769,15 @@ function decodeEntity(source: string): string | null {
   const code =
     digits[0].toLowerCase() === "x" ? Number.parseInt(digits.slice(1), 16) : Number.parseInt(digits, 10);
   if (!Number.isInteger(code) || code <= 0 || code > 0x10ffff) return null;
-  try {
-    return String.fromCodePoint(code);
-  } catch {
-    // A lone surrogate. Drawn as what the author typed, like any other tag
-    // this pass does not understand.
-    return null;
-  }
+  /*
+    Surrogates are refused explicitly rather than left to throw, because
+    `String.fromCodePoint` does **not** throw for a lone one — it happily
+    returns an unpaired code unit. Drawing `&#xD800;` as itself is the same
+    answer this function gives every entity it does not understand, and is
+    better than putting a half character into the DOM.
+  */
+  if (code >= 0xd800 && code <= 0xdfff) return null;
+  return String.fromCodePoint(code);
 }
 
 /** The one HTML tag a cell may contain that means something here. */
@@ -2393,6 +2395,67 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-status-bad { color: var(--lp-content); font-weight: 600; }
 .cm-lp-form-status-quiet { opacity: 0.75; }
+/*
+  The sister file's rows, as the card's fourth band.
+
+  Its own padding and no margin, because the card is now edge-to-edge bands
+  separated by rules (see .cm-lp-form) rather than one padded box — a margin
+  here would inset the rule and leave the rows flush against the border. The
+  title takes the same small upper-case voice as a field label, so the two
+  headings inside one card agree.
+*/
+.cm-lp-form-responses {
+  border-top: 1px solid var(--lp-line);
+  padding: 14px;
+}
+.cm-lp-form-responses-title {
+  font-weight: 600;
+  font-size: 0.76em;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+  margin-bottom: 8px;
+}
+.cm-lp-form-responses-status { color: var(--lp-muted); font-size: 0.88em; }
+.cm-lp-form-responses-scroll { overflow-x: auto; }
+.cm-lp-form-responses-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.cm-lp-form-responses-table th,
+.cm-lp-form-responses-table td {
+  border-bottom: 1px solid var(--lp-line);
+  padding: 8px 10px 8px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.cm-lp-form-responses-table th { color: var(--lp-muted); font-size: 0.88em; font-weight: 600; }
+.cm-lp-form-voters { color: var(--lp-muted); white-space: nowrap; }
+.cm-lp-form-vote-controls { display: flex; gap: 6px; margin-top: 6px; white-space: nowrap; }
+.cm-lp-form-response-controls { display: flex; gap: 6px; white-space: nowrap; }
+.cm-lp-form-vote {
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: var(--lp-link);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-lp-form-vote:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-vote-remove { color: var(--lp-muted); }
+.cm-lp-form-response-action {
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: var(--lp-link);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-lp-form-response-action:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-delete { color: var(--lp-muted); }
 /*
   "We can't display because the formatting is off", which is what the owner
   asked for. Dashed rather than solid so it reads as a gap in the note that

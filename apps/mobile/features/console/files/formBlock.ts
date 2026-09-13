@@ -47,6 +47,7 @@ import type { SyntaxNode } from "@lezer/common";
 import {
   FORM_FENCE_LANG,
   parseFormBlocks,
+  parseResponsesFile,
   validateSubmission,
 } from "../../../../mcp/src/forms.js";
 
@@ -73,6 +74,7 @@ export interface FormConfig {
   readonly layout: "table" | "sections";
   readonly submit: "member" | "editor" | "owner";
   readonly edit_own: boolean;
+  readonly show_responses: boolean;
   readonly votes: "named" | "off";
   readonly fields: readonly FormField[];
 }
@@ -81,6 +83,14 @@ interface ParsedBlock {
   config?: FormConfig;
   error?: string;
   line: number;
+}
+
+interface ParsedResponse {
+  readonly id: string;
+  readonly by: string;
+  readonly at: string;
+  readonly values: Readonly<Record<string, string>>;
+  readonly votes: readonly string[];
 }
 
 /**
@@ -123,6 +133,29 @@ export interface FormOutcome {
   readonly message: string;
 }
 
+export interface FormResponsesOutcome {
+  readonly ok: boolean;
+  readonly text?: string;
+  readonly message: string;
+}
+
+export interface FormVote {
+  readonly formId: string;
+  readonly responseId: string;
+  readonly vote: "up" | "none";
+}
+
+export interface FormResponseUpdate {
+  readonly formId: string;
+  readonly responseId: string;
+  readonly values: ReadonlyArray<{ field: string; value: string }>;
+}
+
+export interface FormResponseRetract {
+  readonly formId: string;
+  readonly responseId: string;
+}
+
 /**
  * The host's half: how a submission leaves this editor.
  *
@@ -136,10 +169,20 @@ export interface FormOutcome {
 export interface FormHostContext {
   /** Send one submission. Never called with values that fail validation here. */
   submit(submission: FormSubmission): Promise<FormOutcome>;
+  /** Read the declared sister file. A refusal reveals nothing about its existence. */
+  readResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+  /** Add or remove the signed-in person's named vote. */
+  vote?: (vote: FormVote) => Promise<FormOutcome>;
+  /** Replace the answers on a response, subject to the server's ownership check. */
+  update?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  /** Delete a response, subject to the server's ownership check. */
+  retract?: (change: FormResponseRetract) => Promise<FormOutcome>;
 }
 
 export interface FormHostRef {
   current: FormHostContext | null;
+  /** Incremented when the editor replaces one note with another document. */
+  generation?: number;
 }
 
 export const formHost = Facet.define<FormHostRef, FormHostRef | null>({
@@ -297,11 +340,14 @@ function el<K extends keyof HTMLElementTagNameMap>(
  * inside it never moves the caret out from under the person typing.
  */
 export class FormWidget extends WidgetType {
+  private readonly hostGeneration: number;
+
   constructor(
     private readonly fence: FormFence,
     private readonly host: FormHostRef | null,
   ) {
     super();
+    this.hostGeneration = host?.generation ?? 0;
   }
 
   /*
@@ -313,7 +359,10 @@ export class FormWidget extends WidgetType {
     that reached the document.
   */
   eq(other: FormWidget): boolean {
-    return other.fence.source === this.fence.source;
+    return (
+      other.fence.source === this.fence.source &&
+      other.hostGeneration === this.hostGeneration
+    );
   }
 
   toDOM(): HTMLElement {
@@ -366,19 +415,41 @@ export class FormWidget extends WidgetType {
     foot.append(button, status);
     wrap.append(foot);
 
-    if (this.host === null) {
-      button.disabled = true;
-      status.textContent = "This preview can’t send responses.";
-      status.classList.add("cm-lp-form-status-quiet");
-      return wrap;
-    }
-
     const say = (message: string, kind: "ok" | "bad" | "quiet"): void => {
       status.textContent = message;
       status.classList.toggle("cm-lp-form-status-ok", kind === "ok");
       status.classList.toggle("cm-lp-form-status-bad", kind === "bad");
       status.classList.toggle("cm-lp-form-status-quiet", kind === "quiet");
     };
+
+    let editingId: string | null = null;
+    const edit = (response: ParsedResponse): void => {
+      editingId = response.id;
+      for (const field of config.fields) {
+        const input = inputs.get(field.name);
+        if (input === undefined) continue;
+        const value = response.values[field.name] ?? "";
+        if (input instanceof HTMLInputElement && input.type === "checkbox") {
+          input.checked = value === "true";
+        } else {
+          input.value = value;
+          input.dispatchEvent(new Event("input"));
+        }
+        input.disabled = false;
+      }
+      button.disabled = false;
+      button.textContent = "Save changes";
+      say("Editing your response.", "quiet");
+      inputs.values().next().value?.focus();
+    };
+
+    const reloadResponses = this.drawResponses(wrap, config, edit);
+
+    if (this.host === null) {
+      button.disabled = true;
+      say("This preview can’t send responses.", "quiet");
+      return wrap;
+    }
 
     button.addEventListener("click", () => {
       const host = this.host?.current ?? null;
@@ -404,16 +475,23 @@ export class FormWidget extends WidgetType {
         return;
       }
 
+      const responseId = editingId;
+      const operation =
+        responseId === null
+          ? host.submit({ formId: config.id, values })
+          : host.update?.({ formId: config.id, responseId, values }) ??
+            Promise.resolve({ ok: false, message: "Editing is unavailable here." });
       button.disabled = true;
-      say("Sending…", "quiet");
-      host
-        .submit({ formId: config.id, values })
+      say(responseId === null ? "Sending…" : "Saving…", "quiet");
+      operation
         .then((outcome) => {
           say(outcome.message, outcome.ok ? "ok" : "bad");
           if (!outcome.ok) {
             button.disabled = false;
             return;
           }
+          editingId = null;
+          button.textContent = "Submit";
           /*
             The boxes are cleared and the button stays off after a success. A
             form that comes back ready to send again invites the double-press
@@ -428,6 +506,7 @@ export class FormWidget extends WidgetType {
             }
             input.disabled = true;
           }
+          void reloadResponses();
         })
         .catch((error: unknown) => {
           button.disabled = false;
@@ -463,6 +542,192 @@ export class FormWidget extends WidgetType {
     dest.append(el("span", "cm-lp-form-dest-path", config.responses));
     head.append(dest);
     return head;
+  }
+
+  /**
+   * Draw the sister response file only when an ordinary note read succeeds.
+   *
+   * A missing section does not mean "no responses". It means this viewer
+   * cannot read the response note, whether because it is private, missing, or
+   * offline. Those cases stay deliberately indistinguishable. Once the read
+   * succeeds, the shared parser decides whether the file is valid and every
+   * submitted string reaches the DOM through textContent.
+   */
+  private drawResponses(
+    wrap: HTMLElement,
+    config: FormConfig,
+    edit: (response: ParsedResponse) => void,
+  ): () => Promise<void> {
+    if (!config.show_responses) return async () => {};
+    const section = el("div", "cm-lp-form-responses");
+    const host = this.host;
+    let generation = 0;
+    const read = async (): Promise<void> => {
+      const request = ++generation;
+      const current = host?.current ?? null;
+      if (current?.readResponses === undefined) {
+        section.remove();
+        return;
+      }
+      let outcome: FormResponsesOutcome;
+      try {
+        outcome = await current.readResponses(config.responses);
+      } catch {
+        if (request === generation) section.remove();
+        return;
+      }
+      if (request !== generation) return;
+      if (!outcome.ok || outcome.text === undefined) {
+        section.remove();
+        return;
+      }
+      const parsed = parseResponsesFile(outcome.text, config) as {
+        responses?: ParsedResponse[];
+        error?: string;
+      };
+      section.replaceChildren(el("div", "cm-lp-form-responses-title", "Responses"));
+      if (parsed.error !== undefined || parsed.responses === undefined) {
+        section.append(
+          el(
+            "div",
+            "cm-lp-form-responses-status",
+            `Responses can’t be displayed: ${parsed.error ?? "the response file is unreadable"}.`,
+          ),
+        );
+        return;
+      }
+      if (parsed.responses.length === 0) {
+        section.append(el("div", "cm-lp-form-responses-status", "No responses yet."));
+        return;
+      }
+      section.append(this.responsesTable(config, parsed.responses, read, edit));
+    };
+
+    if (host?.current?.readResponses !== undefined) {
+      section.append(el("div", "cm-lp-form-responses-status", "Loading responses…"));
+      wrap.append(section);
+      void read();
+    }
+    return read;
+  }
+
+  private responsesTable(
+    config: FormConfig,
+    responses: readonly ParsedResponse[],
+    reload: () => Promise<void>,
+    edit: (response: ParsedResponse) => void,
+  ): HTMLDivElement {
+    const scroll = el("div", "cm-lp-form-responses-scroll");
+    const table = document.createElement("table");
+    table.className = "cm-lp-form-responses-table";
+    const head = document.createElement("thead");
+    const headings = document.createElement("tr");
+    for (const label of [
+      ...config.fields.map((field) => field.name.replace(/_/g, " ")),
+      "By",
+      "At",
+    ]) {
+      headings.append(el("th", "", label));
+    }
+    if (config.votes === "named") headings.append(el("th", "", "Votes"));
+    if (config.edit_own) headings.append(el("th", "", "Actions"));
+    head.append(headings);
+    table.append(head);
+
+    const body = document.createElement("tbody");
+    for (const response of responses) {
+      const row = document.createElement("tr");
+      for (const field of config.fields) {
+        row.append(el("td", "", response.values[field.name] ?? ""));
+      }
+      row.append(el("td", "", response.by), el("td", "", response.at));
+      if (config.votes === "named") {
+        const cell = document.createElement("td");
+        const voters = el(
+          "div",
+          "cm-lp-form-voters",
+          response.votes.length === 0 ? "No votes" : response.votes.join(", "),
+        );
+        cell.append(voters);
+        const vote = this.host?.current?.vote;
+        if (vote !== undefined) {
+          const controls = el("div", "cm-lp-form-vote-controls");
+          const add = el("button", "cm-lp-form-vote", "Upvote");
+          const remove = el(
+            "button",
+            "cm-lp-form-vote cm-lp-form-vote-remove",
+            "Remove vote",
+          );
+          add.type = remove.type = "button";
+          const run = async (next: "up" | "none"): Promise<void> => {
+            add.disabled = remove.disabled = true;
+            const outcome = await (this.host?.current?.vote?.({
+              formId: config.id,
+              responseId: response.id,
+              vote: next,
+            }) ?? Promise.resolve({ ok: false, message: "Voting is unavailable." }));
+            if (outcome.ok) await reload();
+            else {
+              voters.textContent = outcome.message;
+              add.disabled = remove.disabled = false;
+            }
+          };
+          add.addEventListener("click", () => void run("up"));
+          remove.addEventListener("click", () => void run("none"));
+          controls.append(add, remove);
+          cell.append(controls);
+        }
+        row.append(cell);
+      }
+      if (config.edit_own) {
+        const cell = document.createElement("td");
+        const controls = el("div", "cm-lp-form-response-controls");
+        if (this.host?.current?.update !== undefined) {
+          const change = el("button", "cm-lp-form-response-action cm-lp-form-edit", "Edit");
+          change.type = "button";
+          change.addEventListener("click", () => edit(response));
+          controls.append(change);
+        }
+        const retract = this.host?.current?.retract;
+        if (retract !== undefined) {
+          const remove = el(
+            "button",
+            "cm-lp-form-response-action cm-lp-form-delete",
+            "Delete",
+          );
+          remove.type = "button";
+          let confirmed = false;
+          remove.addEventListener("click", () => {
+            if (!confirmed) {
+              confirmed = true;
+              remove.textContent = "Confirm delete";
+              return;
+            }
+            remove.disabled = true;
+            void retract({ formId: config.id, responseId: response.id })
+              .then((outcome) => {
+                if (outcome.ok) void reload();
+                else {
+                  remove.disabled = false;
+                  remove.textContent = outcome.message;
+                }
+              })
+              .catch((error: unknown) => {
+                remove.disabled = false;
+                remove.textContent =
+                  error instanceof Error ? error.message : "That response wasn’t deleted.";
+              });
+          });
+          controls.append(remove);
+        }
+        cell.append(controls);
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    scroll.append(table);
+    return scroll;
   }
 
   private drawField(

@@ -7,6 +7,13 @@ import { FormError } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
+import { PluginBrowse } from "./PluginBrowse";
+import { PluginGrantCard } from "./PluginGrantCard";
+import { PluginManagedCard } from "./PluginManagedCard";
+import { PluginRuntimeCard } from "./PluginRuntimeCard";
+import type { RuntimeView } from "../../plugins/runtime";
+import type { BrowseView } from "../../plugins/lifecycle";
+import type { GrantsView } from "../../plugins/grants";
 import {
   FLOOR_NOTE,
   SCOPE_NOTE,
@@ -41,7 +48,17 @@ import {
  * the four: it is `ready` with `found: 0`, and it gets its own words inside the
  * ready branch rather than a failure-shaped state of its own.
  */
-export function PluginsPanel({ view }: { view: PluginsView }) {
+export function PluginsPanel({
+  view,
+  grants,
+  browse,
+  runtime,
+}: {
+  view: PluginsView;
+  grants: GrantsView;
+  browse: BrowseView;
+  runtime: RuntimeView;
+}) {
   const styles = useThemedStyles(makeStyles);
 
   if (view.state === "withheld") {
@@ -170,6 +187,8 @@ export function PluginsPanel({ view }: { view: PluginsView }) {
         </View>
       </Card>
 
+      <PluginBrowse view={browse} installed={inventory.plugins} />
+
       {groupPlugins(inventory.plugins).map((group) => (
         <Card key={group.verdict} style={styles.group}>
           <Row style={styles.head}>
@@ -180,7 +199,13 @@ export function PluginsPanel({ view }: { view: PluginsView }) {
             <Pill tone="neutral">{`${group.plugins.length}`}</Pill>
           </Row>
           {group.plugins.map((plugin) => (
-            <PluginRow key={plugin.id} plugin={plugin} />
+            <PluginRow
+              key={plugin.id}
+              plugin={plugin}
+              grants={grants}
+              browse={browse}
+              runtime={runtime}
+            />
           ))}
         </Card>
       ))}
@@ -205,7 +230,17 @@ export function PluginsPanel({ view }: { view: PluginsView }) {
  * never ends on a refusal is a property a test can hold rather than a habit
  * this component happens to have.
  */
-function PluginRow({ plugin }: { plugin: ConsolePlugin }) {
+function PluginRow({
+  plugin,
+  grants,
+  browse,
+  runtime,
+}: {
+  plugin: ConsolePlugin;
+  grants: GrantsView;
+  browse: BrowseView;
+  runtime: RuntimeView;
+}) {
   const styles = useThemedStyles(makeStyles);
   const { tone, dashed } = verdictPill(plugin.verdict);
   const findings = namedEvidence(plugin);
@@ -277,6 +312,10 @@ function PluginRow({ plugin }: { plugin: ConsolePlugin }) {
         <Text variant="hint" style={styles.close}>
           {route ?? pending}
         </Text>
+
+        <PluginRuntimeCard plugin={plugin} view={runtime} />
+        <PluginGrantCard plugin={plugin} view={grants} />
+        <PluginManagedCard plugin={plugin} view={browse} />
       </Grow>
     </Row>
   );

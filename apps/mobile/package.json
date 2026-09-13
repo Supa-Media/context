@@ -33,6 +33,7 @@
     "@context/convex": "workspace:*",
     "@context/desktop-bridge": "workspace:*",
     "@context/meetings": "workspace:*",
+    "@context/obsidian-runtime": "workspace:*",
     "@context/shared": "workspace:*",
     "@convex-dev/auth": "^0.0.90",
     "@expo/metro-runtime": "~6.1.2",

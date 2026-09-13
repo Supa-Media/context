@@ -1,5 +1,8 @@
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
+import type { GrantsView } from "./plugins/grants";
+import type { BrowseView } from "./plugins/lifecycle";
+import type { RuntimeView } from "./plugins/runtime";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
@@ -359,6 +362,31 @@ export interface ConsoleData {
    * why the live console answers `unavailable` today.
    */
   plugins: PluginsView;
+  /**
+   * What each plugin in the selected context has been allowed to do.
+   *
+   * Separate from `plugins` because the two are answered differently and must
+   * stay so: a grant is a live subscription over control-plane rows, and an
+   * inventory is a scan of the customer's bucket that somebody asks for. Folding
+   * them into one view would drag the expensive half along on every revoke.
+   */
+  pluginGrants: GrantsView;
+  /**
+   * The official registry, and the controls that change what Context manages.
+   *
+   * Separate from `plugins` and `pluginGrants` for the same reason those two are
+   * separate from each other: this one reaches a third party's list over the
+   * network, so nothing about it may ride along with a read of the bucket.
+   */
+  pluginBrowse: BrowseView;
+  /**
+   * What the sandbox host says each plugin is doing.
+   *
+   * The only thing in `ConsoleData` entitled to say a plugin is *running*. A
+   * grant means allowed and an install means present; neither means loaded, and
+   * nothing else in this console may claim otherwise.
+   */
+  pluginRuntime: RuntimeView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

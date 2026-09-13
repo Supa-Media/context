@@ -105,6 +105,10 @@ export function LiveEditor({
   notePath,
   notePaths,
   onSubmitForm,
+  onReadFormResponses,
+  onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -163,6 +167,10 @@ export function LiveEditor({
     onOpenNote,
     onPressNote,
     onSubmitForm,
+    onReadFormResponses,
+    onVoteForm,
+    onUpdateFormResponse,
+    onRetractFormResponse,
   });
   handlers.current = {
     onChange,
@@ -174,6 +182,10 @@ export function LiveEditor({
     onOpenNote,
     onPressNote,
     onSubmitForm,
+    onReadFormResponses,
+    onVoteForm,
+    onUpdateFormResponse,
+    onRetractFormResponse,
   };
 
   /**
@@ -272,6 +284,18 @@ export function LiveEditor({
           onSubmitForm: (submission) =>
             handlers.current.onSubmitForm?.(submission) ??
             Promise.resolve({ ok: false, message: "This note can’t send responses here." }),
+          onReadFormResponses: (responsesPath) =>
+            handlers.current.onReadFormResponses?.(responsesPath) ??
+            Promise.resolve({ ok: false, message: "Responses are unavailable here." }),
+          onVoteForm: (vote) =>
+            handlers.current.onVoteForm?.(vote) ??
+            Promise.resolve({ ok: false, message: "Voting is unavailable here." }),
+          onUpdateFormResponse: (change) =>
+            handlers.current.onUpdateFormResponse?.(change) ??
+            Promise.resolve({ ok: false, message: "Editing is unavailable here." }),
+          onRetractFormResponse: (change) =>
+            handlers.current.onRetractFormResponse?.(change) ??
+            Promise.resolve({ ok: false, message: "Deleting is unavailable here." }),
         },
       ),
     [keepCaretClear],
