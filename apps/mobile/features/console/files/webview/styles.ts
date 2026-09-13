@@ -56,12 +56,21 @@ export function guestStyles(): string {
   --lp-mono: ui-monospace, Menlo, monospace;
   --lp-body: -apple-system, system-ui, sans-serif;
 
-  /* The reading measure. See themeVars for the two sets of values. */
+  /* The type scale. See themeVars for the two sets of values. */
   --lp-size: 16px;
   --lp-leading: 1.5;
   --lp-pad-top: 8px;
   --lp-pad-x: 24px;
   --lp-pad-bottom: 32px;
+
+  /*
+    The reading measure — how long a line of prose may get. In characters, so
+    it means the same thing at both densities; the value is
+    layout.readingMeasureCh, which carries the argument for the number and
+    reaches the real document through themeVars. This copy is the
+    broken-bridge fallback, like the colours above.
+  */
+  --lp-measure: 62ch;
 
   /* How much of the editor something else is covering. See the inset message. */
   --lp-inset-bottom: 0px;
@@ -128,6 +137,19 @@ html, body {
 #root .cm-content {
   color: var(--lp-content);
   caret-color: var(--lp-caret);
+  /*
+    The reading measure, inset with padding so the column is measured while
+    the element stays the full width of the pane — see the web half's copy of
+    this rule for both halves of that: why a table and a form have to share
+    the paragraph's left edge, and why a click in the margin still has to
+    reach the editor.
+
+    On a phone it never binds: 62ch at 16px is at least 540pt of text and the
+    widest phone this runs on has under 400 inside its gutters, so the max()
+    floor is zero, --lp-pad-x is the only gutter, and this is the rule that
+    does nothing until somebody turns an iPad sideways.
+  */
+  padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2));
 }
 #root .cm-line { padding: 0; }
 #root .cm-cursor, #root .cm-dropCursor { border-left-color: var(--lp-caret); }

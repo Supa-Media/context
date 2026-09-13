@@ -261,6 +261,18 @@ function ensureStyles(colors: Colors): void {
     is the note's body text and existed before anything here needed a token.
   */
   --lp-body: ${fonts.body};
+  /*
+    THE READING MEASURE — the one --lp-* here that is not a colour or a face.
+
+    It is in this block rather than beside the rule that uses it for the
+    reason the paragraph above gives: the identical rule runs inside the iOS
+    WebView, where every --lp-* arrives over the bridge, so a property
+    declared on one host and read on both is a declaration that silently
+    becomes nothing on the other. themeVars sends this one too.
+
+    The number is layout.readingMeasureCh, which carries the argument for it.
+  */
+  --lp-measure: ${layout.readingMeasureCh}ch;
   height: 100%;
 }
 .cm-lp-root .cm-editor { height: 100%; background: transparent; }
@@ -277,7 +289,41 @@ function ensureStyles(colors: Colors): void {
   that says "the note's ink" resolve to one colour. The media query below moves
   both by moving the property once.
 */
-.cm-lp-root .cm-content { color: var(--lp-content); caret-color: ${colors.text}; }
+.cm-lp-root .cm-content {
+  color: var(--lp-content);
+  caret-color: ${colors.text};
+  /*
+    ONE COLUMN, AND EVERYTHING IN THE NOTE SHARES IT.
+
+    The measure is on .cm-content rather than on .cm-line because a note is
+    not only prose: a table, a form, a rendered diagram and a code fence are
+    block children of the same element, and constraining the lines alone would
+    leave every one of those starting at a different left edge from the
+    sentence above it. Nothing is allowed to be wider than the text it belongs
+    to; what a wide table gets instead is its own scroller (.cm-lp-grid's
+    overflow-x), which is why a 12-column table still reads as part of the
+    document rather than dragging the document sideways.
+
+    PADDING RATHER THAN MAX-WIDTH, BECAUSE THE EMPTY HALF OF THE PANE IS
+    STILL THE EDITOR.
+
+    The obvious recipe is max-width plus auto margins, and it draws exactly
+    the same column. It was measured in Chromium and rejected: it makes
+    .cm-content 572px wide inside a 1192px pane, so the 310px either side of
+    the text stop being the editable surface. A click there lands on
+    .cm-scroller, the editor does not take focus, and nothing happens — on a
+    desktop console that is half the note's apparent area gone dead, and
+    clicking beside a line to put the caret in it is something people do.
+
+    Padding keeps .cm-content the full width of the pane, so CodeMirror's own
+    mousedown handler still maps a click in the margin to the nearest position
+    the way it always did, while every block child is inset to the measure.
+    The max() floor is what hands the width back at narrow widths: once the
+    pane is no wider than the measure the padding is zero and .cm-scroller's
+    --lp-pad-x is the only gutter, which is the phone.
+  */
+  padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2));
+}
 .cm-lp-root .cm-line { padding: 0; }
 /*
   The phone reads the note; it does not inspect it. Same buffer, same

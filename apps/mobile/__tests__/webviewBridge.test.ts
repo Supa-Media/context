@@ -45,7 +45,7 @@ import {
 import { runCommand } from "../features/console/files/editorSetup";
 import { splitNote } from "../features/console/files/frontmatter";
 import { editorReducer, emptyEditor } from "../features/console/files/editor";
-import { darkColors, lightColors } from "../features/design/tokens";
+import { darkColors, layout, lightColors } from "../features/design/tokens";
 
 /**
  * Every command on the accessory bar that touches the document.
@@ -988,6 +988,123 @@ describe("the palette", () => {
     // A phone reads the note; a pointer inspects it beside a file tree.
     expect(themeVars(darkColors, "Menlo", true)["--lp-content"]).toBe(darkColors.text);
     expect(themeVars(darkColors, "Menlo", false)["--lp-content"]).toBe(darkColors.text2);
+  });
+
+  /**
+   * THE OTHER HALF OF THE GUARD `liveEditorMount.test.ts` HOLDS.
+   *
+   * That one proves the web console declares every `--lp-*` its stylesheets
+   * read. This is the same relationship on the host where the values arrive
+   * over a bridge — and the consequence of a gap is worse here, because an
+   * undeclared custom property does not fall back, it invalidates the whole
+   * declaration that names it. The note keeps rendering, without whatever that
+   * declaration was doing.
+   *
+   * Two questions, because there are two suppliers: the `:root` block in
+   * `styles.ts` is what a guest whose first theme message never arrives sees,
+   * and `themeVars` is what every real one gets.
+   */
+  test("every --lp-* the guest stylesheet reads is one its own :root declares", () => {
+    const css = guestStyles();
+    const open = css.indexOf(":root {");
+    expect(open).toBeGreaterThan(-1);
+    const root = css.slice(open, css.indexOf("}", open));
+
+    const declared = new Set([...root.matchAll(/(--lp-[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+    const read = new Set([...css.matchAll(/var\(\s*(--lp-[a-z0-9-]+)/g)].map((m) => m[1]));
+
+    expect([...read].filter((property) => !declared.has(property))).toEqual([]);
+    // Named so a regression says which one went: the measure is the only
+    // property here that is not a colour or a face, and losing it is invisible
+    // in a screenshot of a short note.
+    expect([...declared]).toContain("--lp-measure");
+  });
+
+  test("and every one the host is responsible for is in themeVars", () => {
+    const css = guestStyles();
+    const read = [...css.matchAll(/var\(\s*(--lp-[a-z0-9-]+)/g)].map((m) => m[1]);
+    const sent = themeVars(darkColors, "Menlo", true);
+
+    /*
+      The one exception, and it is a real one rather than an excuse:
+      `--lp-inset-bottom` is how much of the editor the keyboard is covering.
+      It is measured on the device and written by the `inset` message (see
+      `guest.ts`), so it changes many times per second while a keyboard is
+      animating and has no business in a theme.
+    */
+    const missing = [...new Set(read)].filter(
+      (property) => property !== "--lp-inset-bottom" && !(property in sent),
+    );
+    expect(missing).toEqual([]);
+  });
+
+  test("the note is drawn as a measured, centred column on this host too", () => {
+    // Comments stripped: this rule carries a long one, and the assertions
+    // below are about which properties are and are not set rather than about
+    // what the prose beside them mentions.
+    const css = guestStyles().replace(/\/\*[\s\S]*?\*\//g, "");
+    const at = css.indexOf("#root .cm-content {");
+    expect(at).toBeGreaterThan(-1);
+    const rule = css.slice(at, css.indexOf("}", at));
+
+    expect(rule).toContain("padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2))");
+    // The same rule the web console has, on the column rather than the line,
+    // and by padding rather than by width — see `liveEditorMount.test.ts` for
+    // both halves of why.
+    expect(rule).not.toContain("max-width");
+    expect(css.slice(css.indexOf("#root .cm-line {"))).not.toMatch(
+      /^#root \.cm-line \{[^}]*(max-width|padding-inline)/,
+    );
+  });
+
+  test("the reading measure is stated in characters, so it is one value for both densities", () => {
+    const compact = themeVars(darkColors, "Menlo", true)["--lp-measure"];
+    const pointer = themeVars(darkColors, "Menlo", false)["--lp-measure"];
+
+    /*
+      Unlike every other line in `themeVars`, this one does not branch on
+      `compact` — and that is the argument rather than an oversight. The type
+      scale differs between the two (16px and 14.5px); a measure in `ch` is
+      the same number of characters at both sizes, which is what a reading
+      measure is a constraint on. A pixel measure would have had to be two
+      numbers kept in step by hand.
+    */
+    expect(compact).toBe(pointer);
+    expect(compact).toMatch(/^\d+ch$/);
+
+    /*
+      And the band it has to stay inside, which is the design decision rather
+      than the number. 60-75 characters is the comfortable range; `ch` is the
+      advance of "0" and runs 1.10-1.21 characters of prose to the unit, so the
+      value that lands inside that range is somewhere in the high fifties to
+      mid sixties. Anything outside this is a deliberate change to how the note
+      reads and should have to edit a test that says so.
+      `e2e/webkit/readingMeasure.spec.ts` is what checks the rendered result.
+    */
+    expect(layout.readingMeasureCh).toBeGreaterThanOrEqual(55);
+    expect(layout.readingMeasureCh).toBeLessThanOrEqual(68);
+  });
+
+  test("the phone's own width is what governs there — the measure cannot bind", () => {
+    const compact = themeVars(darkColors, "Menlo", true);
+    const chars = Number(compact["--lp-measure"]?.replace("ch", ""));
+    const size = Number(compact["--lp-size"]?.replace("px", ""));
+    const pad = Number(compact["--lp-pad-x"]?.replace("px", ""));
+
+    /*
+      `ch` is the advance of "0", which in a system sans is a little over half
+      the em — 0.5 is a deliberate UNDER-estimate of the measure's width in
+      pixels, so this test is conservative in the direction that matters.
+      Against the widest phone this app runs on (a 430pt iPhone Pro Max, and
+      wider than the 390 the WebKit suite uses), the text column is still far
+      narrower than the measure, so the padding that insets the column computes
+      to zero and `--lp-pad-x` is what decides the line length. If that ever
+      stops being true the phone quietly
+      gains a centred column with slack either side, which is not what a note
+      on a phone should look like.
+    */
+    const widestPhone = 430 - 2 * pad;
+    expect(chars * size * 0.5).toBeGreaterThan(widestPhone);
   });
 
   test("only our own custom properties are written", () => {

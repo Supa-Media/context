@@ -821,4 +821,113 @@ describe("every --lp-* the editor's styles read is one this half declares", () =
     for (const property of readIn(completion)) expect([...declared]).toContain(property);
     m.unmount();
   });
+
+  /**
+   * The reading measure is a `--lp-*` like any other, so it is subject to the
+   * sweep above — but it is the first one that is not a colour or a face, and
+   * a missing colour is at least visible. A missing *measure* is a note that
+   * still looks fine and reads at 150 characters a line, which is the failure
+   * this whole change exists to stop, so it is named here too.
+   */
+  test("including the reading measure, which the iOS host also has to send", () => {
+    const m = mount({ value: "# note\n\nprose\n", editable: true });
+    const declared = declaredIn(
+      document.getElementById("context-live-preview-styles")?.textContent ?? "",
+    );
+    expect([...declared]).toContain("--lp-measure");
+    m.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE NOTE IS A COLUMN, NOT THE WIDTH OF THE WINDOW.
+ *
+ * Measured in Chromium at 1440x900 before this existed: the element holding
+ * the first sentence of the console's own demo note was 1160px wide, with
+ * `max-width: none` on every one of its first eight ancestors — about 150
+ * characters to a line, twice a comfortable measure. It survived because the
+ * fixture note was hard-wrapped in `placeholderData.ts`, so every screenshot
+ * showed a tidy column that the layout had nothing to do with.
+ *
+ * jsdom does not lay anything out, so these assert the *rules* and
+ * `e2e/webkit/readingMeasure.spec.ts` asserts the rendered result in a real
+ * engine at both viewports. Both are needed: a rule that is present and does
+ * not bind is exactly what was there before.
+ */
+describe("the rendered note has a reading measure", () => {
+  /**
+   * One rule's declarations, by its selector, out of the mounted stylesheet.
+   *
+   * Comments are stripped rather than left in: these rules carry long ones,
+   * and a test asserting a property is *absent* would otherwise be satisfied
+   * or defeated by prose about it.
+   */
+  function block(selector: string): string {
+    const css = (
+      document.getElementById("context-live-preview-styles")?.textContent ?? ""
+    ).replace(/\/\*[\s\S]*?\*\//g, "");
+    const at = css.indexOf(`${selector} {`);
+    if (at === -1) return "";
+    return css.slice(at, css.indexOf("}", at));
+  }
+
+  test("the column is measured and centred, and it is the column rather than the line", () => {
+    const m = mount({ value: "# note\n\nprose\n", editable: true });
+
+    const content = block(".cm-lp-root .cm-content");
+    expect(content).toContain("padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2))");
+
+    /*
+      Padding rather than `max-width: var(--lp-measure); margin-inline: auto`,
+      which draws the identical column. Measured in Chromium: the max-width
+      recipe leaves `.cm-content` 572px wide inside a 1192px pane, and a click
+      in the 310px either side lands on `.cm-scroller` and does not focus the
+      editor — half the note's apparent area stops being the editing surface.
+      With padding the element stays full width, so CodeMirror still maps a
+      click in the margin to the nearest position.
+    */
+    expect(content).not.toContain("max-width");
+
+    /*
+      On `.cm-content` rather than on `.cm-line`: a table, a form and a
+      rendered diagram are block children of the same element, and measuring
+      the lines alone would leave each of those starting at a different left
+      edge from the paragraph above it. If a future edit moves the constraint
+      down to the line, this is the test that should have to be deleted
+      deliberately.
+    */
+    expect(block(".cm-lp-root .cm-line")).not.toContain("max-width");
+
+    m.unmount();
+  });
+
+  /**
+   * WHAT IS ALLOWED TO BE WIDER THAN THE PROSE: nothing.
+   *
+   * A table is the case with a real argument on the other side — twelve
+   * columns in 68 characters is cramped — and it still loses, because a block
+   * wider than the text it sits between has to start left of that text, and a
+   * document with two left edges reads as broken layout rather than as a wide
+   * table. What a wide table gets instead is its own horizontal scroller, so
+   * it stays inside the column and the note never scrolls sideways as a whole.
+   */
+  test("a table wider than the measure scrolls inside the column rather than widening it", () => {
+    const m = mount({
+      value: "# note\n\n| a | b | c |\n| --- | --- | --- |\n| 1 | 2 | 3 |\n",
+      editable: false,
+    });
+
+    // The rendered grid really is on screen: without this the rules below are
+    // about a selector nothing matches.
+    expect(document.querySelectorAll(".cm-lp-grid").length).toBeGreaterThan(0);
+
+    expect(block(".cm-lp-grid")).toContain("overflow-x: auto");
+    // And the table inside it is sized by its content up to the column's own
+    // width — never past it, which is what would drag the column open.
+    expect(block(".cm-lp-grid-table")).toContain("max-width: 100%");
+
+    m.unmount();
+  });
 });

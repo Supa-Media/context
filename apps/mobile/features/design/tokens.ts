@@ -404,6 +404,39 @@ export const layout = {
   consoleBodyMinHeight: 566,
   mapHeight: 398,
 
+  /**
+   * The reading measure, in `ch` — how long a line of the note's own prose is
+   * allowed to get before it is hard to read.
+   *
+   * Typography's "measure" is line length, and this is the only number in this
+   * file expressed in characters rather than points, because that is what the
+   * constraint is actually about: the eye loses the start of the next line
+   * somewhere past about 75 characters, and a 1440px console pane was giving a
+   * real paragraph roughly 150. It is not a pixel width because both surfaces
+   * draw the note at their own size — 14.5px beside a file tree, 16px on a
+   * phone — and a measure in `ch` is the same *sentence* at both.
+   *
+   * 62 rather than 70: `ch` is the advance of the digit zero, which every
+   * system sans draws wider than its average lowercase letter, so a box of
+   * N `ch` holds *more* than N characters of English prose — by a factor
+   * between about 1.10 and 1.21 depending on the face. Measured in Chromium at
+   * 1440x900 rather than trusted as arithmetic: 62ch came out at 75 characters
+   * in the widest face on hand and lands nearer 68 in the narrower ones Apple
+   * ships. `apps/mobile/e2e/webkit/readingMeasure.spec.ts` asserts the
+   * character count in a real engine, which is the unit the constraint is
+   * actually in; the pixels are whatever the font is.
+   *
+   * Erring short is the cheaper error. A line a few characters under the
+   * comfortable band costs some vertical space; one over it costs the reader
+   * the start of the next line, which is the failure this exists to stop.
+   *
+   * It is deliberately one value for both densities: on a phone the note is
+   * 342pt of text inside 24pt gutters, which is far narrower than 62ch at
+   * 16px, so the measure cannot bind there and the padding governs. Two values
+   * would be two things to keep in step for no gain.
+   */
+  readingMeasureCh: 62,
+
   /* ---------------------------------------------------------------------- *
    * The application frame.
    *
