@@ -371,7 +371,7 @@ interface S3IngestionBinding {
   accessKeyId: string;
   secretAccessKey: string;
   forcePathStyle?: boolean;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
   status: string;
 }
 
@@ -381,7 +381,7 @@ interface DropboxIngestionBinding {
   provider: "dropbox";
   accessToken: string;
   rootPrefix?: string;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
   status: string;
 }
 
@@ -416,7 +416,7 @@ export const openIngestionBinding = internalAction({
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
       status: v.string(),
     }),
     v.object({
@@ -424,7 +424,7 @@ export const openIngestionBinding = internalAction({
       provider: v.literal("dropbox"),
       accessToken: v.string(),
       rootPrefix: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean() }),
+      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
       status: v.string(),
     }),
   ),

@@ -177,6 +177,27 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
 
+  /** Short-lived, hashed bearer bindings held by the trusted sandbox host. */
+  obsidianPluginRuntimeSessions: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    tokenHash: v.string(),
+    createdBy: v.id("users"),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
+  /** At-most-once request ids for side-effecting sandbox RPC calls. */
+  obsidianPluginRuntimeRequests: defineTable({
+    tokenHash: v.string(),
+    requestId: v.string(),
+    operation: v.string(),
+    claimedAt: v.number(),
+  }).index("by_session_request", ["tokenHash", "requestId"]),
+
   /** Ephemeral execution health, never plugin output or note content. */
   obsidianPluginRuntimeStates: defineTable({
     workspaceId: v.id("workspaces"),
@@ -743,7 +764,11 @@ const schema = defineSchema({
      * writes; B2 and Wasabi do not reliably. We degrade honestly rather than
      * silently dropping conflict detection.
      */
-    capabilities: v.object({ conditionalWrite: v.boolean() }),
+    capabilities: v.object({
+      conditionalWrite: v.boolean(),
+      conditionalCreate: v.optional(v.boolean()),
+      conditionalDelete: v.optional(v.boolean()),
+    }),
     status: v.union(
       v.literal("unverified"),
       v.literal("connected"),

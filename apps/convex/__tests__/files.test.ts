@@ -111,7 +111,11 @@ async function fixture(
       bucket: FAKE_STORAGE.bucket,
       accessKeyId: FAKE_STORAGE.accessKeyId,
       encryptedSecretAccessKey,
-      capabilities: { conditionalWrite },
+      capabilities: {
+        conditionalWrite,
+        conditionalCreate: true,
+        conditionalDelete: true,
+      },
       status: "connected" as const,
       lastVerifiedAt: Date.now(),
       boundBy: owner,
@@ -280,11 +284,12 @@ describe("Obsidian plugin inventory", () => {
       truncated: false,
       counts: { runs: 1 },
       plugins: [{
+        source: "obsidian",
         folder: "highlightr-plugin",
         id: "highlightr-plugin",
         name: "Highlightr",
         version: "1.2.2",
-        bundleFingerprint: expect.stringMatching(/^v1:/),
+        bundleFingerprint: expect.stringMatching(/^v2:/),
         verdict: "runs",
         reason: "no-calls-outside-the-sandbox-found",
       }],
@@ -315,6 +320,124 @@ describe("Obsidian plugin inventory", () => {
     expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
   });
 
+  test("installs, updates, loads, and uninstalls an official plugin without touching Obsidian", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/virtual-linker/manifest.json",
+      JSON.stringify({ id: "virtual-linker", name: "Obsidian copy", version: "0.9.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/virtual-linker/main.js",
+      'const { Plugin } = require("obsidian"); class Old extends Plugin {}',
+    );
+    const storageFetch = f.backend.fetchImpl;
+    let version = "1.0.0";
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
+      if (url.href.includes("obsidian-releases/HEAD/community-plugins.json")) {
+        return new Response(JSON.stringify([{
+          id: "virtual-linker",
+          name: "Virtual Linker",
+          author: "Example",
+          description: "Links notes",
+          repo: "example/virtual-linker",
+        }]));
+      }
+      if (url.href.includes("example/virtual-linker/HEAD/manifest.json")) {
+        return new Response(JSON.stringify({ id: "virtual-linker", version }));
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/manifest.json")) {
+        return new Response(JSON.stringify({ id: "virtual-linker", name: "Virtual Linker", version }));
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/main.js")) {
+        return new Response(`const { Plugin } = require("obsidian"); class V${version.replaceAll(".", "")} extends Plugin {}`);
+      }
+      if (url.hostname === "github.com" && url.pathname.endsWith("/styles.css")) {
+        return new Response(".virtual-linker { color: blue; }");
+      }
+      return await storageFetch(input, init);
+    });
+
+    const search = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.searchCommunityPlugins,
+      { workspaceId: f.workspaceId, query: "virtual" },
+    );
+    expect(search).toMatchObject([{ id: "virtual-linker", repository: "example/virtual-linker" }]);
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+    });
+    let inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    expect(inventory.plugins).toHaveLength(1);
+    expect(inventory.plugins[0]).toMatchObject({
+      source: "context",
+      id: "virtual-linker",
+      version: "1.0.0",
+      verdict: "runs",
+    });
+    const firstFingerprint = inventory.plugins[0].bundleFingerprint!;
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+      bundleFingerprint: firstFingerprint,
+      capabilities: ["vault:read"],
+      networkHosts: [],
+    });
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "virtual-linker",
+        bundleFingerprint: firstFingerprint,
+      },
+    );
+    expect(loaded).toMatchObject({ version: "1.0.0", mainJs: expect.stringContaining("class V100") });
+    const request = {
+      version: 1,
+      requestId: "at_most_once",
+      operation: { kind: "vault.read", path: "1-projects/shared.md" },
+    };
+    expect(await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+      runtimeToken: loaded.runtimeToken,
+      request,
+    })).toMatchObject({ ok: true });
+    expect(await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+      runtimeToken: loaded.runtimeToken,
+      request,
+    })).toMatchObject({ ok: false, error: { code: "REQUEST_REPLAYED" } });
+
+    version = "1.1.0";
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+    });
+    inventory = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(inventory.plugins[0].version).toBe("1.1.0");
+    expect(inventory.plugins[0].bundleFingerprint).not.toBe(firstFingerprint);
+    expect((await asUser(f.t, f.owner).query(api.functions.obsidianPlugins.listPluginGrants, {
+      workspaceId: f.workspaceId,
+    }))[0].status).toBe("revoked");
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.uninstallCommunityPlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "virtual-linker",
+      bundleFingerprint: inventory.plugins[0].bundleFingerprint!,
+    });
+    const after = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(after.plugins[0]).toMatchObject({ source: "obsidian", version: "0.9.0" });
+    expect(Object.keys(f.backend.snapshot()).some((key) => key.startsWith(".context/plugins/virtual-linker/"))).toBe(false);
+    expect(f.backend.snapshot()).toHaveProperty(".obsidian/plugins/virtual-linker/main.js");
+  });
+
   test("an owner grants capabilities to the exact bundle that was checked", async () => {
     const f = await fixture();
     f.backend.seed(
@@ -341,6 +464,14 @@ describe("Obsidian plugin inventory", () => {
         networkHosts: [],
       },
     );
+    let runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "highlightr-plugin",
+        bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
     expect(approved).toMatchObject({
       pluginId: "highlightr-plugin",
       bundleFingerprint: fingerprint,
@@ -357,9 +488,7 @@ describe("Obsidian plugin inventory", () => {
     const read = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "read_1",
@@ -376,9 +505,7 @@ describe("Obsidian plugin inventory", () => {
     const denied = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "write_1",
@@ -402,12 +529,18 @@ describe("Obsidian plugin inventory", () => {
       ],
       networkHosts: [],
     });
-    const loaded = await asUser(f.t, f.owner).action(
-      api.functions.obsidianPlugins.executePluginRequest,
+    runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
       {
         workspaceId: f.workspaceId,
         pluginId: "highlightr-plugin",
         bundleFingerprint: fingerprint,
+      },
+    )).runtimeToken;
+    const loaded = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
         request: { version: 1, requestId: "settings_1", operation: { kind: "settings.load" } },
       },
     );
@@ -418,9 +551,7 @@ describe("Obsidian plugin inventory", () => {
     const saved = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "settings_2",
@@ -438,9 +569,7 @@ describe("Obsidian plugin inventory", () => {
     const created = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "create_1",
@@ -453,9 +582,7 @@ describe("Obsidian plugin inventory", () => {
     const conflict = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "modify_bad",
@@ -472,9 +599,7 @@ describe("Obsidian plugin inventory", () => {
     const modified = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "modify_1",
@@ -492,9 +617,7 @@ describe("Obsidian plugin inventory", () => {
     const renamed = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "rename_1",
@@ -511,9 +634,7 @@ describe("Obsidian plugin inventory", () => {
     const renamedRead = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "read_renamed",
@@ -525,9 +646,7 @@ describe("Obsidian plugin inventory", () => {
     const deleted = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "highlightr-plugin",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "delete_1",
@@ -658,6 +777,10 @@ describe("Obsidian plugin inventory", () => {
       },
     );
     expect(approved.networkHosts).toEqual(["api.example.com"]);
+    const runtimeToken = (await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      { workspaceId: f.workspaceId, pluginId: "web", bundleFingerprint: fingerprint },
+    )).runtimeToken;
 
     const storageFetch = f.backend.fetchImpl;
     vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
@@ -673,9 +796,7 @@ describe("Obsidian plugin inventory", () => {
     const response = await asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.executePluginRequest,
       {
-        workspaceId: f.workspaceId,
-        pluginId: "web",
-        bundleFingerprint: fingerprint,
+        runtimeToken,
         request: {
           version: 1,
           requestId: "network_1",

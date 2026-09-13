@@ -204,6 +204,8 @@ import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
 const REQUEST_TIMEOUT_MS = 20_000;
+const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
+const MAX_MANAGED_PLUGIN_OBJECTS = 5_000;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -324,6 +326,7 @@ const pluginEvidenceValidator = v.object({
 });
 
 const pluginValidator = v.object({
+  source: v.union(v.literal("obsidian"), v.literal("context")),
   folder: v.string(),
   id: v.string(),
   name: v.string(),
@@ -366,11 +369,28 @@ const pluginSettingsValidator = v.object({
   etag: v.union(v.string(), v.null()),
 });
 
+const pluginManagedValidator = v.object({
+  kind: v.literal("pluginManaged"),
+  pluginId: v.string(),
+  version: v.string(),
+});
+
+const pluginBundleValidator = v.object({
+  kind: v.literal("pluginBundle"),
+  pluginId: v.string(),
+  version: v.string(),
+  bundleFingerprint: v.string(),
+  manifestJson: v.string(),
+  mainJs: v.string(),
+  stylesCss: v.union(v.string(), v.null()),
+});
+
 type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
 type PluginInventory = {
   available: boolean;
   reason: string | null;
   plugins: Array<{
+    source: "obsidian" | "context";
     folder: string;
     id: string;
     name: string;
@@ -724,6 +744,8 @@ const operationResultValidator = v.union(
   imageValidator,
   pluginInventoryValidator,
   pluginSettingsValidator,
+  pluginManagedValidator,
+  pluginBundleValidator,
   vaultImportResultValidator,
   vaultClearResultValidator,
   searchResultsValidator,
@@ -830,6 +852,25 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
+  v.object({
+    kind: v.literal("pluginManagedInstall"),
+    pluginId: v.string(),
+    version: v.string(),
+    repository: v.string(),
+    manifestJson: v.string(),
+    mainJs: v.string(),
+    stylesCss: v.union(v.string(), v.null()),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedUninstall"),
+    pluginId: v.string(),
+    expectedVersion: v.string(),
+  }),
+  v.object({
+    kind: v.literal("pluginBundleRead"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+  }),
   v.object({
     kind: v.literal("pluginRename"),
     from: v.string(),
@@ -941,6 +982,17 @@ type FileOperation =
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "pluginInventory" }
+  | {
+      kind: "pluginManagedInstall";
+      pluginId: string;
+      version: string;
+      repository: string;
+      manifestJson: string;
+      mainJs: string;
+      stylesCss: string | null;
+    }
+  | { kind: "pluginManagedUninstall"; pluginId: string; expectedVersion: string }
+  | { kind: "pluginBundleRead"; pluginId: string; bundleFingerprint: string }
   | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
   | { kind: "pluginDelete"; path: string; expectedEtag: string }
   | { kind: "pluginSettingsRead"; pluginId: string }
@@ -970,6 +1022,16 @@ type OperationResult =
   | ({ kind: "searchResults" } & SearchResults)
   | ({ kind: "pluginInventory" } & PluginInventory)
   | { kind: "pluginSettings"; json: string; etag: string | null }
+  | { kind: "pluginManaged"; pluginId: string; version: string }
+  | {
+      kind: "pluginBundle";
+      pluginId: string;
+      version: string;
+      bundleFingerprint: string;
+      manifestJson: string;
+      mainJs: string;
+      stylesCss: string | null;
+    }
   | { kind: "notePaths"; paths: string[] | null }
   | {
       kind: "indexMaintained";
@@ -1080,6 +1142,37 @@ function pluginSettingsKey(pluginId: string): string {
     throw new FileOpError("PATH_INVALID", "That plugin id is not valid.");
   }
   return `.context/plugins/${encodeURIComponent(pluginId)}/data.json`;
+}
+
+function managedPluginSegment(value: string, label: string): string {
+  if (value.length === 0 || value.length > 300 || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw new FileOpError("PATH_INVALID", `That plugin ${label} is not valid.`);
+  }
+  return encodeURIComponent(value);
+}
+
+function managedPluginRoot(pluginId: string): string {
+  return `.context/plugins/${managedPluginSegment(pluginId, "id")}`;
+}
+
+async function putImmutablePluginObject(store: FileStore, key: string, text: string): Promise<void> {
+  const existing = await store.get(key);
+  if (existing) {
+    if (await existing.text() !== text) {
+      throw new FileOpError("CONFLICT", "That plugin release already exists with different bytes.");
+    }
+    return;
+  }
+  if (store.capabilities?.conditionalCreate !== true) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
+  }
+  const written = await store.put(key, text, { onlyIf: { absent: true } });
+  if (written === null) {
+    const raced = await store.get(key);
+    if (!raced || await raced.text() !== text) {
+      throw new FileOpError("CONFLICT", "That plugin release changed during installation.");
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2362,6 +2455,131 @@ export async function executeOperation(
         const inventory = await inventoryPlugins(store) as PluginInventory;
         return { kind: "pluginInventory", ...inventory };
       }
+      case "pluginManagedInstall": {
+        if (
+          store.capabilities?.conditionalWrite !== true ||
+          store.capabilities?.conditionalCreate !== true
+        ) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely install plugins.");
+        }
+        const root = managedPluginRoot(operation.pluginId);
+        const release = `${root}/releases/${managedPluginSegment(operation.version, "version")}`;
+        await putImmutablePluginObject(store, `${release}/manifest.json`, operation.manifestJson);
+        await putImmutablePluginObject(store, `${release}/main.js`, operation.mainJs);
+        const existingStyles = await store.get(`${release}/styles.css`);
+        if (operation.stylesCss === null && existingStyles) {
+          throw new FileOpError("CONFLICT", "That plugin release has unexpected stylesheet bytes.");
+        }
+        if (operation.stylesCss !== null) {
+          await putImmutablePluginObject(store, `${release}/styles.css`, operation.stylesCss);
+        }
+        const pointerKey = `${root}/current.json`;
+        const existing = await store.get(pointerKey);
+        if (existing) {
+          try {
+            const current = JSON.parse(await existing.text()) as { state?: unknown };
+            if (current.state === "uninstalling") {
+              throw new FileOpError("CONFLICT", "That plugin is currently being uninstalled.");
+            }
+          } catch (error) {
+            if (error instanceof FileOpError) throw error;
+          }
+        }
+        const pointer = JSON.stringify({
+          id: operation.pluginId,
+          version: operation.version,
+          repository: operation.repository,
+        });
+        const written = await store.put(pointerKey, pointer, {
+          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
+        });
+        if (written === null) {
+          throw new FileOpError("CONFLICT", "The installed plugin changed during installation.");
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.version };
+      }
+      case "pluginManagedUninstall": {
+        const root = managedPluginRoot(operation.pluginId);
+        const pointerKey = `${root}/current.json`;
+        const pointer = await store.get(pointerKey);
+        if (!pointer) throw new FileOpError("FILE_NOT_FOUND", "That managed plugin is not installed.");
+        let current: { id?: unknown; version?: unknown };
+        try {
+          current = JSON.parse(await pointer.text()) as { id?: unknown; version?: unknown };
+        } catch {
+          throw new FileOpError("CONFLICT", "That managed plugin pointer is invalid.");
+        }
+        if (current.id !== operation.pluginId || current.version !== operation.expectedVersion) {
+          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
+        }
+        if (store.capabilities?.conditionalWrite !== true) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely uninstall plugins.");
+        }
+        const locked = await store.put(pointerKey, JSON.stringify({
+          id: operation.pluginId,
+          version: operation.expectedVersion,
+          state: "uninstalling",
+        }), { onlyIf: { etagMatches: pointer.etag } });
+        if (locked === null) {
+          throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
+        }
+        let seen = 0;
+        while (true) {
+          // Restart from the beginning after deletion: provider cursors over a
+          // mutating listing can skip the page that shifted underneath them.
+          const page = await store.list({ prefix: `${root}/`, limit: 1_000 });
+          const objects = page.objects.filter((object) => object.key !== pointerKey);
+          if (objects.length === 0) break;
+          for (const object of objects) {
+            seen += 1;
+            if (seen > MAX_MANAGED_PLUGIN_OBJECTS) {
+              throw new FileOpError("PLUGIN_TOO_LARGE", "That managed plugin has too many objects to uninstall safely.");
+            }
+            await store.delete(object.key);
+          }
+        }
+        await store.delete(pointerKey);
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.expectedVersion };
+      }
+      case "pluginBundleRead": {
+        const inventory = await inventoryPlugins(store) as PluginInventory;
+        const plugin = inventory.plugins.find((entry) =>
+          entry.id === operation.pluginId && entry.bundleFingerprint === operation.bundleFingerprint
+        );
+        if (!plugin || !plugin.bundleFingerprint) {
+          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
+        }
+        const base = plugin.source === "context"
+          ? `${managedPluginRoot(plugin.id)}/releases/${managedPluginSegment(plugin.version, "version")}`
+          : `.obsidian/plugins/${plugin.folder}`;
+        const manifest = await store.get(`${base}/manifest.json`);
+        const main = await store.get(`${base}/main.js`);
+        if (!manifest || !main) {
+          throw new FileOpError("FILE_NOT_FOUND", "That plugin bundle is incomplete.");
+        }
+        const styles = await store.get(`${base}/styles.css`);
+        const styleIdentity = styles ? `present:${styles.etag}` : "absent";
+        const currentFingerprint = `v2:${[manifest.etag, main.etag, styleIdentity]
+          .map((etag) => encodeURIComponent(etag)).join(":")}`;
+        if (currentFingerprint !== operation.bundleFingerprint) {
+          throw new FileOpError("CONFLICT", "That plugin bundle changed before it could be loaded.");
+        }
+        const manifestJson = await manifest.text();
+        const mainJs = await main.text();
+        const stylesCss = styles ? await styles.text() : null;
+        if (manifestJson.length + mainJs.length + (stylesCss?.length ?? 0) > MAX_PLUGIN_BUNDLE_BYTES) {
+          throw new FileOpError("PLUGIN_TOO_LARGE", "That plugin bundle is too large to load.");
+        }
+        return {
+          kind: "pluginBundle",
+          pluginId: plugin.id,
+          version: plugin.version,
+          bundleFingerprint: operation.bundleFingerprint,
+          manifestJson,
+          mainJs,
+          stylesCss,
+        };
+      }
       case "pluginSettingsRead": {
         const object = await store.get(pluginSettingsKey(operation.pluginId));
         if (!object) return { kind: "pluginSettings", json: "{}", etag: null };
@@ -2408,6 +2626,7 @@ export async function executeOperation(
           to: operation.to,
           scope,
           now,
+          expectedEtag: operation.expectedEtag,
         });
         return { kind: "moved", ...moved };
       }
@@ -2425,6 +2644,7 @@ export async function executeOperation(
           path: operation.path,
           confirmation: DELETE_CONFIRMATION,
           scope,
+          expectedEtag: operation.expectedEtag,
         });
         return { kind: "deleted", ...deleted };
       }

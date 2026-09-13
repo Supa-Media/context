@@ -123,7 +123,11 @@ describe("an error is recoverable without the credential", () => {
     expect(healed?.errorCode).toBeUndefined();
     expect(healed?.lastVerifiedAt).toBeTypeOf("number");
     // Observed, not assumed: this backend honours `If-Match`.
-    expect(healed?.capabilities).toEqual({ conditionalWrite: true });
+    expect(healed?.capabilities).toEqual({
+      conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: false,
+    });
   });
 
   /**

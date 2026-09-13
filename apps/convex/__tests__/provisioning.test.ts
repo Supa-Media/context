@@ -188,6 +188,8 @@ describe("the capability recorded is the capability observed", () => {
     });
     expect((await binding(t, owner, workspaceId))?.capabilities).toEqual({
       conditionalWrite: true,
+      conditionalCreate: true,
+      conditionalDelete: false,
     });
   });
 
@@ -268,7 +270,11 @@ describe("a failure is actionable and never claims success", () => {
     const row = await binding(t, owner, workspaceId);
     expect(row?.status).toBe("error");
     expect(row?.lastVerifiedAt).toBeUndefined();
-    expect(row?.capabilities).toEqual({ conditionalWrite: false });
+    expect(row?.capabilities).toEqual({
+      conditionalWrite: false,
+      conditionalCreate: false,
+      conditionalDelete: false,
+    });
     // Actionable: it names the bucket and what to check, not "Server Error".
     expect(row?.lastError).toContain(FAKE_STORAGE.bucket);
     expect(row?.lastError).toMatch(/endpoint, region, and bucket name/);

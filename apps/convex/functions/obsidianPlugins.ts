@@ -104,6 +104,48 @@ const MAX_CAPABILITIES = 8;
 const MAX_NETWORK_HOSTS = 12;
 const MAX_NETWORK_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_NETWORK_REDIRECTS = 3;
+const NETWORK_REQUEST_TIMEOUT_MS = 20_000;
+const COMMUNITY_REGISTRY_URL =
+  "https://raw.githubusercontent.com/obsidianmd/obsidian-releases/HEAD/community-plugins.json";
+const MAX_REGISTRY_BYTES = 4 * 1024 * 1024;
+const MAX_PLUGIN_ASSET_BYTES = 10 * 1024 * 1024;
+const RUNTIME_SESSION_MS = 15 * 60 * 1_000;
+
+const communityPluginValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  author: v.string(),
+  description: v.string(),
+  repository: v.string(),
+});
+
+type CommunityPlugin = {
+  id: string;
+  name: string;
+  author: string;
+  description: string;
+  repository: string;
+};
+
+type InventoryEntry = {
+  source: "obsidian" | "context";
+  id: string;
+  version: string;
+  bundleFingerprint: string | null;
+  verdict: "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
+  hosts: string[];
+};
+
+type InventoryResult = { kind: "pluginInventory"; plugins: InventoryEntry[] };
+type BundleResult = {
+  kind: "pluginBundle";
+  pluginId: string;
+  version: string;
+  bundleFingerprint: string;
+  manifestJson: string;
+  mainJs: string;
+  stylesCss: string | null;
+};
 
 function pluginError(code: string, message: string): ConvexError<{ code: string; message: string }> {
   return new ConvexError({ code, message });
@@ -127,6 +169,20 @@ async function requireOwner(
   }
 }
 
+async function deleteRuntimeSessions(
+  ctx: MutationCtx,
+  sessions: Array<{ _id: Id<"obsidianPluginRuntimeSessions">; tokenHash: string }>,
+): Promise<void> {
+  for (const session of sessions) {
+    const requests = await ctx.db
+      .query("obsidianPluginRuntimeRequests")
+      .withIndex("by_session_request", (q) => q.eq("tokenHash", session.tokenHash))
+      .collect();
+    for (const request of requests) await ctx.db.delete(request._id);
+    await ctx.db.delete(session._id);
+  }
+}
+
 function normalizeCapabilities(values: PluginCapability[]): PluginCapability[] {
   if (values.length === 0 || values.length > MAX_CAPABILITIES) {
     throw pluginError("INVALID_CAPABILITIES", "Choose at least one valid capability");
@@ -144,6 +200,10 @@ function normalizeHosts(values: string[]): string[] {
       host.length === 0 ||
       host.length > 253 ||
       host.endsWith(".") ||
+      host === "localhost" ||
+      host.endsWith(".localhost") ||
+      host.endsWith(".local") ||
+      host.endsWith(".internal") ||
       !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(host)
     ) {
       throw pluginError("INVALID_NETWORK_HOST", "Network grants require exact DNS hostnames");
@@ -179,6 +239,313 @@ function summary(row: {
 function safeRuntimeText(value: string | undefined, maximum: number): string | undefined {
   if (value === undefined) return undefined;
   return value.replace(/[\p{Cc}\p{Cf}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, maximum) || undefined;
+}
+
+function safePluginId(value: string): string {
+  if (!/^[a-z0-9][a-z0-9_-]{0,99}$/i.test(value)) {
+    throw pluginError("INVALID_PLUGIN_ID", "That plugin id is not valid");
+  }
+  return value;
+}
+
+function safeRepository(value: string): string {
+  if (!/^[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(value)) {
+    throw pluginError("INVALID_PLUGIN_REPOSITORY", "That plugin repository is not valid");
+  }
+  return value;
+}
+
+function safePluginVersion(value: string): string {
+  if (!/^[0-9A-Za-z][0-9A-Za-z.+_-]{0,99}$/.test(value)) {
+    throw pluginError("INVALID_PLUGIN_VERSION", "That plugin version is not valid");
+  }
+  return value;
+}
+
+async function fetchText(url: string, maximum: number, optional = false): Promise<string | null> {
+  const response = await fetch(url, {
+    headers: { accept: "application/json,text/plain,*/*" },
+    signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS),
+  });
+  if (optional && response.status === 404) return null;
+  if (!response.ok) throw pluginError("PLUGIN_DOWNLOAD_FAILED", "The plugin could not be downloaded");
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > maximum) {
+    throw pluginError("PLUGIN_DOWNLOAD_TOO_LARGE", "The plugin download is too large");
+  }
+  const bytes = new Uint8Array(await boundedDownload(response, maximum));
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
+async function boundedDownload(response: Response, maximum: number): Promise<ArrayBuffer> {
+  if (!response.body) return new ArrayBuffer(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maximum) {
+      await reader.cancel();
+      throw pluginError("PLUGIN_DOWNLOAD_TOO_LARGE", "The plugin download is too large");
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return joined.buffer;
+}
+
+async function communityRegistry(): Promise<CommunityPlugin[]> {
+  const text = await fetchText(COMMUNITY_REGISTRY_URL, MAX_REGISTRY_BYTES);
+  let value: unknown;
+  try {
+    value = JSON.parse(text!);
+  } catch {
+    throw pluginError("PLUGIN_REGISTRY_INVALID", "The community plugin registry is invalid");
+  }
+  if (!Array.isArray(value)) {
+    throw pluginError("PLUGIN_REGISTRY_INVALID", "The community plugin registry is invalid");
+  }
+  const plugins: CommunityPlugin[] = [];
+  for (const row of value) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as Record<string, unknown>;
+    if (
+      typeof item.id !== "string" || typeof item.name !== "string" ||
+      typeof item.author !== "string" || typeof item.description !== "string" ||
+      typeof item.repo !== "string"
+    ) continue;
+    try {
+      plugins.push({
+        id: safePluginId(item.id),
+        name: item.name.slice(0, 200),
+        author: item.author.slice(0, 200),
+        description: item.description.slice(0, 1_000),
+        repository: safeRepository(item.repo),
+      });
+    } catch {
+      continue;
+    }
+  }
+  return plugins;
+}
+
+async function tokenHash(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function newRuntimeToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/** Owner-facing discovery against Obsidian's official community registry. */
+export const searchCommunityPlugins = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    query: v.string(),
+    limit: v.optional(v.number()),
+  },
+  returns: v.array(communityPluginValidator),
+  handler: async (ctx, args): Promise<CommunityPlugin[]> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const limit = Math.max(1, Math.min(50, Math.floor(args.limit ?? 20)));
+    const needle = args.query.trim().toLocaleLowerCase().slice(0, 200);
+    const rows = await communityRegistry();
+    return rows
+      .filter((plugin) => !needle || `${plugin.name}\n${plugin.id}\n${plugin.author}\n${plugin.description}`
+        .toLocaleLowerCase().includes(needle))
+      .slice(0, limit);
+  },
+});
+
+/** Download, verify, and atomically point at the latest official release. */
+export const installCommunityPlugin = action({
+  args: { workspaceId: v.id("workspaces"), pluginId: v.string() },
+  returns: v.object({ pluginId: v.string(), version: v.string(), installed: v.literal(true) }),
+  handler: async (ctx, args): Promise<{ pluginId: string; version: string; installed: true }> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const pluginId = safePluginId(args.pluginId);
+    const registryPlugin = (await communityRegistry()).find((plugin) => plugin.id === pluginId);
+    if (!registryPlugin) throw pluginError("PLUGIN_NOT_FOUND", "That plugin is not in the official registry");
+    const repository = safeRepository(registryPlugin.repository);
+    const headManifestText = await fetchText(
+      `https://raw.githubusercontent.com/${repository}/HEAD/manifest.json`,
+      256 * 1024,
+    );
+    const headManifest = parseReleaseManifest(headManifestText!, pluginId);
+    const version = safePluginVersion(headManifest.version);
+    const releaseBase = `https://github.com/${repository}/releases/download/${encodeURIComponent(version)}`;
+    const manifestJson = await fetchText(`${releaseBase}/manifest.json`, 256 * 1024);
+    const releaseManifest = parseReleaseManifest(manifestJson!, pluginId);
+    if (releaseManifest.version !== version) {
+      throw pluginError("PLUGIN_RELEASE_INVALID", "The release manifest version does not match");
+    }
+    const mainJs = await fetchText(`${releaseBase}/main.js`, MAX_PLUGIN_ASSET_BYTES);
+    const stylesCss = await fetchText(`${releaseBase}/styles.css`, MAX_PLUGIN_ASSET_BYTES, true);
+    const releaseBytes = new TextEncoder().encode(manifestJson!).byteLength +
+      new TextEncoder().encode(mainJs!).byteLength +
+      (stylesCss === null ? 0 : new TextEncoder().encode(stylesCss).byteLength);
+    if (releaseBytes > MAX_PLUGIN_ASSET_BYTES) {
+      throw pluginError("PLUGIN_DOWNLOAD_TOO_LARGE", "The plugin download is too large");
+    }
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: {
+        kind: "pluginManagedInstall",
+        pluginId,
+        version,
+        repository,
+        manifestJson: manifestJson!,
+        mainJs: mainJs!,
+        stylesCss,
+      },
+    });
+    if (result.kind !== "pluginManaged") throw pluginError("PLUGIN_INSTALL_FAILED", "Plugin install failed");
+    await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycle, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      pluginId,
+      version,
+      action: "installed",
+    });
+    return { pluginId, version, installed: true as const };
+  },
+});
+
+/** Remove only Context-managed bytes; an Obsidian installation is untouched. */
+export const uninstallCommunityPlugin = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+  },
+  returns: v.object({ pluginId: v.string(), uninstalled: v.literal(true) }),
+  handler: async (ctx, args): Promise<{ pluginId: string; uninstalled: true }> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const inventory = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: { kind: "pluginInventory" },
+    }) as InventoryResult;
+    if (inventory.kind !== "pluginInventory") throw pluginError("PLUGIN_NOT_FOUND", "Plugin not found");
+    const plugin = inventory.plugins.find((entry) =>
+      entry.source === "context" && entry.id === args.pluginId &&
+      entry.bundleFingerprint === args.bundleFingerprint
+    );
+    if (!plugin) throw pluginError("PLUGIN_CHANGED", "The managed plugin changed; refresh and try again");
+    await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: {
+        kind: "pluginManagedUninstall",
+        pluginId: plugin.id,
+        expectedVersion: plugin.version,
+      },
+    });
+    await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycle, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      pluginId: plugin.id,
+      version: plugin.version,
+      action: "uninstalled",
+    });
+    return { pluginId: plugin.id, uninstalled: true as const };
+  },
+});
+
+/** Dedicated bundle crossing: only an active, exact grant can retrieve code. */
+export const loadPluginBundle = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+  },
+  returns: v.object({
+    pluginId: v.string(),
+    version: v.string(),
+    bundleFingerprint: v.string(),
+    manifestJson: v.string(),
+    mainJs: v.string(),
+    stylesCss: v.union(v.string(), v.null()),
+    runtimeToken: v.string(),
+    expiresAt: v.number(),
+  }),
+  handler: async (ctx, args): Promise<Omit<BundleResult, "kind"> & {
+    runtimeToken: string;
+    expiresAt: number;
+  }> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const grant = await ctx.runQuery(internal.functions.obsidianPlugins.resolveActiveGrant, args);
+    if (!grant) throw pluginError("PLUGIN_NOT_GRANTED", "Review and enable this plugin first");
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: {
+        kind: "pluginBundleRead",
+        pluginId: args.pluginId,
+        bundleFingerprint: args.bundleFingerprint,
+      },
+    }) as BundleResult;
+    if (result.kind !== "pluginBundle") throw pluginError("PLUGIN_CHANGED", "The plugin changed; review it again");
+    const runtimeToken = newRuntimeToken();
+    const expiresAt = Date.now() + RUNTIME_SESSION_MS;
+    await ctx.runMutation(internal.functions.obsidianPlugins.persistRuntimeSession, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      pluginId: args.pluginId,
+      bundleFingerprint: args.bundleFingerprint,
+      tokenHash: await tokenHash(runtimeToken),
+      expiresAt,
+    });
+    const { kind: _kind, ...bundle } = result;
+    return { ...bundle, runtimeToken, expiresAt };
+  },
+});
+
+function parseReleaseManifest(text: string, expectedId: string): { id: string; version: string } {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw pluginError("PLUGIN_RELEASE_INVALID", "The plugin manifest is invalid");
+  }
+  if (!value || typeof value !== "object") {
+    throw pluginError("PLUGIN_RELEASE_INVALID", "The plugin manifest is invalid");
+  }
+  const row = value as Record<string, unknown>;
+  if (row.id !== expectedId || typeof row.version !== "string") {
+    throw pluginError("PLUGIN_RELEASE_INVALID", "The plugin manifest id or version does not match");
+  }
+  return { id: expectedId, version: row.version };
 }
 
 /** Owner-only because installed software is private workspace metadata. */
@@ -222,7 +589,7 @@ export const approvePlugin = action({
       workspaceId: args.workspaceId,
       scope: "private",
       operation: { kind: "pluginInventory" },
-    });
+    }) as InventoryResult;
     if (inventory.kind !== "pluginInventory") {
       throw pluginError("PLUGIN_NOT_FOUND", "Plugin not found");
     }
@@ -306,6 +673,13 @@ export const persistGrant = internalMutation({
       )
       .unique();
     if (runtime) await ctx.db.delete(runtime._id);
+    const sessions = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .collect();
+    await deleteRuntimeSessions(ctx, sessions);
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId: args.actorUserId,
@@ -318,6 +692,170 @@ export const persistGrant = internalMutation({
       },
     });
     return summary(row);
+  },
+});
+
+export const persistRuntimeSession = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireOwner(ctx, args.workspaceId, args.actorUserId);
+    const grant = await ctx.db
+      .query("obsidianPluginGrants")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    const now = Date.now();
+    if (
+      !grant || grant.status !== "active" ||
+      grant.bundleFingerprint !== args.bundleFingerprint ||
+      args.expiresAt <= now || args.expiresAt > now + RUNTIME_SESSION_MS + 5_000
+    ) {
+      throw pluginError("PLUGIN_NOT_GRANTED", "Review and enable this plugin first");
+    }
+    const sessions = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .collect();
+    await deleteRuntimeSessions(ctx, sessions);
+    await ctx.db.insert("obsidianPluginRuntimeSessions", {
+      workspaceId: args.workspaceId,
+      pluginId: args.pluginId,
+      bundleFingerprint: args.bundleFingerprint,
+      tokenHash: args.tokenHash,
+      createdBy: args.actorUserId,
+      createdAt: now,
+      expiresAt: args.expiresAt,
+    });
+    return null;
+  },
+});
+
+export const resolveRuntimeSession = internalQuery({
+  args: { tokenHash: v.string() },
+  returns: v.union(v.object({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+    capabilities: v.array(capabilityValidator),
+    networkHosts: v.array(v.string()),
+    createdBy: v.id("users"),
+  }), v.null()),
+  handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique();
+    if (!session || session.expiresAt <= Date.now()) return null;
+    const grant = await ctx.db
+      .query("obsidianPluginGrants")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
+      )
+      .unique();
+    if (
+      !grant || grant.status !== "active" ||
+      grant.bundleFingerprint !== session.bundleFingerprint
+    ) return null;
+    const membership = await getMembership(ctx, session.workspaceId, session.createdBy);
+    if (membership?.role !== "owner") return null;
+    return {
+      workspaceId: session.workspaceId,
+      pluginId: session.pluginId,
+      bundleFingerprint: session.bundleFingerprint,
+      capabilities: grant.capabilities,
+      networkHosts: grant.networkHosts,
+      createdBy: session.createdBy,
+    };
+  },
+});
+
+export const claimRuntimeRequest = internalMutation({
+  args: { tokenHash: v.string(), requestId: v.string(), operation: v.string() },
+  returns: v.union(v.literal("claimed"), v.literal("replayed"), v.literal("limited")),
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("obsidianPluginRuntimeRequests")
+      .withIndex("by_session_request", (q) =>
+        q.eq("tokenHash", args.tokenHash).eq("requestId", args.requestId)
+      )
+      .unique();
+    if (existing) return "replayed" as const;
+    const requests = await ctx.db
+      .query("obsidianPluginRuntimeRequests")
+      .withIndex("by_session_request", (q) => q.eq("tokenHash", args.tokenHash))
+      .take(1_000);
+    if (requests.length >= 1_000) return "limited" as const;
+    await ctx.db.insert("obsidianPluginRuntimeRequests", {
+      tokenHash: args.tokenHash,
+      requestId: args.requestId,
+      operation: args.operation.slice(0, 80),
+      claimedAt: Date.now(),
+    });
+    return "claimed" as const;
+  },
+});
+
+/** Install/update/uninstall always clears authority for the prior bundle. */
+export const recordLifecycle = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    pluginId: v.string(),
+    version: v.string(),
+    action: v.union(v.literal("installed"), v.literal("uninstalled")),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireOwner(ctx, args.workspaceId, args.actorUserId);
+    const now = Date.now();
+    const grant = await ctx.db
+      .query("obsidianPluginGrants")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (grant && grant.status === "active") {
+      await ctx.db.patch(grant._id, { status: "revoked", revokedAt: now, updatedAt: now });
+    }
+    const runtime = await ctx.db
+      .query("obsidianPluginRuntimeStates")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (runtime) {
+      await ctx.db.patch(runtime._id, {
+        status: "blocked",
+        errorCode: "BUNDLE_CHANGED",
+        errorMessage: "Plugin files changed and require review",
+        updatedAt: now,
+      });
+    }
+    const sessions = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .collect();
+    await deleteRuntimeSessions(ctx, sessions);
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: `plugin.${args.action}`,
+      details: { pluginId: args.pluginId, version: args.version },
+    });
+    return null;
   },
 });
 
@@ -354,6 +892,13 @@ export const revokePlugin = mutation({
         updatedAt: now,
       });
     }
+    const sessions = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .collect();
+    await deleteRuntimeSessions(ctx, sessions);
     await recordAudit(ctx, {
       workspaceId: args.workspaceId,
       actorUserId,
@@ -531,55 +1076,74 @@ function rpcFailure(requestId: string, code: string, message: string): PluginRpc
  */
 export const executePluginRequest = action({
   args: {
-    workspaceId: v.id("workspaces"),
-    pluginId: v.string(),
-    bundleFingerprint: v.string(),
+    runtimeToken: v.string(),
     request: v.any(),
   },
   returns: pluginRpcResponseValidator,
   handler: async (ctx, args): Promise<PluginRpcResponse> => {
     const actorUserId = await callerId(ctx);
+    if (!/^[0-9a-f]{64}$/.test(args.runtimeToken)) {
+      throw pluginError("PLUGIN_SESSION_INVALID", "Start this plugin again");
+    }
+    const runtimeTokenHash = await tokenHash(args.runtimeToken);
+    const session = await ctx.runQuery(internal.functions.obsidianPlugins.resolveRuntimeSession, {
+      tokenHash: runtimeTokenHash,
+    });
+    if (!session || session.createdBy !== actorUserId) {
+      throw pluginError("PLUGIN_SESSION_INVALID", "Start this plugin again");
+    }
     await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
-      workspaceId: args.workspaceId,
+      workspaceId: session.workspaceId,
       minimum: "owner",
     });
-    const grant = await ctx.runQuery(internal.functions.obsidianPlugins.resolveActiveGrant, {
-      workspaceId: args.workspaceId,
-      pluginId: args.pluginId,
-      bundleFingerprint: args.bundleFingerprint,
-    });
-    if (!grant) throw pluginError("PLUGIN_NOT_GRANTED", "Review and enable this plugin first");
 
     const parsed = parsePluginRpcRequest(args.request);
     if (parsed.ok === false) {
       return rpcFailure("invalid", parsed.error.code, parsed.error.message);
     }
-    const authorized = authorizePluginRpcRequest(parsed.request, grant);
+    const authorized = authorizePluginRpcRequest(parsed.request, session);
     if (authorized.ok === false) {
       return rpcFailure(parsed.request.requestId, authorized.error.code, authorized.error.message);
+    }
+
+    const claim = await ctx.runMutation(internal.functions.obsidianPlugins.claimRuntimeRequest, {
+      tokenHash: runtimeTokenHash,
+      requestId: parsed.request.requestId,
+      operation: String(parsed.request.operation.kind),
+    });
+    if (claim === "replayed") {
+      return rpcFailure(parsed.request.requestId, "REQUEST_REPLAYED", "This plugin request was already handled");
+    }
+    if (claim === "limited") {
+      return rpcFailure(parsed.request.requestId, "SESSION_LIMIT_REACHED", "Restart this plugin to continue");
     }
 
     const operation = parsed.request.operation as RpcOperation;
     try {
       if (operation.kind === "network.request") {
-        const result = await brokerNetworkRequest(operation, grant.networkHosts);
-        await ctx.runMutation(internal.functions.obsidianPlugins.recordRuntimeAudit, {
-          workspaceId: args.workspaceId,
-          actorUserId,
-          pluginId: args.pluginId,
-          action: "plugin.network",
-          path: null,
-          host: new URL(operation.url!).hostname.toLowerCase(),
-          method: operation.method!,
-          status: result.status,
-        });
+        const result = await brokerNetworkRequest(operation, session.networkHosts);
+        try {
+          await ctx.runMutation(internal.functions.obsidianPlugins.recordRuntimeAudit, {
+            workspaceId: session.workspaceId,
+            actorUserId,
+            pluginId: session.pluginId,
+            action: "plugin.network",
+            path: null,
+            host: new URL(operation.url!).hostname.toLowerCase(),
+            method: operation.method!,
+            status: result.status,
+          });
+        } catch {
+          // The side effect already happened. Never report a retryable failure
+          // that could duplicate it merely because telemetry was unavailable.
+        }
         return rpcSuccess(parsed.request.requestId, result);
       }
 
-      const storageOperation = toStorageOperation(args.pluginId, operation);
+      const storageOperation = toStorageOperation(session.pluginId, operation);
       const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-        workspaceId: args.workspaceId,
+        workspaceId: session.workspaceId,
         scope: "private",
         operation: storageOperation,
       }) as RuntimeStorageResult;
@@ -591,16 +1155,20 @@ export const executePluginRequest = action({
           }
         : result;
       if (["vault.create", "vault.modify", "vault.rename", "vault.delete", "settings.save"].includes(operation.kind)) {
-        await ctx.runMutation(internal.functions.obsidianPlugins.recordRuntimeAudit, {
-          workspaceId: args.workspaceId,
-          actorUserId,
-          pluginId: args.pluginId,
-          action: operation.kind,
-          path: operation.path ?? operation.from ?? null,
-          host: null,
-          method: null,
-          status: null,
-        });
+        try {
+          await ctx.runMutation(internal.functions.obsidianPlugins.recordRuntimeAudit, {
+            workspaceId: session.workspaceId,
+            actorUserId,
+            pluginId: session.pluginId,
+            action: operation.kind,
+            path: operation.path ?? operation.from ?? null,
+            host: null,
+            method: null,
+            status: null,
+          });
+        } catch {
+          // See the network path above: a completed mutation remains success.
+        }
       }
       return rpcSuccess(parsed.request.requestId, response);
     } catch (error) {
@@ -679,11 +1247,15 @@ async function brokerNetworkRequest(operation: RpcOperation, allowedHosts: strin
       headers: Object.fromEntries((operation.headers ?? []).map((header) => [header.name, header.value])),
       body: operation.body,
       redirect: "manual",
+      signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS),
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location || redirects === MAX_NETWORK_REDIRECTS) {
         throw pluginError("NETWORK_REDIRECT_DENIED", "Network redirect could not be followed safely");
+      }
+      if (operation.method !== "GET" && operation.method !== "HEAD") {
+        throw pluginError("NETWORK_REDIRECT_DENIED", "Redirects are not allowed for mutating requests");
       }
       url = new URL(location, url).toString();
       continue;

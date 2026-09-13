@@ -18,7 +18,11 @@ export interface ProbeResult {
   ok: boolean;
   reachable: boolean;
   writable: boolean;
-  capabilities: { conditionalWrite: boolean };
+  capabilities: {
+    conditionalWrite: boolean;
+    conditionalCreate?: boolean;
+    conditionalDelete?: boolean;
+  };
   conditionalWrite: {
     declared: boolean;
     verified: boolean;
@@ -38,7 +42,11 @@ export interface VerificationSummary {
   reachable: boolean;
   writable: boolean;
   /** What we are willing to *claim*, which is only ever what was observed. */
-  capabilities: { conditionalWrite: boolean };
+  capabilities: {
+    conditionalWrite: boolean;
+    conditionalCreate: boolean;
+    conditionalDelete: boolean;
+  };
   /** Actionable failure text. Absent when `ok`. */
   error?: string;
 }
@@ -84,6 +92,8 @@ export function summarizeProbe(
 ): VerificationSummary {
   const capabilities = {
     conditionalWrite: probe.capabilities?.conditionalWrite === true,
+    conditionalCreate: probe.capabilities?.conditionalCreate === true,
+    conditionalDelete: probe.capabilities?.conditionalDelete === true,
   };
 
   if (!probe.reachable) {

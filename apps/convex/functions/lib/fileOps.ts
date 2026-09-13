@@ -150,7 +150,11 @@ export interface FileStore extends ScaffoldStore {
     key: string,
     options?: { onlyIf?: { etagMatches?: string } },
   ): Promise<void | null>;
-  capabilities?: { conditionalWrite: boolean; conditionalCreate?: boolean };
+  capabilities?: {
+    conditionalWrite: boolean;
+    conditionalCreate?: boolean;
+    conditionalDelete?: boolean;
+  };
 }
 
 /** Keys removed per retryable replacement pass. Small enough for every provider. */
@@ -253,6 +257,8 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
+  | "STORAGE_UNSAFE"
+  | "PLUGIN_TOO_LARGE"
   /** The store would not hand over the whole listing. Not the folder's fault. */
   | "LISTING_INCOMPLETE"
   | "ARCHIVE_UNAVAILABLE"
@@ -1900,7 +1906,7 @@ function rulesAfterFolderMove(
  */
 export async function movePath(
   store: FileStore,
-  options: { from: string; to: string; scope: Scope; now: number },
+  options: { from: string; to: string; scope: Scope; now: number; expectedEtag?: string },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -1928,6 +1934,15 @@ export async function movePath(
   if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
+  if (options.expectedEtag !== undefined && sourceIsFolder) {
+    throw new FileOpError("PATH_INVALID", "Plugins may only rename files, not folders.");
+  }
+  if (
+    options.expectedEtag !== undefined &&
+    (store.capabilities?.conditionalCreate !== true || store.capabilities?.conditionalDelete !== true)
+  ) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely rename plugin files.");
+  }
 
   // The header of this function says "the destination must not exist: this
   // never merges and never overwrites". That was true of files, which the
@@ -2001,9 +2016,21 @@ export async function movePath(
   for (const pair of pairs) {
     const object = await store.get(pair.source);
     if (object === null) continue; // vanished mid-move; nothing to carry
+    if (options.expectedEtag !== undefined && object.etag !== options.expectedEtag) {
+      throw new FileOpError("CONFLICT", "That file changed somewhere else while the plugin was using it.", object.etag);
+    }
     const body = await object.text();
-    await store.put(pair.destination, body);
-    await store.delete(pair.source);
+    const created = options.expectedEtag === undefined
+      ? await store.put(pair.destination, body)
+      : await store.put(pair.destination, body, { onlyIf: { absent: true } });
+    if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
+    const removed = options.expectedEtag === undefined
+      ? await store.delete(pair.source)
+      : await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag } });
+    if (removed === null) {
+      if (created?.etag) await store.delete(pair.destination, { onlyIf: { etagMatches: created.etag } });
+      throw new FileOpError("CONFLICT", "That file changed somewhere else while the plugin was using it.");
+    }
   }
 
   await remapPrivacy(store, {
@@ -2389,7 +2416,7 @@ export interface DeleteResult {
  */
 export async function deletePath(
   store: FileStore,
-  options: { path: string; confirmation: string; scope: Scope },
+  options: { path: string; confirmation: string; scope: Scope; expectedEtag?: string },
 ): Promise<DeleteResult> {
   if (options.confirmation !== DELETE_CONFIRMATION) {
     throw new FileOpError(
@@ -2404,6 +2431,12 @@ export async function deletePath(
   if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
 
   const targetIsFolder = await isFolder(store, path);
+  if (options.expectedEtag !== undefined && targetIsFolder) {
+    throw new FileOpError("PATH_INVALID", "Plugins may only delete files, not folders.");
+  }
+  if (options.expectedEtag !== undefined && store.capabilities?.conditionalDelete !== true) {
+    throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely delete plugin files.");
+  }
   const walk = targetIsFolder
     ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
     : { keys: [path], withheld: await namesExtending(store, path) };
@@ -2414,7 +2447,15 @@ export async function deletePath(
   // there, where reporting "deleted 0 files" would say one is present.
   if (targetIsFolder && keys.length === 0) throw notFound();
 
-  for (const key of keys) await store.delete(key);
+  for (const key of keys) {
+    const removed = options.expectedEtag === undefined
+      ? await store.delete(key)
+      : await store.delete(key, { onlyIf: { etagMatches: options.expectedEtag } });
+    if (removed === null) {
+      const current = await store.get(key);
+      throw new FileOpError("CONFLICT", "That file changed somewhere else while the plugin was using it.", current?.etag);
+    }
+  }
 
   // The half that used to be missing. Deleting a folder purges its history
   // subtree in one go; deleting a file purges the snapshots that share its
