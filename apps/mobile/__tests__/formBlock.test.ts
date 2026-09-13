@@ -227,6 +227,78 @@ describe("the drawn form", () => {
     expect(dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.disabled).toBe(true);
     expect(dom.textContent).toContain("can’t send responses");
   });
+
+  test("draws a readable response file underneath the form", async () => {
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({
+        ok: true,
+        message: "",
+        text: [
+          "<!-- context:form responses id=bugs layout=table -->",
+          "",
+          "| Id | By | At | summary | detail | area | Votes |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
+          "| r-1234abcd | @alex | 2026-09-13T03:20Z | Search is slow | | app | @sam |",
+        ].join("\n"),
+      }),
+      vote: async () => ({ ok: true, message: "Vote added." }),
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const responses = dom.querySelector(".cm-lp-form-responses");
+    expect(responses?.textContent).toContain("Search is slow");
+    expect(responses?.textContent).toContain("@alex");
+    expect(responses?.textContent).toContain("@sam");
+    expect(responses?.querySelectorAll("button")).toHaveLength(2);
+  });
+
+  test("does not claim private responses are empty", async () => {
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({ ok: false, message: "not found" }),
+      vote: async () => ({ ok: false, message: "not found" }),
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(dom.querySelector(".cm-lp-form-responses")).toBeNull();
+    expect(dom.textContent).not.toContain("No responses");
+  });
+
+  test("casts a vote and refreshes the visible voters", async () => {
+    let voters = "—";
+    const votes: unknown[] = [];
+    const host: FormHostContext = {
+      submit: async () => ({ ok: true, message: "Sent." }),
+      readResponses: async () => ({
+        ok: true,
+        message: "",
+        text: [
+          "<!-- context:form responses id=bugs layout=table -->",
+          "",
+          "| Id | By | At | summary | detail | area | Votes |",
+          "| --- | --- | --- | --- | --- | --- | --- |",
+          `| r-1234abcd | @alex | 2026-09-13T03:20Z | Search is slow | | app | ${voters} |`,
+        ].join("\n"),
+      }),
+      vote: async (vote) => {
+        votes.push(vote);
+        voters = "@seyi";
+        return { ok: true, message: "Vote added." };
+      },
+    };
+    const dom = drawn(host);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    dom.querySelector<HTMLButtonElement>(".cm-lp-form-vote")?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(votes).toEqual([{ formId: "bugs", responseId: "r-1234abcd", vote: "up" }]);
+    expect(dom.querySelector(".cm-lp-form-voters")?.textContent).toBe("@seyi");
+  });
 });
 
 describe("submitting", () => {
@@ -366,6 +438,13 @@ describe("the widget is kept across an edit elsewhere", () => {
     const before = formFences(stateFor(FORM))[0];
     const after = formFences(stateFor(FORM.replace("max: 120", "max: 200")))[0];
     expect(new FormWidget(before, null).eq(new FormWidget(after, null))).toBe(false);
+  });
+
+  test("the same form source in a different note does not keep old responses", () => {
+    const fence = formFences(stateFor(FORM))[0];
+    const first = new FormWidget(fence, { current: null, generation: 1 });
+    const second = new FormWidget(fence, { current: null, generation: 2 });
+    expect(first.eq(second)).toBe(false);
   });
 });
 

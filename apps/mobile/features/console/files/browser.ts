@@ -25,7 +25,12 @@
 
 import type { Clipboard } from "./clipboard";
 import type { EditorState } from "./editor";
-import type { FormOutcome, FormSubmission } from "./formBlock";
+import type {
+  FormOutcome,
+  FormResponsesOutcome,
+  FormSubmission,
+  FormVote,
+} from "./formBlock";
 import { ConvexError } from "convex/values";
 import type { NoteShare } from "./shares";
 import type { NoteScope } from "./scope";
@@ -451,6 +456,12 @@ export interface FileBrowser {
    * there is a widget that has to phrase the failure itself.
    */
   submitForm(submission: FormSubmission): Promise<FormOutcome>;
+
+  /** Read the response note named by a form, subject to ordinary note visibility. */
+  readFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
+
+  /** Add or remove the signed-in person's named vote on one response. */
+  voteForm?: (vote: FormVote) => Promise<FormOutcome>;
 
   /**
    * Every live share on this context, or `undefined` while the query is in
