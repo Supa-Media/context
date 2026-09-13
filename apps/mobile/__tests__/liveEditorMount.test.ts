@@ -521,6 +521,93 @@ describe("the imperative handle", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
+ * THE EYE REDRAWS THE NOTE, RATHER THAN ARMING THE NEXT CLICK TO REDRAW IT.
+ *
+ * Reading mode is not a repaint — several decorations are a function of
+ * `state.readOnly`, and the two loudest are the ones a reader is there for: a
+ * `form` fence becomes a form and a table becomes a grid only when the note
+ * cannot be typed into (`formFences`, `tableGrids`, and `revealSelection`
+ * behind both).
+ *
+ * The toggle reaches the editor as a **compartment reconfigure** and nothing
+ * else: no document change, no selection change. `livePreview`'s state field
+ * used to return its cached set unless one of those two had happened, so
+ * pressing the eye left every read-mode decoration computed under the previous
+ * value of `readOnly` — and the note stayed as its own source until the next
+ * click put a cursor in it, which is exactly how it was reported.
+ *
+ * Every existing test of this logic builds a **fresh** `EditorState` with
+ * `EditorState.readOnly.of(true)`, which runs the field's `create` and can
+ * never see it. So this one has to mount and flip the prop, which is the only
+ * way the transaction under test gets built at all.
+ */
+describe("toggling reading mode redraws the note on the spot", () => {
+  const FORM = [
+    "# Request a feature",
+    "",
+    "```form",
+    "id: feature-requests",
+    "responses: feature-requests-responses.md",
+    "layout: table",
+    "submit: member",
+    "edit_own: true",
+    "votes: named",
+    "fields:",
+    "  - { name: title, type: line, max: 120, required: true }",
+    "```",
+    "",
+  ].join("\n");
+
+  test("a form fence becomes a form with no click in between", () => {
+    const m = mount({ value: FORM, editable: true });
+    expect(m.container.querySelector(".cm-lp-form")).toBeNull();
+
+    // The only thing that happens is the prop changing. No dispatch, no focus,
+    // no selection — the same as pressing the eye and touching nothing.
+    m.update({ editable: false });
+    expect(m.container.querySelector(".cm-lp-form")).not.toBeNull();
+
+    m.unmount();
+  });
+
+  test("and turning it back off puts the source back, also with no click", () => {
+    const m = mount({ value: FORM, editable: false });
+    expect(m.container.querySelector(".cm-lp-form")).not.toBeNull();
+
+    m.update({ editable: true });
+    expect(m.container.querySelector(".cm-lp-form")).toBeNull();
+    expect(renderedText(m.container)).toContain("layout: table");
+
+    m.unmount();
+  });
+
+  /**
+   * The narrow reading of the bug is "recompute on a reconfigure". The rule is
+   * "recompute when the answer can have changed", and `readOnly` is the only
+   * part of the configuration these decorations read — so a reconfigure that
+   * leaves it alone must not throw the set away. The decorations are rebuilt
+   * from the tree on every recompute, and doing that on configuration changes
+   * that cannot matter is work on a path that already runs per keystroke.
+   */
+  test("a reconfigure that does not touch readOnly is not a redraw", () => {
+    const m = mount({ value: FORM, editable: false });
+    const before = m.container.querySelector(".cm-lp-form");
+    expect(before).not.toBeNull();
+
+    // Same value in: `editability(false)` again, a real reconfigure transaction
+    // whose answer is identical.
+    m.update({ editable: false });
+    // The same DOM node, not an equal one — a rebuilt widget would lose
+    // whatever somebody had typed into it. See `FormWidget.eq`.
+    expect(m.container.querySelector(".cm-lp-form")).toBe(before);
+
+    m.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
  * THE PALETTE THIS HALF DECLARES AND THE PALETTE ITS STYLES READ ARE THE SAME
  * SET.
  *

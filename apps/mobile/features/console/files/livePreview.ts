@@ -1279,19 +1279,47 @@ export function decorationsFor(state: EditorState): DecorationSet {
 }
 
 /**
- * The extension: recompute on every document or selection change.
+ * The extension: recompute whenever the answer can have changed.
  *
  * A `StateField` rather than a `ViewPlugin` because the decorations depend on
  * the selection, and a view plugin that maps its own decorations through
  * transactions would have to invalidate them on every cursor move anyway —
  * which is the entire workload. Recomputing from the tree is simpler and is
  * what makes `decorationsFor` a pure function worth testing.
+ *
+ * ## The three inputs, and the one that was missed
+ *
+ * `decorationsFor` reads exactly three things out of the state: the document,
+ * the selection, and **`readOnly`**. The first two are what a transaction
+ * obviously carries. The third is configuration, and it changes by a route that
+ * carries neither — `LiveEditor`'s compartment swapping `editability(…)` when
+ * the eye is pressed — so a guard of "document or selection" let the whole of
+ * reading mode go stale.
+ *
+ * On screen that was the bug this comment exists for: **pressing the eye did
+ * nothing until you clicked into the note.** A form fence stayed as its own
+ * source, a table stayed as its pipes, and the markup a reader is not supposed
+ * to see stayed revealed — all of it correct again the instant any click
+ * produced a selection transaction and the cached set was finally thrown away.
+ *
+ * `readOnly` is compared rather than `transaction.reconfigured` being trusted,
+ * and the difference is not pedantry in both directions:
+ *
+ *  - A reconfigure that leaves `readOnly` alone cannot change a decoration, and
+ *    rebuilding the whole set from the tree is the work this field does per
+ *    keystroke. Redoing it for an unrelated facet is waste on the hottest path
+ *    here.
+ *  - More importantly it says *what is actually being watched*. A fourth input
+ *    added to `decorationsFor` later is a line to add here, and a condition
+ *    naming `readOnly` is one somebody reads and notices; `reconfigured` is one
+ *    that looks like it already covers everything and does not.
  */
 export function livePreview() {
   const decorations = StateField.define<DecorationSet>({
     create: (state) => decorationsFor(state),
     update(value, transaction) {
-      if (!transaction.docChanged && !transaction.selection) return value;
+      const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
+      if (!transaction.docChanged && !transaction.selection && !readOnlyChanged) return value;
       return decorationsFor(transaction.state);
     },
     provide: (field) => EditorView.decorations.from(field),
