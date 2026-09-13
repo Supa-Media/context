@@ -433,21 +433,32 @@ export const layout = {
    * is therefore a bare number here and gets its unit at the point of use, in
    * the rule that draws the text — see `--lp-measure` in `LiveEditor.web.tsx`.)
    *
-   * ## 36
+   * ## 40
    *
-   * Measured at 1440x900 in a browser rather than trusted as arithmetic: 36em
-   * is 522px in the console's own face and holds 68 characters. English prose
-   * in a system sans averages 0.45-0.55em a character, so 36 lands between
-   * about 65 and 80 across faces — the comfortable band is 60-75, and erring
-   * short is the cheaper error: a short line costs vertical space, a long one
-   * costs the reader the start of the next line.
+   * Measured at 1440x900 in a browser rather than trusted as arithmetic: 40em
+   * is 580px in the console's own face. English prose in a system sans
+   * averages 0.45-0.55em a character, so 40 lands between about 73 and 89
+   * across faces.
+   *
+   * This was 36 (522px, 68 characters) on the reasoning that the comfortable
+   * band is 60-75 and erring short is the cheaper error. The owner compared it
+   * against Obsidian, which is the app people arrive here from, and short read
+   * as *too* short. Measuring Obsidian's own reading measure settled it: in a
+   * 1010px pane it draws 582px of text, against our 522px in a pane of the
+   * same width — a tenth narrower, in the one place a reader has something to
+   * compare us to. 40em is 580px, which is that number.
+   *
+   * The lower bound of the readable band is not the target. A measure is
+   * comfortable across a range, and inside that range the tie is broken by
+   * what the reader already knows; being conspicuously narrower than the
+   * editor somebody used yesterday is a cost the band does not price.
    *
    * It is deliberately one value for both densities: on a phone the note is
-   * 342pt of text inside 24pt gutters, which is far narrower than 36em at
+   * 342pt of text inside 24pt gutters, which is far narrower than 40em at
    * 16px, so the measure cannot bind there and the padding governs. Two values
    * would be two things to keep in step for no gain.
    */
-  readingMeasureEm: 36,
+  readingMeasureEm: 40,
 
   /* ---------------------------------------------------------------------- *
    * The application frame.

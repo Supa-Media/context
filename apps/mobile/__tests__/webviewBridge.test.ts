@@ -1083,7 +1083,7 @@ describe("the palette", () => {
     /*
       The band the number has to stay inside, which is the design decision
       rather than the value. Prose in a system sans averages 0.45-0.55em a
-      character, so 36em is roughly 65-80 characters and the comfortable range
+      character, so 40em is roughly 73-89 characters and the comfortable range
       is 60-75. Anything outside this changes how the note reads and should
       have to edit a test that says so.
       `e2e/webkit/readingMeasure.spec.ts` checks the rendered result.
