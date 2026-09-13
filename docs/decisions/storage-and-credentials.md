@@ -364,6 +364,18 @@ aimed at, that account is the wall.
    derives the name from the workspace id — immutable, unique, and structurally
    incapable of colliding — rather than from a slug that can be reserved,
    renamed, or typed by somebody else.
+
+   **The console does not print it.** R2 has no rename, so a name derived from
+   anything a person can change is a name that goes stale or forces a copy
+   migration to fix, and a name a person can _type_ is one somebody else can
+   aim at. Both of those are worse than an ugly string — but the ugly string
+   does not have to be the label. `storagePillLabel()` prints `R2 · managed`
+   for a managed binding and keeps `ctx-<workspaceId>` in Settings → Storage →
+   Bucket, where somebody diagnosing a real problem is already looking.
+   `managed` is computed by the control plane (`getStorageBinding`) rather than
+   pattern-matched on the prefix in a client, so the name stays the server's
+   business. The tests that fail if this is reversed are the managed cases in
+   `apps/mobile/__tests__/storagePill.test.ts`.
 2. **A separate Cloudflare account, holding customer data and nothing of
    ours.** R2 has a flat bucket namespace with no grouping, so the account
    _is_ the boundary: a blast radius, a billing line, and an API token that

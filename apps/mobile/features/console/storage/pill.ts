@@ -27,7 +27,26 @@ export function providerLabel(provider: string): string {
 }
 
 /**
- * The whole pill: `R2 · brain`, `Dropbox · second/`, or just `Dropbox`.
+ * What a managed bucket's location half says instead of its name.
+ *
+ * `managedBucketName()` derives the name from the workspace id, on purpose and
+ * permanently: immutable, unique, and incapable of colliding, where a slug can
+ * be renamed, reserved, or typed by somebody else (see non-negotiable #2 and
+ * `docs/decisions/storage-and-credentials.md`). The cost is that the name is
+ * `ctx-j57a2m9qk4x1r8v6s3d0w7b5n2t8f4h6`, and a pill that prints it spends its
+ * whole width on a 36-character string the person never chose and can do
+ * nothing with.
+ *
+ * So the label says the one thing that *is* true of a managed binding and
+ * carries information: this bucket is ours to run rather than one they
+ * connected. The exact name stays in Settings → Storage → Bucket, which is
+ * where somebody diagnosing a real problem is already looking.
+ */
+const MANAGED_LOCATION = "managed";
+
+/**
+ * The whole pill: `R2 · brain`, `Dropbox · second/`, `R2 · managed`, or just
+ * `Dropbox`.
  *
  * The location half is the bucket when there is one, else the root prefix —
  * which is how a Dropbox binding scoped to a folder says where it points
@@ -35,11 +54,19 @@ export function providerLabel(provider: string): string {
  * as stored). A binding with neither is the provider name alone: a pill is a
  * label, and a label must never carry a hole where a value failed to exist.
  *
+ * A **managed** binding skips that choice entirely — see `MANAGED_LOCATION`.
+ * Only `managed: true` counts: the field is optional, and a bundle talking to
+ * a control plane that predates it reads `undefined` as "an ordinary binding"
+ * and prints the name the person typed, which is the honest fallback.
+ *
  * `null` in, `null` out — "no bucket connected" is the caller's copy, because
  * it is a warning with a tone, not a label.
  */
 export function storagePillLabel(
-  storage: { provider: string; bucket?: string; rootPrefix?: string } | null | undefined,
+  storage:
+    | { provider: string; bucket?: string; rootPrefix?: string; managed?: boolean }
+    | null
+    | undefined,
 ): string | null {
   /*
     `null` and `undefined` both produce no label, and a caller must not read
@@ -50,6 +77,7 @@ export function storagePillLabel(
   */
   if (storage === null || storage === undefined) return null;
   const provider = providerLabel(storage.provider);
+  if (storage.managed === true) return `${provider} · ${MANAGED_LOCATION}`;
   const location = [storage.bucket, storage.rootPrefix].find(
     (value) => value !== undefined && value.trim() !== "",
   );
