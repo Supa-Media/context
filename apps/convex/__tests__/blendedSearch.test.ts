@@ -248,7 +248,7 @@ describe("a cursor is arithmetic and nothing else", () => {
 
 describe("a scope can only ever narrow", () => {
   const eligible = [
-    { workspaceId: "ws_mine", slug: "mine", displayName: "Mine" },
+    { workspaceId: "ws_mine", slug: "ours", displayName: "Mine" },
     { workspaceId: "ws_ours", slug: "ours", displayName: "Ours" },
   ];
 

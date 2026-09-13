@@ -288,7 +288,7 @@ function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-editor.cm-focused { outline: none; }
 .cm-lp-root .cm-scroller {
   font-family: ${fonts.body};
-  font-size: 14.5px;
+  font-size: 16px;
   line-height: 1.75;
   padding: 14px 16px;
   overflow: auto;

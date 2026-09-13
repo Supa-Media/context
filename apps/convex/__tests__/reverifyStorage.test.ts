@@ -332,7 +332,7 @@ describe("the rate limit engages", () => {
   /** The limit is per workspace, so one context's budget is not another's. */
   test("a second workspace has its own budget", async () => {
     const { t, owner, workspaceId } = await boundWorkspace({ status: "error" });
-    const second = await createWorkspace(t, owner, "beta");
+    const second = await createWorkspace(t, owner, "bravo");
     await seedStorageBinding(t, {
       workspaceId: second,
       boundBy: owner,
