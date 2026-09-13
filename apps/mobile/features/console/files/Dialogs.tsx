@@ -50,6 +50,17 @@ function Shell({
 export function newNoteHint(folder: string): string {
   return `It will be created in ${folder || "the root of your context"} as markdown.`;
 }
+/**
+ * What a person is actually naming, since the file gets two extensions.
+ *
+ * Said out loud rather than left to be discovered in the tree: `ingest` becomes
+ * `ingest.excalidraw.md`, which is the format the Obsidian Excalidraw plugin
+ * reads, so a drawing made here opens there and the other way round.
+ */
+export function newDrawingHint(folder: string): string {
+  return `It will be created in ${folder || "the root of your context"} as <name>.excalidraw.md, the format Obsidian's Excalidraw plugin reads.`;
+}
+
 export const NEW_FOLDER_HINT =
   "A bucket has no empty folders, so this also writes a README.md inside it — visible in Obsidian and to every other tool that reads your bucket.";
 
@@ -80,15 +91,17 @@ export function CreatePrompt({
   folder,
   onCancel,
   onCreateNote,
+  onCreateDrawing,
   onCreateFolder,
 }: {
   folder: string;
   onCancel: () => void;
   onCreateNote: (name: string) => void;
+  onCreateDrawing: (name: string) => void;
   onCreateFolder: (name: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const [kind, setKind] = useState<"note" | "folder" | null>(null);
+  const [kind, setKind] = useState<"note" | "drawing" | "folder" | null>(null);
 
   if (kind === "note") {
     return (
@@ -98,6 +111,17 @@ export function CreatePrompt({
         confirmLabel="Create"
         onCancel={onCancel}
         onConfirm={onCreateNote}
+      />
+    );
+  }
+  if (kind === "drawing") {
+    return (
+      <NamePrompt
+        title="New drawing"
+        description={newDrawingHint(folder)}
+        confirmLabel="Create"
+        onCancel={onCancel}
+        onConfirm={onCreateDrawing}
       />
     );
   }
@@ -127,6 +151,15 @@ export function CreatePrompt({
         >
           <Text variant="body">Note</Text>
           <Text variant="paneSub">A markdown file you can write in.</Text>
+        </PressRow>
+        <PressRow
+          accessibilityLabel="New drawing"
+          onPress={() => setKind("drawing")}
+          style={styles.choiceRow}
+          hoverStyle={styles.listRowHover}
+        >
+          <Text variant="body">Drawing</Text>
+          <Text variant="paneSub">An Excalidraw canvas. Opens in Obsidian too.</Text>
         </PressRow>
         <PressRow
           accessibilityLabel="New folder"

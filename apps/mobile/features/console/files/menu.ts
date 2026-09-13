@@ -45,6 +45,7 @@ export type MenuActionId =
   | "open"
   | "openInNewTab"
   | "newNote"
+  | "newDrawing"
   | "newFolder"
   | "rename"
   | "duplicate"
@@ -376,6 +377,7 @@ function backgroundItems(context: MenuContext, folder: string): MenuItem[] {
   return joinGroups([
     [
       makeItem(context, "newNote", "New note"),
+      makeItem(context, "newDrawing", "New drawing"),
       makeItem(context, "newFolder", "New folder"),
     ],
     pasteGroup(context, folder),
@@ -475,6 +477,7 @@ function entryItems(context: MenuContext, rows: readonly TreeRow[]): MenuItem[] 
     single !== null && single.kind === "folder"
       ? [
           makeItem(context, "newNote", "New note here"),
+          makeItem(context, "newDrawing", "New drawing here"),
           makeItem(context, "newFolder", "New folder here"),
           ...pasteGroup(context, single.path),
         ]

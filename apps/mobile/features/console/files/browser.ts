@@ -350,6 +350,14 @@ export interface FileBrowser {
   copyTo: (from: string, destinationFolder: string) => void;
 
   createNote: (folder: string, name: string) => void;
+  /**
+   * New drawing, by the name a person would say rather than the file it becomes.
+   *
+   * `<name>.excalidraw.md` is two extensions, so the suffix is supplied here
+   * and `createNote` does the rest — one set of name and collision rules for
+   * both. Typing `plan.excalidraw` into New note reaches the same file.
+   */
+  createDrawing: (folder: string, name: string) => void;
   createFolder: (folder: string, name: string) => void;
   rename: (path: string, name: string) => void;
   move: (path: string, destinationFolder: string) => void;

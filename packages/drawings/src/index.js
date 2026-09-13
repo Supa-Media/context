@@ -22,4 +22,5 @@ export {
 
 export { SCENE_PADDING, buildScene } from "./scene.js";
 export { canSerializeDrawing, serializeDrawing } from "./serialize.js";
+export { newDrawing } from "./scaffold.js";
 export { compressToBase64, decompressFromBase64 } from "./lzstring.js";
