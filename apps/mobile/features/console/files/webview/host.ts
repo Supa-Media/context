@@ -33,10 +33,17 @@ import {
   type ToGuest,
   type ToHost,
 } from "./protocol";
+import { layout } from "../../../design/tokens";
 import type { Colors } from "../../../design/theme";
 
 /**
- * The palette and the measure, as the custom properties `styles.ts` draws with.
+ * The palette and the type scale, as the custom properties `styles.ts` draws
+ * with.
+ *
+ * ("The measure" below means the type scale — size, leading, padding — which is
+ * what this file has always called it. The note's *line length* is a separate
+ * property added later, `--lp-measure`, and it is at the bottom of the returned
+ * object with its own note.)
  *
  * Sent as values rather than as a scheme name for the reason no module in this
  * app holds a palette: a surface that decided its own colours would be a third
@@ -97,6 +104,22 @@ export function themeVars(
     "--lp-pad-top": compact ? "8px" : "14px",
     "--lp-pad-x": compact ? "24px" : "16px",
     "--lp-pad-bottom": compact ? "32px" : "14px",
+
+    /*
+      The reading measure — the note's line length, which is the one value
+      here that does NOT change with the density, because it is a multiple of
+      whatever the density's own type size is: 36 of them at 16px and at
+      14.5px. It travels as a bare number and `styles.ts` multiplies by 1em
+      where the text is; see `layout.readingMeasureEm` for why the unit is em
+      and why the multiplication is down there.
+
+      Sending it at all is the point rather than an optimisation. `styles.ts`
+      reads `var(--lp-measure)`, and a custom property no one declares makes
+      its whole declaration invalid at computed-value time — so an undeclared
+      one here is not a fallback to a sensible width, it is the measure
+      silently gone, which is the shape of the bug PR #487 fixed.
+    */
+    "--lp-measure": String(layout.readingMeasureEm),
   };
 }
 

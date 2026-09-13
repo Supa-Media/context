@@ -72,3 +72,10 @@ apps/mobile/e2e/webkit/test-results/
 # a dependency's code, and a committed copy is a second thing to keep in step
 # with every version bump.
 apps/mobile/public/drawing-assets/
+
+# Isolated git worktrees the agent harness creates for background agents, one
+# per agent (`.claude/worktrees/agent-<id>/`). Each is a full checkout of this
+# repository, `.git` and all, so a stray `git add -A` in the primary checkout
+# would commit a repository inside the repository. `.claude/settings.json` is
+# tracked and stays tracked; only the scratch worktrees are ignored.
+.claude/worktrees/

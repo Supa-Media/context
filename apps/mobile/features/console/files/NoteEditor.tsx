@@ -382,7 +382,7 @@ export function NoteEditor({
     heading is deliberate: on a phone `body` below is the editor's *buffer*, so
     removing a line from it would delete that heading from the file on save.
   */
-  const titled = noteHeadingSource(state.draft) !== "heading";
+  const titled = noteHeadingSource(state.draft, state.path) !== "heading";
 
   /*
     The two halves of the line at the foot of the document, resolved once.

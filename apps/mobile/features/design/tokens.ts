@@ -404,6 +404,51 @@ export const layout = {
   consoleBodyMinHeight: 566,
   mapHeight: 398,
 
+  /**
+   * The reading measure — how long a line of the note's own prose may get
+   * before it is hard to read — as a multiple of the note's own font size.
+   *
+   * Typography's "measure" is line length, and this is the only number in this
+   * file that is not in points, because the constraint is not a width: the eye
+   * loses the start of the next line somewhere past about 75 characters, and a
+   * 1440px console pane was giving a real paragraph roughly 150. Relative to
+   * the type, because the same note is drawn at 14.5px beside a file tree and
+   * at 16px on a phone, and one multiple is the same sentence at both.
+   *
+   * ## Why `em` and not `ch`, which is the unit that means "characters"
+   *
+   * `ch` is the advance of the digit zero, and a digit is a poor proxy for
+   * prose: the zero-to-lowercase ratio is itself a property of the face, so a
+   * `ch` measure varies with *two* font metrics where an `em` measure varies
+   * with one. Measured, not theorised — this shipped as `62ch` and CI caught
+   * it: 75 characters a line in Chromium, **91** in WebKit on the same Linux
+   * runner, because the fallback face there draws a wide zero over narrow
+   * lowercase. Same declaration, same viewport, sixteen characters apart.
+   *
+   * (`ch` was ambiguous in a second way, which is worth knowing even though it
+   * is no longer the unit: a font-relative length in a custom property can be
+   * resolved either where the property is declared or where it is used, and
+   * engines differ. The note's wrapper is Times New Roman at 16px and the note
+   * is a sans at 14.5px, so the two answers were different lengths. The value
+   * is therefore a bare number here and gets its unit at the point of use, in
+   * the rule that draws the text — see `--lp-measure` in `LiveEditor.web.tsx`.)
+   *
+   * ## 36
+   *
+   * Measured at 1440x900 in a browser rather than trusted as arithmetic: 36em
+   * is 522px in the console's own face and holds 68 characters. English prose
+   * in a system sans averages 0.45-0.55em a character, so 36 lands between
+   * about 65 and 80 across faces — the comfortable band is 60-75, and erring
+   * short is the cheaper error: a short line costs vertical space, a long one
+   * costs the reader the start of the next line.
+   *
+   * It is deliberately one value for both densities: on a phone the note is
+   * 342pt of text inside 24pt gutters, which is far narrower than 36em at
+   * 16px, so the measure cannot bind there and the padding governs. Two values
+   * would be two things to keep in step for no gain.
+   */
+  readingMeasureEm: 36,
+
   /* ---------------------------------------------------------------------- *
    * The application frame.
    *

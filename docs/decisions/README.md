@@ -182,6 +182,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A diagram lives in the note, and the browser is the only thing that makes it safe
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
+- The note is a measured column, and the demo note stopped faking one
 
 ## [Meetings](./meetings.md)
 
@@ -291,6 +292,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The drawing editor is a page, because a dynamic import is not a lazy chunk
 - The page never sees the customer's Markdown
 - Fonts are served from our own origin, and that is not a preference
+- A drawing is named by its file, never by `# Excalidraw Data`
+- A bare `%%` ends a section, and that rule has one definition
 
 ## [Testing and guards](./testing.md)
 

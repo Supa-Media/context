@@ -28,6 +28,7 @@
  *   `findPayload` matching only ```json                                      2
  *   `parseTextElements` splitting per line rather than per block             2
  *   `sectionPattern` anchored to `##` only                                   2
+ *   `splitSections` ending a section at a heading and not at `%%`            3
  *   `normalizedBox` dropping the negative-width case                         1
  *   `decompressFromBase64` returning "" instead of null on garbage           1
  *   LZ-String compressing code points rather than code units                 1
@@ -512,6 +513,72 @@ function drawingFile(payload, { fence = "compressed-json", heading = "##", wrap 
   check(
     "and the decoy's elements are nowhere in the result",
     !JSON.stringify(parsed.elements ?? []).includes("decoy")
+  );
+}
+
+/* -- (10) `%%` opens the payload, it is not a label ---------------------- */
+
+{
+  /*
+    The plugin writes `%%` on its own line to hide the payload from Obsidian,
+    and `splitSections` used to end a section only at a *heading*. A drawing
+    with no `Element Links` and no `Embedded Files` — every drawing whose
+    shapes point at nothing, which is most of them — therefore has `%%` as the
+    line after its last label, and it was read as one.
+
+    `textElementsSpan` has always stopped there, so the reader and the writer
+    that splices over its result disagreed about where somebody's labels end.
+    The cost is visible in three places: a label list showing `%%`, an index
+    holding it as a term for every drawing, and a description of an unreadable
+    drawing — the case the label fallback exists for — listing it as content.
+
+    The fixture above hides this: it has both link sections, so the phantom
+    landed in `Embedded Files`, where `parseIdMap` drops any line without a
+    colon. This one is shaped like a drawing that links to nothing.
+  */
+  const plain = (payload) =>
+    [
+      "---",
+      "excalidraw-plugin: parsed",
+      "---",
+      "",
+      "# Excalidraw Data",
+      "",
+      "## Text Elements",
+      "Ingest ^labelA",
+      "",
+      "%%",
+      "## Drawing",
+      "```compressed-json",
+      compressToBase64(payload),
+      "```",
+      "%%",
+      "",
+    ].join("\n");
+
+  const drawing = parseDrawing(plain(JSON.stringify(SCENE)), "1-projects/plan.excalidraw.md");
+  check(
+    "`%%` is not one of the labels",
+    drawing.textElements.length === 1 && drawing.textElements[0].text === "Ingest"
+  );
+  check("the label before it survives whole", drawing.textElements[0].id === "labelA");
+  check("and it is not indexed as a term", !drawingSearchText(drawing).includes("%%"));
+
+  // The case the Markdown labels exist for: the payload is gone and they are
+  // all a reader gets. Listing `%%` among them is the defect at its loudest.
+  const broken = parseDrawing(plain("not base64 at all !!!"), "1-projects/plan.excalidraw.md");
+  check("an unreadable drawing still keeps its real label", broken.elements === null);
+  check(
+    "and its description does not list `%%` as one",
+    !describeDrawing(broken, { path: "1-projects/plan.excalidraw.md" }).includes("- %%")
+  );
+
+  // A heading still ends a section, and the payload comment still has to be a
+  // line of its own: `%%` inside a label is somebody's text.
+  const inline = plain(JSON.stringify(SCENE)).replace("Ingest ^labelA", "100%% of it ^labelA");
+  check(
+    "a `%%` inside a label is text, not a boundary",
+    parseDrawing(inline).textElements[0]?.text === "100%% of it"
   );
 }
 
