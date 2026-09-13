@@ -1635,6 +1635,40 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-status-bad { color: var(--lp-content); font-weight: 600; }
 .cm-lp-form-status-quiet { opacity: 0.75; }
+.cm-lp-form-responses {
+  border-top: 1px solid var(--lp-code-bg);
+  margin-top: 16px;
+  padding-top: 14px;
+}
+.cm-lp-form-responses-title { font-weight: 650; margin-bottom: 8px; }
+.cm-lp-form-responses-status { color: var(--lp-muted); font-size: 0.88em; }
+.cm-lp-form-responses-scroll { overflow-x: auto; }
+.cm-lp-form-responses-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.cm-lp-form-responses-table th,
+.cm-lp-form-responses-table td {
+  border-bottom: 1px solid var(--lp-code-bg);
+  padding: 8px 10px 8px 0;
+  text-align: left;
+  vertical-align: top;
+}
+.cm-lp-form-responses-table th { color: var(--lp-muted); font-size: 0.88em; font-weight: 600; }
+.cm-lp-form-voters { color: var(--lp-muted); white-space: nowrap; }
+.cm-lp-form-vote-controls { display: flex; gap: 6px; margin-top: 6px; white-space: nowrap; }
+.cm-lp-form-vote {
+  border: 1px solid var(--lp-code-bg);
+  border-radius: 8px;
+  padding: 4px 8px;
+  color: var(--lp-link);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.cm-lp-form-vote:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-vote-remove { color: var(--lp-muted); }
 /*
   "We can't display because the formatting is off", which is what the owner
   asked for. Dashed rather than solid so it reads as a gap in the note that

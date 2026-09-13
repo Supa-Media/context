@@ -197,6 +197,74 @@ describe("the ready handshake", () => {
   });
 });
 
+describe("form response messages", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("reads a declared response note and returns its text", async () => {
+    const sent: string[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onReadFormResponses: async (path) => ({ ok: true, text: `read ${path}`, message: "" }),
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-responses",
+        token: "r1",
+        responsesPath: "bugs-responses.md",
+      }),
+    );
+    await settle();
+
+    expect(JSON.parse(sent[0]!)).toEqual({
+      v: PROTOCOL_VERSION,
+      type: "form-responses-result",
+      token: "r1",
+      ok: true,
+      text: "read bugs-responses.md",
+      message: "",
+    });
+  });
+
+  test("routes a named vote through the form action", async () => {
+    const sent: string[] = [];
+    const votes: unknown[] = [];
+    const bridge = createHostBridge((raw) => sent.push(raw), {
+      onChange: () => {},
+      onSave: () => {},
+      onVoteForm: async (vote) => {
+        votes.push(vote);
+        return { ok: true, message: "Vote added." };
+      },
+    });
+    bridge.receive(JSON.stringify({ v: PROTOCOL_VERSION, type: "ready" }));
+    sent.length = 0;
+
+    bridge.receive(
+      JSON.stringify({
+        v: PROTOCOL_VERSION,
+        type: "form-vote",
+        token: "v1",
+        formId: "bugs",
+        responseId: "r-1234abcd",
+        vote: "up",
+      }),
+    );
+    await settle();
+
+    expect(votes).toEqual([{ formId: "bugs", responseId: "r-1234abcd", vote: "up" }]);
+    expect(JSON.parse(sent[0]!)).toMatchObject({
+      type: "form-result",
+      token: "v1",
+      ok: true,
+    });
+  });
+});
+
 describe("how much of the note the keyboard is covering", () => {
   /**
    * Measured as an overlap rather than taken as the keyboard's height, so it is

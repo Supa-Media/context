@@ -193,9 +193,9 @@ export type ToGuest =
   /**
    * The answer to one `form-submit`, matched to it by `token`.
    *
-   * The only request/reply pair on this protocol, and the token is what makes
-   * it one: every other message is a fact one side is telling the other, and a
-   * fact needs no correlation. Two forms on a note can be in flight at once —
+   * A request/reply pair on this protocol, and the token is what makes it one:
+   * most other messages are facts one side tells the other, and a fact needs
+   * no correlation. Two forms on a note can be in flight at once —
    * they are separate widgets with separate buttons — so "the last reply is
    * for the last request" is not true here, and the reply carries the id of
    * the request rather than the guest assuming.
@@ -204,7 +204,15 @@ export type ToGuest =
    * both outcomes, because the words for a refusal come from the server that
    * refused and the guest has no better one to offer.
    */
-  | { v: number; type: "form-result"; token: string; ok: boolean; message: string };
+  | { v: number; type: "form-result"; token: string; ok: boolean; message: string }
+  | {
+      v: number;
+      type: "form-responses-result";
+      token: string;
+      ok: boolean;
+      text?: string;
+      message: string;
+    };
 
 /** Guest → host. */
 export type ToHost =
@@ -286,6 +294,15 @@ export type ToHost =
       token: string;
       formId: string;
       values: ReadonlyArray<{ field: string; value: string }>;
+    }
+  | { v: number; type: "form-responses"; token: string; responsesPath: string }
+  | {
+      v: number;
+      type: "form-vote";
+      token: string;
+      formId: string;
+      responseId: string;
+      vote: "up" | "none";
     };
 
 export function encode(message: ToGuest | ToHost): string {
@@ -329,6 +346,7 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "command",
   "links",
   "form-result",
+  "form-responses-result",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -342,6 +360,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "open-link",
   "press-link",
   "form-submit",
+  "form-responses",
+  "form-vote",
 ] as const);
 
 /**

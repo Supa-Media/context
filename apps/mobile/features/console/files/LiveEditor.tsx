@@ -105,6 +105,8 @@ export function LiveEditor({
   notePath,
   notePaths,
   onSubmitForm,
+  onReadFormResponses,
+  onVoteForm,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -163,6 +165,8 @@ export function LiveEditor({
     onOpenNote,
     onPressNote,
     onSubmitForm,
+    onReadFormResponses,
+    onVoteForm,
   });
   handlers.current = {
     onChange,
@@ -174,6 +178,8 @@ export function LiveEditor({
     onOpenNote,
     onPressNote,
     onSubmitForm,
+    onReadFormResponses,
+    onVoteForm,
   };
 
   /**
@@ -272,6 +278,12 @@ export function LiveEditor({
           onSubmitForm: (submission) =>
             handlers.current.onSubmitForm?.(submission) ??
             Promise.resolve({ ok: false, message: "This note can’t send responses here." }),
+          onReadFormResponses: (responsesPath) =>
+            handlers.current.onReadFormResponses?.(responsesPath) ??
+            Promise.resolve({ ok: false, message: "Responses are unavailable here." }),
+          onVoteForm: (vote) =>
+            handlers.current.onVoteForm?.(vote) ??
+            Promise.resolve({ ok: false, message: "Voting is unavailable here." }),
         },
       ),
     [keepCaretClear],

@@ -124,6 +124,8 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
         reported, never faked."
       */
       submitForm: async () => ({ ok: false, message: "Sign in to send a response." }),
+      readFormResponses: async () => ({ ok: false, message: "Sign in to read responses." }),
+      voteForm: async () => ({ ok: false, message: "Sign in to vote." }),
       readOnlyReason: tree.readOnlyReason,
       /*
         The demo tree is built synchronously from literals, so this browser is
