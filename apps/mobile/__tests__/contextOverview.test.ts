@@ -97,7 +97,7 @@ describe("the shared-buckets line does not promise a team capture address", () =
     // capture address will assume a shared one does too, and the refusal in
     // the control plane is byte-identical to an unclaimed name's — so they
     // would find out by forwarding mail into a void.
-    expect(SHARED!.body).toMatch(/workspace has none/i);
+    expect(SHARED!.body).toMatch(/a shared one has none/i);
   });
 
   test("no line anywhere offers an address on a context that cannot receive mail", () => {

@@ -152,7 +152,7 @@ function context(over: Partial<ConsoleContext> & { slug: string }): ConsoleConte
   };
 }
 
-/** A brain of your own, a brain somebody shared, and two workspaces. */
+/** A workspace of your own, a personal one somebody shared, and two shared. */
 function contexts(): ConsoleContext[] {
   return [
     context({ slug: "seyi" }),
@@ -249,7 +249,7 @@ describe("the strip is where you can go, not where you are", () => {
   });
 
   test("every context the viewer can reach but the one they are in", () => {
-    // Brains and workspaces undivided — the rail's two headed groups are one
+    // Workspaces and workspaces undivided — the rail's two headed groups are one
     // row here, and the kind is the dot.
     const order = stripOrder(contexts(), "seyi", []);
     expect(order).toHaveLength(contexts().length - 1);
@@ -269,10 +269,10 @@ describe("the strip is where you can go, not where you are", () => {
 describe("the kind is a colour, and it is not an alarm", () => {
   /**
    * SABOTAGE: `toneForKind` reading `role` instead of `kind` — the tempting
-   * near-miss, since a brain is a context you own. Fails here on `@supa`, a
-   * workspace the viewer owns, and on `@sayo`, a brain they do not.
+   * near-miss, since a workspace is a context you own. Fails here on `@supa`, a
+   * shared workspace the viewer owns, and on `@sayo`, a personal one they do not.
    */
-  test("a brain and a workspace are told apart without a heading", () => {
+  test("a personal workspace and a shared one are told apart without a heading", () => {
     expect(toneForKind(context({ slug: "seyi", kind: "personal" }))).toBe("ok");
     expect(toneForKind(context({ slug: "sayo", kind: "personal", role: "member" }))).toBe("ok");
     expect(toneForKind(context({ slug: "acme", kind: "shared" }))).toBe("neutral");
@@ -310,10 +310,10 @@ describe("an empty row is not drawn", () => {
    * rule's own stated reason rather than a departure from it: *an empty row is
    * chrome that does nothing*. A row holding "New workspace" is not empty, and
    * `rail.ts` records that this entry is "the *whole* group for somebody who is
-   * in no workspaces yet, which is how a person who has only ever had a brain
+   * in no shared workspace yet, which is how a person who has only ever had their own
    * finds out that workspaces exist". Counting contexts rather than entries
    * would take that away from exactly the person it was written for — one
-   * brain, a phone, and no other surface offering it, since the rail is not on
+   * workspace, a phone, and no other surface offering it, since the rail is not on
    * a phone any more.
    *
    * SABOTAGE: counted `ordered.length` instead of the total. Fails here and in
@@ -628,7 +628,7 @@ describe("the ends of the list", () => {
    * whenever the callback was present. Fails here — the viewer in this fixture
    * owns `@seyi`, so the entry must be absent.
    */
-  test("Claim your @name only for somebody who has no brain of their own", () => {
+  test("Claim your @name only for somebody who has no workspace of their own", () => {
     const withOwn = mountStrip({ onClaimContext: () => {} });
     expect(withOwn.find("context-strip-claim")).toBeNull();
 

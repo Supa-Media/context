@@ -115,7 +115,7 @@ export function LoginScreen() {
             },
           ]}
         >
-          {step === "request" ? "Sign in or create your brain" : "Check your email"}
+          {step === "request" ? "Sign in or create your workspace" : "Check your email"}
         </Text>
 
         <Text variant="heroSub" style={styles.sub}>

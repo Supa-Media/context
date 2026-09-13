@@ -811,7 +811,7 @@ const ROOT_LABEL = "the root of your context";
  * is drawn from — which makes the filter below complete by construction. The
  * first version matched `/^[0-9]-/` instead and would have silently dropped a
  * leaked `Journal/` or `Clients/`, the folder names `CLAUDE.md`'s
- * `resetPrivacyManifest` decision exists because real brains actually have.
+ * `resetPrivacyManifest` decision exists because real workspaces actually have.
  */
 const EVERY_FOLDER = new Set(
   [ROOT_LISTING, PROJECTS_LISTING].flatMap((listing) =>

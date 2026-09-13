@@ -386,12 +386,12 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
   // only ever a proxy for it: a folder was refused because `/@name/1-projects`
   // is five guesses per handle, not because it is a folder.
   //
-  // So the names the PRODUCT picks are named. That is more than a fresh brain's
+  // So the names the PRODUCT picks are named. That is more than a fresh workspace's
   // scaffold: `scaffoldFiles` lays down `index.md`, `privacy.md` and a
   // `README.md` per PARA folder and the house rules add a root `todo.md`, but
   // the gateway also creates folders AFTER creation — where `save_context`
   // files a session, and where `writeInboxCapture` files a capture under the
-  // sender's own slug, three of which are ours. Everything else in a brain is a
+  // sender's own slug, three of which are ours. Everything else in a workspace is a
   // name its owner chose, and `1-projects/chapter-transition` is exactly as
   // unguessable as `1-projects/chapter-transition/overview.md`.
   //
@@ -429,7 +429,7 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "todo.md",
   // Where `save_context` files a session. `defaultSessionFolder` in the gateway
   // picks `4-archive/chat-history` when the manifest declares a `4-archive`
-  // rule and `0-inbox/sessions` otherwise, so a brain whose owner has run the
+  // rule and `0-inbox/sessions` otherwise, so a workspace whose owner has run the
   // hook once has one of them — two guesses per handle on names nobody chose.
   "4-archive/chat-history",
   "0-inbox/sessions",

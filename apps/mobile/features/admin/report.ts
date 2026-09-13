@@ -184,12 +184,12 @@ export const KNOWN_SECRETS: readonly KnownSecret[] = [
   {
     name: "SEARCH_D1_API_TOKEN",
     description: "Cloudflare API token, scoped to D1:Edit, on the customer-data account.",
-    unsetMeans: "Per-brain search databases cannot be provisioned.",
+    unsetMeans: "Per-workspace search databases cannot be provisioned.",
   },
   {
     name: "SEARCH_D1_ACCOUNT_ID",
     description: "The Cloudflare account the search databases are created in.",
-    unsetMeans: "Per-brain search databases cannot be provisioned.",
+    unsetMeans: "Per-workspace search databases cannot be provisioned.",
   },
   {
     name: "STRIPE_SECRET_KEY",

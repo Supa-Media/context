@@ -13,7 +13,7 @@
  *
  * **The workspace segment.** A person belongs to many contexts, and a meeting
  * belongs to exactly one. Non-negotiable #4 makes that a tenancy question:
- * a meeting recorded into a shared workspace must not surface under a brain.
+ * a meeting recorded into a shared workspace must not surface under a personal one.
  *
  * **The separator.** `U+001F`, which cannot appear in a bucket path or in a
  * meeting id (`mtg_` plus twenty lowercase base32 characters), so a key cannot

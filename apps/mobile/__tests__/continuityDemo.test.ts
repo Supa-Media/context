@@ -32,7 +32,7 @@ describe("the landing-page continuity story", () => {
     const teammate = CONTINUITY_STEPS[2];
     expect(teammate.access).toBe("Team access");
     expect(teammate.reply).toMatch(/private notes were never available/i);
-    expect(teammate.receipt).toMatch(/your brain hidden/i);
+    expect(teammate.receipt).toMatch(/yours hidden/i);
   });
 
   test("the handoff is followed by an honest plain-markdown explanation", () => {

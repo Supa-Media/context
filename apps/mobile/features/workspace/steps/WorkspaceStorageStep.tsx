@@ -23,12 +23,12 @@ import type { CreateWorkspaceController } from "../useCreateWorkspace";
  * ## The one thing this says that the onboarding version does not
  *
  * **A storage binding belongs to a `workspaceId`, never a `userId`.** This
- * bucket is not the creator's brain and is not shared with it: a workspace has
+ * bucket is not the creator's own and is not shared with it: a workspace has
  * its own binding, its own credential envelope, and its own audit trail. People
  * arrive at this screen expecting to point the workspace at the bucket they
  * already connected, and it is worth one sentence to say that a separate bucket
  * is the design rather than an oversight — the whole point is that revoking a
- * workspace's credential leaves a personal brain untouched, and vice versa.
+ * workspace's credential leaves the creator's own untouched, and vice versa.
  *
  * ## Dropbox leaves the flow, and says so
  *

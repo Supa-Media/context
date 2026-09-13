@@ -722,7 +722,7 @@ describe("a readable team link", () => {
 
   /** ...and the five it did not. */
   it.each(["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive"])(
-    "does not route %s, which every brain has",
+    "does not route %s, which every workspace has",
     (path) => {
       expect(
         consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${path}`)),

@@ -1,7 +1,7 @@
 /**
  * The three facts about a context, in one line.
  *
- * `R2 · brain · 100% indexed · 12 notes, 8 folders` — the bucket it is bound
+ * `R2 · notes-bucket · 100% indexed · 12 notes, 8 folders` — the bucket it is bound
  * to, how much of it is in the hosted index, and how much of its tree has
  * actually been read.
  *

@@ -338,9 +338,9 @@ export function deletionBlockedReason(input: {
     return "Checking what this workspace is before offering to delete it.";
   }
   if (input.kind !== "shared") {
-    // A brain's name is the person's own username and its capture address is
+    // A personal workspace's name is the person's own username and its capture address is
     // live on the apex. Releasing that is account deletion's business.
-    return "A brain is deleted with the account it belongs to. Delete the account to release its name.";
+    return "A personal workspace is deleted with the account it belongs to. Delete the account to release its name.";
   }
   if (input.storageIsManaged) {
     return "This workspace's notes are in storage we run, and moving them out to a bucket you own is not built yet. Deleting it here would leave them somewhere you cannot reach, so it is refused until that lands.";
@@ -374,7 +374,7 @@ export function describeDeleteWorkspaceFailure(error: unknown): KeyExportFailure
       };
     case "PERSONAL_CONTEXT":
       return {
-        headline: "A brain is deleted with its account",
+        headline: "A personal workspace is deleted with its account",
         next: "Delete the account from Settings to release its name.",
       };
     case "MANAGED_MIGRATION":

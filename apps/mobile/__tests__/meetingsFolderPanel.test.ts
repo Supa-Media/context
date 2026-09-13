@@ -96,7 +96,7 @@ function mount(props: Partial<Parameters<typeof MeetingsDestination>[0]> = {}) {
 }
 
 describe("the folder is a control now, not a sentence", () => {
-  test("an owner of a brain can change it", () => {
+  test("an owner of a workspace can change it", () => {
     const screen = mount();
     expect(screen.find("meetings-folder-edit")).not.toBeNull();
     // The default is shown as the default, not as a stored choice.
@@ -148,17 +148,19 @@ describe("the folder is a control now, not a sentence", () => {
 });
 
 describe("absent rather than disabled", () => {
-  test("a member of somebody else's brain is shown the folder and no way to change it", () => {
+  test("a member of somebody else's workspace is shown the folder and no way to change it", () => {
     const screen = mount({ role: "member" });
     expect(screen.find("meetings-folder-edit")).toBeNull();
     expect(screen.text()).toContain("0-inbox/meetings");
     expect(screen.text()).toContain("Only the owner of @seyi can change");
   });
 
-  test("a shared workspace says why the setting lives on a brain", () => {
+  test("a shared workspace says why the setting lives on a personal one", () => {
     const screen = mount({ kind: "shared", slug: "@public-worship" });
     expect(screen.find("meetings-folder-edit")).toBeNull();
-    expect(screen.text()).toContain("setting on a brain rather than on a shared workspace");
+    expect(screen.text()).toContain(
+      "setting on a personal workspace rather than on a shared one",
+    );
   });
 });
 

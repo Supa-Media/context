@@ -58,8 +58,8 @@ export function useLifecycle(options: {
 
   /*
     A registry search and the bucket it is compared against both belong to one
-    context. Carrying either across a switch would show one brain's results
-    under another brain's name.
+    context. Carrying either across a switch would show one workspace's results
+    under another workspace's name.
   */
   const ticket = useRef(0);
   useEffect(() => {

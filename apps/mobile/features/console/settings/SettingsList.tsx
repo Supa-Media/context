@@ -156,7 +156,7 @@ export function SettingsList({
     <View style={styles.contextHeading}>
       <Dot tone={current.status} />
       <Text variant="listGroup" style={styles.headingInline}>
-        {`${atName(current.slug)} · ${current.kind === "shared" ? "workspace" : "your brain"}`}
+        {`${atName(current.slug)} · ${current.kind === "shared" ? "shared" : "yours"}`}
       </Text>
     </View>
   );
@@ -352,7 +352,7 @@ function SettingsRow({
       */
       aria-current={selected ? "true" : undefined}
       /*
-        The label alone, not "Storage, R2 · brain". The value is drawn as its
+        The label alone, not "Storage, R2 · my-bucket". The value is drawn as its
         own text node inside the row, so a screen reader reaches it anyway —
         folding it into the name would say it twice and make every row's
         accessible name change as the data under it did.

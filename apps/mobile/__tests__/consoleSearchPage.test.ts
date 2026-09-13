@@ -283,8 +283,8 @@ describe("the scope", () => {
     // A pasted link can name anything. The server drops what the caller cannot
     // search; this drops it a round trip earlier, and the two agree by
     // construction because both intersect rather than trust.
-    expect(scopeIds(["seyi", "somebody-elses-brain"], reachable)).toEqual(["w1"]);
-    expect(scopeLabel(["somebody-elses-brain"], reachable)).toBe("All your contexts");
+    expect(scopeIds(["seyi", "somebody-elses-workspace"], reachable)).toEqual(["w1"]);
+    expect(scopeLabel(["somebody-elses-workspace"], reachable)).toBe("All your contexts");
   });
 });
 

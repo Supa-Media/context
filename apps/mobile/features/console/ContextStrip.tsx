@@ -41,7 +41,7 @@ import type { ConsoleContext } from "./types";
  *
  * ## What is on it, and what is deliberately not
  *
- * Every context the viewer can reach, brains and workspaces undivided, ordered
+ * Every context the viewer can reach, personal and shared undivided, ordered
  * by `strip.ts` — current first, then most recently visited. The kind is
  * the dot's colour rather than a heading, the strip carries no storage status,
  * and both of those are decisions with costs written down in that file.

@@ -88,13 +88,13 @@ describe("a value is never invented out of an absence", () => {
         storage: {
           ...(base.storage ?? ({} as NonNullable<ConsoleData["storage"]>)),
           provider: "r2",
-          bucket: "brain",
+          bucket: "notes-bucket",
           connected: true,
         },
       },
       null,
     );
-    expect(preview).toBe("R2 · brain");
+    expect(preview).toBe("R2 · notes-bucket");
   });
 
   test("invitations that have not loaded are not zero invitations", () => {

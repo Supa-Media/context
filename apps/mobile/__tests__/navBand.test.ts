@@ -304,7 +304,7 @@ describe("the band's two rows", () => {
 
   test("a context with nothing to switch to still gets its own button", () => {
     /*
-      One brain, no workspaces. `stripEntries` answers `null` so there is no
+      One workspace of their own, no shared ones. `stripEntries` answers `null` so there is no
       contexts row — and the person still has to be able to reach their root,
       which is the row that is left.
     */

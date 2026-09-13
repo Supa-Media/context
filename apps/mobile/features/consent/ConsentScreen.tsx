@@ -314,13 +314,13 @@ export function ConsentBody({
       const who = view.clientName ?? "That app";
       return (
         <>
-          <Title size={titleSize}>You don&apos;t have a brain yet</Title>
+          <Title size={titleSize}>You don&apos;t have a workspace yet</Title>
           <Text variant="heroSub" style={styles.sub}>
             {who} is asking for access, and this account has nothing to share yet.
             Connect a bucket you already own, then ask the app to connect again.
           </Text>
           <View style={styles.deadEndActions}>
-            <Button label="Set up your brain" variant="decision" onPress={onLeaveForConsole} />
+            <Button label="Set up your workspace" variant="decision" onPress={onLeaveForConsole} />
             <Button
               label="Back to Context.lc"
               variant="ghost"

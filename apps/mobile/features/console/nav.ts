@@ -481,7 +481,7 @@ export function routeForPath(pathname: string): ConsoleRoute {
  * That list is ordered by nothing a person would recognise, so an account that
  * owns `@agent` and was invited into `@seyi` signed in and got **`@seyi`** — a
  * context they are a guest in, filtered to team level, with a "Team access"
- * line across the top and their own brain nowhere on the screen. Every part of
+ * line across the top and their own workspace nowhere on the screen. Every part of
  * that is working as designed and the whole of it is the wrong first screen.
  *
  * Fixing only the selection fixes nothing, which is why this is one function
@@ -493,7 +493,7 @@ export function routeForPath(pathname: string): ConsoleRoute {
  *
  * A context you **own**, and the first of the list only when you own none — a
  * real state rather than a defensive one, for somebody invited into a
- * colleague's context before finishing their own onboarding. A brain is what
+ * colleague's context before finishing their own onboarding. A workspace is what
  * this product is: where capture lands, where the privacy manifest lives, and
  * the only context whose private notes the signed-in person can see at all. A
  * context somebody shared is a place you visit.

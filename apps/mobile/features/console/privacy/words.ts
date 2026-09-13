@@ -108,8 +108,8 @@ export function privateMeans(kind: ContextKind | null, viewerIsOwner: boolean): 
   }
   if (kind === "personal") {
     /*
-      **A brain has one owner, and the reader is not always them.** Rendered on
-      `@lk` — somebody else's brain, read at `member` — the owner's sentence
+      **A workspace has one owner, and the reader is not always them.** Rendered on
+      `@lk` — somebody else's workspace, read at `member` — the owner's sentence
       said "Yours alone" about notes that are not the reader's at all, and the
       filtered-view line underneath then had to correct it. `viewerIsOwner` is
       the whole difference; a workspace needs no such split because "owners

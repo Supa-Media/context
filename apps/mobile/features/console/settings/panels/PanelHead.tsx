@@ -67,14 +67,14 @@ export function PanelHead({
 /**
  * Why this context cannot do the thing the panel is named after.
  *
- * A shared workspace is not a brain: it has no capture address, and nobody's
+ * A shared workspace is not a personal one: it has no capture address, and nobody's
  * mailbox, calendar or chat history belongs to a bucket several people watch.
  * The *controls* for those are absent rather than disabled — but the sentence
  * saying why is the reason these sections are listed for a workspace at all,
  * so it is a card with a title rather than a greyed row or a missing one.
  *
  * Every one of them ends on the same clause — **"Switch to a personal
- * brain"** — deliberately: it is the one action that resolves any of them, and
+ * workspace"** — deliberately: it is the one action that resolves any of them, and
  * a reader who has met it once should recognise it rather than read three
  * different phrasings of the same instruction.
  */

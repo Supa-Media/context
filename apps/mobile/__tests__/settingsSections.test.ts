@@ -85,7 +85,7 @@ describe("the order and the grouping", () => {
 describe("two scopes in one list", () => {
   test("account sections survive whichever context is open", () => {
     // They are about the person, not the context — so a shared workspace, a
-    // personal brain and a context still loading all keep them.
+    // personal workspace and a context still loading all keep them.
     for (const kind of ["personal", "shared", null] as const) {
       const keys = settingsSectionsFor(kind).map((section) => section.key);
       expect(keys).toContain("apps");
@@ -238,9 +238,11 @@ describe("searching the list", () => {
 
     expect(keysFor("delete workspace")).toEqual(["advanced"]);
     expect(keysFor("delete my account")).toEqual(["account"]);
-    // A brain goes with the account it belongs to — the sentence
+    // A personal workspace goes with the account it belongs to — the sentence
     // `deletionBlockedReason` gives for refusing it in Advanced — so the noun
-    // has to land on the screen that can actually do it.
+    // has to land on the screen that can actually do it. "workspace" is the noun
+    // here on purpose: the word is retired from the copy, and people who
+    // learned it will go on typing it for years.
     expect(keysFor("delete my brain")).toEqual(["account"]);
     // The bare verb is ambiguous and should say so by offering both, rather
     // than silently picking the more destructive one. That is what it did

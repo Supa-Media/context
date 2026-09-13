@@ -589,7 +589,7 @@ export function useLiveConsoleData(): ConsoleData {
   const advanced = useAdvanced({
     workspaceId: selectedContextId,
     role: selected?.role,
-    // For the deletion card only: a brain is not deletable from a settings
+    // For the deletion card only: a personal workspace is not deletable from a settings
     // panel, and the name is what confirms the deletion.
     kind: selected?.kind,
     slug: selected?.slug,

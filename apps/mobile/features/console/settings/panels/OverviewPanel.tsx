@@ -19,9 +19,9 @@ import { settingsSectionLabel, type SettingsSectionKey } from "../sections";
  * in mono and right-aligned. It read as a debug dump, and two details are
  * worth naming because they are the difference between a product and a
  * record: `owner` was printed as the enum, lower-cased, straight off the wire;
- * and `Personal brain` was set in the monospace face, which in this app means
+ * and `Personal workspace` was set in the monospace face, which in this app means
  * "a string you would copy" and a kind is not one. Nothing on the page could
- * be pressed, so somebody who read "R2 · brain" here and wanted to change it
+ * be pressed, so somebody who read "R2 · notes-bucket" here and wanted to change it
  * had to go back to the list and find Storage.
  *
  * Now: who this is, whether the bucket is answering, and three facts that are
@@ -78,7 +78,7 @@ export function OverviewPanel({
             {atName(current?.slug ?? "—")}
           </Text>
           <Text variant="rowSub" style={styles.whoSub}>
-            {[shared ? "Shared workspace" : "Personal brain", role]
+            {[shared ? "Shared workspace" : "Personal workspace", role]
               .filter((part) => part !== null)
               .join(" · ")}
           </Text>
@@ -87,8 +87,13 @@ export function OverviewPanel({
 
       <HealthStrip data={data} onSelect={onSelect} />
 
+      {/*
+        One word for both kinds, now that both kinds are workspaces. The
+        heading used to fork — "This workspace" / "This brain" — and the fork
+        was the vocabulary rather than anything about the facts under it.
+      */}
       <Text variant="listGroup" style={styles.heading}>
-        {shared ? "This workspace" : "This brain"}
+        This workspace
       </Text>
       <View style={styles.card}>
         {FACTS.map((key, index) => {
@@ -138,7 +143,7 @@ export function OverviewPanel({
  *
  * ## When it is absent, and why absent rather than refused
  *
- *  - **A brain.** Its slug is the person's username and its capture address is
+ *  - **A workspace.** Its slug is the person's username and its capture address is
  *    live on the apex, so releasing it is account deletion's business — a row
  *    here would point at a card that exists only to explain that it cannot.
  *  - **A workspace you do not own.** `account.deleteWorkspace` is owner-only,

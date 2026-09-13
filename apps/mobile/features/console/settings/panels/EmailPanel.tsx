@@ -11,7 +11,7 @@ import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
  * Email: the mailboxes we read, and the address mail is forwarded to.
  *
  * **This is the panel the split was for.** One question — "how does mail get
- * into my brain" — used to be answered in two places, because there are two
+ * into my workspace" — used to be answered in two places, because there are two
  * mechanisms: a Google account syncs its own mailbox, and anything else is
  * forwarded to a capture address. Those live in different systems, gate on
  * different things and fail in different ways, and none of that is the
@@ -43,7 +43,7 @@ export function EmailPanel({
     <>
       <PanelHead section="email" sectioned={sectioned}>
         {personal
-          ? "Mail arrives two ways: a Google account whose mailbox we read, or anything forwarded to this brain's own address. Both are here."
+          ? "Mail arrives two ways: a Google account whose mailbox we read, or anything forwarded to this workspace's own address. Both are here."
           : "A workspace has no address of its own, and nobody's mailbox is connected to one. Notes reach it when someone moves them here."}
       </PanelHead>
 
@@ -56,8 +56,8 @@ export function EmailPanel({
           folders={loadedFolders(data.files.listings)}
         />
       ) : (
-        <WorkspaceRefusalCard title="A mailbox belongs to a brain">
-          Switch to a personal brain to connect a Google account. A workspace is shared,
+        <WorkspaceRefusalCard title="A mailbox belongs to a personal workspace">
+          Switch to a personal workspace to connect a Google account. A shared one is shared,
           and somebody&apos;s mailbox is not.
         </WorkspaceRefusalCard>
       )}

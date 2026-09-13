@@ -33,7 +33,7 @@ import {
  *
  * **The destination is still asked for every time, before the microphone
  * opens.** `features/meetings/destination.ts` argues that at length and this
- * changes none of it: the first offer is always the person's own brain, the
+ * changes none of it: the first offer is always the person's own workspace, the
  * page they are standing on is offered second with its audience named, and no
  * setting answers the question silently. What this names is the folder the
  * *first offer points at*.
@@ -60,7 +60,7 @@ export function MeetingsDestination({
 }: {
   workspaceId: string | null;
   slug: string;
-  /** `personal` | `shared`. Only a brain reads this setting. */
+  /** `personal` | `shared`. Only a personal workspace reads this setting. */
   kind: string;
   role: string | undefined;
   /** The stored folder, or `undefined` for a context that has never chosen. */
@@ -102,7 +102,7 @@ export function MeetingsDestination({
           <Row>
             <Grow>
               <Text variant="rowTitle">
-                {kind === "shared" ? "Meetings filed here" : "Default folder in your brain"}
+                {kind === "shared" ? "Meetings filed here" : "Default folder in your workspace"}
               </Text>
               <Text variant="mono" style={styles.folder}>
                 {stored}
@@ -111,7 +111,7 @@ export function MeetingsDestination({
           </Row>
           <Text variant="foot" style={styles.readOnly}>
             {kind === "shared"
-              ? "Meetings are offered your own brain first, so the folder is a setting on a brain rather than on a shared workspace."
+              ? "Meetings are offered your own workspace first, so the folder is a setting on a personal workspace rather than on a shared one."
               : `Only the owner of ${slug} can change where its meetings land.`}
           </Text>
         </Card>
@@ -187,7 +187,7 @@ function MeetingsDestinationLive({
         /*
           The control plane's own sentence. `setMeetingsFolder` refuses with a
           message written to be shown — a folder the gateway will not file
-          into, or a workspace that is not a brain — and replacing it with
+          into, or a workspace that is not their own — and replacing it with
           "try again" would hide the only thing that says what to fix.
         */
         setFailure(reason instanceof Error ? reason.message : "That folder did not save."),
@@ -199,7 +199,7 @@ function MeetingsDestinationLive({
     <Card>
       <Row>
         <Grow>
-          <Text variant="rowTitle">Default folder in your brain</Text>
+          <Text variant="rowTitle">Default folder in your workspace</Text>
           <Text variant="mono" style={styles.folder}>
             {stored}
           </Text>
@@ -226,7 +226,7 @@ function MeetingsDestinationLive({
             autoCapitalize="none"
             autoCorrect={false}
             placeholder={INBOX_FOLDER}
-            hint="A folder inside your brain. You are still asked before every recording."
+            hint="A folder inside your workspace. You are still asked before every recording."
             error={problem ?? undefined}
             style={styles.input}
             testID="meetings-folder-input"

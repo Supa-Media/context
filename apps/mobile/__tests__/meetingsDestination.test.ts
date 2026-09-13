@@ -42,13 +42,13 @@ import { memoryStore } from "../features/offline/memory";
  *     remembered — the current page becomes the default.
  *     → 3 fail, including both halves of the rule: `the default is the viewer's
  *     own inbox, even inside a shared workspace` and `… even standing in a
- *     colleague's brain`.
+ *     colleague's workspace`.
  *  2. `const yours = context.kind === "personal"` — the audience keyed off the
  *     kind alone rather than off whose context it is.
- *     → `a page in somebody else's brain names an audience too` fails. Worth
+ *     → `a page in somebody else's workspace names an audience too` fails. Worth
  *     noting: the *shared-workspace* test does not catch this one, because a
  *     shared context is not `personal` either way. The case that fails is the
- *     colleague's brain, which is why it has a test of its own.
+ *     colleague's workspace, which is why it has a test of its own.
  *  3. `const folder = page.path` — the `parentPath` call dropped.
  *     → `a note resolves to the folder it sits in, so the meeting lands beside
  *     it` fails.
@@ -57,7 +57,7 @@ import { memoryStore } from "../features/offline/memory";
  *     remembered choice for somewhere else is not offered on its own` fail.
  *  5. `input.contexts.find((c) => c.kind === "personal")` in place of
  *     `ownPersonalContext` — the `role` half of ownership dropped.
- *     → `somebody who owns no brain is offered the claim, not a recording`
+ *     → `somebody who owns no workspace is offered the claim, not a recording`
  *     fails.
  *  6. `pageOffer` returns `null` when `canEdit` is false — the read-only page
  *     hidden rather than refused.
@@ -92,7 +92,7 @@ function offers(choice: ReturnType<typeof resolveDestinations>) {
 
 /* -------------------------------------------------------------------------- */
 
-describe("the default is the person's own brain, wherever they are standing", () => {
+describe("the default is the person's own workspace, wherever they are standing", () => {
   test("the default is the viewer's own inbox, even inside a shared workspace", () => {
     /*
       The important half of the whole feature. A meeting recorded while reading
@@ -113,7 +113,7 @@ describe("the default is the person's own brain, wherever they are standing", ()
     expect(chosen.folder).toBe(INBOX_FOLDER);
   });
 
-  test("the default is the viewer's own inbox, even standing in a colleague's brain", () => {
+  test("the default is the viewer's own inbox, even standing in a colleague's workspace", () => {
     const choice = offers(
       resolveDestinations({
         contexts: [OWN, SOMEBODY_ELSE],
@@ -197,7 +197,7 @@ describe("the default is the person's own brain, wherever they are standing", ()
 
   What is NOT a setting, and must never become one, is whether the question is
   asked. Every test in the block above still holds: the first offer is the
-  person's own brain wherever they are standing, and the sheet still asks.
+  person's own workspace wherever they are standing, and the sheet still asks.
 
   ## Sabotage record
 
@@ -211,7 +211,7 @@ describe("the default is the person's own brain, wherever they are standing", ()
   together — they are one rule asked eight ways — and it is the test that fails
   if the gate goes.
 */
-describe("where the first offer points is the brain's own setting", () => {
+describe("where the first offer points is the workspace's own setting", () => {
   const filedUnder = (meetingsFolder?: string) =>
     offers(
       resolveDestinations({
@@ -220,11 +220,11 @@ describe("where the first offer points is the brain's own setting", () => {
       }),
     ).offers[0]!.destination.folder;
 
-  test("a brain that has never chosen gets the default it always had", () => {
+  test("a workspace that has never chosen gets the default it always had", () => {
     expect(filedUnder(undefined)).toBe(INBOX_FOLDER);
   });
 
-  test("a brain that has chosen gets its own folder", () => {
+  test("a workspace that has chosen gets its own folder", () => {
     expect(filedUnder("2-areas/meetings")).toBe("2-areas/meetings");
   });
 
@@ -358,11 +358,11 @@ describe("the second offer is the page somebody is looking at", () => {
     expect(choice.offers[1]!.tone).toBe("warn");
   });
 
-  test("a page in somebody else's brain names an audience too", () => {
+  test("a page in somebody else's workspace names an audience too", () => {
     /*
       `kind === "personal"` is not "yours" — a personal context shared with you
       keeps its kind, which is the exact confusion `console/identity.ts` exists
-      to end. Reporting `Only you` for a colleague's brain would be the worst
+      to end. Reporting `Only you` for a colleague's workspace would be the worst
       version of this bug: the reassuring sentence, on the one row where it is
       false.
     */
@@ -376,7 +376,7 @@ describe("the second offer is the page somebody is looking at", () => {
     expect(choice.offers[1]!.tone).toBe("warn");
   });
 
-  test("a page inside the viewer's own brain is not a second audience", () => {
+  test("a page inside the viewer's own workspace is not a second audience", () => {
     const choice = offers(
       resolveDestinations({
         contexts: [OWN],
@@ -457,7 +457,7 @@ describe("a capability that is absent is reported, never hidden and never faked"
     expect(choice.offers[1]!.refusal).not.toBeNull();
   });
 
-  test("somebody who owns no brain is offered the claim, not a recording", () => {
+  test("somebody who owns no workspace is offered the claim, not a recording", () => {
     // `kind === "personal"` is not ownership: a personal context shared with
     // you keeps its kind and is still not you.
     const choice = resolveDestinations({
@@ -848,7 +848,7 @@ describe("the workspace a destination names", () => {
    *
    * That case used to resolve through `defaultContext`, which is
    * `role === "owner"` and nothing else, over a list sorted oldest-first. So
-   * somebody who owns a shared workspace older than their brain had a meeting
+   * somebody who owns a shared workspace older than their own had a meeting
    * written into a bucket their colleagues watch, at whatever visibility that
    * folder carries, with no sheet ever shown to name the audience — and
    * somebody who owns nothing but is an `editor` somewhere fell to
@@ -859,7 +859,7 @@ describe("the workspace a destination names", () => {
     { slug: "testagent1", kind: "personal", role: "owner", workspaceId: "ws-mine" },
   ];
 
-  test("a meeting nobody addressed goes to the recorder's own brain", () => {
+  test("a meeting nobody addressed goes to the recorder's own workspace", () => {
     expect(meetingWorkspaceId(contexts, null)).toBe("ws-mine");
   });
 
@@ -874,7 +874,7 @@ describe("the workspace a destination names", () => {
     expect(meetingWorkspaceId(contexts, null)).not.toBe("ws-acme");
   });
 
-  test("somebody who owns no brain has nowhere for it to go, and is told so", () => {
+  test("somebody who owns no workspace has nowhere for it to go, and is told so", () => {
     /*
       `contexts[0]` is somebody else's context. Answering `null` keeps the
       meeting on the device — `unavailable`, so it is retried rather than
@@ -893,7 +893,7 @@ describe("the workspace a destination names", () => {
   });
 
   test("a context this account cannot reach is null, not a fallback", () => {
-    // Falling back to the brain here would file a meeting somebody addressed to
+    // Falling back to the workspace here would file a meeting somebody addressed to
     // `@acme` into their own bucket without saying so. The writer refuses.
     expect(meetingWorkspaceId(contexts, "gone")).toBeNull();
   });

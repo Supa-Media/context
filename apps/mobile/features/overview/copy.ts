@@ -49,7 +49,7 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
   },
   {
     title: "Your own structure",
-    body: "PARA, or folders you invented years ago. We don't impose a schema on a brain you have already arranged.",
+    body: "PARA, or folders you invented years ago. We don't impose a schema on a workspace you have already arranged.",
   },
   {
     title: "Named people, or one link you mint",
@@ -58,7 +58,7 @@ export const CONTEXT_OVERVIEW_FACTS: readonly OverviewFact[] = [
   {
     title: "Shared workspaces",
     status: "coming soon",
-    body: "One bucket, several members, one set of privacy rules. Mail is not part of it — a capture address belongs to one person's brain, and a workspace has none.",
+    body: "One bucket, several members, one set of privacy rules. Mail is not part of it — a capture address belongs to one person's own workspace, and a shared one has none.",
   },
 ];
 

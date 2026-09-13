@@ -53,7 +53,7 @@ function ExistingContext({ controller }: { controller: OnboardingController }) {
   return (
     <View>
       <Text variant="rowSub" style={styles.lede}>
-        Your bucket already has a brain in it, so nothing was changed.
+        Your bucket already has a workspace in it, so nothing was changed.
       </Text>
 
       <Card>

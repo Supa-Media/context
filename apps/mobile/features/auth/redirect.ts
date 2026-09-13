@@ -113,7 +113,7 @@ export function resolveProtectedRoute(
  * redirecting out from under somebody who deliberately navigated there.
  *
  * **On a phone it is nothing of the sort.** A native app that opens on "Create
- * your brain / Read the architecture / Also on your phone: iOS · Android" is
+ * your workspace / Read the architecture / Also on your phone: iOS · Android" is
  * pitching the app to somebody who has already installed it, and offering them
  * a download link for the thing they are looking at. There is no front door to
  * be at on a device you had to install this from a store to reach — so `/` is
@@ -146,7 +146,7 @@ export function landingCtaHref(state: AuthState): string {
 }
 
 export function landingCtaLabel(state: AuthState): string {
-  return state.isAuthenticated ? "Open your console" : "Create your brain";
+  return state.isAuthenticated ? "Open your console" : "Create your workspace";
 }
 
 /**

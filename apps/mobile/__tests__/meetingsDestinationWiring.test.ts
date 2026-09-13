@@ -67,7 +67,7 @@ function sessionNamed(id: string) {
  *
  *  6. `contextRoute` returns the bare route, so nothing is addressed.
  *     → 3 fail: `a shared context's meeting is not written into the person's
- *     own brain`, ``Only you` never resolves to a shared workspace`, and `a
+ *     own workspace`, ``Only you` never resolves to a shared one`, and `a
  *     slug this client cannot address is refused rather than sent to the
  *     default` — the last because a refusal that never happens sends.
  *  7. `ROUTABLE_SLUG` widened to `/^.*$/`.
@@ -119,7 +119,7 @@ const AT_THE_ROOT: MeetingDestination = {
   label: "the root of your context",
 };
 
-/** The sheet's first offer: the viewer's own brain, whatever they are looking at. */
+/** The sheet's first offer: the viewer's own workspace, whatever they are looking at. */
 const MY_OWN_INBOX: MeetingDestination = {
   kind: "personalInbox",
   contextSlug: "me",
@@ -402,7 +402,7 @@ describe("a meeting is written into the context it was sent to", () => {
     return sent.map((request) => request.url);
   }
 
-  test("a shared context's meeting is not written into the person's own brain", async () => {
+  test("a shared context's meeting is not written into the person's own workspace", async () => {
     /*
       The failure this exists for, exactly. Somebody who is a member of `@acme`
       and owns `@me` stands in `@acme/finance` and picks "this page". The device
@@ -410,7 +410,7 @@ describe("a meeting is written into the context it was sent to", () => {
       filters on `role === "owner"` and nothing else — so on this account it is
       `@me`, and every request went there.
     */
-    const urls = await record(IN_THE_SHARED_ONE, "ws-my-own-brain");
+    const urls = await record(IN_THE_SHARED_ONE, "ws-my-own-workspace");
 
     expect(urls.length).toBeGreaterThan(0);
     for (const url of urls) expect(url.startsWith(`${ORIGIN}/@acme/meetings/`)).toBe(true);
@@ -419,7 +419,7 @@ describe("a meeting is written into the context it was sent to", () => {
   test("...and every call about it goes there, not only the finalize", async () => {
     // The session record lives in the destination's bucket. A session upserted
     // into one context and finalized against another is a 404 at the claim.
-    const urls = await record(IN_THE_SHARED_ONE, "ws-my-own-brain");
+    const urls = await record(IN_THE_SHARED_ONE, "ws-my-own-workspace");
 
     expect(urls.some((url) => url.endsWith("/meetings/sessions"))).toBe(true);
     expect(urls.some((url) => url.endsWith("/notes"))).toBe(true);

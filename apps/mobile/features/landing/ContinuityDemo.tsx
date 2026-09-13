@@ -16,7 +16,7 @@ export const CONTINUITY_STEPS = [
     prompt:
       "New thought: the demo should show continuity, not storage. Share that with the Context team.",
     reply:
-      "Saved as a team note in the @context-lc workspace. Your brain stays private.",
+      "Saved as a team note in the @context-lc workspace. Your own workspace stays private.",
     receipt: "Published to the team workspace · just now",
   },
   {
@@ -39,7 +39,7 @@ export const CONTINUITY_STEPS = [
     prompt: "What changed in Context’s product direction?",
     reply:
       "Seyi added a team note: make cross-AI continuity the demo. I can use that decision; his private notes were never available to me.",
-    receipt: "Workspace visible · your brain hidden",
+    receipt: "Shared workspace visible · yours hidden",
   },
 ] as const;
 

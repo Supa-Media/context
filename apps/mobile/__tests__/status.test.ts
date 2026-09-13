@@ -43,7 +43,7 @@ function editorWith(status: EditorStatus, draft = "hello world", extra: Partial<
 function facts(overrides: Partial<StatusFacts> = {}): StatusFacts {
   return {
     editor: editorWith("clean"),
-    storageLabel: "R2 · brain",
+    storageLabel: "R2 · notes-bucket",
     now: NOW,
     ...overrides,
   };
@@ -232,7 +232,7 @@ describe("how the last save checked for conflicts", () => {
 
 describe("the storage segment", () => {
   test("names the bucket, and is absent when none is bound", () => {
-    expect(byId(statusSegments(facts()), "storage")?.text).toBe("R2 · brain");
+    expect(byId(statusSegments(facts()), "storage")?.text).toBe("R2 · notes-bucket");
     expect(byId(statusSegments(facts({ storageLabel: null })), "storage")).toBeUndefined();
   });
 
@@ -252,7 +252,7 @@ describe("the storage segment", () => {
     /*
       They describe different objects: the bucket is the customer's own, and
       the fast-search index is a copy in a database Supa Media runs. Run
-      together — "R2 · brain · 62% indexed" — the figure reads as 62% of the
+      together — "R2 · notes-bucket · 62% indexed" — the figure reads as 62% of the
       bucket, which is a claim about somebody's own storage that nothing has
       measured. That is the species of invention issue #25 was about, and the
       cheapest guard against it is the ordering.

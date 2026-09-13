@@ -74,7 +74,7 @@ export function WorkspaceDoneStep({
           </Check>
           <Check tone="ok">
             Its bucket, its access map and its audit trail are its own. Revoking its credential
-            leaves your brain untouched, and vice versa.
+            leaves your own workspace untouched, and vice versa.
           </Check>
           <Check tone="ok">
             Its folders are readable by its members. A folder marked private in privacy.md is

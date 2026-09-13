@@ -589,7 +589,7 @@ const SEYI_TREE: DemoContextTree = {
       "",
       "Tenancy is bucket-level, never prefix-level. No key",
       "namespacing inside a customer bucket, so an existing",
-      "brain connects with zero migration and Obsidian",
+      "workspace connects with zero migration and Obsidian",
       "Remotely Save keeps working.",
       "",
       "A shared context is just a workspace with more than",
@@ -772,7 +772,7 @@ const SEYI_TREE: DemoContextTree = {
   },
   defaultSelection: "1-projects/context-lc.md",
   defaultExpanded: ["1-projects"],
-  readOnlyReason: "This is a demo. Sign in to edit your own brain.",
+  readOnlyReason: "This is a demo. Sign in to edit your own workspace.",
 };
 
 // ── @lk — someone else's context, team access ────────────────────────────────
@@ -799,7 +799,7 @@ const LK_TREE: DemoContextTree = {
       "",
       "Music and formation, Public Worship.",
       "",
-      "You are seeing this brain with **team** access, which is why it",
+      "You are seeing this workspace with **team** access, which is why it",
       "looks small: private folders are not listed at all, so there is",
       "nothing here whose absence you could notice.",
       "",
@@ -857,7 +857,7 @@ const LK_TREE: DemoContextTree = {
   defaultSelection: "1-projects/worship-with-strangers.md",
   defaultExpanded: ["1-projects"],
   readOnlyReason:
-    "You have team access to this brain. Anything LK keeps private is not listed here at all — that is the privacy model, not a loading state.",
+    "You have team access to this workspace. Anything LK keeps private is not listed here at all — that is the privacy model, not a loading state.",
 };
 
 // ── @public-worship — shared, several members ────────────────────────────────
@@ -1049,7 +1049,7 @@ const PUBLIC_WORSHIP_TREE: DemoContextTree = {
   },
   defaultSelection: "1-projects/ltn-2026.md",
   defaultExpanded: ["1-projects"],
-  readOnlyReason: "This is a demo. Sign in to edit your own brain.",
+  readOnlyReason: "This is a demo. Sign in to edit your own workspace.",
 };
 
 /** The demo contexts, keyed by the id `useDemoConsoleData` gives them. */

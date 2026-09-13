@@ -142,7 +142,7 @@ describe("what the form will let you submit", () => {
    */
   test("it does not re-implement the namespace's rules", () => {
     expect(canSubmitLabel("leads_team")).toBe(true);
-    expect(canSubmitLabel("brain")).toBe(true);
+    expect(canSubmitLabel("workspace")).toBe(true);
   });
 });
 
