@@ -469,6 +469,7 @@ export default function ConsoleLayout() {
 
   return (
     <ConsoleDataProvider value={data}>
+      {data.pluginRuntime?.host}
       <AppFrame
         switcher={
           insideContext ? (

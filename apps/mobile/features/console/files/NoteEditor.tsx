@@ -13,6 +13,8 @@ import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
 import { Confirm } from "./Dialogs";
+import { isDrawingPath } from "@context/drawings";
+import { DrawingView } from "./DrawingView";
 import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
@@ -261,6 +263,14 @@ export function NoteEditor({
   */
   const passphraseLocked =
     state.encrypted && encryption !== undefined && isPassphraseNote(state.draft);
+  /*
+    A drawing is decided by its path, never by its content: the check has to
+    hold for a file that is still loading, for one whose payload is unreadable,
+    and for an empty draft — and in every one of those the path is the only
+    thing that is known. An encrypted drawing stays on the locked path below,
+    because there is nothing to draw until it is opened.
+  */
+  const drawing = !passphraseLocked && !state.encrypted && isDrawingPath(state.path ?? "");
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   /*
@@ -486,7 +496,24 @@ export function NoteEditor({
           {compact && !passphraseLocked && (frontmatter !== "" || visibility !== undefined) ? (
             <Properties frontmatter={frontmatter} visibility={visibility} />
           ) : null}
-          {passphraseLocked ? (
+          {drawing ? (
+            /*
+              A drawing is shown, not edited.
+
+              `LiveEditor` would happily open a `.excalidraw.md` file — it is
+              Markdown — and hand somebody a buffer of LZ-String base64 with a
+              caret in it. One stray keystroke in that buffer and a save writes
+              a payload no reader can decompress: the diagram is gone, and the
+              file still looks like a file. So this branch comes before the
+              editor rather than beside it, and there is no way past it.
+
+              Editing stays where the format is owned, in Excalidraw or
+              Obsidian. That is the same answer `toolWriteNote` gives an agent
+              that tries to write prose over a drawing, reached from the other
+              side of the product.
+            */
+            <DrawingView path={state.path!} source={state.draft} />
+          ) : passphraseLocked ? (
             <LockedNoteView
               path={state.path!}
               stored={state.draft}
@@ -663,12 +690,37 @@ export function NoteEditor({
             the row menu acts on a file in the tree, and this acts on the draft
             in front of you. A control removed because its neighbour was
             duplicated is a capability lost to a layout decision.
+
+            **And it is drawn only when pressing it does something**, which is
+            the second half of the same argument one form factor over. Measured
+            in a browser at 1440×900: a resting note carried the sentence
+            "Saved in your bucket" at the leading edge of this row and a dimmed
+            pill reading "Saved" at the trailing edge of it — the same claim,
+            twice, in two visual languages, at opposite ends of one row. A
+            phone drew the sentence alone. So the wider the window, the more
+            ways the console found to say one thing, and the second of them
+            reads as an unstyled placeholder rather than as status.
+
+            `editor.ts` already says which half is which: the pill exists
+            because "a save that failed and a conflict are exactly the cases
+            autosave refuses, so the manual route has to stay reachable" — a
+            statement about the states it can be **pressed** in. In every other
+            state it is disabled, and in every one of those the sentence beside
+            it has already said the same thing in words it can say more
+            truthfully: "Saved in your bucket" over "Saved", a queued draft's
+            own message over "Queued", and — for `Read-only` and `Encrypted` —
+            the notice at the head of the note rather than one word at the foot
+            of it.
+
+            So `button.disabled` decides whether this is drawn rather than how
+            it looks. Nothing that can be pressed is removed: Save in `dirty`
+            and `error`, and "Overwrite theirs" in `conflict`, are exactly the
+            arms of `saveButton` that are pressable.
           */}
-          {compact ? null : (
+          {compact || button.disabled ? null : (
             <Button
               label={button.label}
               variant={state.status === "conflict" ? "danger" : "white"}
-              disabled={button.disabled}
               onPress={onSave}
             />
           )}

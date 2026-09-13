@@ -234,4 +234,67 @@ describe("the ready list", () => {
     expect(text).toContain("47+");
     expect(text).toContain("23 of 47+ read");
   });
+
+  test("an approved bundle is explicitly started rather than inferred to be running", async () => {
+    const start = jest.fn(async () => {});
+    const container = panel(
+      READY,
+      {
+        loading: false,
+        grants: [{
+          pluginId: "highlightr-plugin",
+          bundleFingerprint: "fp-highlightr-plugin",
+          capabilities: ["vault:read"],
+          networkHosts: [],
+          status: "active",
+          grantedAt: 1,
+          updatedAt: 1,
+        }],
+      },
+      { query: "", searching: false, failure: null },
+      { states: [], loading: false, actions: { start, stop: async () => {} } },
+    );
+    const button = [...container.querySelectorAll("[role='button'], button")]
+      .find((one) => one.textContent === "Start") as HTMLElement;
+    expect(button).not.toBeUndefined();
+    await act(async () => button.click());
+    expect(start).toHaveBeenCalledWith("highlightr-plugin", "fp-highlightr-plugin");
+    expect(container.textContent).not.toContain("Running");
+  });
+
+  test("a loaded bundle can be stopped without revoking its grant", async () => {
+    const stop = jest.fn(async () => {});
+    const container = panel(
+      READY,
+      {
+        loading: false,
+        grants: [{
+          pluginId: "highlightr-plugin",
+          bundleFingerprint: "fp-highlightr-plugin",
+          capabilities: ["vault:read"],
+          networkHosts: [],
+          status: "active",
+          grantedAt: 1,
+          updatedAt: 1,
+        }],
+      },
+      { query: "", searching: false, failure: null },
+      {
+        states: [{
+          pluginId: "highlightr-plugin",
+          bundleFingerprint: "fp-highlightr-plugin",
+          status: "loaded",
+          attempts: 1,
+          updatedAt: 1,
+        }],
+        loading: false,
+        actions: { start: async () => {}, stop },
+      },
+    );
+    const button = [...container.querySelectorAll("[role='button'], button")]
+      .find((one) => one.textContent === "Stop") as HTMLElement;
+    await act(async () => button.click());
+    expect(stop).toHaveBeenCalledWith("highlightr-plugin", "fp-highlightr-plugin");
+    expect(container.textContent).toContain("Allowed to");
+  });
 });
