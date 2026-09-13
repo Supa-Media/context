@@ -226,9 +226,17 @@ jobs:
       # Bare node with no install, because this package has no dependencies —
       # the same promise the gateway makes, and the reason the gateway can
       # import it by relative path.
+      # Two files, both run explicitly rather than through `npm test`, so a
+      # suite added to the package but not to this list fails visibly here
+      # instead of silently not running — which is the failure every other job
+      # in this workflow exists because of.
       - name: Run test suite
         working-directory: packages/drawings
         run: node test/test.mjs
+
+      - name: Run serializer suite
+        working-directory: packages/drawings
+        run: node test/serialize.test.mjs
 
   desktop:
     name: Test Desktop
