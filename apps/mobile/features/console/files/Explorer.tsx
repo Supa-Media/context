@@ -474,7 +474,7 @@ export function Explorer({
   const closeFilter = useCallback(() => setQuery(""), []);
 
   /**
-   * The four controls, across the top of the column.
+   * The controls across the top of the column.
    *
    * Sort and collapse are about the *panel* rather than about the context, so
    * neither is gated on `canEdit`: a member reading somebody else's notes has
@@ -502,6 +502,14 @@ export function Explorer({
             testID="explorer-new-folder"
           />
         </>
+      ) : null}
+      {files.updateStorageLayout !== undefined ? (
+        <IconButton
+          label="Update Context storage"
+          icon="gear"
+          onPress={() => setDialog({ kind: "storageMigration" })}
+          testID="explorer-storage-migration"
+        />
       ) : null}
       <IconButton
         label={descending ? "Sort A to Z" : "Sort Z to A"}
@@ -704,6 +712,7 @@ export type Dialog =
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
   | { kind: "share"; path: string }
+  | { kind: "storageMigration" }
   | null;
 
 /**
@@ -936,6 +945,20 @@ export function ExplorerDialogs({
           onConfirm={() => {
             onClose();
             files.archive(dialog.path);
+          }}
+        />
+      );
+    case "storageMigration":
+      if (files.updateStorageLayout === undefined) return null;
+      return (
+        <Confirm
+          title="Update Context storage"
+          body="This reorganizes only Context’s hidden system files under .context/. Your notes, folders, privacy.md, and index.md are not changed. The update is resumable, keeps the old system copies for at least seven days, and removes them automatically when the bucket can do so safely."
+          confirmLabel="Update storage"
+          onCancel={onClose}
+          onConfirm={() => {
+            onClose();
+            files.updateStorageLayout?.();
           }}
         />
       );

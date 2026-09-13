@@ -165,6 +165,40 @@ async function danglingWorkspaceId(t: TestConvex): Promise<Id<"workspaces">> {
 /* -------------------------------------------------------------------------- */
 
 describe("an owner can edit their context", () => {
+  test("migrates only reserved system objects and leaves notes untouched", async () => {
+    const f = await fixture();
+    f.backend.seed(".audit/legacy-events.jsonl", "legacy audit");
+    const notesBefore = Object.fromEntries(
+      Object.entries(f.backend.snapshot()).filter(([key]) => !key.startsWith(".")),
+    );
+
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.files.updateStorageLayout,
+      { workspaceId: f.workspaceId },
+    );
+
+    expect(result.state).toBe("copying");
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (f.backend.snapshot()[".context/audit/legacy-events.jsonl"] !== undefined) break;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      await f.t.finishInProgressScheduledFunctions();
+    }
+    expect(f.backend.snapshot()[".context/audit/legacy-events.jsonl"]).toBe("legacy audit");
+    expect(f.backend.snapshot()[".audit/legacy-events.jsonl"]).toBe("legacy audit");
+    expect(
+      Object.fromEntries(
+        Object.entries(f.backend.snapshot()).filter(([key]) => !key.startsWith(".")),
+      ),
+    ).toEqual(notesBefore);
+
+    const events = await asUser(f.t, f.owner).query(api.functions.audit.listEvents, {
+      workspaceId: f.workspaceId,
+    });
+    expect(
+      events.find((event) => event.action === "storage.layout_migration_requested")?.paths,
+    ).toEqual([]);
+  });
+
   test("lists a folder", async () => {
     const f = await fixture();
     const listing = await asUser(f.t, f.owner).action(api.functions.files.listFiles, {
@@ -1360,6 +1394,13 @@ describe("read access and write access are different grants", () => {
       }),
     );
     expect(errorCode(error)).toBe("INSUFFICIENT_ROLE");
+
+    const migrationError = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.updateStorageLayout, {
+        workspaceId: f.workspaceId,
+      }),
+    );
+    expect(errorCode(migrationError)).toBe("INSUFFICIENT_ROLE");
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Shared\n");
   });
 
@@ -2038,6 +2079,7 @@ describe("a stranger cannot reach another workspace's files", () => {
       // broken `privacy.md`, so reaching it across tenants would rewrite
       // somebody else's access map to all-private.
       (workspaceId) => as.action(api.functions.files.resetPrivacy, { workspaceId }),
+      (workspaceId) => as.action(api.functions.files.updateStorageLayout, { workspaceId }),
       // Owner-only, and a writer of `privacy.md` like the two visibility
       // setters beside it. The group name resolves against the workspace the
       // caller names, so reaching this across tenants would point somebody

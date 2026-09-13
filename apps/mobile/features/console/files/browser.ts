@@ -399,6 +399,13 @@ export interface FileBrowser {
    */
   resetPrivacy: () => void;
   /**
+   * Re-home Context's reserved bucket objects under `.context/`.
+   *
+   * Optional because this is an owner maintenance control, not an editing
+   * capability: an absent function means the Explorer must not offer it.
+   */
+  updateStorageLayout?: () => void;
+  /**
    * Whether that control should exist at all.
    *
    * Three things have to be true and none of them is `canEdit`: the manifest

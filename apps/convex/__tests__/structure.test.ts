@@ -1002,6 +1002,11 @@ describe("no public function can reach a storage secret", () => {
         // Builds a real S3Store to probe the bucket a user just connected.
         // Reached only by a schedule edge from bindStorage.
         "functions.provisioning.verifyStorageBinding",
+        // The owner-triggered storage-layout runner first refreshes observed
+        // capabilities, then delegates the bounded copy to runFileOperation.
+        // Internal and reached only through the scheduler, so neither the
+        // verification result nor a credential can flow back to the client.
+        "functions.files.runStorageLayoutMigration",
         // THE SECOND KIND OF CREDENTIAL, AND THE ONLY FUNCTION THAT OPENS ONE.
         //
         // Everything else in this list decrypts a *storage* key — a credential

@@ -217,6 +217,22 @@ Deletion is a distinct explicit phase, unavailable until a seven-day rollback
 window has elapsed, and re-verifies each source/destination pair before removing
 the source. Re-running either phase is safe.
 
+The Explorer exposes this as an owner-only settings control. Its confirmation
+names the boundary before anything runs: only reserved Context objects move;
+notes, folders, `privacy.md`, and `index.md` do not. One press queues a fresh
+capability check, bounded copy batches until copying is complete, and safe
+cleanup for the end of the rollback window, so an owner does not need to call
+an internal migration function or keep the console open. A backend without
+verified conditional delete keeps its legacy copies rather than risk deleting
+an object that changed; a stopped run is resumed by pressing the same control
+again.
+
+The connect-time capability probe persists conditional create and delete
+alongside conditional writes. Older binding rows omit those fields and
+therefore fail closed until they are reverified; claiming an adapter's support
+without recording what the owner's bucket actually honored would make the
+migration control an unsafe overwrite button.
+
 **What a simplification of this would cost.** Writing another top-level hidden
 folder recreates the clutter this layout removes; deleting during copy removes
 rollback; unconditional copy can destroy a user's manually recovered object;

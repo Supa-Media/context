@@ -740,6 +740,33 @@ describe("what may be dragged, and what may be dropped on", () => {
   });
 });
 
+describe("the storage migration control", () => {
+  test("is owner-only and explains the note-safety boundary before it runs", () => {
+    const explorer = mountSwitchable();
+    explorer.render("@owner", explorer.calls, {
+      updateStorageLayout: () =>
+        explorer.calls.entries.push({ name: "updateStorageLayout", args: [] }),
+    });
+
+    expect(
+      explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
+    ).not.toBeNull();
+    press("Update Context storage");
+    expect(document.body.textContent).toContain(
+      "Your notes, folders, privacy.md, and index.md are not changed.",
+    );
+    expect(explorer.calls.entries).toEqual([]);
+
+    press("Update storage");
+    expect(explorer.calls.entries).toEqual([{ name: "updateStorageLayout", args: [] }]);
+
+    explorer.render("@editor", explorer.calls, { updateStorageLayout: undefined });
+    expect(
+      explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
+    ).toBeNull();
+  });
+});
+
 /**
  * `ExplorerDialogs` mounted on its own.
  *
