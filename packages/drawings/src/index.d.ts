@@ -156,5 +156,19 @@ export declare function buildScene(
   elements: DrawingElement[] | null | undefined,
   options?: { padding?: number; maxNodes?: number }
 ): Scene;
+/**
+ * The new file body for `elements`, or null when `original` is not a drawing
+ * this can splice safely. Always an edit of `original`, never a regeneration —
+ * see the module header for what that protects.
+ */
+export declare function serializeDrawing(
+  original: unknown,
+  elements: DrawingElement[],
+  options?: { appState?: Record<string, unknown> | null; files?: Record<string, unknown> | null }
+): string | null;
+
+/** Whether `serializeDrawing` would produce a file for this original. */
+export declare function canSerializeDrawing(original: unknown): boolean;
+
 export declare function compressToBase64(input: string | null | undefined): string;
 export declare function decompressFromBase64(input: unknown): string | null;

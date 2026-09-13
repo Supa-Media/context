@@ -14,7 +14,7 @@ import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
 import { Confirm } from "./Dialogs";
 import { isDrawingPath } from "@context/drawings";
-import { DrawingView } from "./DrawingView";
+import { DrawingEditor } from "./DrawingEditor";
 import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
@@ -498,7 +498,7 @@ export function NoteEditor({
           ) : null}
           {drawing ? (
             /*
-              A drawing is shown, not edited.
+              A drawing gets a drawing editor, never a text editor.
 
               `LiveEditor` would happily open a `.excalidraw.md` file — it is
               Markdown — and hand somebody a buffer of LZ-String base64 with a
@@ -507,12 +507,31 @@ export function NoteEditor({
               file still looks like a file. So this branch comes before the
               editor rather than beside it, and there is no way past it.
 
-              Editing stays where the format is owned, in Excalidraw or
-              Obsidian. That is the same answer `toolWriteNote` gives an agent
-              that tries to write prose over a drawing, reached from the other
-              side of the product.
+              What `DrawingEditor` is depends on the platform, and each half
+              says why in its own header: on web it is Excalidraw itself, loaded
+              on demand; on native it is the read-only view, because the editor
+              is React DOM and the `WebView` route that would carry it is not
+              built yet. Both write through `serializeDrawing`, which splices
+              rather than regenerates — the same rule `toolWriteNote` enforces
+              against an agent, reached from the other side of the product.
             */
-            <DrawingView path={state.path!} source={state.draft} />
+            <DrawingEditor
+              path={state.path!}
+              source={state.draft}
+              canEdit={canEdit}
+              /*
+                A save goes through the same draft the rest of this screen
+                writes, so a drawing is saved by the console's ordinary autosave
+                and conflict handling rather than by a path of its own.
+
+                `onChange` unwrapped, not `frontmatter + next` as the compact
+                branch below does for `LiveEditor`: that split exists because
+                the editor there is handed only the body, and this one is handed
+                `state.draft` — the whole file — and returns the whole file.
+                Adding the frontmatter back would write it twice.
+              */
+              onChange={onChange}
+            />
           ) : passphraseLocked ? (
             <LockedNoteView
               path={state.path!}

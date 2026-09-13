@@ -166,6 +166,37 @@ module.exports = [
   },
 
   {
-    ignores: ["metro.config.js", "babel.config.js", "web-build/**"],
+    /*
+      `public/drawing-assets/**` is the built drawing editor — megabytes of
+      minified dependency code that `scripts/build-drawing-editor.mjs` writes
+      and git ignores. Linting a build artifact reports on somebody else's
+      source: it produced a parse error at column 819713 of a bundle before it
+      was listed here.
+    */
+    ignores: [
+      "metro.config.js",
+      "babel.config.js",
+      "web-build/**",
+      "public/drawing-assets/**",
+    ],
+  },
+  {
+    /*
+      The drawing editor's own source. It is a browser ES module bundled by
+      esbuild rather than by Metro — a page of its own, for the reasons
+      `drawingBridge.ts` records — so it is the one thing here that is neither
+      React Native nor CommonJS, and needs `window` and `document` to exist.
+    */
+    files: ["drawing-editor/**/*.{js,jsx}"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "module",
+      parserOptions: { ecmaFeatures: { jsx: true } },
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        console: "readonly",
+      },
+    },
   },
 ];

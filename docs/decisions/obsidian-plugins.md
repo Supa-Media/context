@@ -275,3 +275,76 @@ plugin's own settings, notices, command registration and lifecycle cleanup.
 Rendering plugin-provided editor extensions, settings controls, ribbon actions
 and views remains a frontend integration step; the sandbox is now the place
   those registrations come from rather than a reason they cannot be built.
+## The drawing editor is a page, because a dynamic import is not a lazy chunk
+
+Drawings became editable by embedding the real Excalidraw — the only way to be
+sure a drawing made here is one Excalidraw and Obsidian open unchanged, since
+anything we wrote ourselves would author a subset and diverge the first time
+upstream shipped a feature.
+
+The obvious way to carry that cost is a dynamic `import()`, on the reasoning
+that it produces a chunk fetched on demand. **Measured, under Expo's Metro, it
+does not.** `expo export --platform web` put the editor in a `__common` chunk
+that `index.html` loads with a plain blocking `<script src>`:
+
+| | total web JS | eager |
+|---|---|---|
+| before | 5.7MB | entry only |
+| `import()` inside the console | **14.6MB** | entry + a 5.1MB `__common` |
+| editor as its own page | 5.7MB | entry only |
+
+Nine megabytes on every console page load, for a feature most sessions never
+open. The numbers are here rather than in a commit message because the next
+person to reach for `import()` will reach for it for the same good reason.
+
+So `apps/mobile/drawing-editor/` is built separately by
+`scripts/build-drawing-editor.mjs` into `public/drawing-assets/editor/` and
+loaded in an `<iframe>` on web and a `WebView` on native. The console's bundle
+is unchanged; the editor (8MB, 2.4MB gzipped) is fetched the first time somebody
+opens a drawing.
+
+**It also made the native half exist.** The first attempt had phones showing a
+read-only view with an apology, because folding Excalidraw into
+`bundle.generated.ts` — committed, shipped over the air to every phone on every
+update — was rightly unthinkable. One page, loaded from the console's own
+origin, serves both platforms. The honest cost is that *editing* on a phone
+needs network; reading does not, because `DrawingView` renders from the file the
+console already holds.
+
+### The page never sees the customer's Markdown
+
+Elements go in, elements come back, and `serializeDrawing` splices them into the
+original bytes on the console side. So the editor cannot produce a file body at
+all — which means neither a bug in it nor anything that manages to talk to that
+frame can corrupt one. `postMessage` is a channel anything on the page can post
+to, so `drawingBridge.ts` checks the origin of every message before reading it,
+checks a channel name, and requires `elements` to be an array; the iframe's
+sandbox allows scripts and same-origin and withholds navigation, popups, forms
+and downloads.
+
+### Fonts are served from our own origin, and that is not a preference
+
+Excalidraw resolves fonts against `window.EXCALIDRAW_ASSET_PATH` and falls back
+to **esm.sh** — a request to a third party fired at the moment somebody opens
+their own private drawing, from a page whose URL identifies this product. The
+share renderer already refuses the same thing in different clothes: "a remote
+image in a shared note is a tracking pixel that reports every read to whoever
+wrote it". A font is that request with a different extension.
+
+The build copies the font files next to the bundle and the page points at them
+relatively, so a self-hosted deployment serves its own. Verified by loading the
+built page in a browser and recording every request: zero off our own origin.
+That check is manual and worth re-running on every upgrade of the package —
+saying so is more useful than implying the code comment is a guarantee.
+
+`Xiaolai` is excluded: 13MB on its own, more than the rest of the editor
+together, for Chinese handwriting. A drawing using it falls back to a system
+font here and still renders correctly in Excalidraw and Obsidian.
+
+### What this costs, stated plainly
+
+`@excalidraw/excalidraw` brings about thirty runtime dependencies and some two
+hundred transitively into a repository whose gateway is dependency-free by rule.
+None of it reaches the gateway or the console bundle — it is confined to one
+built page — but it is a real supply-chain surface in a public repository, and
+the version is pinned exactly rather than ranged for that reason.
