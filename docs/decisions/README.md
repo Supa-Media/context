@@ -297,6 +297,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A bare `%%` ends a section, and that rule has one definition
 - A file that does not exist yet is scaffolded, once, and edited ever after
 - The editor is cached by a worker scoped to its own directory
+- The message check is an identity check, not an origin check
 
 ## [Testing and guards](./testing.md)
 

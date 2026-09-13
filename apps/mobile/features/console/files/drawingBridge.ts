@@ -131,6 +131,40 @@ export function readToEditor(data: unknown, origin: string, expectedOrigin: stri
 }
 
 /**
+ * Did this message come from the page we loaded?
+ *
+ * The web half has `event.origin`, which the browser fills in and nothing can
+ * forge. The native half has `event.nativeEvent.url`, and the check built on it
+ * used to distil an origin out of that with a regex and compare origins, with
+ * `?? origin` behind it — so **a url the regex could not read counted as ours**.
+ * Fail-open, in the one check between an arbitrary page and a splice into
+ * somebody's file.
+ *
+ * `file:///…` is the case that makes it concrete: the host is empty, the regex
+ * matches nothing, the fallback fires, and a page we never loaded is trusted.
+ * That is the shape a downloaded offline copy would introduce, which is how it
+ * was found — see `docs/decisions/obsidian-plugins.md`.
+ *
+ * So the whole url is compared rather than an origin distilled from it, and an
+ * unreadable one is refused. The hash and the query are dropped because a
+ * `WebView` reports what it actually loaded and Excalidraw puts view state in
+ * the hash; everything before them must match exactly, so a prefix like
+ * `…/index.html.evil` is not the page.
+ */
+export function isEditorPageUrl(url: string | undefined | null, expected: string): boolean {
+  if (typeof url !== "string" || url === "") return false;
+  const bare = (value: string) => value.split("#")[0]!.split("?")[0];
+  const seen = bare(url);
+  const want = bare(expected);
+  // A url with no scheme-and-host is not something to compare loosely: an
+  // empty `want` would otherwise match everything.
+  if (!/^[a-z][a-z0-9+.-]*:\/\/[^/]/i.test(seen) || !/^[a-z][a-z0-9+.-]*:\/\/[^/]/i.test(want)) {
+    return false;
+  }
+  return seen === want;
+}
+
+/**
  * Where the editor page lives.
  *
  * Root-relative for the reason `drawingAssets.ts` gives about the fonts: a

@@ -7,7 +7,12 @@ import { useThemedStyles, useTheme, type Colors } from "../../design/theme";
 import { parseDrawing, serializeDrawing } from "@context/drawings";
 import { DrawingView } from "./DrawingView";
 import { consoleOrigin } from "./shareOrigin";
-import { DRAWING_CHANNEL, DRAWING_EDITOR_PATH, readFromEditor } from "./drawingBridge";
+import {
+  DRAWING_CHANNEL,
+  DRAWING_EDITOR_PATH,
+  isEditorPageUrl,
+  readFromEditor,
+} from "./drawingBridge";
 
 /**
  * The drawing editor — native, and the same page the web half loads.
@@ -77,12 +82,16 @@ export function DrawingEditor({
         return;
       }
       /*
-        `event.nativeEvent.url`'s origin is what actually loaded, checked
-        against the origin we asked for — the same rule the web half applies,
-        and the reason a redirected or injected page cannot drive this.
+        The url that actually loaded, compared with the page we asked for.
+
+        This used to reduce both to an origin and compare those, with
+        `?? origin` behind it — so a url the regex could not read was treated
+        as ours, which is fail-open in the one check between an arbitrary page
+        and a splice into somebody's file. `isEditorPageUrl` compares the whole
+        url and refuses what it cannot read.
       */
-      const from = originOf(event.nativeEvent.url) ?? origin;
-      const message = readFromEditor(data, from, origin);
+      if (!isEditorPageUrl(event.nativeEvent.url, `${origin}${DRAWING_EDITOR_PATH}`)) return;
+      const message = readFromEditor(data, origin, origin);
       if (!message) return;
 
       switch (message.type) {
@@ -134,12 +143,6 @@ export function DrawingEditor({
       />
     </View>
   );
-}
-
-function originOf(url: string | undefined): string | null {
-  if (!url) return null;
-  const match = /^[a-z][a-z0-9+.-]*:\/\/[^/]+/i.exec(url);
-  return match ? match[0] : null;
 }
 
 function reasonFor({

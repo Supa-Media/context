@@ -120,6 +120,19 @@ export function DrawingEditor({
     const expected = window.location.origin;
 
     function onMessage(event: MessageEvent) {
+      /*
+        The origin check keeps other sites out; it does not say *which* of our
+        own windows sent this.
+
+        The editor page is served from our own origin, so every same-origin
+        window clears that bar — the console's own included, and
+        `window.postMessage({...})` from anywhere in this bundle reached the
+        branch below that splices elements into the customer's file. The frame
+        is a ref this component already holds, so the identity costs nothing:
+        anything that is not the contentWindow of the iframe we rendered is not
+        the editor. Belt to the sandbox's braces, not a replacement for it.
+      */
+      if (event.source !== frame.current?.contentWindow) return;
       const message: FromEditor | null = readFromEditor(event.data, event.origin, expected);
       if (!message) return;
       switch (message.type) {
