@@ -40,6 +40,7 @@ import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
+import { StorageMigrationCard } from "../storage/StorageMigration";
 import { useManagedOffer } from "../../onboarding/useManagedOffer";
 import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
 
@@ -245,6 +246,29 @@ export function SettingsPane({
 
       {storage?.connected === true && actions ? (
         <SettingsVaultImport workspaceId={actions.workspaceId} />
+      ) : null}
+
+      {/*
+        The one-time storage-layout update, in the section about where this
+        context's files are kept — which is the only place somebody would
+        think to look for it.
+
+        Gated on nothing but the action's presence, which is the guard it has
+        always had: `useFileBrowser` hands `updateStorageLayout` to an owner
+        and to nobody else, so an absent function is an absent row.
+
+        The console's *notice* takes one further condition — a connected
+        binding, `storageMigrationWorthOffering` — and this row deliberately
+        does not. The asymmetry is the difference between the two surfaces
+        rather than an oversight in one of them: an offer that appears in
+        front of somebody has to earn the interruption, while a row they went
+        looking for should still be here when a probe is mid-flight. Neither
+        condition decides who may run it.
+      */}
+      {data.files.updateStorageLayout !== undefined ? (
+        <View style={styles.migration}>
+          <StorageMigrationCard run={data.files.updateStorageLayout} />
+        </View>
       ) : null}
 
       </>
@@ -864,6 +888,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   failure: { marginTop: 15 },
   notice: { marginTop: 15 },
+  /** The same 24pt gap the vault importer above it takes from the card. */
+  migration: { marginTop: 24 },
   noticeBody: { flex: 1, minWidth: 0 },
   okText: { color: colors.okText },
   warnText: { color: colors.warnText },
