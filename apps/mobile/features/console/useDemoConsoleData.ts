@@ -512,6 +512,14 @@ export function useDemoConsoleData(): ConsoleData {
       having granted something.
     */
     pluginGrants: { grants: [], loading: false },
+    // No `actions`, the same rule: the landing page has no bucket to install into.
+    pluginBrowse: { query: "", searching: false, failure: null },
+    /*
+      Nothing is running on the landing page, and that is reported as an empty
+      list rather than as absent: the demo genuinely knows there is no runtime,
+      where a live console that has not answered yet does not.
+    */
+    pluginRuntime: { states: [], loading: false },
     loading: false,
     // Nothing here is fetched, so nothing here can fail: the landing page's
     // console is data, not a subscription.
