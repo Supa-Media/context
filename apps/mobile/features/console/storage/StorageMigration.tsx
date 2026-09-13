@@ -53,6 +53,29 @@ export const STORAGE_MIGRATION_BODY =
 export const STORAGE_MIGRATION_OFFER =
   "Context can reorganize its own hidden system files under .context/. It is a one-time background update that leaves every note, folder, privacy.md and index.md exactly where it is — and it is always here in Settings → Storage, whether you run it now or never.";
 
+/**
+ * Whether the *notice* is worth drawing, which is not the same question as
+ * who may run this.
+ *
+ * `updateStorageLayout` is the only gate on both entry points and it is
+ * untouched — an owner has it, nobody else does. This is the extra thing the
+ * interrupting half has to be true for, and it narrows rather than widens: a
+ * context with no bucket connected, or one whose binding has not answered
+ * yet, has nothing to reorganize, and the console is already telling its
+ * owner so in a louder notice two lines above. Offering to tidy the hidden
+ * files of a bucket that is not there is noise at the worst possible moment.
+ *
+ * The settings row does **not** take this condition, deliberately: it is a
+ * place somebody went looking rather than something that appeared in front of
+ * them, and a control that vanishes from its permanent home because a probe
+ * is mid-flight is a control people stop trusting is there.
+ */
+export function storageMigrationWorthOffering(
+  storage: { connected?: boolean } | null | undefined,
+): boolean {
+  return storage?.connected === true;
+}
+
 /** The dialog, raised once somebody has chosen to run it from either home. */
 export function StorageMigrationConfirm({
   onCancel,
@@ -96,7 +119,6 @@ export function StorageMigrationCard({ run }: { run: () => void }) {
         </Grow>
         <Button
           label={STORAGE_MIGRATION_TITLE}
-          accessibilityLabel={STORAGE_MIGRATION_TITLE}
           onPress={() => setConfirming(true)}
           testID="settings-storage-migration-run"
         />

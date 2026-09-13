@@ -20,6 +20,7 @@ import { setReadMode, useReadMode } from "../files/readMode";
 import {
   STORAGE_MIGRATION_OFFER,
   StorageMigrationActions,
+  storageMigrationWorthOffering,
   useStorageMigrationOffer,
 } from "../storage/StorageMigration";
 import { ShareDialog } from "../files/ShareDialog";
@@ -260,9 +261,17 @@ export function BrowsePane({
    * The workspace is what the *browser* says it is, not the console: this
    * notice belongs to the listings on screen, and `files.contextId` is what
    * everything else in this pane is drawn from while a switch settles.
+   *
+   * `storageMigrationWorthOffering` is the half that belongs to the notice
+   * and not to the control — see its own comment. An owner with no bucket
+   * connected is being told so by the warn notice below, and offering to
+   * reorganize the hidden files of a bucket that does not exist under it is
+   * noise at the worst possible moment.
    */
   const storageMigration = useStorageMigrationOffer(
-    files.updateStorageLayout === undefined ? null : files.contextId,
+    files.updateStorageLayout === undefined || !storageMigrationWorthOffering(data.storage)
+      ? null
+      : files.contextId,
   );
   /*
     The one notice here that is not an event, and the one that is drawn **once

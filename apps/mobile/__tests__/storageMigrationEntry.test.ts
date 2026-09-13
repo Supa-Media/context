@@ -36,13 +36,14 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted. 7 checks in this file.
+ * Run as temporary local edits and reverted. 9 checks in this file.
  *
  *   the settings row drawn for everyone (its guard dropped)                  1
  *   `useStorageMigrationOffer` ignoring the stored dismissal                 2
  *   the notice's button running the update without confirming first          1
  *   the dismissal held in component state and never written down             1
  *   running the update not answering the offer (the notice stays)            1
+ *   the notice's `storageMigrationWorthOffering` condition dropped           1
  *   the settings card's row not wrapping (`flexWrap` dropped)                 1
  *   the text column's `minWidth` floor dropped                                1
  *
@@ -79,6 +80,10 @@ import { createRoot } from "react-dom/client";
 
 import { BrowsePane } from "../features/console/panes/BrowsePane";
 import { SettingsPane } from "../features/console/panes/SettingsPane";
+import {
+  STORAGE_MIGRATION_CONFIRM_LABEL,
+  storageMigrationDismissedKey,
+} from "../features/console/storage/StorageMigration";
 import { emptyEditor } from "../features/console/files/editor";
 import type { ConsoleData } from "../features/console/types";
 import type { FileBrowser } from "../features/console/files/browser";
@@ -240,7 +245,7 @@ describe("Settings → Storage is the permanent home", () => {
     expect(document.body.textContent ?? "").toContain(NOTE_SAFETY);
     expect(calls).toEqual([]);
 
-    pressLabel("Update storage");
+    pressLabel(STORAGE_MIGRATION_CONFIRM_LABEL);
     expect(calls).toEqual(["updateStorageLayout"]);
   });
 
@@ -296,7 +301,7 @@ describe("the console offers it as a notice, not as a modal", () => {
     expect(document.body.textContent ?? "").toContain(NOTE_SAFETY);
     expect(calls).toEqual([]);
 
-    pressLabel("Update storage");
+    pressLabel(STORAGE_MIGRATION_CONFIRM_LABEL);
     expect(calls).toEqual(["updateStorageLayout"]);
     // Starting it answers the offer. A notice still sitting there restating
     // something already under way is the nag this change exists to remove.
@@ -310,6 +315,10 @@ describe("the console offers it as a notice, not as a modal", () => {
     expect(first.querySelector('[data-testid="browse-storage-migration"]')).toBeNull();
     expect(calls).toEqual([]);
 
+    // It is written down, per context, and that is what the second mount
+    // below is checking rather than a lucky render.
+    expect(window.localStorage.getItem(storageMigrationDismissedKey(WORKSPACE))).not.toBeNull();
+
     // The second mount is the reload. Local component state would pass the
     // assertion above and fail this one — which is the difference between an
     // offer and a nag, given nothing tells the console whether this bucket
@@ -317,6 +326,23 @@ describe("the console offers it as a notice, not as a modal", () => {
     while (roots.length > 0) roots.pop()!();
     const second = await browse(console_(calls));
     expect(second.querySelector('[data-testid="browse-storage-migration"]')).toBeNull();
+  });
+
+  test("and it is not offered at all where there is no bucket to tidy", async () => {
+    /*
+      The one condition the notice has and the settings row does not. An owner
+      with no binding is looking at "No bucket is connected to this context
+      yet" two lines above; an offer to reorganize the hidden files of a
+      bucket that does not exist is noise at the worst moment. It narrows the
+      *interruption*, never who may run this — the same owner still finds it
+      in Settings → Storage, which is asserted by the block above.
+    */
+    const withoutBucket = console_([]);
+    const host = await browse({ ...withoutBucket, storage: null } as ConsoleData);
+    expect(host.querySelector('[data-testid="browse-storage-migration"]')).toBeNull();
+    // The positive control: the band is drawn, for the notice that *should*
+    // be there. Without it this passes on a pane that rendered no band at all.
+    expect(host.textContent ?? "").toContain("No bucket is connected");
   });
 
   test("and an editor is offered nothing at all", async () => {
