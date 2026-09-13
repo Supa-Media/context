@@ -75,7 +75,7 @@ describe("the reusable notes importer", () => {
     container.remove();
   });
 
-  test("requires the exact typed acknowledgement before a replacement vault can be chosen", async () => {
+  test("requires the typed acknowledgement before a replacement vault can be chosen", async () => {
     const startJob = jest.fn(async () => ({
       ...jobStatus(),
       strategy: "replace" as const,
@@ -110,6 +110,7 @@ describe("the reusable notes importer", () => {
     await act(async () => replace.click());
     expect(container.textContent ?? "").toContain("permanently deletes every existing file in this bucket");
     expect(container.textContent ?? "").toContain("Context cannot undo this");
+    expect(container.textContent ?? "").toContain("Type “I understand” to continue");
     expect(container.querySelector('[data-testid="settings-vault-choose"]')).toBeNull();
 
     const input = container.querySelector('[data-testid="settings-vault-replace-confirmation"]') as HTMLInputElement;
@@ -118,11 +119,18 @@ describe("the reusable notes importer", () => {
       setter?.call(input, "i understand");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(container.querySelector('[data-testid="settings-vault-choose"]')).toBeNull();
+    expect(container.querySelector('[data-testid="settings-vault-choose"]')).not.toBeNull();
 
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
-      setter?.call(input, "I understand");
+      setter?.call(input, "I UNDERSTAND");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="settings-vault-choose"]')).not.toBeNull();
+
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "  I Understand  ");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.querySelector('[data-testid="settings-vault-choose"]')).not.toBeNull();

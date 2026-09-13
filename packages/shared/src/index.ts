@@ -21,6 +21,10 @@ export const APP_NAME = "Context";
 export const APP_SLUG = "context";
 
 export { normalizeEmail } from "./email";
+export {
+  DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT,
+  matchesDestructiveActionAcknowledgement,
+} from "./acknowledgement";
 
 /**
  * Where Stripe sends somebody back to, built once for both sides.

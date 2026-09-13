@@ -14,7 +14,6 @@ import { loadedCounts } from "./contextFoot";
 import {
   Confirm,
   CreatePrompt,
-  DeleteForever,
   MovePicker,
   NamePrompt,
   NEW_FOLDER_HINT,
@@ -344,7 +343,7 @@ export function Explorer({
           setDialog({ kind: "archive", path });
           return;
         case "delete":
-          setDialog({ kind: "delete", path, isFolder: row.kind === "folder" });
+          files.destroy(path);
           return;
         case "share":
           setDialog({ kind: "share", path });
@@ -704,7 +703,6 @@ export type Dialog =
   | { kind: "rename"; path: string }
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
-  | { kind: "delete"; path: string; isFolder: boolean }
   | { kind: "share"; path: string }
   | null;
 
@@ -712,8 +710,7 @@ export type Dialog =
  * The dialogs the tree can raise.
  *
  * Separated so the tree and the editor can drive the same set without either
- * owning it — and so the one dialog that must never become a boolean on
- * another, `DeleteForever`, stays visibly its own thing.
+ * owning it.
  */
 export function ExplorerDialogs({
   files,
@@ -939,18 +936,6 @@ export function ExplorerDialogs({
           onConfirm={() => {
             onClose();
             files.archive(dialog.path);
-          }}
-        />
-      );
-    case "delete":
-      return (
-        <DeleteForever
-          path={dialog.path}
-          isFolder={dialog.isFolder}
-          onCancel={onClose}
-          onConfirm={() => {
-            onClose();
-            files.destroy(dialog.path);
           }}
         />
       );

@@ -483,7 +483,7 @@ describe("a selection is a different menu, not the same one applied three times"
     expect(find(three, "cut")?.label).toBe("Cut 3 items");
     expect(find(three, "copyPath")?.label).toBe("Copy 3 paths");
     expect(find(three, "archive")?.label).toBe("Archive 3 items");
-    expect(find(three, "delete")?.label).toBe("Delete 3 items forever…");
+    expect(find(three, "delete")?.label).toBe("Move 3 items to trash");
   });
 
   test("the whole list, in order", () => {
@@ -545,11 +545,11 @@ describe("a placeholder row is not a file", () => {
 /*                                  wording                                   */
 /* -------------------------------------------------------------------------- */
 
-describe("labels say what happens, and an ellipsis promises it asks first", () => {
+describe("labels say what happens, and an ellipsis promises more input", () => {
   const list = menu({ kind: "row", row: note("1-projects/plan.md") });
 
-  test("deletion is permanent and says so, with the ellipsis that confirms it", () => {
-    expect(find(list, "delete")?.label).toBe("Delete forever…");
+  test("deletion is a recoverable, immediate move to trash", () => {
+    expect(find(list, "delete")?.label).toBe("Move to trash");
   });
 
   test("a move needs a destination before it can do anything", () => {

@@ -69,9 +69,6 @@ import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
 
-/** The literal the backend requires before it will delete anything. */
-const DELETE_CONFIRMATION = "permanently delete";
-
 /**
  * Where the draft for a note nobody is looking at actually is.
  *
@@ -190,7 +187,8 @@ export function useFileBrowser(options: {
   const copyEntry = useAction(api.functions.files.copyEntry);
   const duplicateEntry = useAction(api.functions.files.duplicateEntry);
   const archiveEntry = useAction(api.functions.files.archiveEntry);
-  const deleteEntry = useAction(api.functions.files.deleteEntry);
+  const trashEntry = useAction(api.functions.files.trashEntry);
+  const restoreTrashEntry = useAction(api.functions.files.restoreTrashEntry);
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
@@ -1782,19 +1780,31 @@ export function useFileBrowser(options: {
   const destroy = useCallback(
     (path: string) => {
       void run(async () => {
-        await deleteEntry({
-          workspaceId: workspaceId!,
-          path,
-          confirmation: DELETE_CONFIRMATION,
-        });
-        return { touched: [path], message: `Deleted ${path}. That cannot be undone.` };
+        const result = await trashEntry({ workspaceId: workspaceId!, path });
+        return {
+          touched: [path, result.to],
+          message: `Moved ${baseName(path)} to trash.`,
+          undo: () => {
+            void run(async () => {
+              await restoreTrashEntry({
+                workspaceId: workspaceId!,
+                from: result.to,
+                to: path,
+              });
+              return {
+                touched: [result.to, path],
+                message: `Restored to ${folderLabel(parentPath(path))}.`,
+              };
+            });
+          },
+        };
       });
       if (selectedPath === path) {
         setSelectedPath(null);
         dispatch({ type: "closed" });
       }
     },
-    [deleteEntry, run, selectedPath, workspaceId],
+    [restoreTrashEntry, run, selectedPath, trashEntry, workspaceId],
   );
 
   const paste = useCallback(

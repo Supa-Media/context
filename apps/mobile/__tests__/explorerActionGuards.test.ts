@@ -586,6 +586,15 @@ describe("a console that cannot edit cannot start the gestures that write", () =
     expect(newNote(reader.container)).toBeNull();
     expect(newFolder(reader.container)).toBeNull();
   });
+
+  test("Move to trash acts immediately without opening a confirmation dialog", () => {
+    const editor = mount(true);
+    openRowMenu(editor.container, "note.md");
+    pressMenuItem("Move to trash");
+
+    expect(editor.calls.entries).toContainEqual({ name: "destroy", args: ["note.md"] });
+    expect(document.body.textContent).not.toContain("Type note.md to confirm");
+  });
 });
 
 /**
