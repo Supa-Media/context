@@ -29,10 +29,12 @@
 import { describe, expect, test } from "@jest/globals";
 import * as premium from "../features/console/settings/panels/premium";
 import {
+  EARLY_TESTER_PRICE_NOTE,
   EXPORT_PROMISE,
   PREMIUM_STATES,
   describePremium,
   describeSessionFailure,
+  earlyTesterPriceNote,
   entitlementRows,
   entitlementsHint,
   formatBytes,
@@ -501,6 +503,17 @@ describe("the price and the ceiling, as words", () => {
     expect(formatPrice(status())).toBe("$5 a month");
   });
 
+  test("the price itself is the price, with no framing baked into it", () => {
+    /*
+      `formatPrice` renders money and nothing else. The early-tester framing is
+      a separate string precisely so a price row, a badge and a receipt can
+      show the number without each of them having to carry a promise — and so
+      the promise cannot be smuggled into a currency formatter where no test
+      about promises would ever look for it.
+    */
+    expect(formatPrice(status())).not.toMatch(/early|tester|held|stays/i);
+  });
+
   test("a currency we do not have a symbol for is still legible", () => {
     expect(formatPrice(status({ currency: "eur", priceCents: 1850 }))).toBe(
       "18.50 EUR a month",
@@ -513,6 +526,82 @@ describe("the price and the ceiling, as words", () => {
     expect(formatBytes(1500)).toBe("1.5 kB");
     expect(formatBytes(-1)).toBe("—");
     expect(formatBytes(Number.NaN)).toBe("—");
+  });
+});
+
+/**
+ * THE PRICE IS TEMPORARY AND THE PROMISE ABOUT IT IS NOT.
+ *
+ * $5 is early-tester pricing: it goes up for people who join later, and the
+ * people paying it now keep it for as long as they keep the subscription. The
+ * second half is the one with a bill attached — it means a price rise creates
+ * a new Stripe Price for new subscriptions and leaves the live ones where they
+ * are. These tests hold the copy to saying both halves, and to *not* saying
+ * the second one where it would be false.
+ *
+ * ## Sabotage record
+ *
+ *   `earlyTesterPriceNote` returning the note for `canceled` too       2
+ *   the note dropped from the rendered panel, module untouched         2
+ *   the framing baked into `formatPrice` instead of beside it          4
+ *
+ * The middle one is measured in `premiumPanelRender.test.ts` and is why that
+ * file has its own assertions: nothing here mounts anything, so nothing here
+ * notices a constant that no screen draws.
+ */
+describe("the early-tester price, and who is actually promised it", () => {
+  test("the note says both halves: it goes up, and yours does not", () => {
+    /*
+      Half of this sentence is the offer and half is the commitment, and the
+      commitment is the expensive half — see `docs/decisions/billing.md`. A
+      note that only said "early tester price" would be an announcement that
+      the price is going up, with nothing in it for the person reading it.
+    */
+    expect(EARLY_TESTER_PRICE_NOTE).toMatch(/goes up/i);
+    expect(EARLY_TESTER_PRICE_NOTE).toMatch(/stays at this price/i);
+    expect(EARLY_TESTER_PRICE_NOTE).toMatch(/as long as you keep it/i);
+  });
+
+  test("it is said where somebody is deciding, or already paying", () => {
+    for (const state of ["free", "premium", "past_due"] as const) {
+      expect(earlyTesterPriceNote(state)).toBe(EARLY_TESTER_PRICE_NOTE);
+    }
+  });
+
+  test("it is NOT said to a context that cancelled", () => {
+    /*
+      The whole reason this is a function rather than a constant. The promise
+      is tied to keeping the subscription; a cancelled context has not kept
+      one, and restarting is a new subscription at whatever Premium costs then.
+      "Yours stays at this price" rendered under "Premium has ended for this
+      context" promises a rate nobody held and nobody paid for.
+    */
+    expect(earlyTesterPriceNote("canceled")).toBeNull();
+  });
+
+  test("a deployment that does not sell says nothing about a price", () => {
+    // There is no price on the screen at all, so there is nothing to frame.
+    expect(earlyTesterPriceNote("unavailable")).toBeNull();
+  });
+
+  test("every state is decided, and none of them throws", () => {
+    for (const state of PREMIUM_STATES) {
+      const note = earlyTesterPriceNote(state);
+      expect(note === null || note === EARLY_TESTER_PRICE_NOTE).toBe(true);
+    }
+  });
+
+  test("the note never qualifies the export promise", () => {
+    /*
+      Non-negotiable #1 is the one sentence money may not touch, and a price
+      note is exactly the kind of neighbouring copy that erodes it: "locked in
+      while you keep it" sitting beside leaving is one editing pass away from
+      implying that leaving costs something.
+    */
+    expect(EARLY_TESTER_PRICE_NOTE).not.toMatch(
+      /export|download|leave|leaving|cancel/i,
+    );
+    expect(EXPORT_PROMISE).not.toMatch(/early|tester|price/i);
   });
 });
 

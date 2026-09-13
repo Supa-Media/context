@@ -55,6 +55,53 @@ worst of the three possible behaviours; cancelling on somebody's behalf because
 they moved a switch is the second worst. Cancelling belongs to the portal,
 where the card and the invoices already are.
 
+## The $5 is an early-tester price, and it is held for the people already on it
+
+The price is presented as **early tester pricing** rather than as what Premium
+costs: `$5 a month while Context is in early testing. It goes up for people who
+join later; yours stays at this price for as long as you keep it.` Both halves
+are load-bearing and neither survives alone. Without the first, a later rise
+reads as a bait-and-switch against copy that implied permanence. Without the
+second, the sentence is an announcement that the price is going up with nothing
+in it for the person reading it — which is worse than saying nothing, because it
+is a reason to wait rather than a reason to start.
+
+**The second half is a commitment on the Stripe side, not a turn of phrase.** A
+Price amount is immutable, which for once works in the promise's favour: raising
+the price means creating a *new* Price that new subscriptions are created
+against, and leaving the existing subscriptions on the one they have. The
+operation this forbids is the one already performed once, in the other
+direction — the $20 → $5 move above updated a live subscription's price — so it
+is worth naming exactly. Moving a live subscription **down** is a discount and
+needs no promise to protect it. Moving one **up** is the thing this sentence
+says we will not do, and doing it would falsify the sentence retroactively, for
+everybody who read it, at once.
+
+So a future rise has three parts and not one: new Prices, a deployment config
+pointing at them, and *no* migration pass over `workspacePlans`. There is no
+grandfather flag to check anywhere, and deliberately so — the guarantee is held
+by the absence of a migration rather than by a field somebody could set wrong.
+A flag would also be a second source of truth about what a context pays, next to
+the subscription that actually bills it.
+
+**Where the sentence is said, and the one place it is not.** It is on the price
+row in the console's Premium section, in full on the managed-storage confirm
+screen (the last screen before Stripe, where abbreviating a promise is how
+people end up feeling misled), and in a short form on the storage card somebody
+chooses from. It is withheld on `canceled`, which is the whole reason
+`earlyTesterPriceNote` is a function of state rather than a constant like
+`EXPORT_PROMISE`: a cancelled context has not kept a subscription, restarting it
+is a new one at whatever Premium costs that day, and "yours stays at this price"
+printed under "Premium has ended for this context" would promise a rate nobody
+held — read, correctly, as an inducement to come back.
+
+**It never touches the exit.** Non-negotiable #1 is the sentence money may not
+qualify, and price copy is exactly the neighbouring text that erodes it: "held
+for as long as you keep it" is one careless editing pass from implying that not
+keeping it costs something. `premiumSettings.test.ts` asserts the two sentences
+share no vocabulary — the price note says nothing about exporting, leaving or
+cancelling, and `EXPORT_PROMISE` says nothing about price.
+
 ## What a plan may never decide
 
 **Whether somebody can leave with their notes.** Non-negotiable #1: downloading
