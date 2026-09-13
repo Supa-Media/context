@@ -302,7 +302,8 @@ function ClaimName({
   return (
     <>
       <Text variant="paneSub">
-        You do not have a workspace yet, so there is nowhere for a meeting to land.
+        You do not have a workspace of your own yet, so there is nowhere for a
+        meeting to land.
         Claim your @name and it becomes your own context — meetings, notes and
         everything else, in storage you own.
       </Text>
