@@ -2,6 +2,7 @@ import {
   STORAGE_LAYOUT_ROLLBACK_MS,
   getWithLegacyFallback,
   migrateStorageLayout,
+  readStorageLayoutState,
 } from "../src/storageLayout.js";
 import {
   STORAGE_LAYOUT_MANIFEST_KEY,
@@ -191,5 +192,81 @@ export async function runStorageLayoutChecks() {
   check(
     "hand-edited migration state is refused before any path is selected",
     corruptRefused,
+  );
+}
+
+/**
+ * Reading the state without running the migration.
+ *
+ * The state has always been in the bucket and the only thing that ever read it
+ * was the migration itself, so "has this bucket been migrated?" could only be
+ * answered by migrating. That is what left an already-migrated context being
+ * offered the update for ever: the control plane had nothing recorded, and
+ * absent was read as "nobody has run it" rather than "nobody has looked".
+ *
+ * The two are different answers and the shape says so. `observed` is whether
+ * the bucket told us anything at all; `state` is what it said, `null` for a
+ * bucket that genuinely has never run this. A caller that collapsed the two
+ * would record a false absence, which is the nag again with extra steps.
+ */
+export async function runStorageLayoutReadChecks() {
+  const never = memoryStore();
+  const fresh = await readStorageLayoutState(never);
+  check(
+    "a bucket nobody has migrated is observed to have no state",
+    fresh.observed === true && fresh.state === null,
+  );
+  check("reading the state writes nothing", never.objects.size === 0);
+
+  const migrated = memoryStore({ ".audit/a.json": "legacy" });
+  const done = await migrateStorageLayout(migrated);
+  check("the fixture actually migrated", done.state === "copied");
+  const after = await readStorageLayoutState(migrated);
+  check(
+    "a migrated bucket reports what its own state file says",
+    after.observed === true && after.state === "copied",
+  );
+
+  /*
+    The read is a question, not a checkpoint. A bucket that cannot do
+    conditional writes can never run the migration, but that is the
+    *migration's* refusal to record on the path that refuses — inventing
+    `unsupported` here would answer for a bucket nobody asked to migrate.
+  */
+  const noConditionals = memoryStore();
+  noConditionals.capabilities = {
+    conditionalCreate: false,
+    conditionalWrite: false,
+    conditionalDelete: false,
+  };
+  const refusedButRead = await readStorageLayoutState(noConditionals);
+  check(
+    "capabilities do not change what the state file says",
+    refusedButRead.observed === true && refusedButRead.state === null,
+  );
+
+  /*
+    Hand-edited or half-written state is not an answer, and must not become
+    "never run" — that records a false absence and puts the offer back on a
+    context that has already been migrated. `migrateStorageLayout` throws on
+    this shape; this one declines to have learned anything.
+  */
+  const corrupt = memoryStore({
+    [STORAGE_LAYOUT_MIGRATION_KEY]: '{"prefixIndex":-1}',
+  });
+  const unusable = await readStorageLayoutState(corrupt);
+  check(
+    "state of an unsupported shape is not read as never-run",
+    unusable.observed === false && unusable.state === null,
+  );
+
+  const unreadable = memoryStore();
+  unreadable.get = async () => {
+    throw new Error("bucket said no");
+  };
+  const silent = await readStorageLayoutState(unreadable);
+  check(
+    "a bucket that will not answer teaches us nothing, rather than lying",
+    silent.observed === false && silent.state === null,
   );
 }

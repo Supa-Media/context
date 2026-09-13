@@ -91,6 +91,7 @@ import { inventoryPlugins } from "../../mcp/src/plugins/inventory.js";
 import { createD1Client } from "../../mcp/src/search/d1/client.js";
 import {
   migrateStorageLayout as migrateStorageLayoutOp,
+  readStorageLayoutState as readStorageLayoutStateOp,
   STORAGE_LAYOUT_ROLLBACK_MS,
 } from "../../mcp/src/storageLayout.js";
 /*
@@ -195,7 +196,10 @@ import {
   readImage,
 } from "./lib/fileOps";
 import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
-import { storageLayoutStateValidator } from "./lib/storageLayout";
+import {
+  storageLayoutStateValidator,
+  type StorageLayoutState,
+} from "./lib/storageLayout";
 import {
   ensureFormResponseFiles,
   runFormAction,
@@ -559,6 +563,20 @@ const storageMigrationResultValidator = v.object({
   error: v.optional(v.string()),
 });
 
+/**
+ * What `readStorageLayout` hands back: an observation, not an outcome.
+ *
+ * `observed: false` is a bucket that would not answer, and it carries no state
+ * — the caller records nothing rather than writing down a guess. `observed`
+ * with `state: null` is the real answer "nobody has ever run this here", which
+ * is a different fact and the one the console was missing.
+ */
+const storageLayoutReadValidator = v.object({
+  kind: v.literal("storageLayoutRead"),
+  observed: v.boolean(),
+  state: v.union(storageLayoutStateValidator, v.null()),
+});
+
 const searchResultsValidator = v.object({
   kind: v.literal("searchResults"),
   hits: v.array(
@@ -754,6 +772,7 @@ const operationResultValidator = v.union(
   folderCreatedValidator,
   privacyResetValidator,
   storageMigrationResultValidator,
+  storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
   pluginInventoryValidator,
@@ -968,6 +987,16 @@ const operationValidator = v.union(
     kind: v.literal("migrateStorage"),
     cleanup: v.boolean(),
   }),
+  /**
+   * Ask the bucket where the storage-layout migration got to, and run nothing.
+   *
+   * The counterpart to `migrateStorage`, and the reason it had to exist: until
+   * it did, the only way to learn whether a bucket had been migrated was to
+   * migrate it, so every context migrated before the control plane started
+   * recording outcomes looked exactly like one that had never run it. See
+   * `lib/storageLayout.ts`.
+   */
+  v.object({ kind: v.literal("readStorageLayout") }),
 );
 
 type FileOperation =
@@ -1042,7 +1071,8 @@ type FileOperation =
       action: FormAction;
     }
   | { kind: "resetPrivacy" }
-  | { kind: "migrateStorage"; cleanup: boolean };
+  | { kind: "migrateStorage"; cleanup: boolean }
+  | { kind: "readStorageLayout" };
 
 /**
  * What a file operation hands back to the console.
@@ -1056,6 +1086,19 @@ type FileOperation =
  */
 type OperationResult =
   | ({ kind: "formApplied" } & FormResult)
+  | {
+      /**
+       * What the bucket's own migration state says, having run nothing.
+       *
+       * `observed` is whether it answered at all; `state` is what it said, and
+       * `null` means it genuinely has never run this. The two are separate
+       * because collapsing them records a false absence — which is exactly the
+       * nag this operation exists to end.
+       */
+      kind: "storageLayoutRead";
+      observed: boolean;
+      state: StorageLayoutState | null;
+    }
   | {
       kind: "storageMigrated";
       state: "copying" | "copied" | "cleaning" | "conflict" | "unsupported" | "complete";
@@ -1698,6 +1741,30 @@ export const runFileOperation = internalAction({
             operation: { kind: "migrateStorage", cleanup: true },
           },
         );
+      }
+    }
+    if (args.operation.kind === "readStorageLayout" && result.kind === "storageLayoutRead") {
+      /*
+        THE QUESTION NOBODY WAS ASKING.
+
+        `migrateStorage` records what the bucket said, but only a context that
+        ran the migration *after* that recording existed ever had anything
+        recorded. Every context migrated before it kept a `complete` in its own
+        bucket and an empty column here, and the console reads an empty column
+        as "nobody has run this" — so it offered the update again on every
+        device, for ever, to the people who had already run it.
+
+        This is the same write from the other direction: ask, and write down
+        the answer, without running anything. `observed: false` is not an
+        answer — a bucket that would not talk to us teaches us nothing, and
+        recording a timestamp for it would claim otherwise and close the offer
+        on a context that may genuinely still need it.
+      */
+      if (result.observed) {
+        await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+          workspaceId: args.workspaceId,
+          ...(result.state === null ? {} : { state: result.state }),
+        });
       }
     }
     return result;
@@ -3068,6 +3135,19 @@ export async function executeOperation(
           objectsDeleted: result.objectsDeleted,
           conflicts: result.conflicts.length,
           ...(result.error === undefined ? {} : { error: result.error }),
+        };
+      }
+      case "readStorageLayout": {
+        // One `get` against a single JSON key, and nothing else. The read
+        // deliberately does not take the conditional-write capabilities
+        // `migrateStorage` requires: a bucket that can never run the migration
+        // can still say whether it already has, and `unsupported` is the
+        // migration's refusal, recorded where the refusal happens.
+        const observation = await readStorageLayoutStateOp(store);
+        return {
+          kind: "storageLayoutRead",
+          observed: observation.observed,
+          state: observation.state,
         };
       }
     }

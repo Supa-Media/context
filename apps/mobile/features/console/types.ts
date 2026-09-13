@@ -188,6 +188,19 @@ export interface ConsoleStorage {
    */
   layoutState?: "copying" | "copied" | "cleaning" | "conflict" | "unsupported" | "complete";
   layoutStateAt?: number;
+  /**
+   * Whether the bucket has been **asked** where the migration got to.
+   *
+   * `layoutState` absent was read as "nobody has run it". It never meant that
+   * — it meant nobody had looked, and for every context migrated before that
+   * field existed those are opposite answers. The bucket said `complete`, the
+   * binding said nothing, and the notice came back on every device for exactly
+   * the people who had already run it.
+   *
+   * So the offer needs both: no recorded state, **and** a bucket that has been
+   * asked and said it has never run this.
+   */
+  layoutChecked?: boolean;
   lastError?: string;
   /**
    * The machine-readable companion to `lastError`, from the closed set in
@@ -227,6 +240,13 @@ export interface StorageActions {
   reverify: () => Promise<{ queued: boolean; status: string }>;
   connect: (values: ConnectFormValues) => Promise<{ status: string }>;
   disconnect: () => Promise<{ disconnected: boolean }>;
+  /**
+   * Asks the bucket where the storage-layout migration got to, running none of
+   * it. Nobody presses this: the console calls it once for a binding nothing
+   * has asked yet, so a context migrated before that outcome was ever recorded
+   * stops being offered an update it has already had.
+   */
+  observeLayout: () => Promise<{ queued: boolean }>;
 }
 
 export interface ConsoleStat {

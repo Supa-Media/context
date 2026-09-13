@@ -162,8 +162,14 @@ function console_(
       provider: "r2",
       bucket: "notes",
       conditionalWrite: true,
-      // Absent `layoutState` is the default on purpose: it is what a bucket
-      // nobody has migrated reports, and the only state that still offers.
+      /*
+        Absent `layoutState` with `layoutChecked` is the default on purpose: it
+        is a bucket that has been **asked** and answered that nobody has ever
+        run the migration there, which is the one combination that still
+        offers. Absent *and unasked* is a different fixture — a question the
+        console has not put yet — and it has its own test below.
+      */
+      layoutChecked: true,
       ...storage,
     },
     endpoint: "https://mcp.example",
@@ -382,6 +388,49 @@ describe("a recorded outcome, not a flag on one device", () => {
     // offers, so this cannot pass on a pane that drew no band at all.
     const fresh = await browse(console_([]));
     expect(noticeIn(fresh)).not.toBeNull();
+  });
+
+  /*
+    THE HALF THE RECORDED OUTCOME DID NOT FIX.
+
+    `storageLayoutState` is written by a migration *pass*, so it answered for
+    every context migrated after it shipped and for none of the ones migrated
+    before. Those kept `complete` in their own bucket and nothing on their
+    binding — and an absent state was read as "nobody has run it", so the
+    notice came back on every device, for ever, for exactly the people who had
+    already run it. The owner who reported the original nag was one of them:
+    recording the outcome ended it for everybody except them.
+
+    So the console asks the bucket before it offers anything, and an unasked
+    binding offers nothing while the question is in flight.
+  */
+  test("a bucket nobody has asked is not offered anything, and is asked", async () => {
+    const asked: string[] = [];
+    const data = console_([], {}, { layoutChecked: undefined });
+    (data as { storageActions?: unknown }).storageActions = {
+      ...((data.storageActions ?? {}) as object),
+      observeLayout: async () => {
+        asked.push(WORKSPACE);
+        return { queued: true };
+      },
+    };
+
+    const host = await browse(data);
+    expect(noticeIn(host)).toBeNull();
+    // And the silence is temporary rather than a second way to never offer:
+    // the console put the question that makes the answer exist.
+    expect(asked).toEqual([WORKSPACE]);
+  });
+
+  test("once the bucket has answered 'never run', the offer comes back", async () => {
+    /*
+      The sabotage guard for the test above. If `layoutChecked` merely
+      suppressed the notice, this would fail — and the fix would have been a
+      nag replaced by a control nobody is ever offered, which is worse and
+      silent.
+    */
+    const host = await browse(console_([], {}, { layoutChecked: true }));
+    expect(noticeIn(host)).not.toBeNull();
   });
 
   test("nor is one in the middle of it, or one that can never run it", async () => {

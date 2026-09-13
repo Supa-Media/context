@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
@@ -75,21 +75,45 @@ export const STORAGE_MIGRATION_OFFER =
  * The second condition is the one this notice was missing entirely.
  * `layoutState` is what the binding remembers of the migration — recorded by
  * the migration itself, so it is the same on every device this person signs in
- * on. **Absent means nobody has run it through us**, and it is the only state
- * that is still an offer: every other one is an answer, and an offer to do
- * something already done is the nag this control kept becoming.
+ * on. Every state is an answer, and an offer to do something already done is
+ * the nag this control kept becoming.
  *
  * Before it, the only thing that could quieten the notice was a flag on the
  * device, so running the migration on a laptop left the phone offering it
  * again, for ever. See `docs/decisions/storage-and-credentials.md`.
  *
- * The settings row does not take this condition either — it reports the state
- * instead, which is what somebody who went looking came to find out.
+ * ## Why an absent state is not enough, and `layoutChecked` exists
+ *
+ * **The recorded state fixed this for contexts migrated after it existed, and
+ * for nobody else.** It was only ever written by a migration pass, so a
+ * context migrated before that shipped kept `complete` in its own bucket and
+ * nothing on its binding — and an absent state was read as "nobody has run
+ * it". The notice came back on every device, for ever, for exactly the people
+ * who had already run it. Recording the outcome did not end that nag for the
+ * person who reported it; it ended it for everybody who came after them.
+ *
+ * So absent is two answers and the offer needs the right one. `layoutChecked`
+ * is whether the bucket has been **asked** — by `observeStorageLayout`, which
+ * runs nothing, or by any migration pass. Unasked is not an invitation to
+ * offer: it is a question the console has not put yet, and
+ * `useStorageLayoutObservation` puts it.
+ *
+ * The settings row does not take either condition — it reports the state
+ * instead, which is what somebody who went looking came to find out, and it
+ * keeps its button while the answer is unknown because pressing it is still
+ * correct and now records what it finds.
  */
 export function storageMigrationWorthOffering(
-  storage: { connected?: boolean; layoutState?: StorageLayoutState } | null | undefined,
+  storage:
+    | { connected?: boolean; layoutState?: StorageLayoutState; layoutChecked?: boolean }
+    | null
+    | undefined,
 ): boolean {
-  return storage?.connected === true && storage.layoutState === undefined;
+  return (
+    storage?.connected === true &&
+    storage.layoutChecked === true &&
+    storage.layoutState === undefined
+  );
 }
 
 /**
@@ -324,6 +348,50 @@ export function useStorageMigrationOffer(workspaceId: string | null): {
   }, [workspaceId]);
 
   return { visible: workspaceId !== null && answered === workspaceId && !dismissed, dismiss };
+}
+
+/**
+ * Ask the bucket where the migration got to, once, when nobody has asked yet.
+ *
+ * This is the half that makes `layoutChecked` ever become true for a context
+ * that was migrated before any of this existed — which is every context that
+ * kept being offered the update after the outcome started being recorded. The
+ * bucket has always known; until now nothing asked it except the migration
+ * itself, so the only way to find out whether it had run was to run it again.
+ *
+ * Fire and forget, and deliberately quiet: nobody is waiting on it, the
+ * console renders the same either way, and the visible consequence of it
+ * landing is a notice that stops coming back. A refusal — not the owner, a
+ * binding that went away, the rate limit — costs one more appearance of a
+ * notice that can already be dismissed, so it is swallowed rather than turned
+ * into an error somebody has to read.
+ *
+ * Guarded on `checked` rather than only on the backend's own guard so a
+ * console that re-renders does not re-ask; the mutation refuses a spent
+ * question anyway, and this keeps the call from being made at all.
+ *
+ * `contextId` is the **dedup key and nothing else** — `observe` already names
+ * the context it acts on, because `useLiveConsoleData` binds it to the same
+ * `selectedContextId` that `storage` here was read from. Passing an id in
+ * would be a second answer to a question that has one, and during a context
+ * switch the two disagree: `files.contextId` moves a commit later than the
+ * console's selection does. So the id this takes is the browser's, the
+ * workspace asked is the console's, and they are only ever the same binding
+ * once the switch has settled.
+ */
+export function useStorageLayoutObservation(
+  contextId: string | null,
+  storage: { connected?: boolean; layoutChecked?: boolean } | null | undefined,
+  observe: (() => Promise<unknown>) | undefined,
+): void {
+  const unasked = storage?.connected === true && storage.layoutChecked !== true;
+  const asked = useRef<string | null>(null);
+  useEffect(() => {
+    if (contextId === null || observe === undefined || !unasked) return;
+    if (asked.current === contextId) return;
+    asked.current = contextId;
+    void observe().catch(() => {});
+  }, [contextId, unasked, observe]);
 }
 
 /**

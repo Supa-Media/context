@@ -922,6 +922,31 @@ const schema = defineSchema({
      */
     storageLayoutState: v.optional(storageLayoutStateValidator),
     storageLayoutAt: v.optional(v.number()),
+    /**
+     * WHEN WE LAST *LOOKED*, WHICH IS NOT WHEN WE LAST HEARD.
+     *
+     * `storageLayoutState` absent was originally read as "nobody has run the
+     * migration". It never meant that. It meant **nobody has looked** — and
+     * for every context migrated before that field existed, those are opposite
+     * answers: the bucket's own state under `.context/` said `complete` while
+     * this row said nothing, so the console went on offering an update that
+     * had already run, on every device, exactly as it had before the field was
+     * added. The owner who reported the original nag was still being nagged.
+     *
+     * So the absence is split in two. This timestamp is set whenever the
+     * bucket answered — by `readStorageLayout`, which runs nothing, or by any
+     * pass of the migration itself — including when the answer was "there is
+     * no migration state here". `storageLayoutState` stays what the bucket
+     * *said*, absent when it has genuinely never run.
+     *
+     * Set means the question has been asked. Absent means it has not, and is
+     * the only state the console still offers in.
+     *
+     * Cleared by a rebind with the state it qualifies: a new bucket has not
+     * been looked at either, and carrying "checked" onto it would silently
+     * strand it on the old layout with nothing on any screen saying so.
+     */
+    storageLayoutCheckedAt: v.optional(v.number()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),
