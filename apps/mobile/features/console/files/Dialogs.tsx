@@ -139,7 +139,7 @@ export function CreatePrompt({
         </PressRow>
       </View>
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
       </View>
     </Shell>
   );
@@ -184,10 +184,10 @@ export function NamePrompt({
       />
       {problem ? <Text variant="error">{problem}</Text> : null}
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
         <Button
           label={confirmLabel}
-          variant="white"
+          variant="dialogPrimary"
           disabled={!ready}
           onPress={() => onConfirm(value.trim())}
         />
@@ -255,10 +255,10 @@ export function MovePicker({
         })}
       </ScrollView>
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
         <Button
           label="Move here"
-          variant="white"
+          variant="dialogPrimary"
           disabled={chosen === null || chosen === currentFolder}
           onPress={() => onConfirm(chosen!)}
         />
@@ -286,8 +286,8 @@ export function Confirm({
     <Shell title={title} onClose={onCancel}>
       <Text variant="paneSub">{body}</Text>
       <View style={styles.actions}>
-        <Button label="Cancel" onPress={onCancel} />
-        <Button label={confirmLabel} variant="white" onPress={onConfirm} />
+        <Button label="Cancel" variant="dialog" onPress={onCancel} />
+        <Button label={confirmLabel} variant="dialogPrimary" onPress={onConfirm} />
       </View>
     </Shell>
   );
@@ -324,6 +324,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.lg,
     backgroundColor: colors.well,
   },
+  /**
+   * The action row, and the one rule about what goes in it: `dialog` for the
+   * quiet half, `dialogPrimary` for the default action, and nothing else.
+   *
+   * Every row here used to be `mini` beside `white` — the landing page's hero
+   * CTA — so the confirm was drawn with over twice Cancel's padding in both
+   * axes. `dialogActionSize.test.ts` measures all three dialogs rather than
+   * the one that got noticed.
+   */
   actions: { flexDirection: "row", gap: 10, marginTop: 4 },
   /**
    * The two rows of the create chooser.
