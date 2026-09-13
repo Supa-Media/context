@@ -519,3 +519,198 @@ describe("resolveMyName", () => {
     ).toBeNull();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                        the vendored username blocklist                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE NAMES A NEW SERVICE LEARNS TO RESERVE THE HARD WAY.
+ *
+ * The hand-written list above grew a name at a time, each with a reason — which
+ * is the right way to *decide* and a bad way to *cover*. Measured against the
+ * two blocklists most services vendor, it held 66 of 834 applicable entries.
+ * The other 768 are the ones somebody else already got wrong first.
+ *
+ * The whole union is taken rather than a chosen subset, because pruning it
+ * means re-deciding 834 times on a judgement the lists have already made, and
+ * the names it costs are ones nobody is owed: `@sudo`, `@null`, `@paypal`.
+ *
+ * These assertions are about the *classes* rather than about a count, so
+ * re-syncing the vendored file does not fail them. A count would be a test of
+ * the upstream repositories rather than of this rule.
+ */
+describe("names a service must not hand out", () => {
+  const refuses = (name: string) =>
+    expect({ name, ...validateName(name) }).toMatchObject({ name, ok: false, reason: "reserved" });
+
+  test("the roles this product's own membership model is written in", () => {
+    // `@owner` in a context list, or in a form's `by` column beside `@alan`,
+    // is the cheapest impersonation in the namespace — and these three are
+    // `workspaceMembers.role` verbatim.
+    for (const name of ["owner", "editor", "member", "owners", "editors", "members"]) {
+      refuses(name);
+    }
+  });
+
+  test("values that are not names in the formats a name is written into", () => {
+    /*
+      Not impersonation — parsing. A name lands in YAML frontmatter and in
+      `@name/path` strings, and a YAML reader takes the bare forms of these as
+      a null, a boolean, or a number rather than as the string somebody typed.
+      `@null` is a bug before it is a handle.
+    */
+    for (const name of ["null", "undefined", "nil", "nan", "none", "true", "false", "void"]) {
+      refuses(name);
+    }
+  });
+
+  test("hostnames a client probes on its own", () => {
+    // Ingestion is on the apex and a name is described as a future subdomain,
+    // so these are a mailbox and a hostname at once. `wpad` and `isatap` are
+    // not hypothetical: proxy auto-discovery hijacking is a standing attack.
+    for (const name of ["wpad", "isatap", "localhost", "autodiscover", "autoconfig", "mx", "ns1", "smtp", "imap"]) {
+      refuses(name);
+    }
+  });
+
+  test("privilege words", () => {
+    for (const name of ["sudo", "superuser", "sysadmin", "moderator", "staff", "guest", "nobody", "everyone"]) {
+      refuses(name);
+    }
+  });
+
+  test("the words a payment lure is written with", () => {
+    for (const name of ["payment", "payments", "paypal", "invoice", "refund", "checkout", "premium"]) {
+      refuses(name);
+    }
+  });
+
+  test("this product's own surfaces and promises", () => {
+    // `export` most of all: the export path is what non-negotiable #1 rests on.
+    for (const name of ["export", "import", "search", "share", "shares", "webhook", "webhooks", "credentials", "secrets", "keys"]) {
+      refuses(name);
+    }
+  });
+
+  test("spellings of the official shared context every user is a member of", () => {
+    for (const name of ["contextlc", "contexts", "the-context", "getcontext", "context-team", "context-support", "context-official"]) {
+      refuses(name);
+    }
+  });
+
+  /*
+    AND NOT THE NAMES WE ACTUALLY HOLD.
+
+    `@context-lc` and `@supa` are contexts this company runs, so they must stay
+    *claimable* — `checkAvailability` has no bypass, and a reserved name is
+    refused for everyone including us, which would mean never being able to
+    recreate one after a delete or a migration. What protects them is the row in
+    `names`, not this list.
+
+    Asserted rather than left as a comment, because the argument for adding them
+    is obvious and the argument against is not — this is the test that fails
+    when somebody makes that mistake.
+  */
+  test("but never the ones this company holds, which must stay claimable", () => {
+    for (const name of ["context-lc", "supa", "supa-media"]) {
+      expect({ name, ...validateName(name) }).toMatchObject({ name, ok: true });
+    }
+  });
+
+  /*
+    THE ONE THE `xn--` CHECK CANNOT SEE.
+
+    `RESERVED_LABEL_FORM` catches a homograph smuggled in from outside the
+    charset. This one is inside it: in the system UI face, digit `1` and letter
+    `l` are the same glyph, so `@context-1c` beside `@context-lc` is
+    indistinguishable — and `@context-lc` is the context every user is a member
+    of, which is exactly what makes it worth wearing.
+
+    Reserved as names here. The general fix is skeleton matching (fold `1`→`l`,
+    `0`→`o`, drop hyphens, compare) and it is deliberately not in this change:
+    it alters what `validateName` *means* rather than what it knows, and it can
+    refuse a name somebody already holds. Recorded in `docs/decisions/`.
+  */
+  test("lookalikes of that context, which the LDH check cannot catch", () => {
+    for (const name of ["context-1c", "context1c", "context-ic", "contextic"]) {
+      refuses(name);
+    }
+  });
+
+  test("placeholders people type straight out of documentation", () => {
+    for (const name of ["yourname", "yourusername", "yourdomain", "example", "test1"]) {
+      refuses(name);
+    }
+  });
+});
+
+describe("a reserved name cannot be claimed", () => {
+  /*
+    The list is only a list until something refuses on it, and there is exactly
+    one door: every write to `names` goes through `claimName`, and
+    `createWorkspace` is what a person reaches it through — at signup, when
+    their brain is created, and again for every shared context afterwards.
+    Both are the same mutation with a different `kind`, so both are asserted.
+  */
+  test("as a personal brain at signup", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "someone@example.invalid");
+    const error = await captureError(() =>
+      asUser(t, user).mutation(api.functions.workspaces.createWorkspace, {
+        slug: "owner",
+        displayName: "Owner",
+        kind: "personal" as const,
+      }),
+    );
+    /*
+      One code for every rejection, with `reason` carrying which one — so the
+      error tells the caller to pick another name without telling them whether
+      this one is reserved or simply taken. `reason` is asserted too, because
+      "unavailable" alone would also pass if the name were merely claimed by
+      the fixture.
+    */
+    expect(errorCode(error)).toBe("NAME_UNAVAILABLE");
+    expect((error as { data?: { reason?: string } }).data?.reason).toBe("reserved");
+  });
+
+  test("as a shared workspace", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "someone@example.invalid");
+    await createWorkspace(t, user, "ada");
+    const error = await captureError(() =>
+      asUser(t, user).mutation(api.functions.workspaces.createWorkspace, {
+        slug: "context-support",
+        displayName: "Context Support",
+        kind: "shared" as const,
+      }),
+    );
+    expect(errorCode(error)).toBe("NAME_UNAVAILABLE");
+    expect((error as { data?: { reason?: string } }).data?.reason).toBe("reserved");
+  });
+
+  test("and nothing is written to the namespace on the way to being refused", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "someone@example.invalid");
+    await captureError(() =>
+      asUser(t, user).mutation(api.functions.workspaces.createWorkspace, {
+        slug: "paypal",
+        displayName: "Totally Legitimate",
+        kind: "shared" as const,
+      }),
+    );
+    const rows = await t.run((ctx) => ctx.db.query("names").collect());
+    expect(rows.map((row) => row.name)).not.toContain("paypal");
+  });
+
+  test("an ordinary name is still claimable, so the list has not swallowed the namespace", async () => {
+    const t = setupTest();
+    const user = await createUser(t, "someone@example.invalid");
+    const created = await asUser(t, user).mutation(api.functions.workspaces.createWorkspace, {
+      slug: "seyi",
+      displayName: "Seyi",
+      kind: "personal" as const,
+    });
+    expect(created.workspaceId).toBeTruthy();
+  });
+});

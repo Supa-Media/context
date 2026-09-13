@@ -124,7 +124,7 @@ async function aMacAndItsOwner(
   const t: TestConvex = setupTest();
   const alice = await createUser(t, "alice@example.invalid");
   const bob = await createUser(t, "bob@example.invalid");
-  const aliceWs = await createWorkspace(t, alice, "alpha", {
+  const aliceWs = await createWorkspace(t, alice, "alfa", {
     displayName: "Alice's Context",
   });
   await createWorkspace(t, bob, "alphabet", { displayName: "Bob's Context" });
@@ -159,7 +159,7 @@ async function parkMachineRequest(
     codeChallengeMethod: "S256",
     scope: MACHINE_SCOPE,
     resource: null,
-    requestedWorkspaceSlug: "alpha",
+    requestedWorkspaceSlug: "alfa",
     ...overrides,
   });
   const body = await bodyOf(response);
@@ -221,7 +221,7 @@ describe("a signed-in person's own Mac gets its grant with no screen", () => {
     expect(`${url.origin}${url.pathname}`).toBe(REQUEST_REDIRECT);
     expect(url.searchParams.get("state")).toBe("a-state-this-machine-minted");
     expect(url.searchParams.get("code")).toMatch(/^.{16,}$/);
-    expect(workspaceSlug).toBe("alpha");
+    expect(workspaceSlug).toBe("alfa");
 
     const row = await rowOf(t, requestId);
     expect(row.status).toBe("approved");
@@ -370,7 +370,7 @@ describe("only the desktop shell's own request is minted without a screen", () =
     // everybody he shares a folder with.
     await addMember(t, aliceWs, bob, "editor", alice);
     const requestId = await parkMachineRequest(t, {
-      requestedWorkspaceSlug: "alpha",
+      requestedWorkspaceSlug: "alfa",
     });
 
     expect(refusalReason(await captureError(() => mint(t, bob, requestId)))).toBe(
@@ -457,7 +457,7 @@ describe("the ordinary refusals still hold with no screen in the way", () => {
     // Her machine's next connect parks its own request and is minted normally,
     // so a burn costs a screen rather than the ability to connect at all.
     const second = await parkMachineRequest(t);
-    expect((await mint(t, alice, second)).workspaceSlug).toBe("alpha");
+    expect((await mint(t, alice, second)).workspaceSlug).toBe("alfa");
   });
 
   test("a caller with no context of their own learns nothing and grants nothing", async () => {

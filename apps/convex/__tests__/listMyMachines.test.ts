@@ -165,9 +165,9 @@ describe("a person's own approved machines", () => {
   test("a minted machine grant shows its name, when it was approved, and its tier", async () => {
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
-    await createWorkspace(t, alice, "alpha", { displayName: "Alice's Context" });
+    await createWorkspace(t, alice, "alfa", { displayName: "Alice's Context" });
     await registerMac(t, "mcp_client_alices_mac", "Context on alices-mac");
-    await approveMachine(t, alice, "mcp_client_alices_mac", "alpha");
+    await approveMachine(t, alice, "mcp_client_alices_mac", "alfa");
 
     const machines = await listMachines(t, alice);
     expect(machines).toHaveLength(1);
@@ -180,9 +180,9 @@ describe("a person's own approved machines", () => {
   test("the id returned is exactly the one `revokeGrant` accepts", async () => {
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
-    await createWorkspace(t, alice, "alpha");
+    await createWorkspace(t, alice, "alfa");
     await registerMac(t, "mcp_client_alices_mac", "Context on alices-mac");
-    await approveMachine(t, alice, "mcp_client_alices_mac", "alpha");
+    await approveMachine(t, alice, "mcp_client_alices_mac", "alfa");
 
     const before = await listMachines(t, alice);
     expect(before).toHaveLength(1);
@@ -200,10 +200,10 @@ describe("a person's own approved machines", () => {
   test("two machines, most recently approved first", async () => {
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
-    await createWorkspace(t, alice, "alpha");
+    await createWorkspace(t, alice, "alfa");
     await createWorkspace(t, alice, "second-workspace");
     await registerMac(t, "mcp_client_laptop", "Context on laptop");
-    await approveMachine(t, alice, "mcp_client_laptop", "alpha");
+    await approveMachine(t, alice, "mcp_client_laptop", "alfa");
     await registerMac(t, "mcp_client_desktop", "Context on desktop");
     await approveMachine(t, alice, "mcp_client_desktop", "second-workspace");
 
@@ -220,7 +220,7 @@ describe("a person's own approved machines", () => {
     // filter, not how an ordinary grant comes to exist.
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
-    const workspaceId = await createWorkspace(t, alice, "alpha");
+    const workspaceId = await createWorkspace(t, alice, "alfa");
     await gatewayPost(t, "/gateway/clients/register", {
       clientId: "mcp_client_claude",
       clientName: "Claude",
@@ -266,10 +266,10 @@ describe("one tenant cannot enumerate, read, or infer another's machines", () =>
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
     const bob = await createUser(t, "bob@example.invalid");
-    await createWorkspace(t, alice, "alpha");
+    await createWorkspace(t, alice, "alfa");
     await createWorkspace(t, bob, "bobs-workspace");
     await registerMac(t, "mcp_client_alices_mac", "Context on alices-mac");
-    await approveMachine(t, alice, "mcp_client_alices_mac", "alpha");
+    await approveMachine(t, alice, "mcp_client_alices_mac", "alfa");
 
     expect(await listMachines(t, alice)).toHaveLength(1);
     expect(await listMachines(t, bob)).toEqual([]);
@@ -279,13 +279,13 @@ describe("one tenant cannot enumerate, read, or infer another's machines", () =>
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
     const bob = await createUser(t, "bob@example.invalid");
-    await createWorkspace(t, alice, "alpha");
+    await createWorkspace(t, alice, "alfa");
     await createWorkspace(t, bob, "bobs-workspace");
 
     await registerMac(t, "mcp_client_alice_1", "Context on alice-laptop");
-    await approveMachine(t, alice, "mcp_client_alice_1", "alpha");
+    await approveMachine(t, alice, "mcp_client_alice_1", "alfa");
     await registerMac(t, "mcp_client_alice_2", "Context on alice-desktop");
-    await approveMachine(t, alice, "mcp_client_alice_2", "alpha");
+    await approveMachine(t, alice, "mcp_client_alice_2", "alfa");
     await registerMac(t, "mcp_client_bob_1", "Context on bobs-laptop");
     await approveMachine(t, bob, "mcp_client_bob_1", "bobs-workspace");
 
@@ -329,7 +329,7 @@ describe("past the cap, the newest machines survive", () => {
     // gateway round trip buys nothing here.
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
-    const workspaceId = await createWorkspace(t, alice, "alpha");
+    const workspaceId = await createWorkspace(t, alice, "alfa");
 
     const total = MAX_MACHINES_RETURNED + 5;
     for (let i = 0; i < total; i += 1) {
