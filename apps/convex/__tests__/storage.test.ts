@@ -14,6 +14,7 @@ import {
   ROTATION_EXEMPT_ENVELOPE_COLUMNS,
 } from "../functions/storage";
 import { decryptSecret, encryptSecret, requireKeyset } from "../functions/lib/crypto";
+import { managedBucketName } from "../functions/lib/managedStorage";
 import type { Id } from "../_generated/dataModel";
 import {
   type TestConvex,
@@ -1434,6 +1435,29 @@ describe("recordVerification (internal)", () => {
 });
 
 describe("disconnectStorage", () => {
+  test("refuses to strand a managed bucket behind an active plan", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.run(async (ctx) => {
+      const binding = await ctx.db.query("storageBindings").unique();
+      await ctx.db.patch(binding!._id, { bucket: managedBucketName(workspaceId) });
+      await ctx.db.insert("workspacePlans", {
+        workspaceId,
+        managedStorage: true,
+        fastSearch: false,
+        status: "active",
+        managedProvisioning: "ready",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      asUser(t, owner).mutation(api.functions.storage.disconnectStorage, {
+        workspaceId,
+      }),
+    ).rejects.toThrow(/managed storage/i);
+    expect(await t.run((ctx) => ctx.db.query("storageBindings").unique())).not.toBeNull();
+  });
   test("deletes the credential outright rather than flagging it", async () => {
     const { t, owner, workspaceId } = await boundWorkspace();
 

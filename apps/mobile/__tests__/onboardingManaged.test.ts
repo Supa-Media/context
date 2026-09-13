@@ -268,13 +268,13 @@ describe("back from Stripe, mid-flow", () => {
     expect(container.querySelector('[data-testid="managed-settling-own"]')).not.toBeNull();
   });
 
-  test("a wait that stops being ordinary offers two ways out, neither a dead end", () => {
+  test("a wait that stops being ordinary keeps the hand-off on screen", () => {
     const container = mount(offer({ mode: "settling", paid: true, slow: true }));
     const words = container.textContent ?? "";
     expect(words).toContain("Still working");
-    expect(words).toContain("You can close this");
-    expect(words).toContain("Your payment is safe");
-    expect(container.querySelector('[data-testid="managed-settling-own"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="managed-settling-carry-on"]')).not.toBeNull();
+    expect(words).toContain("up to 2 minutes");
+    expect(words).toContain("Keep this page open");
+    expect(container.querySelector('[data-testid="managed-settling-own"]')).toBeNull();
+    expect(container.querySelector('[data-testid="managed-settling-carry-on"]')).toBeNull();
   });
 });

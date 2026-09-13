@@ -288,6 +288,33 @@ describe("which control is offered", () => {
 });
 
 describe("moving an existing context into managed storage", () => {
+  test("a new managed bucket names the two-minute wait instead of inventing a copy", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        active: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "running",
+      }),
+    );
+    expect(copy?.title).toMatch(/creating managed storage/i);
+    expect(copy?.body).toMatch(/up to 2 minutes/i);
+    expect(copy?.body).toMatch(/keep this page open/i);
+    expect(copy?.body).not.toMatch(/original storage/i);
+  });
+
+  test("a ready plan without its binding reports the broken state instead of copying forever", () => {
+    const copy = managedMigrationCopy(
+      status({
+        status: "active",
+        selected: { managedStorage: true, fastSearch: false },
+        active: { managedStorage: true, fastSearch: false },
+        managedProvisioning: "ready",
+      }),
+    );
+    expect(copy?.failed).toBe(true);
+    expect(copy?.title).toMatch(/not connected/i);
+  });
   test("the original stays authoritative while a verified copy runs", () => {
     const copy = managedMigrationCopy(
       status({
@@ -376,6 +403,7 @@ describe("moving an existing context into managed storage", () => {
         selected: { managedStorage: true, fastSearch: false },
         active: { managedStorage: true, fastSearch: false },
         managedProvisioning: "failed",
+        managedMigrationPhase: "copy",
       }),
     );
     expect(copy?.failed).toBe(true);

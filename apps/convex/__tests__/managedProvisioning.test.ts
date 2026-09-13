@@ -171,6 +171,83 @@ describe("provisioning a managed bucket", () => {
       expect(row?.bucket).toBe(managedBucketName(workspaceId));
       expect(row?.endpoint).toContain(ACCOUNT_ID);
       expect(row?.accessKeyId).toBe(MINTED_ID);
+
+      const status = await t.run((ctx) => ctx.db.query("workspacePlans").unique());
+      expect(status?.managedProvisioning).toBe("running");
+      const scheduled = await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      );
+      const verification = scheduled.find((job) =>
+        job.name.includes("verifyStorageBinding"),
+      );
+      const verificationArgs = (
+        verification?.args as Array<{
+          workspaceId: string;
+          retryUntil?: number;
+        }> | undefined
+      )?.[0];
+      expect(verificationArgs).toMatchObject({ workspaceId });
+      expect(verificationArgs?.retryUntil).toBeGreaterThan(Date.now() + 110_000);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("becomes ready only after the managed bucket answers", async () => {
+    const t = setupTest();
+    stubCloudflare();
+    try {
+      await configured(t);
+      const { owner, workspaceId } = await paidContext(t, "verified-ready");
+      await t.action(internal.functions.managedProvisioning.provisionManagedStorage, {
+        workspaceId,
+      });
+
+      await t.mutation(internal.functions.storage.recordVerification, {
+        workspaceId,
+        actorUserId: owner,
+        ok: true,
+        capabilities: { conditionalWrite: true },
+      });
+
+      const plan = await t.run((ctx) => ctx.db.query("workspacePlans").unique());
+      expect(plan?.managedProvisioning).toBe("ready");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("keeps propagation failures amber until the two-minute deadline", async () => {
+    const t = setupTest();
+    stubCloudflare();
+    try {
+      await configured(t);
+      const { owner, workspaceId } = await paidContext(t, "propagation-window");
+      await t.action(internal.functions.managedProvisioning.provisionManagedStorage, {
+        workspaceId,
+      });
+
+      await t.action(internal.functions.provisioning.verifyStorageBinding, {
+        workspaceId,
+        actorUserId: owner,
+        retryUntil: Date.now() + 120_000,
+      });
+      expect((await binding(t))?.status).toBe("unverified");
+      expect(await t.run((ctx) => ctx.db.query("workspacePlans").unique())).toMatchObject({
+        managedProvisioning: "running",
+      });
+
+      await t.action(internal.functions.provisioning.verifyStorageBinding, {
+        workspaceId,
+        actorUserId: owner,
+        retryUntil: Date.now() - 1,
+      });
+      expect((await binding(t))?.status).toBe("error");
+      expect(await t.run((ctx) => ctx.db.query("workspacePlans").unique())).toMatchObject({
+        managedProvisioning: "failed",
+      });
     } finally {
       vi.unstubAllEnvs();
       vi.unstubAllGlobals();

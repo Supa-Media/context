@@ -184,6 +184,8 @@ export interface ConsoleStorage {
    */
   updatedAt: number;
   lastVerifiedAt?: number;
+  /** Storage operated by Context, whose credential cannot be rotated or disconnected here. */
+  managed?: boolean;
 }
 
 /**

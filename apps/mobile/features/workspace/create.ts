@@ -392,7 +392,7 @@ export const WORKSPACE_PRIVACY_NOTE =
 export const WORKSPACE_AFTER_PAY = [
   "Stripe brings you back to the workspace's own settings, not to this flow.",
   "We create its bucket and lay out the standard folders.",
-  "The workspace is ready — usually in a few seconds. Invite its people from its settings.",
+  "Keep Premium open until storage is confirmed — it can take up to 2 minutes. Then invite its people from settings.",
 ] as const;
 
 /** What a workspace's layout is worth, said once. Reversible, like everything else. */
