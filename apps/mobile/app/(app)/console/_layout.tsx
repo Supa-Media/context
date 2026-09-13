@@ -592,18 +592,21 @@ export default function ConsoleLayout() {
                   grants somebody access. The reversible one is the safer
                   neighbour for a thumb, and the group is read left to right.
 
-                  `selected` is what makes an unlabelled 20pt target honest: the
-                  eye cannot draw "will hide the markup" and "will bring it
-                  back" as two marks, so the state is the fill and the label is
-                  the act — the rule `ICON_NAMES` states for the padlock this
-                  group used to carry.
+                  **The glyph is the act, and there is no `selected` fill.**
+                  This used to be one eye lit by `selected`, on the argument
+                  that one mark cannot draw "will hide the markup" and "will
+                  bring it back" — so the state went in the fill and the label
+                  carried the act. Two marks can draw it, and once they do the
+                  fill is not merely redundant but wrong: it would light the
+                  *pencil*, and a lit control says "this mode is on" while the
+                  pencil means "press to start editing". Icon and label now say
+                  the same thing, which is what an unlabelled 20pt target needs.
                 */}
                 {readable ? (
                   <FrameIconButton
                     label={reading ? "Edit this note" : "Read this note"}
-                    icon="eye"
+                    icon={reading ? "pencil" : "eye"}
                     grouped
-                    selected={reading}
                     onPress={() => setReadMode(!reading)}
                     testID="note-read"
                   />

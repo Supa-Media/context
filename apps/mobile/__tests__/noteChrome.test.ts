@@ -826,11 +826,31 @@ describe("the top row ends in one group, and it is the note's", () => {
     expect(eye!.compareDocumentPosition(share!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  test("...and it names the act, since a glyph cannot", () => {
+  /**
+   * The glyph and the label say the same thing, and the glyph used to say
+   * nothing.
+   *
+   * This was "it names the act, since a glyph cannot" — one eye, whose state
+   * lived in a `selected` accent fill because a single mark cannot draw both
+   * "will hide the markup" and "will bring it back". Two marks can, so the
+   * icon now carries the act and the fill is gone: lighting the *pencil* would
+   * say "pencil mode is on", which is the opposite of what pressing it does.
+   *
+   * `data-icon` is what makes the swap assertable at all — an icon drawn from
+   * `View`s or from a `<Path>` has no text in it, which is the whole reason
+   * `Icon.tsx` puts the name in the DOM.
+   */
+  test("...and the glyph names the act, alongside the label", () => {
     const app = mountConsole(dataWith());
+    const glyph = () => app.find("note-read")!.querySelector("[data-icon]")!.getAttribute("data-icon");
+
     expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Read this note");
+    expect(glyph()).toBe("eye");
+
     app.press(app.find("note-read"));
+
     expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+    expect(glyph()).toBe("pencil");
   });
 
   /**
