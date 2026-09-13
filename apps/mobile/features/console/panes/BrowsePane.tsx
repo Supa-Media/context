@@ -17,6 +17,11 @@ import { useNoteLockPropagation } from "../encryption/lockPropagation";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { setReadMode, useReadMode } from "../files/readMode";
+import {
+  STORAGE_MIGRATION_OFFER,
+  StorageMigrationActions,
+  useStorageMigrationOffer,
+} from "../storage/StorageMigration";
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
@@ -243,6 +248,22 @@ export function BrowsePane({
   */
   const noBucket = data.storage === null;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
+  /**
+   * The one-time storage-layout update, offered where it can be ignored.
+   *
+   * It used to be a gear in the file tree's toolbar — permanent chrome for an
+   * operation somebody runs once or never — and it is a line in this band
+   * instead, with its permanent home in Settings → Storage. Both surfaces are
+   * gated on the same absent-or-present `updateStorageLayout`, which is
+   * owner-only; nothing here decides who may run it.
+   *
+   * The workspace is what the *browser* says it is, not the console: this
+   * notice belongs to the listings on screen, and `files.contextId` is what
+   * everything else in this pane is drawn from while a switch settles.
+   */
+  const storageMigration = useStorageMigrationOffer(
+    files.updateStorageLayout === undefined ? null : files.contextId,
+  );
   /*
     The one notice here that is not an event, and the one that is drawn **once
     per context rather than once per file**.
@@ -283,6 +304,7 @@ export function BrowsePane({
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
+    storageMigration.visible ||
     (files.readOnlyReason !== undefined && !files.canEdit);
 
   /**
@@ -404,6 +426,26 @@ export function BrowsePane({
             onPress={() => files.dismissNotice()}
             style={styles.dismiss}
             testID="browse-dismiss-notice"
+          />
+        </View>
+      ) : null}
+
+      {/*
+        Last, and the only line here that is an *offer* rather than a report.
+
+        No wash: the warn colours in this band mean "something is wrong and it
+        is yours to fix", and nothing is wrong. It is the hint treatment the
+        tier line uses, with two buttons — one to run it, one to stop being
+        asked — and the dialog behind the first is the same one both entry
+        points raise.
+      */}
+      {storageMigration.visible && files.updateStorageLayout !== undefined ? (
+        <View style={styles.notice} testID="browse-storage-migration">
+          <Text variant="hint">{STORAGE_MIGRATION_OFFER}</Text>
+          <StorageMigrationActions
+            run={files.updateStorageLayout}
+            onDismiss={storageMigration.dismiss}
+            style={styles.noticeActions}
           />
         </View>
       ) : null}
@@ -1262,6 +1304,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   noticeWarn: { borderColor: colors.warnBorder, backgroundColor: colors.warnWash },
   noticeWarnText: { color: colors.warnText },
   dismiss: { alignSelf: "flex-start" },
+  /**
+   * Two buttons under a notice rather than one.
+   *
+   * `dismiss`'s `alignSelf` does the same job for a single control; a row
+   * needs to wrap instead, because "Update Context storage" beside "Not now"
+   * is wider than a 390pt phone's notice at its own padding.
+   */
+  noticeActions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
 
   empty: { padding: space.x6, gap: space.x2, maxWidth: 520 },
   emptyLine: { marginTop: 2 },

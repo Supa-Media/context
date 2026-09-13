@@ -484,6 +484,13 @@ export function Explorer({
    * `touch`, and on a pointer layout it would be a fourth way to do what ⌘⇧E
    * and the top bar's toggle already do, on the one density where there is
    * nothing covering the note to dismiss.
+   *
+   * There was briefly a sixth: a gear that started the one-time storage-layout
+   * update. It is gone from here rather than reordered — a maintenance
+   * operation somebody runs once, or never, does not earn permanent room
+   * beside the four controls they use every day. It lives in Settings →
+   * Storage and in a dismissible notice now; see
+   * `../storage/StorageMigration.tsx`, which holds the argument and the copy.
    */
   const actions = (
     <>
@@ -502,14 +509,6 @@ export function Explorer({
             testID="explorer-new-folder"
           />
         </>
-      ) : null}
-      {files.updateStorageLayout !== undefined ? (
-        <IconButton
-          label="Update Context storage"
-          icon="gear"
-          onPress={() => setDialog({ kind: "storageMigration" })}
-          testID="explorer-storage-migration"
-        />
       ) : null}
       <IconButton
         label={descending ? "Sort A to Z" : "Sort Z to A"}
@@ -712,7 +711,6 @@ export type Dialog =
   | { kind: "move"; path: string }
   | { kind: "archive"; path: string }
   | { kind: "share"; path: string }
-  | { kind: "storageMigration" }
   | null;
 
 /**
@@ -945,20 +943,6 @@ export function ExplorerDialogs({
           onConfirm={() => {
             onClose();
             files.archive(dialog.path);
-          }}
-        />
-      );
-    case "storageMigration":
-      if (files.updateStorageLayout === undefined) return null;
-      return (
-        <Confirm
-          title="Update Context storage"
-          body="This reorganizes only Context’s hidden system files under .context/. Your notes, folders, privacy.md, and index.md are not changed. The update is resumable, keeps the old system copies for at least seven days, and removes them automatically when the bucket can do so safely."
-          confirmLabel="Update storage"
-          onCancel={onClose}
-          onConfirm={() => {
-            onClose();
-            files.updateStorageLayout?.();
           }}
         />
       );

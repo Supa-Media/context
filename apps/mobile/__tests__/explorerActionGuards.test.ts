@@ -740,8 +740,23 @@ describe("what may be dragged, and what may be dropped on", () => {
   });
 });
 
-describe("the storage migration control", () => {
-  test("is owner-only and explains the note-safety boundary before it runs", () => {
+/**
+ * The storage-layout update is **not** one of this toolbar's controls.
+ *
+ * It was, and the owner flagged it: a gear beside New note, New folder, Sort
+ * A-Z and Collapse every folder, for an operation that reorganizes Context's
+ * own hidden objects under `.context/` once, ever, and changes not one note.
+ * Permanent top-level chrome for one-time internal maintenance.
+ *
+ * Its guard did not go with it. `storageMigrationEntry.test.ts` holds the two
+ * surfaces that do offer it — Settings → Storage, and a dismissible notice in
+ * the console — in both states of the same owner-only `updateStorageLayout`.
+ * What is left here is the half that belongs to this component: an owner with
+ * the capability is offered it *nowhere in this toolbar*, so it cannot creep
+ * back by being handed an icon again.
+ */
+describe("the storage migration control is not toolbar chrome", () => {
+  test("an owner who may run it is offered no toolbar button for it", () => {
     const explorer = mountSwitchable();
     explorer.render("@owner", explorer.calls, {
       updateStorageLayout: () =>
@@ -750,20 +765,16 @@ describe("the storage migration control", () => {
 
     expect(
       explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
-    ).not.toBeNull();
-    press("Update Context storage");
-    expect(document.body.textContent).toContain(
-      "Your notes, folders, privacy.md, and index.md are not changed.",
-    );
-    expect(explorer.calls.entries).toEqual([]);
-
-    press("Update storage");
-    expect(explorer.calls.entries).toEqual([{ name: "updateStorageLayout", args: [] }]);
-
-    explorer.render("@editor", explorer.calls, { updateStorageLayout: undefined });
-    expect(
-      explorer.container.querySelector('[data-testid="explorer-storage-migration"]'),
     ).toBeNull();
+    // The positive control, in the same assertion: this *is* an owner's
+    // toolbar, drawn, with the four controls that belong in it. Without this
+    // the test above passes on an explorer that rendered nothing at all.
+    for (const control of ["new-note", "new-folder", "sort", "collapse"]) {
+      expect(
+        explorer.container.querySelector(`[data-testid="explorer-${control}"]`),
+      ).not.toBeNull();
+    }
+    expect(explorer.calls.entries).toEqual([]);
   });
 });
 
