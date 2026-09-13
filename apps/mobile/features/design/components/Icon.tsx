@@ -1,5 +1,6 @@
 import type { ReactElement } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
+import { Circle, Path, Svg } from "react-native-svg";
 import { useColors } from "../theme";
 
 /**
@@ -22,24 +23,43 @@ import { useColors } from "../theme";
  *
  * ## Why not an icon font or an SVG library
  *
- * `react-native-svg` is the obvious answer, and one of the two reasons given
- * here for not taking it has expired. It said the dependency was native, so it
+ * `react-native-svg` was refused here on two grounds, and **both have now
+ * expired** — so two drawings in this file are paths. See "The escape hatch"
+ * below for which, and for the rule that keeps it at two.
+ *
+ * The first reason went a while ago. It said the dependency was native, so it
  * would land in `native-deps.json` and need a new development build on both
  * platforms before anybody could see a single icon. It is in `package.json` at
  * 15.12.1 and in `native-deps.json` `core` — every build already carries it,
  * because the baseline was deliberately over-provisioned before the first
  * binary — so that cost is paid and there is no build to wait for.
  *
- * The reason that survives is the one that was doing the work anyway: it buys
- * nothing this app needs. There is no icon here with a curve a rectangle
- * cannot fake, and the two that have one (the search lens, a dot) are circles,
- * which `borderRadius` draws exactly. An icon font is worse again: a binary in
- * the repo, a load that can fail, and a glyph box we would be back to
- * fighting.
+ * The second was the load-bearing one: it buys nothing this app needs, because
+ * *"there is no icon here with a curve a rectangle cannot fake"*. The eye is
+ * that curve, and it took two failed attempts to establish it. A rectangle can
+ * fake a curve; what it cannot fake is **a curve at constant stroke weight**.
+ * A rounded border tapers to nothing where two borders of different widths
+ * meet — which is an eyelid's canthus and is also why the eye read first as a
+ * toggle switch and then as a pair of brush strokes. Walking the same arc as
+ * round-capped `bar`s holds the weight and beads at every joint instead. The
+ * owner's reference — one weight the whole way round, meeting in points — is
+ * not reachable from `borderRadius`, and the third attempt was a `<Path>`.
+ *
+ * An icon font is still worse than either: a binary in the repo, a load that
+ * can fail, and a glyph box we would be back to fighting.
  *
  * A `View` with a background colour is a `<div>` on web and a layer on native.
- * Rotation is `transform`, which both platforms have. That is the whole
- * toolkit, and it costs nothing to reach for.
+ * Rotation is `transform`, which both platforms have. That is still the whole
+ * toolkit for forty-odd of these, and it costs nothing to reach for.
+ *
+ * ## The escape hatch
+ *
+ * **Reach for a path only when the drawing needs a curve at constant weight.
+ * Everything a rectangle can fake stays a rectangle.** Two icons qualify —
+ * `eye` and `pencil` — and they are drawn by `glyph` below, in the same unit
+ * space as everything else. That is a stated trigger rather than an open door:
+ * without it this file becomes a slow, unargued rewrite in which the forty
+ * working drawings are churned one at a time for no gain.
  *
  * ## The rules
  *
@@ -195,7 +215,8 @@ export const ICON_NAMES = [
    */
   "share",
   /**
-   * Reading mode, as an eye.
+   * Reading mode, as an eye — and one of the two drawings in this file that is
+   * a `<Path>` rather than a stack of `View`s. The header says why.
    *
    * Added with the control it is for — the note's read toggle — which is this
    * set's stated rule. It is deliberately not `book`: that mark is the docs
@@ -203,13 +224,28 @@ export const ICON_NAMES = [
    * editing this note" is the confusion `copy` and `share` are kept apart to
    * avoid.
    *
-   * Drawn as a lens and a pupil rather than an eye with lashes. The lens is
-   * `shackle` over `cradle` — the two arcs this set already has, meeting at
-   * the sides — because the alternative is two near-vertical strokes meeting
-   * at a point, and `filter`'s note has the argument about what a point does
-   * at 20pt.
+   * Two arcs of one circle meeting in a point at each canthus, with the iris a
+   * ring inside them. Filled, the iris reads as a bullet in a bracket at small
+   * sizes and the mark stops being an eye.
    */
   "eye",
+  /**
+   * Its other half: the same control while the note is already in reading
+   * mode, so the glyph names the act rather than the state.
+   *
+   * This is what let the read toggle stop carrying its state as an accent
+   * fill. One mark cannot draw "will hide the markup" and "will bring it back",
+   * which is the argument the old comment here made for lighting the button
+   * instead; two marks can, and a lit *pencil* would say "pencil mode is on" —
+   * the opposite of what pressing it does.
+   *
+   * A pencil rather than a sheet with a nib, or a pen: a pencil is the mark
+   * every editor on both platforms uses for "edit this", and the collar across
+   * the barrel is the one detail that keeps it from reading as a felt marker
+   * at 17pt. The lead is a 48° point, rounded by the join — sharper reads as a
+   * needle, blunter as a crayon.
+   */
+  "pencil",
   /**
    * The file tree's sort order, as Obsidian draws it: an up arrow beside three
    * rules of decreasing length.
@@ -642,57 +678,135 @@ function cradle(
 }
 
 /**
- * One eyelid: a single arc that tapers to a point at each end.
+ * The escape hatch: one drawing as stroked paths, in the same unit space.
  *
- * The eye used to be a `shackle` over a `cradle`, which is the padlock's arch
- * and its mirror — and those carry **left and right borders**. Two 0.22-tall
- * vertical strokes down each side turned the almond into a closed capsule with
- * a dot in it, which is a toggle switch, and it read as one in the toolbar.
+ * `lid` used to live here — an eyelid as one rounded border — and it is gone
+ * with its only caller. It is worth saying what it could not do, because the
+ * eye has now been drawn wrong twice and the reason was the same both times.
  *
- * So this draws the curved edge and nothing else: one border, and the two
- * corner radii on that side. Where the arc meets the box's other edge the
- * adjacent border is zero wide, and a corner between borders of different
- * widths is drawn as a taper — which is exactly what an eyelid does at the
- * canthus, and is why the shape is right rather than merely not-wrong.
+ * A rounded border draws a *tapering* stroke. Where a border of width `w` meets
+ * one of width zero, the corner between them is drawn as a wedge running to a
+ * point, so an arc made this way is at full weight in the middle and at nothing
+ * by the ends. Worse, a corner radius is clamped by the box's own height, so a
+ * wide shallow arc keeps a dead-straight run across its middle — which is how
+ * the first eye came out as two flat bars with a dot between them, a toggle
+ * switch. Fixing the flat run by stretching a semicircle sideways only exposed
+ * the taper underneath. Walking the true arc as round-capped `bar`s holds the
+ * weight and beads at every joint, because the caps that let segments join are
+ * the same caps that bulge past a tight curve.
  *
- * The radius is capped by the box's own height (a corner's vertical radius
- * cannot exceed the side it sits on), so the arc's curvature is set by `y1-y0`
- * and the width only decides how far it runs. An upper and a lower lid sharing
- * one `y` meet in a point at each end and enclose an almond.
+ * A stroked path has none of those problems: one weight all the way round, and
+ * the ends meet where they are told to. **`icons.test.ts` asserts exactly
+ * that** — it is the guard that would have caught both earlier attempts.
+ *
+ * `viewBox="0 0 1 1"` keeps path data in the same fractions of the box every
+ * other primitive here uses, so a drawing is still readable beside them and
+ * still independent of the size asked for. `strokeWidth` is `w / u` for the
+ * same reason: the weight arrives in points from `strokeFor` and has to be
+ * expressed in the viewBox's units, or a 32pt icon would be drawn at a 20pt
+ * icon's proportions.
  */
-function lid(
+function glyph(
   key: string,
   u: number,
   w: number,
   color: string,
-  { x0, y0, x1, y1, side }: { x0: number; y0: number; x1: number; y1: number; side: "upper" | "lower" },
+  { paths, circles = [] }: { paths: string[]; circles?: { cx: number; cy: number; r: number }[] },
 ) {
-  const radius = (y1 - y0) * u;
   return (
-    <View
-      key={key}
-      style={{
-        position: "absolute",
-        left: x0 * u,
-        top: y0 * u,
-        width: (x1 - x0) * u,
-        height: (y1 - y0) * u,
-        ...(side === "upper"
-          ? {
-              borderTopWidth: w,
-              borderTopLeftRadius: radius,
-              borderTopRightRadius: radius,
-            }
-          : {
-              borderBottomWidth: w,
-              borderBottomLeftRadius: radius,
-              borderBottomRightRadius: radius,
-            }),
-        borderColor: color,
-      }}
-    />
+    <Svg key={key} width={u} height={u} viewBox="0 0 1 1">
+      {paths.map((d, index) => (
+        <Path
+          key={`p${index}`}
+          d={d}
+          fill="none"
+          stroke={color}
+          strokeWidth={w / u}
+          // Round on both counts. A mitre at the pencil's 48° lead spikes well
+          // past the box at any weight this set uses; a butt cap leaves the
+          // collar's ends square against a barrel drawn round.
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+      ))}
+      {circles.map((circle, index) => (
+        <Circle
+          key={`c${index}`}
+          cx={circle.cx}
+          cy={circle.cy}
+          r={circle.r}
+          fill="none"
+          stroke={color}
+          strokeWidth={w / u}
+        />
+      ))}
+    </Svg>
   );
 }
+
+/**
+ * The eye's geometry, named rather than inlined, because `icons.test.ts`
+ * checks the shape these produce and the arc radius is derived from the other
+ * two. A literal there and a literal here is how the drawing and its guard
+ * drift apart.
+ *
+ * 0.88 wide over 0.56 tall — a little over 11:7, which is the ratio an eye is
+ * drawn at everywhere. Taller is a leaf, flatter is a lens. Not wider: the
+ * stroke is centred on the outline, so half of it hangs past the canthus, and
+ * `icons.test.ts` holds the whole drawing inside the box at every size.
+ */
+const EYE_HALF_WIDTH = 0.44;
+/** How far each lid bows from the midline. Both lids share `y = 0.5`. */
+const EYE_SAGITTA = 0.28;
+/**
+ * The iris, at 59% of the eye's height.
+ *
+ * Large enough to nearly fill the almond, which is what stops the mark reading
+ * as a lens or a leaf at 17pt — the lids have to hold their weight out to the
+ * canthi to contain something this size, which is the whole reason this icon
+ * is a path.
+ */
+const EYE_IRIS = 0.165;
+/**
+ * The radius of the circle both lids are arcs of, from the chord and the
+ * sagitta. Deriving it is what makes the two lids arcs of *one* circle, so
+ * they meet at the same angle at both canthi.
+ */
+const EYE_ARC = (EYE_HALF_WIDTH * EYE_HALF_WIDTH + EYE_SAGITTA * EYE_SAGITTA) / (2 * EYE_SAGITTA);
+
+/**
+ * The pencil, as the five points of its outline plus the collar.
+ *
+ * Laid out along the box's leading diagonal from a point at the bottom left:
+ * `along` walks up the barrel, `across` steps out to each side of it. Built
+ * from the direction vectors rather than from five literal coordinates so the
+ * barrel is the same width along its whole length by construction — by hand,
+ * it is five numbers that have to agree and eventually will not.
+ */
+const PENCIL = (() => {
+  const tip = { x: 0.17, y: 0.83 };
+  const along = { x: Math.SQRT1_2, y: -Math.SQRT1_2 };
+  const across = { x: Math.SQRT1_2, y: Math.SQRT1_2 };
+  /** Half the barrel's width: 0.23 across, which keeps it open at 17pt. */
+  const half = 0.115;
+  const at = (t: number) => ({ x: tip.x + t * along.x, y: tip.y + t * along.y });
+  const offset = (from: { x: number; y: number }, side: number) => ({
+    x: from.x + side * half * across.x,
+    y: from.y + side * half * across.y,
+  });
+  // Where the lead stops and the barrel starts, and the blunt end.
+  const collar = at(0.26);
+  const end = at(0.82);
+  return {
+    tip,
+    collarA: offset(collar, 1),
+    collarB: offset(collar, -1),
+    endA: offset(end, 1),
+    endB: offset(end, -1),
+  };
+})();
+
+const point = ({ x, y }: { x: number; y: number }) => `${x} ${y}`;
 
 /**
  * The keys of one icon's strokes, for the test that they are distinct.
@@ -993,25 +1107,49 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         chevron("head", u, w, c, { cx: 0.5, cy: 0.78, side: 0.26, angle: 135 }),
       ];
 
-    case "eye":
+    case "eye": {
       /*
-        An almond, and a pupil inside it.
+        An almond, and an iris inside it.
 
-        The two lids share `y = 0.5`, so each one's arc runs out to the same
-        point at the same height and the pair closes at both canthi — a gap of
-        even a hundredth reads at 20pt as a broken outline rather than as a
-        soft corner. 0.84 wide over 0.44 tall is a little under 2:1, which is
-        the ratio an eye is drawn at everywhere; taller is a leaf and flatter is
-        a lens.
+        One closed path: two arcs of the same circle, running left to right and
+        back again. Both start and end at `y = 0.5`, so the outline closes in a
+        point at each canthus — a gap of even a hundredth reads at 20pt as a
+        broken outline rather than as a soft corner, and `Z` makes the gap
+        impossible rather than merely small.
 
-        The pupil is a ring rather than a dot: filled, it reads as a bullet
-        inside a bracket at small sizes, and the mark stops being an eye.
+        `sweep = 1` on both: the first goes over the top, and the second, now
+        travelling right to left, goes under the bottom. The same flag, because
+        it is measured against the direction of travel and the direction has
+        reversed.
       */
-      return [
-        lid("upper", u, w, c, { x0: 0.08, y0: 0.28, x1: 0.92, y1: 0.5, side: "upper" }),
-        lid("lower", u, w, c, { x0: 0.08, y0: 0.5, x1: 0.92, y1: 0.72, side: "lower" }),
-        ring("pupil", u, w, c, { cx: 0.5, cy: 0.5, r: 0.13 }),
-      ];
+      const left = 0.5 - EYE_HALF_WIDTH;
+      const right = 0.5 + EYE_HALF_WIDTH;
+      const arc = `A ${EYE_ARC} ${EYE_ARC} 0 0 1`;
+      return glyph("eye", u, w, c, {
+        paths: [`M ${left} 0.5 ${arc} ${right} 0.5 ${arc} ${left} 0.5 Z`],
+        circles: [{ cx: 0.5, cy: 0.5, r: EYE_IRIS }],
+      });
+    }
+
+    case "pencil":
+      /*
+        The barrel as one closed path, and the collar as a second.
+
+        Two paths rather than one: the collar is a line *across* the barrel, and
+        a single path would have to travel back along the shoulder to reach it,
+        drawing that edge twice at double weight where they overlap.
+
+        The outline runs tip → collar → blunt end → collar → back to the tip, so
+        both lead edges are drawn by the same closed loop and meet at the point
+        by construction.
+      */
+      return glyph("pencil", u, w, c, {
+        paths: [
+          `M ${point(PENCIL.tip)} L ${point(PENCIL.collarA)} L ${point(PENCIL.endA)}` +
+            ` L ${point(PENCIL.endB)} L ${point(PENCIL.collarB)} Z`,
+          `M ${point(PENCIL.collarA)} L ${point(PENCIL.collarB)}`,
+        ],
+      });
 
     case "share":
       /*
