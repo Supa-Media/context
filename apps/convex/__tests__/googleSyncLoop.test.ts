@@ -919,6 +919,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
           "https://www.googleapis.com/auth/chat.spaces.readonly",
         ],
         nonceSeed: "fixture-chat-nonce-seed-b",
+        lastSyncedAt: Date.now() - MINUTE,
       },
     });
 
@@ -938,6 +939,50 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       contributorSourceIds: expect.arrayContaining([connectionId, siblingId]),
     });
     expect(JSON.stringify(job)).not.toContain("refresh");
+  });
+
+  test("Chat does not wait forever on a disconnected account that never contributed", async () => {
+    const { t, owner, workspaceId, connectionId } = await scenario();
+    const historicalId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "history@example.invalid",
+    });
+    const emptyId = await seedGoogleConnection(t, {
+      workspaceId,
+      boundBy: owner,
+      address: "never-synced@example.invalid",
+    });
+    for (const [id, disconnectedAt, lastSyncedAt] of [
+      [connectionId, undefined, undefined],
+      [historicalId, Date.now(), Date.now() - MINUTE],
+      [emptyId, Date.now(), undefined],
+    ] as const) {
+      await patchConnection(t, id, {
+        products: ["chat"],
+        gmail: undefined,
+        disconnectedAt,
+        chat: {
+          scopes: [
+            "https://www.googleapis.com/auth/chat.messages.readonly",
+            "https://www.googleapis.com/auth/chat.spaces.readonly",
+          ],
+          nonceSeed: `fixture-chat-nonce-seed-${id}`,
+          lastSyncedAt,
+        },
+      });
+    }
+
+    const job = await t.query(internal.functions.googleSync.googleForwardSyncJob, {
+      workspaceId,
+      connectionId,
+    });
+    expect(job).toMatchObject({
+      kind: "run",
+      product: "chat",
+      contributorSourceIds: expect.arrayContaining([connectionId, historicalId]),
+    });
+    expect((job as { contributorSourceIds: string[] }).contributorSourceIds).not.toContain(emptyId);
   });
 
   test("a Calendar-only connection is handed its cursor and every contributor for the destination", async () => {

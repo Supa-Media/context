@@ -1,0 +1,24 @@
+{
+  "name": "@context/drawings",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Excalidraw drawings as first-class notes: parse a .excalidraw.md file, describe it for an agent, and lay it out for a renderer",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./excalidraw": "./src/excalidraw.js",
+    "./scene": "./src/scene.js",
+    "./lzstring": "./src/lzstring.js",
+    "./serialize": "./src/serialize.js"
+  },
+  "scripts": {
+    "test": "node test/test.mjs && node test/serialize.test.mjs",
+    "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
+    "lint": "echo \"no lint configured yet\" && exit 0"
+  },
+  "types": "src/index.d.ts"
+}

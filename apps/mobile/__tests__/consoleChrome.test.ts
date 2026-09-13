@@ -146,6 +146,15 @@ function mockConsoleData(): never {
   return {
     demo: false,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
+    /*
+      Two, not one, and the second is the point of the pair.
+
+      A one-context account can tell you nothing about a *switcher*: the
+      context you are in is drawn by the breadcrumb (`strip.ts`) and by the
+      rail's selected row, so a list with only that in it renders the same
+      whether or not the console can offer anything else. "The contexts you can
+      reach" needs one you are not in.
+    */
     contexts: [
       {
         id: "w1",
@@ -153,6 +162,14 @@ function mockConsoleData(): never {
         displayName: "Seyi",
         role: "owner",
         kind: "personal",
+        status: "ok",
+      },
+      {
+        id: "w2",
+        slug: "public-worship",
+        displayName: "Public Worship",
+        role: "editor",
+        kind: "shared",
         status: "ok",
       },
     ],
@@ -461,6 +478,67 @@ describe("on a phone", () => {
     expect(app.find("frame-drawer-toggle")).toBeNull();
     expect(app.find("frame-nav-toggle")).toBeNull();
     expect(app.find("storage-pill")).toBeNull();
+
+    app.unmount();
+  });
+});
+
+/**
+ * THE SWITCHER EXISTS AT EVERY DENSITY, AND WHICH ONE IT IS CHANGES.
+ *
+ * "A session resolves to a *set* of accessible contexts — one connection
+ * reaches every context its person is a live member of" is the product, not a
+ * layout preference, so the surface that offers that set is not allowed to be a
+ * phone feature. It was asserted at 390 alone: the file above counts the
+ * strip's landmark and pins what the top row holds, all of it at compact,
+ * because that is where the two-rows-of-chrome complaint came from.
+ *
+ * Nothing said the same thing about 1440, and the cost of that showed up in the
+ * one console anybody can open in a browser: `/e2e-fixture` mounted the strip
+ * and not the rail, so above 880pt it drew no way to another context at all,
+ * and a green suite said nothing (`fixtureConsoleDensity.test.ts` is that hole,
+ * closed). The product was right the whole time — which is exactly the claim
+ * that was resting on nobody having checked.
+ *
+ * So this asks one question at both densities and does not care which component
+ * answers it: is every context this account can reach on the screen, named, and
+ * pressable? At compact that is `ContextStrip`; at wide it is `ConsoleRail`.
+ * `frame.ts` is explicit that it is never both at once, so that is asserted
+ * here too — the strip's dot means *kind* and the rail's means *storage
+ * status*, and one glyph with two meanings on one screen is worse than either.
+ *
+ * SABOTAGE: return `rail: "hidden"` from `regionsFor`'s wide arm and "a pointer
+ * layout offers them too" fails; gate `_layout`'s `contexts` node on something
+ * other than `phone` and "a phone offers every context" fails.
+ */
+describe("every context this account can reach is on the screen", () => {
+  /*
+    Controls naming the one context this account is *not* in. Matched with its
+    `@`, which `atName` puts on every label either surface draws: a bare slug is
+    a substring of ordinary prose, and a note titled after the workspace would
+    make this pass with no switcher on the screen at all.
+  */
+  const reachable = (app: ReturnType<typeof mountConsole>) =>
+    Array.from(app.container.querySelectorAll('[role="button"]'))
+      .map((node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`)
+      .filter((label) => label.includes("@public-worship")).length;
+
+  test("a phone offers every context, on the strip", () => {
+    const app = mountConsole(390);
+
+    expect(app.find("context-strip")).not.toBeNull();
+    expect(app.find("console-rail")).toBeNull();
+    expect(reachable(app)).toBeGreaterThan(0);
+
+    app.unmount();
+  });
+
+  test("a pointer layout offers them too, in the rail", () => {
+    const app = mountConsole(1440);
+
+    expect(app.find("console-rail")).not.toBeNull();
+    expect(app.find("context-strip")).toBeNull();
+    expect(reachable(app)).toBeGreaterThan(0);
 
     app.unmount();
   });

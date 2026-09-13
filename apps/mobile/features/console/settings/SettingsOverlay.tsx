@@ -29,7 +29,7 @@ import {
  * the index — including the argument for why the contexts are chips at the top
  * rather than rows at the bottom.
  *
- * The group headings are the point of the ordering. "What comes in" and "Your
+ * The group headings are the point of the ordering. "Integrations" and "Your
  * notes" are questions a person can answer without knowing what a bucket is,
  * which the previous headings — Storage, Integrations, Email ingestion — were
  * not. A section absent from `settingsSectionsFor` is absent from the list
