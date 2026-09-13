@@ -410,11 +410,11 @@ export async function runSearchShardsChecks(check) {
 
   check(
     "shardKey is the zero-padded decimal name the contract pins",
-    shardKey(0) === ".index/v2/shard-000.json" &&
-      shardKey(7) === ".index/v2/shard-007.json" &&
-      shardKey(63) === ".index/v2/shard-063.json" &&
-      MANIFEST_KEY === ".index/v2/manifest.json" &&
-      LEGACY_V1_KEY === ".index/search-v1.json"
+    shardKey(0) === ".context/search/v2/shard-000.json" &&
+      shardKey(7) === ".context/search/v2/shard-007.json" &&
+      shardKey(63) === ".context/search/v2/shard-063.json" &&
+      MANIFEST_KEY === ".context/search/v2/manifest.json" &&
+      LEGACY_V1_KEY === ".context/search/search-v1.json"
   );
 
   // -- the two formats ----------------------------------------------------
@@ -792,7 +792,7 @@ export async function runSearchShardsChecks(check) {
         // than vouched for until somebody edits a note in it. It finds this one
         // healthy, which is why nothing above it moves — no note body, no write.
         // The bound is what this half pins; the audit's own block pins the rest.
-        bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length <= 1
+        bucket.counts.gets.filter((key) => key.startsWith(".context/search/v2/shard-")).length <= 1
     );
   }
 
@@ -837,8 +837,8 @@ export async function runSearchShardsChecks(check) {
     bucket.seed(edited, "# Note edited\n\nA NUMBAT replaced the wombat.\n");
     bucket.resetCounts();
     const incremental = await syncShardedIndex(store, { budget: createSearchBudget(60) });
-    const shardGets = bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-"));
-    const shardPuts = bucket.counts.puts.filter((key) => key.startsWith(".index/v2/shard-"));
+    const shardGets = bucket.counts.gets.filter((key) => key.startsWith(".context/search/v2/shard-"));
+    const shardPuts = bucket.counts.puts.filter((key) => key.startsWith(".context/search/v2/shard-"));
     check(
       "editing one note re-reads and re-writes exactly the shard that note is in",
       incremental.pending === 0 &&
@@ -1237,7 +1237,7 @@ export async function runSearchShardsChecks(check) {
     );
     check(
       "and the repair is the existing rebuild path: only the unreadable shard is rewritten",
-      bucket.counts.puts.filter((key) => key.startsWith(".index/v2/shard-")).length === 1 &&
+      bucket.counts.puts.filter((key) => key.startsWith(".context/search/v2/shard-")).length === 1 &&
         bucket.counts.puts.includes(shardKey(victim)) &&
         bucket.counts.noteGets.length === vouched.length &&
         bucket.counts.noteGets.every((path) => vouched.includes(path))
@@ -1260,7 +1260,7 @@ export async function runSearchShardsChecks(check) {
       "a healthy pass audits at most one shard, and never reads every shard the manifest names",
       healthy.pending === 0 &&
         before.shardCount === 4 &&
-        bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-")).length <= 1 &&
+        bucket.counts.gets.filter((key) => key.startsWith(".context/search/v2/shard-")).length <= 1 &&
         // The manifest, stamping when this listing happened, and nothing else:
         // no shard rewritten, no diff rewritten, no note re-read.
         bucket.counts.puts.every((key) => key === MANIFEST_KEY) &&
@@ -1287,7 +1287,7 @@ export async function runSearchShardsChecks(check) {
       });
       if (tight.pending !== 0) auditedWhileTight = -1;
       auditedWhileTight += bucket.counts.gets.filter((key) =>
-        key.startsWith(".index/v2/shard-")
+        key.startsWith(".context/search/v2/shard-")
       ).length;
     }
     check(
@@ -1313,7 +1313,7 @@ export async function runSearchShardsChecks(check) {
     for (let pass = 0; pass < 4; pass += 1) {
       await syncShardedIndex(store, { budget: createSearchBudget(400), now: 4_000_000 + pass });
     }
-    const audited = bucket.counts.gets.filter((key) => key.startsWith(".index/v2/shard-"));
+    const audited = bucket.counts.gets.filter((key) => key.startsWith(".context/search/v2/shard-"));
     check(
       "the audit rotates only over shards the manifest vouches for, never onto an empty one",
       storedManifest(bucket).shardCount === 4 &&

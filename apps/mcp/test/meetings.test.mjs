@@ -1014,7 +1014,7 @@ export async function runMeetingChecks(check) {
 
   /* -------------------------------- 7. audit ------------------------------- */
 
-  const auditKeys = keysIn(recorder, ".audit/");
+  const auditKeys = keysIn(recorder, ".context/audit/");
   const auditEntries = auditKeys.map((key) => JSON.parse(recorder.get(key).body));
   const written = auditEntries.find((entry) => entry.action === "meeting_note");
   check("writing a meeting is an audited event", Boolean(written));
@@ -1074,7 +1074,7 @@ export async function runMeetingChecks(check) {
 
     `read_meeting` and `list_meetings` above filter with `canSee`, so a team-tier
     connection is told "not found" about a private meeting. The ingestion routes
-    read `.meetings/sessions/<id>.json` straight out of the store, and that
+    read `.context/meetings/sessions/<id>.json` straight out of the store, and that
     record is the same meeting: its title, who was in the room, the path of the
     private note it became, and — while it is still recording — every word of
     the transcript. A boundary that holds on one of the two surfaces exposing a

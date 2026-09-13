@@ -48,8 +48,7 @@ That's not a feature we might remove later. It's the architecture:
                             ├──────────────────────┤      │  4-archive/        │
                             │  MCP gateway         │─────▶│  index.md          │
                             │  (Cloudflare Worker) │OAuth │  privacy.md        │
-                            └──────────────────────┘/keys │  .audit/           │
-                                                          │  .context/         │
+                            └──────────────────────┘/keys │  .context/         │
                                                           └────────────────────┘
      control plane holds metadata only — never your notes, never a second copy
 ```
@@ -74,6 +73,29 @@ on setup:
 
 It's a suggestion, not a schema. Bring your own structure and Context works the
 same — the tools operate on paths, not on a fixed taxonomy.
+
+Context-owned data is kept under one reserved tree so the bucket root stays
+human-readable:
+
+```text
+.context/
+├── manifest.json
+├── access/note-acl/
+├── assets/images/
+├── audit/
+├── history/
+├── integrations/granola/events/
+├── meetings/sessions/
+├── migrations/
+├── probes/
+├── proposals/
+└── search/
+```
+
+Buckets created before storage-layout v1 continue to work through dual reads;
+the owner-only `migrate_storage_layout` tool copies and verifies legacy objects,
+keeps them for a seven-day rollback window, and removes them only in a separate
+explicit cleanup phase.
 
 ## `index.md` — the front page every agent reads
 

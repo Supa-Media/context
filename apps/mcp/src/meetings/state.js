@@ -22,7 +22,7 @@
  *    content whose only durable home is the bucket anyway.
  *  - **The customer's own bucket, under a dot-prefixed plumbing key.** Chosen.
  *
- * So an in-flight session is one JSON object at `.meetings/sessions/<id>.json`
+ * So an in-flight session is one JSON object at `.context/meetings/sessions/<id>.json`
  * in the customer's bucket, and it is the folded `MeetingSession` the shared
  * reducer produces — not a log, and not a second shape. Four properties come
  * with that, and each is the reason it is not somewhere more convenient:
@@ -41,7 +41,7 @@
  *    dot-prefixed segment at every scope, personal included, so an in-flight
  *    session is invisible to `read_note`, `list_notes` and search until it is
  *    finalized into a real note whose visibility `privacy.md` decides. The
- *    precedent is `.granola-events/pending/`, which already accumulates
+ *    precedent is `.context/integrations/granola/events/pending/`, which already accumulates
  *    in-flight ingestion state in the bucket for exactly this reason.
  *  - **Tenancy is structural.** The store this module is handed is the one
  *    `storeForSession` built for one workspace, so a session id is reachable
@@ -73,9 +73,14 @@ import {
 } from "../../../../packages/meetings/src/protocol.js";
 import { applyEvent, applyLog, createSession } from "../../../../packages/meetings/src/session.js";
 import { normalizeSegment } from "../../../../packages/meetings/src/transcript.js";
+import {
+  MEETING_PREFIX,
+  legacyStorageKey,
+} from "../../../../packages/shared/src/storageLayout.cjs";
+import { getWithLegacyFallback } from "../storageLayout.js";
 
 /** In-flight sessions and completion receipts. Dot-prefixed, so never a note. */
-export const MEETING_PREFIX = ".meetings/sessions/";
+export { MEETING_PREFIX };
 
 /**
  * Caps. Every one is a bound on what one authenticated client can be made to
@@ -189,7 +194,7 @@ export function sessionKey(id) {
  * the connection that filed it: a personal connection's meeting is private, a
  * team connection's is team. The record it becomes that note *from* has to obey
  * the same rule, or the words are readable in flight at a tier they will not be
- * readable at once they land — and `.meetings/sessions/<id>.json` holds the
+ * readable at once they land — and `.context/meetings/sessions/<id>.json` holds the
  * title, the attendees, the note path and, until finalize, the transcript.
  *
  * **An unstamped record reads as private.** A record written before this field
@@ -471,7 +476,7 @@ export function conflictSafeWrites(store) {
  * a reason to — one to withhold it, one to refuse to write over it.
  */
 async function readRecord(store, id) {
-  const object = await store.get(sessionKey(id));
+  const object = await getWithLegacyFallback(store, sessionKey(id));
   if (!object) return null;
   let record;
   try {
@@ -550,7 +555,13 @@ export async function writeSession(store, session, etag) {
     *claims* (`conflictSafe`), and never whether the guard is attempted.
   */
   if (etag) {
-    const put = await store.put(sessionKey(session.id), body, { onlyIf: { etagMatches: etag } });
+    const key = sessionKey(session.id);
+    const current = await store.get(key);
+    const put = await store.put(
+      key,
+      body,
+      current ? { onlyIf: { etagMatches: etag } } : { onlyIf: { absent: true } },
+    );
     return put ? put.etag : false;
   }
   const put = await store.put(sessionKey(session.id), body);
@@ -680,14 +691,23 @@ export function completionReceipt(session, notePath, noteEtag) {
 export async function listSessions(store, limit, tier) {
   const wanted = Math.min(Math.max(1, limit || 20), LIMITS.listLimit);
   const keys = [];
-  let cursor;
-  do {
-    const page = await store.list({ prefix: MEETING_PREFIX, cursor });
-    for (const object of page.objects) {
-      if (object.key.endsWith(".json")) keys.push({ key: object.key, uploaded: object.uploaded });
-    }
-    cursor = page.truncated ? page.cursor : undefined;
-  } while (cursor && keys.length < LIMITS.listScan);
+  const prefixes = [MEETING_PREFIX, legacyStorageKey(MEETING_PREFIX)].filter(Boolean);
+  const seen = new Set();
+  for (const prefix of prefixes) {
+    let cursor;
+    do {
+      const page = await store.list({ prefix, cursor });
+      for (const object of page.objects) {
+        const key = `${MEETING_PREFIX}${object.key.slice(prefix.length)}`;
+        if (key.endsWith(".json") && !seen.has(key)) {
+          keys.push({ key, uploaded: object.uploaded });
+          seen.add(key);
+        }
+      }
+      cursor = page.truncated ? page.cursor : undefined;
+    } while (cursor && keys.length < LIMITS.listScan);
+    if (keys.length >= LIMITS.listScan) break;
+  }
 
   /*
     Session ids are random, so key order says nothing about time and the records
@@ -703,7 +723,9 @@ export async function listSessions(store, limit, tier) {
 
   const records = [];
   for (let start = 0; start < page.length; start += 20) {
-    const objects = await Promise.all(page.slice(start, start + 20).map(({ key }) => store.get(key)));
+    const objects = await Promise.all(
+      page.slice(start, start + 20).map(({ key }) => getWithLegacyFallback(store, key)),
+    );
     for (const object of objects) {
       if (!object) continue;
       try {

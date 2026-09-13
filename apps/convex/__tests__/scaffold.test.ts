@@ -951,7 +951,8 @@ describe("a half-written scaffold can be finished", () => {
     const { store, refuse } = await halfWritten();
     refuse.readmes = false;
     store.seed(".history/privacy.md.1", "an earlier version");
-    store.seed(".context-probe/probe", "left by verification");
+    store.seed(".context-probe/legacy-probe", "left by old verification");
+    store.seed(".context/probes/probe", "left by verification");
 
     expect(
       await scaffoldContext(store, { structureTemplate: "para", resume: true }),

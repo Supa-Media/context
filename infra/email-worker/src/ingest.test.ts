@@ -480,7 +480,7 @@ describe("the target folder is configuration, and is still a path", () => {
   });
 
   it("refuses the on-bucket plumbing folders", () => {
-    // `.history/` and `.audit/` are where note history and the audit trail
+    // `.history/` and `.context/audit/` are where note history and the audit trail
     // live. A capture landing in `.history/` would forge note history — which
     // is why `lib/ingestion.ts` refuses any dot-prefixed segment on the write
     // path, and why this Worker refuses it again on the read path.
@@ -492,7 +492,7 @@ describe("the target folder is configuration, and is still a path", () => {
     //
     // Sabotage: drop the `controlPlaneFolderRules` call from
     // `normalizeTargetFolder` and every line here goes green again.
-    for (const plumbing of [".history", ".history/", ".audit/", "a/.history/b", ".git/"]) {
+    for (const plumbing of [".history", ".history/", ".context/audit/", "a/.history/b", ".git/"]) {
       expect(normalizeTargetFolder(plumbing), plumbing).toBeNull();
     }
   });
@@ -686,7 +686,7 @@ describe("stored attachments", () => {
     expect(decision.attachments).toHaveLength(1);
     // Full sha256 of the bytes, and nothing else. Not a truncated digest, and
     // not the sender's filename: the key is derived entirely from content.
-    expect(decision.attachments[0]!.key).toMatch(/^\.images\/[0-9a-f]{64}\.png$/);
+    expect(decision.attachments[0]!.key).toMatch(/^\.context\/assets\/images\/[0-9a-f]{64}\.png$/);
   });
 
   it("is the same object no matter what the sender called it", async () => {
@@ -716,7 +716,7 @@ describe("stored attachments", () => {
       const decision = await decide(withImage(hostile), { attachmentPolicy: "store" });
       if (decision.kind !== "capture") throw new Error("expected a capture");
       for (const write of decision.attachments) {
-        expect(write.key).toMatch(/^\.images\/[0-9a-f]{64}\.png$/);
+        expect(write.key).toMatch(/^\.context\/assets\/images\/[0-9a-f]{64}\.png$/);
         expect(write.key).not.toContain("..");
       }
     }
@@ -730,7 +730,7 @@ describe("stored attachments", () => {
     // `read_image` resolves an image only through a note that names it, and it
     // matches on the leaf. If the note stopped naming the image, the bytes
     // would be in the bucket and unreachable forever.
-    expect(decision.note).toContain(key.slice(".images/".length));
+    expect(decision.note).toContain(key.slice(".context/assets/images/".length));
     // A markdown image embed, not a bare link: the note should read as the
     // screenshot it is.
     expect(decision.note).toContain(`![shot.png](${key})`);

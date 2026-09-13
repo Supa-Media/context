@@ -102,6 +102,19 @@ import { MeetingRefusal } from "./meetings/state.js";
 // in production.
 import { parseMeetingNote, splitTranscript } from "../../../packages/meetings/src/note.js";
 import { MEETINGS_FOLDER, isMeetingNotePath } from "../../../packages/meetings/src/paths.js";
+import {
+  AUDIT_PREFIX,
+  GRANOLA_EVENTS_PREFIX,
+  IMAGE_PREFIX,
+  NOTE_ACL_PREFIX,
+  PROPOSAL_PREFIX,
+  legacyStorageKey,
+} from "../../../packages/shared/src/storageLayout.cjs";
+import {
+  deleteWithLegacyFallback,
+  getWithLegacyFallback,
+  migrateStorageLayout,
+} from "./storageLayout.js";
 import { CHANNELS, CHANNEL_FOLDERS } from "../../../packages/communications/src/protocol.js";
 import { parseChannelDayNote } from "../../../packages/communications/src/note.js";
 import { parseChannelDayPath } from "../../../packages/communications/src/paths.js";
@@ -179,12 +192,10 @@ const LEGACY_SCOPES_KEY = "scopes.yml";
 // inside every live privacy.md, so renaming them would break existing buckets.
 const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";
-const AUDIT_PREFIX = ".audit/";
-const NOTE_ACL_PREFIX = ".note-acl/";
-const GRANOLA_PENDING_PREFIX = ".granola-events/pending/";
-const GRANOLA_COMPLETED_PREFIX = ".granola-events/completed/";
-const PROPOSAL_PENDING_PREFIX = ".proposals/pending/";
-const PROPOSAL_REVIEWED_PREFIX = ".proposals/reviewed/";
+const GRANOLA_PENDING_PREFIX = `${GRANOLA_EVENTS_PREFIX}pending/`;
+const GRANOLA_COMPLETED_PREFIX = `${GRANOLA_EVENTS_PREFIX}completed/`;
+const PROPOSAL_PENDING_PREFIX = `${PROPOSAL_PREFIX}pending/`;
+const PROPOSAL_REVIEWED_PREFIX = `${PROPOSAL_PREFIX}reviewed/`;
 /*
  * `SEARCH_SUBREQUEST_BUDGET` (everything one search may spend on storage: the
  * index sync, its conditional write, and the fresh read behind every snippet)
@@ -1268,10 +1279,10 @@ function replacePrivacyRulesBlock(text, rules, overrides) {
 }
 
 async function loadLegacyPrivacyState(store) {
-  const scopeObject = await store.get(LEGACY_SCOPES_KEY);
+  const scopeObject = await getWithLegacyFallback(store, LEGACY_SCOPES_KEY);
   const rules = scopeObject ? parseLegacyScopeRules(await scopeObject.text()) : [];
   const overrides = new PrivacyOverrides();
-  const keys = await listAllKeys(store, NOTE_ACL_PREFIX);
+  const keys = await listAllKeysWithLegacy(store, NOTE_ACL_PREFIX);
   for (const { key } of keys) {
     const path = key.slice(NOTE_ACL_PREFIX.length).replace(/\.json$/, "");
     if (path && key.endsWith(".json")) overrides.set(path, "private");
@@ -1280,7 +1291,7 @@ async function loadLegacyPrivacyState(store) {
 }
 
 async function loadPrivacyState(store) {
-  const object = await store.get(PRIVACY_KEY);
+  const object = await getWithLegacyFallback(store, PRIVACY_KEY);
   if (!object) return loadLegacyPrivacyState(store);
   try {
     const text = await object.text();
@@ -1374,7 +1385,7 @@ async function persistExactVisibility(store, path, visibility, rules) {
           JSON.stringify({ path, visibility: "private", updated_at: new Date().toISOString() })
         );
       } else {
-        await store.delete(noteAclKey(path));
+        await deleteWithLegacyFallback(store, noteAclKey(path));
       }
       return;
     }
@@ -1402,7 +1413,7 @@ async function clearExactVisibility(store, path) {
     const state = await loadPrivacyState(store);
     if (state.error) throw new Error(`privacy manifest invalid: ${state.error}`);
     if (state.legacy) {
-      await store.delete(noteAclKey(path));
+      await deleteWithLegacyFallback(store, noteAclKey(path));
       return;
     }
     // Exact on purpose, and asked through `delete`'s own answer so the two
@@ -1597,14 +1608,13 @@ function hasOverride(overrides, key) {
 /**
  * The opaque image store.
  *
- * `.images/` is dot-prefixed, so `isPlumbing` already hides it from every
+ * `.context/assets/images/` is dot-prefixed, so `isPlumbing` already hides it from every
  * listing, every search and every note tool, at every scope. That is the whole
- * point of the location and it must not be relaxed: making `.images/`
+ * point of the location and it must not be relaxed: making `.context/assets/images/`
  * non-plumbing would put every stored image into listings and defeat the
  * design. `read_image` is the one deliberate way back in, and it is narrow by
  * construction — see `toolReadImage`.
  */
-const IMAGE_PREFIX = ".images/";
 
 /**
  * The types an image may be returned as, and the only extensions `read_image`
@@ -1636,7 +1646,7 @@ const MAX_INLINE_IMAGE_BYTES = 5_000_000;
 /**
  * Turn whatever the caller passed as `image` into the one key it may mean.
  *
- * Accepts `.images/<leaf>` or the bare `<leaf>`, and nothing else. This is the
+ * Accepts `.context/assets/images/<leaf>` or the bare `<leaf>`, and nothing else. This is the
  * function that stops `read_image` from being a general object reader: this one
  * reads raw bytes by key, so if `image` could name an arbitrary object then a
  * note reading "privacy.md" would exfiltrate the manifest and "../" would walk
@@ -1644,7 +1654,7 @@ const MAX_INLINE_IMAGE_BYTES = 5_000_000;
  * path in this gateway is gated on `.md` plus `canSee`". `toolReadNote` is not:
  * it is `normalizePath` + `canSee`, with no `.md` gate. The listing, search and
  * `fetch` paths do gate on both.) The leaf is a single path segment with an image extension —
- * no slashes, no dots leading anywhere, nothing outside `.images/`.
+ * no slashes, no dots leading anywhere, nothing outside `.context/assets/images/`.
  *
  * Returns null for anything else; the caller turns null into the same "not
  * found" as every other failure.
@@ -1659,9 +1669,14 @@ function imageRefFor(value) {
   // itself caught, by the nested-key check in the suite. Sabotaging this line
   // alone turns nothing red; that is the expected result, not a missing test.
   if (!raw || raw.length > 512 || raw.includes("..") || raw.includes("\\")) return null;
-  const leaf = raw.startsWith(IMAGE_PREFIX) ? raw.slice(IMAGE_PREFIX.length) : raw;
+  const legacyImagePrefix = legacyStorageKey(IMAGE_PREFIX);
+  const leaf = raw.startsWith(IMAGE_PREFIX)
+    ? raw.slice(IMAGE_PREFIX.length)
+    : legacyImagePrefix && raw.startsWith(legacyImagePrefix)
+      ? raw.slice(legacyImagePrefix.length)
+      : raw;
   // One segment, and the load-bearing line here. The character class excludes
-  // "/" so nothing nested and nothing outside `.images/` can be named, and it
+  // "/" so nothing nested and nothing outside `.context/assets/images/` can be named, and it
   // requires an alphanumeric first character so the leaf cannot itself be
   // plumbing. This is what stops `read_image` being a general object reader.
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf)) return null;
@@ -2034,6 +2049,7 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
   "export_encryption_keys",
   "rotate_encryption_keys",
   "materialize_move",
+  "migrate_storage_layout",
 ]);
 
 /**
@@ -2055,6 +2071,7 @@ const EXISTENCE_MASKED_TOOLS = new Set([
   "export_encryption_keys",
   "rotate_encryption_keys",
   "materialize_move",
+  "migrate_storage_layout",
 ]);
 
 /**
@@ -2753,7 +2770,7 @@ function baseToolDefinitions() {
           },
           image: {
             type: "string",
-            description: "The image as the note names it, e.g. '.images/<hash>.png' (the bare filename also works)",
+            description: "The image as the note names it, e.g. '.context/assets/images/<hash>.png'; legacy '.images/' references and bare filenames also work",
           },
         },
         required: ["note", "image"],
@@ -3228,6 +3245,20 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
     {
+      name: "migrate_storage_layout",
+      description:
+        "Owner-only maintenance: copy legacy Context-owned hidden objects into the consolidated .context tree in a resumable batch; after the copy is verified, cleanup=true removes the legacy copies.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          batch_size: { type: "integer", minimum: 1, maximum: 8, description: "Objects to process in this call; default 8" },
+          cleanup: { type: "boolean", description: "Remove verified legacy copies; allowed only after copying completes" },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+    },
+    {
       name: "list_changes",
       description:
         "List recent immutable context change records, filtered to paths visible to this connection. Records contain actions and paths, never note content.",
@@ -3343,6 +3374,9 @@ async function callTool(name, args, store, scope) {
       return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
+    case "migrate_storage_layout":
+      if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
+      return toolMigrateStorageLayout(store, scope, args);
     case "submit_form":
       return toolSubmitForm(store, scope, rules, overrides, args);
     case "update_submission":
@@ -3480,6 +3514,38 @@ async function listAllKeys(store, prefix) {
   return keys;
 }
 
+/** List current plumbing plus its pre-v1 location, presenting both as v1 keys. */
+async function listAllKeysWithLegacy(store, prefix) {
+  const current = await listAllKeys(store, prefix);
+  const legacyPrefix = legacyStorageKey(prefix);
+  if (!legacyPrefix) return current;
+  const legacy = await listAllKeys(store, legacyPrefix);
+  const byKey = new Map(current.map((object) => [object.key, object]));
+  for (const object of legacy) {
+    const key = `${prefix}${object.key.slice(legacyPrefix.length)}`;
+    if (!byKey.has(key)) byKey.set(key, { ...object, key });
+  }
+  return [...byKey.values()];
+}
+
+async function toolMigrateStorageLayout(store, scope, args) {
+  if (scope !== "private") return toolError("unknown tool: migrate_storage_layout");
+  const result = await migrateStorageLayout(store, {
+    batchSize: args.batch_size,
+    cleanup: args.cleanup === true,
+  });
+  if (result.error) return toolError(result.error);
+  return toolText(
+    [
+      `storage layout migration: ${result.state}`,
+      `copied: ${result.objectsCopied}`,
+      `already verified: ${result.objectsVerified}`,
+      `legacy objects deleted: ${result.objectsDeleted}`,
+      `conflicts: ${result.conflicts.length}`,
+    ].join("\n"),
+  );
+}
+
 async function listImmediateLayout(store, prefix = "") {
   const objects = [];
   const prefixes = new Set();
@@ -3562,7 +3628,7 @@ async function loadMoveJobs(store) {
   for (const { key } of objects) {
     if (!key.endsWith(".json")) continue;
     try {
-      const object = await store.get(key);
+      const object = await getWithLegacyFallback(store, key);
       if (!object) continue;
       const parsed = JSON.parse(await object.text());
       if (moveJobActive(parsed)) jobs.push(parsed);
@@ -3596,7 +3662,7 @@ async function refreshMoveSentinel(store) {
   if (jobs.length) {
     await writeMoveSentinel(store);
   } else {
-    await store.delete(MOVE_SENTINEL_KEY).catch(() => {});
+    await deleteWithLegacyFallback(store, MOVE_SENTINEL_KEY).catch(() => {});
     clearLogicalMovesMaybeActive(store);
   }
   return jobs;
@@ -3684,12 +3750,12 @@ async function getVisibleMovedNote(store, scope, rules, overrides, path) {
     const source = movedSourceFor(job, path);
     if (!source) continue;
     if (!canSee(source, scope, rules, overrides)) return { object: null, physicalPath: path };
-    const destinationObject = await store.get(path);
+    const destinationObject = await getWithLegacyFallback(store, path);
     if (destinationObject) return { object: destinationObject, physicalPath: path };
-    const sourceObject = await store.get(source);
+    const sourceObject = await getWithLegacyFallback(store, source);
     if (sourceObject) return { object: sourceObject, physicalPath: source };
   }
-  return { object: await store.get(path), physicalPath: path };
+  return { object: await getWithLegacyFallback(store, path), physicalPath: path };
 }
 
 async function persistPrivacyFolderMove(store, source, destination) {
@@ -3843,7 +3909,7 @@ async function copyObjectForMove(store, item) {
     });
     if (copied) return copied;
   }
-  const object = await store.get(item.source);
+  const object = await getWithLegacyFallback(store, item.source);
   if (!object) throw new Error(`source missing during materialization: ${item.source}`);
   if (!objectMatchesMoveItem(object, item)) {
     throw new Error(`source changed during materialization: ${item.source}`);
@@ -3865,7 +3931,7 @@ async function deleteObjectForMove(store, item) {
   if (!item.etag) {
     throw new Error(`source has no captured etag for safe cleanup: ${item.source}`);
   }
-  const deleted = await store.delete(item.source, {
+  const deleted = await deleteWithLegacyFallback(store, item.source, {
     onlyIf: { etagMatches: item.etag },
   });
   if (deleted === null) throw new Error(`source changed before cleanup: ${item.source}`);
@@ -3884,7 +3950,7 @@ function moveSafetyRefusal(store) {
 async function deleteCreatedDestination(store, path, etag) {
   if (!etag) return false;
   try {
-    const deleted = await store.delete(path, { onlyIf: { etagMatches: etag } });
+    const deleted = await deleteWithLegacyFallback(store, path, { onlyIf: { etagMatches: etag } });
     if (deleted === null) return false;
     await clearExactVisibilityIfAbsent(store, path);
     return true;
@@ -3902,7 +3968,7 @@ async function clearExactVisibilityIfAbsent(store, path) {
 }
 
 async function readBytes(store, key) {
-  const object = await store.get(key);
+  const object = await getWithLegacyFallback(store, key);
   return object ? await object.arrayBuffer() : null;
 }
 
@@ -3911,7 +3977,7 @@ function canVerifyMoveByEtag(store, pair) {
 }
 
 async function destinationMatchesMoveSource(store, pair) {
-  const destination = await store.get(pair.destination);
+  const destination = await getWithLegacyFallback(store, pair.destination);
   if (!destination) return false;
   if (canVerifyMoveByEtag(store, pair) && destination.etag === pair.etag) return true;
   const sourceBytes = await readBytes(store, pair.source);
@@ -4229,7 +4295,7 @@ async function recordChange(store, action, actorScope, paths, details = {}) {
 async function toolListChanges(store, scope, rules, overrides, limitArg) {
   const parsedLimit = Number.isInteger(limitArg) ? limitArg : 20;
   if (parsedLimit < 1 || parsedLimit > 100) return toolError("limit must be between 1 and 100");
-  const keys = (await listAllKeys(store, AUDIT_PREFIX)).sort((a, b) => b.key.localeCompare(a.key));
+  const keys = (await listAllKeysWithLegacy(store, AUDIT_PREFIX)).sort((a, b) => b.key.localeCompare(a.key));
   const visible = [];
   // Recent privacy migrations can create long runs of team-hidden records.
   // Read small audit batches concurrently while preserving newest-first order.
@@ -4237,7 +4303,7 @@ async function toolListChanges(store, scope, rules, overrides, limitArg) {
     const batch = keys.slice(start, start + 50);
     const entries = await Promise.all(
       batch.map(async ({ key }) => {
-        const obj = await store.get(key);
+        const obj = await getWithLegacyFallback(store, key);
         if (!obj) return null;
         try {
           return JSON.parse(await obj.text());
@@ -4299,7 +4365,7 @@ async function toolListPlugins(store) {
  */
 async function readFrontPage(store, scope, rules, overrides, charCap) {
   if (!canSee("index.md", scope, rules, overrides)) return null;
-  const object = await store.get("index.md");
+  const object = await getWithLegacyFallback(store, "index.md");
   if (!object) return null;
   const text = (await object.text()).trim();
   if (!text) return null;
@@ -4396,7 +4462,7 @@ function normalizeSaveDestination(value) {
 
 async function readSaveProcedure(store, scope, rules, overrides) {
   if (!canSee("index.md", scope, rules, overrides)) return null;
-  const object = await store.get("index.md");
+  const object = await getWithLegacyFallback(store, "index.md");
   if (!object) return null;
   return extractSaveProcedure(await object.text());
 }
@@ -4575,8 +4641,8 @@ async function toolOrient(store, scope, rules, overrides) {
     await Promise.all([
       readFrontPage(store, scope, rules, overrides, ORIENT_INDEX_CHAR_CAP),
       readSaveProcedure(store, scope, rules, overrides),
-      scope === "private" ? store.get("index-private.md") : Promise.resolve(null),
-      scope === "private" ? listAllKeys(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
+      scope === "private" ? getWithLegacyFallback(store, "index-private.md") : Promise.resolve(null),
+      scope === "private" ? listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX) : Promise.resolve([]),
       surveyContext(store, scope, rules, overrides),
       reducedRecallNotesFor(store, (path) => canSee(path, scope, rules, overrides)),
     ]);
@@ -4748,7 +4814,7 @@ async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
     if (!path) return toolError("invalid path");
     const folderDefault = visibilityOf(path, rules);
     if (scope === "private") {
-      const exists = Boolean(await store.get(path));
+      const exists = Boolean(await getWithLegacyFallback(store, path));
       const effective = effectiveVisibility(path, rules, overrides);
       text +=
         `\n\n## Path inspection\npath: ${path}\nfolder default: ${folderDefault}\n` +
@@ -4843,10 +4909,10 @@ async function toolReadImage(store, scope, rules, overrides, args) {
   const image = imageRefFor(args.image);
   if (!notePath || !notePath.endsWith(".md") || !image) return notFound;
   if (!canSee(notePath, scope, rules, overrides)) return notFound;
-  const note = await store.get(notePath);
+  const note = await getWithLegacyFallback(store, notePath);
   if (!note) return notFound;
   if (!noteReferencesImage(await note.text(), image)) return notFound;
-  const object = await store.get(image.key);
+  const object = await getWithLegacyFallback(store, image.key);
   if (!object) return notFound;
   const bytes = new Uint8Array(await object.arrayBuffer());
   // Past this point the caller has already proved they can see a note that
@@ -4966,7 +5032,7 @@ async function generatedNoteFor(store, text, storedText) {
 
 /** The text currently stored at `key`, or `null` where there is nothing there. */
 async function storedTextAt(store, key) {
-  const object = await store.get(key);
+  const object = await getWithLegacyFallback(store, key);
   return object ? await object.text() : null;
 }
 
@@ -5077,7 +5143,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   // refusal it can read and act on.
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
 
-  const existing = await store.get(path);
+  const existing = await getWithLegacyFallback(store, path);
   const inheritedVisibility = visibilityOf(path, rules);
   const existingVisibility = existing
     ? effectiveVisibility(path, rules, overrides)
@@ -5287,7 +5353,7 @@ async function resolveForm(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   if (!path || !path.endsWith(".md")) return { refusal: toolError("invalid path (must end in .md)") };
   if (!canSee(path, scope, rules, overrides)) return { refusal: toolError("not found") };
-  const object = await store.get(path);
+  const object = await getWithLegacyFallback(store, path);
   if (!object) return { refusal: toolError("not found") };
   const opened = await openStoredNote(store, await object.text());
   if (!opened.ok) return { refusal: encryptedNoteRefusal(path) };
@@ -5332,7 +5398,7 @@ async function resolveForm(store, scope, rules, overrides, args) {
 
 /** Read the response file back, refusing anything this gateway did not write. */
 async function readFormResponses(store, config, responsesPath) {
-  const object = await store.get(responsesPath);
+  const object = await getWithLegacyFallback(store, responsesPath);
   if (!object) return { missing: true };
   const stored = await object.text();
   const opened = await openStoredNote(store, stored);
@@ -5594,7 +5660,7 @@ async function ensureFormResponseFiles(store, scope, rules, blocks, notePath) {
       occupied.push(`${block.config.id} → ${block.config.responses} (not a writable note path)`);
       continue;
     }
-    const existing = await store.get(responsesPath);
+    const existing = await getWithLegacyFallback(store, responsesPath);
     if (existing) {
       const opened = await openStoredNote(store, await existing.text());
       const parsed = opened.ok ? parseResponsesFile(opened.text, block.config) : { error: "encrypted" };
@@ -5738,7 +5804,7 @@ async function toolSetEncryption(store, scope, rules, overrides, args) {
   // tenancy one — which the two checks above have already made.
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
 
-  const existing = await store.get(path);
+  const existing = await getWithLegacyFallback(store, path);
   if (!existing) return toolError("not found");
   const expectedEtag = args?.expected_etag;
   if (expectedEtag && existing.etag !== expectedEtag) {
@@ -5835,7 +5901,7 @@ const EXPORT_RATE_LIMIT = { limit: 5, windowMs: 24 * 60 * 60 * 1000 };
 async function checkAndConsumeExportRateLimit(store) {
   const now = Date.now();
   let state = { windowStartedAt: now, count: 0 };
-  const existing = await store.get(EXPORT_RATE_LIMIT_PATH);
+  const existing = await getWithLegacyFallback(store, EXPORT_RATE_LIMIT_PATH);
   if (existing) {
     try {
       const parsed = JSON.parse(await existing.text());
@@ -6115,7 +6181,7 @@ function rotationProgressPayload({ fromGeneration, toGeneration, cursor, confirm
  */
 async function loadRotationProgress(store, fromGeneration, toGeneration, newKeyMaterial) {
   const fresh = () => ({ cursor: "", confirmedThrough: 0, stuckKeys: [], wrote: new Set(), etag: undefined });
-  const existing = await store.get(ROTATION_PROGRESS_PATH);
+  const existing = await getWithLegacyFallback(store, ROTATION_PROGRESS_PATH);
   if (!existing) return fresh();
   let parsed;
   try {
@@ -6222,7 +6288,7 @@ async function saveRotationProgress(
  *   guessing at its content — for a later call to retry.
  */
 async function rewrapOneNote(store, key, { fromGeneration, toGeneration, keys, newKeyMaterial, workspaceId }) {
-  const object = await store.get(key);
+  const object = await getWithLegacyFallback(store, key);
   if (!object) return "clean";
   const text = await object.text();
   if (!isEncryptedNote(text) || encryptedNoteKeyId(text) !== fromGeneration) return "clean";
@@ -6476,7 +6542,7 @@ async function toolRotateEncryptionKeys(store, scope) {
   if (passComplete) {
     const completed = await store.rotateEncryptionKeys({ complete: toGeneration });
     try {
-      await store.delete(ROTATION_PROGRESS_PATH);
+      await deleteWithLegacyFallback(store, ROTATION_PROGRESS_PATH);
     } catch {
       // Best-effort cleanup. A leftover file naming this now-finished
       // generation pair is harmless — the next rotation names a different
@@ -6563,7 +6629,7 @@ async function toolSetVisibility(store, scope, rules, overrides, args) {
     return toolError("visibility must be private or team");
   }
   if (!writesOneRule(path)) return toolError(UNWRITABLE_PATH_REFUSAL);
-  const obj = await store.get(path);
+  const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
   if (args.expected_etag && obj.etag !== args.expected_etag) {
     return toolError(
@@ -6773,7 +6839,7 @@ async function uniqueSessionPath(store, platform, at, folder) {
   const prefix = `${folder.replace(/\/+$/, "")}/${platform}/`;
   const timestamp = timestampSlug(new Date(at));
   const first = `${prefix}${timestamp}.md`;
-  if (!(await store.get(first))) return first;
+  if (!(await getWithLegacyFallback(store, first))) return first;
   return `${prefix}${timestamp}-${crypto.randomUUID().slice(0, 8)}.md`;
 }
 
@@ -6932,10 +6998,10 @@ function proposalIdIsValid(id) {
 
 async function pendingProposalById(store, id) {
   if (!proposalIdIsValid(id)) return null;
-  const candidates = await listAllKeys(store, PROPOSAL_PENDING_PREFIX);
+  const candidates = await listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX);
   const match = candidates.find(({ key }) => key.endsWith(`-${id}.json`));
   if (!match) return null;
-  const obj = await store.get(match.key);
+  const obj = await getWithLegacyFallback(store, match.key);
   if (!obj) return null;
   try {
     return { key: match.key, proposal: JSON.parse(await obj.text()) };
@@ -6954,7 +7020,7 @@ async function toolProposeNote(store, scope, pathArg, content, reason, agent) {
   if (byteLength > PROPOSAL_CONTENT_BYTE_CAP) {
     return toolError(`proposal content exceeds ${PROPOSAL_CONTENT_BYTE_CAP} bytes`);
   }
-  const pending = await listAllKeys(store, PROPOSAL_PENDING_PREFIX);
+  const pending = await listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX);
   if (pending.length >= PROPOSAL_PENDING_CAP) {
     return toolError(`proposal queue is full (${PROPOSAL_PENDING_CAP}); ask a private connection to review it`);
   }
@@ -6988,11 +7054,11 @@ async function toolListProposals(store, scope) {
   if (scope !== "private") {
     return toolError("permission denied: pending proposals are available only to a private connection");
   }
-  const keys = (await listAllKeys(store, PROPOSAL_PENDING_PREFIX)).sort((a, b) => a.key.localeCompare(b.key));
+  const keys = (await listAllKeysWithLegacy(store, PROPOSAL_PENDING_PREFIX)).sort((a, b) => a.key.localeCompare(b.key));
   if (!keys.length) return toolText("(no pending proposals)");
   const lines = [];
   for (const { key } of keys) {
-    const obj = await store.get(key);
+    const obj = await getWithLegacyFallback(store, key);
     if (!obj) continue;
     try {
       const proposal = JSON.parse(await obj.text());
@@ -7038,7 +7104,7 @@ async function toolReviewProposal(store, scope, id, action, destinationArg, revi
       return toolError("invalid approval destination (must end in .md)");
     }
     if (isPlumbing(destination)) return toolError("that path is reserved");
-    if (await store.get(destination)) {
+    if (await getWithLegacyFallback(store, destination)) {
       return toolError("conflict: approval destination already exists; choose a new destination or reject the proposal");
     }
     // Proposal approval is a personal review action and defaults private even
@@ -7058,7 +7124,7 @@ async function toolReviewProposal(store, scope, id, action, destinationArg, revi
     `${PROPOSAL_REVIEWED_PREFIX}${action === "approve" ? "approved" : "rejected"}/` +
     `${timestampSlug(new Date(reviewedAt))}-${proposal.id}.json`;
   await store.put(reviewedKey, JSON.stringify(reviewed));
-  await store.delete(key);
+  await deleteWithLegacyFallback(store, key);
   await recordChange(
     store,
     action === "approve" ? "approve_proposal" : "reject_proposal",
@@ -7134,7 +7200,7 @@ function budgetedStore(store, budget, reserve = 0) {
   return {
     get(key) {
       spend();
-      return store.get(key);
+      return getWithLegacyFallback(store, key);
     },
     list(options) {
       spend();
@@ -8100,7 +8166,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     );
   }
   if (path.startsWith("4-archive/")) return toolText("already archived");
-  const obj = await store.get(path);
+  const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
   if (scope !== "private" && !expectedEtag) {
     return toolError("expected_etag is required when a team connection archives a note; read the note and retry");
@@ -8116,7 +8182,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   if (scope !== "private" && visibilityOf(dest, rules) !== "team") {
     return writePermissionError("archive destination");
   }
-  if (await store.get(dest)) return toolError("conflict: archive destination already exists");
+  if (await getWithLegacyFallback(store, dest)) return toolError("conflict: archive destination already exists");
   const body = await obj.arrayBuffer();
   if (destinationVisibility === "private") {
     await persistExactVisibility(store, dest, "private", rules);
@@ -8125,7 +8191,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   if (destinationVisibility === "team") {
     await persistExactVisibility(store, dest, "team", rules);
   }
-  await store.delete(path);
+  await deleteWithLegacyFallback(store, path);
   await clearExactVisibility(store, path);
   /*
     Archiving is a move, so its links follow it. Retiring a note is not the same
@@ -8215,7 +8281,7 @@ async function rewriteReferences(store, scope, rules, overrides, renames, { writ
   let links = 0;
   for (const key of keys) {
     const fromPath = wasAt.get(key) ?? key;
-    const object = await store.get(key);
+    const object = await getWithLegacyFallback(store, key);
     if (!object) continue;
     const text = await object.text();
     /*
@@ -8281,7 +8347,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     return writePermissionError("move destination");
   }
 
-  const sourceObject = await store.get(source);
+  const sourceObject = await getWithLegacyFallback(store, source);
   if (!sourceObject) return toolError("not found");
   if (expectedSourceEtag && sourceObject.etag !== expectedSourceEtag) {
     return toolError(
@@ -8290,7 +8356,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
   }
   const unsafeMove = moveSafetyRefusal(store);
   if (unsafeMove) return toolError(unsafeMove);
-  if (await store.get(destination)) return toolError("conflict: destination already exists");
+  if (await getWithLegacyFallback(store, destination)) return toolError("conflict: destination already exists");
 
   const body = await sourceObject.arrayBuffer();
   const sourceEtag = sourceObject.etag;
@@ -8328,7 +8394,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     await deleteCreatedDestination(store, destination, put.etag);
     return toolError(`move aborted before deleting source: ${error.message}`);
   }
-  const deleted = await store.delete(source, { onlyIf: { etagMatches: sourceEtag } });
+  const deleted = await deleteWithLegacyFallback(store, source, { onlyIf: { etagMatches: sourceEtag } });
   if (deleted === null) {
     await deleteCreatedDestination(store, destination, put.etag);
     return toolError("conflict: source changed since it was copied");
@@ -8543,7 +8609,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     if (scope === "team" && hasOverride(overrides, move.destination)) {
       return writePermissionError("move destination");
     }
-    const sourceObject = await store.get(move.source);
+    const sourceObject = await getWithLegacyFallback(store, move.source);
     if (!sourceObject) return toolError(`not found: ${move.source}`);
     if (move.expectedSourceEtag && sourceObject.etag !== move.expectedSourceEtag) {
       return toolError(
@@ -8563,7 +8629,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       move.destination.startsWith("4-archive/") &&
       !hasOverride(overrides, move.source) &&
       sourceVisibility === destinationFolderVisibility;
-    const destinationObject = await store.get(move.destination);
+    const destinationObject = await getWithLegacyFallback(store, move.destination);
     let preloadedBody = null;
     if (destinationObject) {
       const [sourceText, destinationText] = await Promise.all([
@@ -8598,7 +8664,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
   const fastArchiveRelocation = preflight.every((move) => move.fastArchiveCandidate);
   if (!fastArchiveRelocation) {
     for (const move of preflight) {
-      const sourceObject = await store.get(move.source);
+      const sourceObject = await getWithLegacyFallback(store, move.source);
       if (!sourceObject || sourceObject.etag !== move.etag) {
         return toolError(`conflict: source changed during batch preflight: ${move.source}`);
       }
@@ -8654,7 +8720,7 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
 
   try {
     for (const move of preflight) {
-      const deleted = await store.delete(move.source, { onlyIf: { etagMatches: move.etag } });
+      const deleted = await deleteWithLegacyFallback(store, move.source, { onlyIf: { etagMatches: move.etag } });
       if (deleted === null) throw new Error(`source changed during cleanup: ${move.source}`);
     }
   } catch (error) {
@@ -8770,7 +8836,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     if (unsafeMove) return toolError(unsafeMove);
   }
   for (const move of moves) {
-    if (await store.get(move.destination)) {
+    if (await getWithLegacyFallback(store, move.destination)) {
       return toolError(`conflict: destination already exists: ${move.destination}`);
     }
   }
@@ -8793,7 +8859,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   // needs nothing kept.
   try {
     for (const move of moves) {
-      const obj = await store.get(move.source);
+      const obj = await getWithLegacyFallback(store, move.source);
       if (!obj) throw new Error(`source changed during move: ${move.source}`);
       move.etag = obj.etag;
       const body = await obj.arrayBuffer();
@@ -8825,7 +8891,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   }
 
   for (const move of moves) {
-    const deleted = await store.delete(move.source, { onlyIf: { etagMatches: move.etag } });
+    const deleted = await deleteWithLegacyFallback(store, move.source, { onlyIf: { etagMatches: move.etag } });
     if (deleted === null) {
       return toolError(
         `folder move partially applied; source cleanup stopped before all sources were deleted: ${move.source}`
@@ -8855,7 +8921,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
 async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
   const key = moveJobKey(idArg);
   if (!key) return toolError("invalid move id");
-  const marker = await store.get(key);
+  const marker = await getWithLegacyFallback(store, key);
   if (!marker) {
     await refreshMoveSentinel(store);
     return toolError("not found");
@@ -8894,7 +8960,7 @@ async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     job.status = "copying";
     for (const pair of sources) {
       if (copied.has(pair.source)) continue;
-      const sourceObject = await store.get(pair.source);
+      const sourceObject = await getWithLegacyFallback(store, pair.source);
       if (!sourceObject) throw new Error(`source missing during materialization: ${pair.source}`);
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed during materialization: ${pair.source}`);
@@ -8903,7 +8969,7 @@ async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
         copied.add(pair.source);
         continue;
       }
-      if ((await store.get(pair.destination)) !== null) {
+      if ((await getWithLegacyFallback(store, pair.destination)) !== null) {
         throw new Error(`destination changed during materialization: ${pair.destination}`);
       }
       await copyObjectForMove(store, pair);
@@ -8932,7 +8998,7 @@ async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     job.status = "deleting";
     let deletedThisPass = 0;
     for (const pair of sources) {
-      const sourceObject = await store.get(pair.source);
+      const sourceObject = await getWithLegacyFallback(store, pair.source);
       if (sourceObject === null) continue;
       if (!objectMatchesMoveItem(sourceObject, pair)) {
         throw new Error(`source changed before cleanup: ${pair.source}`);
@@ -8946,7 +9012,7 @@ async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
     }
     const remainingSources = [];
     for (const pair of sources) {
-      if ((await store.get(pair.source)) !== null) remainingSources.push(pair.source);
+      if ((await getWithLegacyFallback(store, pair.source)) !== null) remainingSources.push(pair.source);
     }
     job.deleted_objects = sources.length - remainingSources.length;
     if (remainingSources.length > 0) {
@@ -8977,7 +9043,7 @@ async function toolMaterializeMove(store, scope, idArg, batchSizeArg) {
       // The storage move has completed. Reference rewrite failures are surfaced
       // in the response instead of keeping a completed move marker alive.
     }
-    await store.delete(key);
+    await deleteWithLegacyFallback(store, key);
     await refreshMoveSentinel(store);
     await recordChange(store, "materialize_move", scope, [job.source, job.destination], {
       logical_move: job.id,
@@ -9069,7 +9135,7 @@ async function writeInboxCapture(store, capture, { actorScope = "inbox", replace
     key = `0-inbox/${now.toISOString().slice(0, 19).replace(/[:]/g, "-")}-${titleSlug}.md`;
   }
 
-  const existing = await store.get(key);
+  const existing = await getWithLegacyFallback(store, key);
   if (existing && !replaceExisting) return { path: key, duplicate: true };
 
   const frontmatter = [
@@ -9183,7 +9249,7 @@ async function sha256Hex(value) {
  * The audit record carries the acting identity through `store.actor`, the path,
  * the visibility and how many segments the transcript held — and no title, no
  * attendees and no transcript. What was said in a meeting is note content, and
- * `.audit/` is a record of actions on paths.
+ * `.context/audit/` is a record of actions on paths.
  */
 /**
  * The transcription service this deployment is configured with, or `null`.
@@ -9349,7 +9415,7 @@ const MEETING_RESOLVE_CANDIDATES = 8;
 async function resolveMeetingNotePath(store, session, tier) {
   const notePath = session.notePath;
   if (!notePath) return null;
-  if (await store.get(notePath)) return notePath;
+  if (await getWithLegacyFallback(store, notePath)) return notePath;
 
   const title = typeof session.title === "string" ? session.title.trim() : "";
   if (!title) return notePath;
@@ -9374,7 +9440,7 @@ async function resolveMeetingNotePath(store, session, tier) {
   if (!found.indexed || !found.hits) return notePath;
 
   for (const hit of found.hits) {
-    const stored = await store.get(hit.key);
+    const stored = await getWithLegacyFallback(store, hit.key);
     if (!stored) continue;
     const parsed = parseMeetingNote(await stored.text());
     if ((parsed.frontmatter || {})["meeting-id"] === session.id) return hit.key;
@@ -9495,7 +9561,7 @@ async function toolListMeetings(store, scope, rules, overrides, limitArg) {
   if (!visible.length) return toolText("(no meetings recorded yet)");
 
   const rows = await mapInBatches(visible, 10, async ({ key }) => {
-    const object = await store.get(key);
+    const object = await getWithLegacyFallback(store, key);
     if (!object) return null;
     const note = parseMeetingNote(await object.text());
     const front = note.frontmatter || {};
@@ -9537,7 +9603,7 @@ async function toolReadMeeting(store, scope, rules, overrides, args) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const object = await store.get(path);
+  const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
   const header =
@@ -9614,7 +9680,7 @@ async function toolListChannelDays(store, scope, rules, overrides, args = {}) {
   if (!visible.length) return toolText("(no communications recorded yet)");
 
   const rows = await mapInBatches(visible, 10, async ({ key, day }) => {
-    const object = await store.get(key);
+    const object = await getWithLegacyFallback(store, key);
     if (!object) return null;
     const note = parseChannelDayNote(await object.text());
     const front = note.frontmatter || {};
@@ -9653,7 +9719,7 @@ async function toolReadChannelDay(store, scope, rules, overrides, args = {}) {
   const path = normalizePath(args.path);
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const object = await store.get(path);
+  const object = await getWithLegacyFallback(store, path);
   if (!object) return toolError("not found");
   const text = await object.text();
   const header =
@@ -9715,7 +9781,7 @@ async function handleGranolaWebhook(request, env, store, ctx) {
   }
 
   const completedKey = `${GRANOLA_COMPLETED_PREFIX}${safeSlug(eventId, 80)}.json`;
-  if (await store.get(completedKey)) return json({ ok: true, duplicate: true });
+  if (await getWithLegacyFallback(store, completedKey)) return json({ ok: true, duplicate: true });
 
   const pendingKey = `${GRANOLA_PENDING_PREFIX}${safeSlug(eventId, 80)}.json`;
   await store.put(pendingKey, JSON.stringify({ ...event, received_at: new Date().toISOString() }));
@@ -9794,7 +9860,7 @@ async function processGranolaEventSafely(env, store, pendingKey) {
   try {
     await processGranolaEvent(env, store, pendingKey);
   } catch (error) {
-    const pending = await store.get(pendingKey);
+    const pending = await getWithLegacyFallback(store, pendingKey);
     if (!pending) return;
     let event = {};
     try {
@@ -9814,7 +9880,7 @@ async function processGranolaEventSafely(env, store, pendingKey) {
 
 async function processGranolaEvent(env, store, pendingKey) {
   if (!env.GRANOLA_API_KEY) throw new Error("GRANOLA_API_KEY is not configured");
-  const pending = await store.get(pendingKey);
+  const pending = await getWithLegacyFallback(store, pendingKey);
   if (!pending) return;
   const event = JSON.parse(await pending.text());
   const response = await fetch(`https://public-api.granola.ai/v1/notes/${encodeURIComponent(event.note_id)}`, {
@@ -9852,12 +9918,12 @@ async function processGranolaEvent(env, store, pendingKey) {
     `${GRANOLA_COMPLETED_PREFIX}${eventSlug}.json`,
     JSON.stringify({ event_id: event.event_id, note_id: event.note_id, completed_at: new Date().toISOString() })
   );
-  await store.delete(pendingKey);
+  await deleteWithLegacyFallback(store, pendingKey);
 }
 
 async function processPendingGranolaEvents(env, store) {
   if (!env.GRANOLA_API_KEY) return;
-  const pending = (await listAllKeys(store, GRANOLA_PENDING_PREFIX)).slice(0, 100);
+  const pending = (await listAllKeysWithLegacy(store, GRANOLA_PENDING_PREFIX)).slice(0, 100);
   await Promise.all(pending.map(({ key }) => processGranolaEventSafely(env, store, key)));
 }
 

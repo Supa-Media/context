@@ -34,8 +34,9 @@ breaking one, stop and say so rather than working around it.
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
    a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
    `1-projects/foo.md`, full stop. An existing brain must connect and work
-   unchanged, with zero migration; the same bucket is synced to Obsidian, and
-   rewriting keys breaks that. One workspace maps to one bucket (optionally
+   unchanged, without a mandatory migration; user-authored keys are never
+   rewritten, and pre-v1 plumbing remains dual-readable until its owner runs
+   the resumable storage-layout migration. One workspace maps to one bucket (optionally
    plus a fixed root prefix the customer chose, applied at the adapter
    boundary). **This now also carries non-negotiable #1's exit promise**: a
    bucket holding one workspace can be handed over, and a shared bucket with a
@@ -49,9 +50,10 @@ breaking one, stop and say so rather than working around it.
 3. **Plain files stay canonical.** Markdown stays portable and human-readable.
    Search indexes, caches and embeddings are **disposable derivatives**,
    rebuildable from the files, never the only copy of anything. The on-bucket
-   layout — `index.md` and `privacy.md` at root, `.audit/`, `.context/`, PARA
-   folders — is a stable format, not an internal detail; changing it is a
-   breaking change.
+   layout — `index.md` and `privacy.md` at root, Context-owned plumbing under
+   `.context/`, and user-selected folders — is a versioned stable format, not
+   an internal detail; changing it requires dual reads and an idempotent,
+   verified migration with a rollback window.
 4. **One person or workspace is one security boundary.** Every workspace has its
    own identity, storage binding, privacy manifest, audit trail and connector
    grants. **Never** extend the legacy shared-token model (`PRIVATE_TOKEN` /

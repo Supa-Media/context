@@ -769,7 +769,7 @@ export async function runGmailSyncChecks(check) {
   check(
     "wikilink-syntax characters are stripped from the filename — the path is embedded in [[path|label]] verbatim",
     (() => {
-      const safe = sanitizeAttachmentFilename("evil]] and [[.audit/x|y#z.pdf");
+      const safe = sanitizeAttachmentFilename("evil]] and [[.context/audit/x|y#z.pdf");
       return !/[[\]|#]/.test(safe);
     })()
   );
@@ -784,7 +784,7 @@ export async function runGmailSyncChecks(check) {
         "../../../etc/passwd",
         "..\\..\\windows\\config",
         "/etc/passwd",
-        "evil]] and [[.audit/x|y#z",
+        "evil]] and [[.context/audit/x|y#z",
         "..",
         ".",
         "",

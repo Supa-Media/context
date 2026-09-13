@@ -1623,7 +1623,7 @@ async function runServeChecks(check) {
       // The manifest and the shards. Counted apart from notes because the
       // manifest is the one index object a fast hit used to read in front of
       // the caller, and the claim below is that it no longer does.
-      if (key.startsWith(".index/")) indexReads.push(key);
+      if (key.startsWith(".context/search/")) indexReads.push(key);
       // `privacy.md` is the manifest the privacy engine is built from and is
       // read once per request whatever answers it — counting it would make
       // "the answer read no note" false for every search ever made, which is
@@ -1797,14 +1797,14 @@ async function runServeChecks(check) {
      * manifest shed, which is exactly what makes the R2 path warn, and
      * confirm an answer served out of the database still does not.
      */
-    const manifestObject = bucket.get(".index/v2/manifest.json");
+    const manifestObject = bucket.get(".context/search/v2/manifest.json");
     const shedManifest = JSON.parse(manifestObject.body);
     shedManifest.stats[0] = {
       ...shedManifest.stats[0],
       shed: 1,
       shedPaths: ["1-projects/roster.md"],
     };
-    bucket.set(".index/v2/manifest.json", {
+    bucket.set(".context/search/v2/manifest.json", {
       ...manifestObject,
       body: JSON.stringify(shedManifest),
     });
@@ -1815,7 +1815,7 @@ async function runServeChecks(check) {
     );
     // Put it back: the checks below measure this fixture's index, and a
     // manifest this one edited is not the one they were written against.
-    bucket.set(".index/v2/manifest.json", manifestObject);
+    bucket.set(".context/search/v2/manifest.json", manifestObject);
     check(
       "the manifest is still read, behind that same response",
       fast.deferredIndexReads > 0,

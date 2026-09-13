@@ -33,8 +33,8 @@
  * ## Which index each block drives, since there are now two
  *
  * The gateway answers from the **sharded** index (CONTRACT.md § v2): a search
- * through the worker syncs `.index/v2/manifest.json` and its shards, and never
- * touches `.index/search-v1.json`. So every block here that goes through
+ * through the worker syncs `.context/search/v2/manifest.json` and its shards, and never
+ * touches `.context/search/search-v1.json`. So every block here that goes through
  * `searchText` / `callTool` exercises v2 and reads its objects; the blocks that
  * call `syncIndex` directly — the plateau and byte-cap fixtures, the per-note
  * char cap, the parallel-wave backfill, the etag-less backend — are checks
@@ -382,7 +382,7 @@ function indexedPaths(bucket) {
 /** Every v2 object gone, which is what "nothing has indexed this bucket" means. */
 function removeV2Index(bucket) {
   for (const key of [...bucket.objects.keys()]) {
-    if (key.startsWith(".index/v2/")) bucket.remove(key);
+    if (key.startsWith(".context/search/v2/")) bucket.remove(key);
   }
 }
 

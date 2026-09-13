@@ -1,6 +1,6 @@
 /**
  * The sharded index (v2) wired into the gateway — `searchVisibleNotes` in
- * `src/index.js` answering from `.index/v2/` through a real worker request.
+ * `src/index.js` answering from `.context/search/v2/` through a real worker request.
  *
  * `searchShards.test.mjs` and `searchShardQuery.test.mjs` hold the two halves
  * on their own: the storage half against an instrumented bucket, the query
@@ -357,7 +357,7 @@ export async function runSearchV2IntegrationChecks(check) {
       V2_SPREAD_BUCKET: spread,
     };
 
-    // -- (a) the first search builds `.index/v2/` and answers from it --------
+    // -- (a) the first search builds `.context/search/v2/` and answers from it --------
     //
     // A multi-folder bucket, because the listing walk is delimited at the root
     // and flat inside each real folder: a fixture with one folder cannot tell
@@ -388,7 +388,7 @@ export async function runSearchV2IntegrationChecks(check) {
 
     main.resetCounts();
     // The first search over a bucket with no index answers from the bounded
-    // literal scan and builds `.index/v2/` **behind the response**. A search no
+    // literal scan and builds `.context/search/v2/` **behind the response**. A search no
     // longer indexes on its way in — that is the 40-to-60-second search this
     // whole shape removed — so the ranked answer is the *second* one, and the
     // index it reads was built by the first one's deferred pass.
@@ -640,7 +640,7 @@ export async function runSearchV2IntegrationChecks(check) {
     // makes this number exceed `occupied` — which is the claim — while a repeat
     // read of an occupied one is not a 404 and not what this is about.
     const shardGets = new Set(
-      spread.counts.getKeys.filter((key) => key.startsWith(".index/v2/shard-"))
+      spread.counts.getKeys.filter((key) => key.startsWith(".context/search/v2/shard-"))
     ).size;
     check(
       "an empty shard is never fetched: the walk reads exactly the occupied shards",

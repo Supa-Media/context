@@ -196,7 +196,7 @@ export function censusFromManifest(manifest) {
  * per search**, which is the cost `docs/decisions/search.md` removed from the
  * search path and must not be re-introduced through a side door.
  *
- * `.index/v2/docmap.json` is the index's own diff surface and already holds
+ * `.context/search/v2/docmap.json` is the index's own diff surface and already holds
  * exactly `[path, version]` for every note. Reading it is the cheapest honest
  * answer to "what notes are there", and it is the same answer the sync uses,
  * so the two cannot disagree about what has been indexed.

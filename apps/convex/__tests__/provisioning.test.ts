@@ -246,7 +246,7 @@ describe("the capability recorded is the capability observed", () => {
     });
 
     for (const key of backend.objects.keys()) {
-      expect(key.startsWith(".context-probe/"), `${key} was left behind`).toBe(
+      expect(key.startsWith(".context/probes/"), `${key} was left behind`).toBe(
         false,
       );
     }

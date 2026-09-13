@@ -91,7 +91,8 @@ describe("countNotes", () => {
   test("every dot-segment is plumbing, not just .history", async () => {
     const store = memoryStore();
     store.seed(".history/x.md", "old");
-    store.seed(".audit/2026-08.md", "log");
+    store.seed(".audit/legacy.json", "old log");
+    store.seed(".context/audit/2026-08.md", "log");
     store.seed(".obsidian/workspace.md", "ui");
     store.seed("1-projects/ship/.trash/gone.md", "deleted");
     store.seed("1-projects/ship.md", "#");

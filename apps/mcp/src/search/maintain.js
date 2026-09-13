@@ -16,7 +16,7 @@
  * - It is **not snapshotted**. Nothing here is any more — version history is
  *   the customer's own object versioning at their provider — and a derivative
  *   rebuildable from the notes would be the last thing to reinstate it for.
- * - It is **not written to `.audit/`**. The audit trail records what a person
+ * - It is **not written to `.context/audit/`**. The audit trail records what a person
  *   or an agent did to somebody's notes; nobody did this, and an audit line per
  *   search would bury the lines that matter.
  * - It **never gates correctness**. Anything this pass could not finish comes
@@ -33,13 +33,14 @@
 import { addDoc, emptyIndex, parseIndex, removeDoc, serializeIndex } from "./indexer.js";
 import { indexableText } from "../encryption.js";
 import { computeRanks } from "./query.js";
+import { SEARCH_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 
 /**
  * One object per bucket. Dot-prefixed on purpose: `isPlumbing` already hides
  * every dot-segment key from every tool at every scope, so the index is
  * unreachable through the note surface without a single new rule.
  */
-export const SEARCH_INDEX_KEY = ".index/search-v1.json";
+export const SEARCH_INDEX_KEY = `${SEARCH_PREFIX}search-v1.json`;
 
 const LIST_PAGE_LIMIT = 1000;
 /**
@@ -409,7 +410,7 @@ async function listNoteObjects(store, budget, reserve, isIndexable) {
 }
 
 /**
- * Bring `.index/search-v1.json` as close to the bucket as one budget allows,
+ * Bring `.context/search/search-v1.json` as close to the bucket as one budget allows,
  * and hand back what was built.
  *
  * @param {import("../store/index.js").ContextStore} store

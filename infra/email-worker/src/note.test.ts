@@ -374,7 +374,7 @@ describe("attachments", () => {
   });
 
   it("embeds them and repeats the warning when they are stored", () => {
-    const stored = ".images/" + "a".repeat(64) + ".png";
+    const stored = ".context/assets/images/" + "a".repeat(64) + ".png";
     const note = render({
       attachments: [{ ...attachment, contentType: "image/png", storedPath: stored }],
       attachmentPolicy: "store",
@@ -398,7 +398,7 @@ describe("attachments", () => {
   });
 
   it("says which half is which when only some attachments were stored", () => {
-    const stored = ".images/" + "b".repeat(64) + ".png";
+    const stored = ".context/assets/images/" + "b".repeat(64) + ".png";
     const note = render({
       attachments: [
         attachment,

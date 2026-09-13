@@ -22,6 +22,7 @@ import { createSearchBudget } from "../../src/search/maintain.js";
 import { syncShardedIndex } from "../../src/search/shards.js";
 import { searchIndexedNotes } from "../../src/search/visible.js";
 import { renderChannelDayNote } from "../../../../packages/communications/src/note.js";
+import { SEARCH_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 
 const encoder = new TextEncoder();
 
@@ -200,7 +201,7 @@ async function measure({ days, perDay, plainNotes = 200, budget = 600, maxPasses
     }
   }
 
-  const shardKeys = [...bucket.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-"));
+  const shardKeys = [...bucket.objects.keys()].filter((key) => key.startsWith(`${SEARCH_PREFIX}v2/shard-`));
   const eachShard = shardKeys.map((key) => encoder.encode(bucket.objects.get(key).body).length);
   const shardBytes = eachShard.reduce((total, bytes) => total + bytes, 0);
   // The number the 2MB cap is actually about: a total spread over 64 shards
@@ -211,8 +212,8 @@ async function measure({ days, perDay, plainNotes = 200, budget = 600, maxPasses
   // spend half of `MANIFEST_PARSE_BYTE_CAP`.
   const sizeOf = (key) =>
     bucket.objects.has(key) ? encoder.encode(bucket.objects.get(key).body).length : 0;
-  const manifestBytes = sizeOf(".index/v2/manifest.json");
-  const docmapBytes = sizeOf(".index/v2/docmap.json");
+  const manifestBytes = sizeOf(`${SEARCH_PREFIX}v2/manifest.json`);
+  const docmapBytes = sizeOf(`${SEARCH_PREFIX}v2/docmap.json`);
 
   const run = async (query) => {
     const started = Date.now();

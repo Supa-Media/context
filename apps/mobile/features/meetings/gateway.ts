@@ -81,7 +81,7 @@ import type {
  *    the store factory ever sees — a note written into the connection's own
  *    bucket wearing somebody else's label, which is worse than the defect.
  *  - **It is on all four calls, not just finalize.** The session record lives
- *    in the destination context's own bucket under `.meetings/sessions/`, so a
+ *    in the destination context's own bucket under `.context/meetings/sessions/`, so a
  *    session upserted into one context and finalized against another finds
  *    nothing to finalize. Routing is per meeting, not per request kind.
  *  - **The folder cannot travel without its context.** Taking one value rather

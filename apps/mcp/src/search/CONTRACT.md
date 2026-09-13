@@ -9,7 +9,7 @@ limit on real contexts — measured live at 154 notes — and cannot rank.
 
 ## Where it lives
 
-One object per bucket: `.index/search-v1.json`. Dot-prefixed on purpose:
+One object per bucket: `.context/search/search-v1.json`. Dot-prefixed on purpose:
 `isPlumbing` already hides every dot-segment key from every tool and every
 scope, so the index is unreachable through the note surface without a single
 new rule. It is written only by the gateway's own maintenance path
@@ -160,7 +160,7 @@ paid-plan deployment raises it with `SEARCH_SUBREQUEST_BUDGET` in the
 environment — clamped, and unparseable values fall back to the default,
 because a typo'd var must not take search down or unbounded):
 
-1. `store.get(".index/search-v1.json")` → parse (null ⇒ empty index). An
+1. `store.get(".context/search/search-v1.json")` → parse (null ⇒ empty index). An
    object larger than `INDEX_PARSE_BYTE_CAP` is **refused unparsed** and
    treated exactly like a corrupt one: `JSON.parse` of a many-MB index
    inflates several-fold in a 128MB heap, and an index big enough to kill the
@@ -200,7 +200,7 @@ peak memory is one shard.
 
 ## Objects
 
-- `.index/v2/manifest.json` — **the query surface**, and the pass's single
+- `.context/search/v2/manifest.json` — **the query surface**, and the pass's single
   commit point. Carries `{version: 3, shardCount, generatedAt, stats, filters,
   freshness}` where `stats` is an array of per-shard `{docCount, lenTotals:
   {title, headings, tags, body}}`, `filters` is an array of `shardCount` base64
@@ -208,7 +208,7 @@ peak memory is one shard.
   must treat as "read that shard"), and `freshness` is
   `{listedAt, pending, truncated}` — what the last pass that listed the bucket
   found. A query reads this object and no other bookkeeping.
-- `.index/v2/docmap.json` — **the diff surface**, read by maintenance and by
+- `.context/search/v2/docmap.json` — **the diff surface**, read by maintenance and by
   nothing else. `{version: 3, shardCount, docsByShard}`, where `docsByShard` is
   an array of `shardCount` arrays of `[path, version]` pairs (the same
   listing-derived token v1 stores). Serialized as arrays of pairs throughout —
@@ -232,7 +232,7 @@ peak memory is one shard.
   diff into both objects to keep an older reader happy would be one list
   authored twice, and the direction that fails is two copies disagreeing about
   what a shard holds.
-- `.index/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id.
+- `.context/search/v2/shard-<nnn>.json` — `nnn` is the zero-padded decimal shard id.
   Written as `{version: 3, generatedAt, docs, terms}` over only its docs, where
   `docs` is a sorted array of `[path, meta]` pairs and each posting in `terms`
   is `[docIndex, tf]` — the doc's position in that `docs` array, not its path.

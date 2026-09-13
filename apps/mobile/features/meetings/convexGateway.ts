@@ -52,7 +52,7 @@ import { hasNothingCaptured } from "./session";
  *  - **No session record in the bucket.** `putSession`, `putSegments` and
  *    `putNotes` are acknowledged locally and write nothing. That is not a
  *    silent drop: on this path the *device* is the session store until the note
- *    is written, which it already was, and `.meetings/sessions/<id>.json` is a
+ *    is written, which it already was, and `.context/meetings/sessions/<id>.json` is a
  *    gateway implementation detail rather than part of the on-bucket format
  *    (`isPlumbing` hides it from every tool at every tier). What it costs is
  *    that a meeting in progress is not visible from another device.

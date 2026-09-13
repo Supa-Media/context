@@ -719,7 +719,7 @@ const operationValidator = v.union(
    *
    * Deliberately not `write`/`read` with a flag. Those carry a path and consult
    * `privacy.md`; these carry a *leaf* and must not, because an object under
-   * `.images/` has no visibility of its own — it borrows the visibility of
+   * `.context/assets/images/` has no visibility of its own — it borrows the visibility of
    * whatever note references it. Sharing the variant would mean sharing the
    * question, and the manifest has no answer for a key it does not describe.
    */

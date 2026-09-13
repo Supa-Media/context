@@ -234,11 +234,11 @@ describe("a projection pass the control plane runs itself", () => {
     // having an index. The projection's census is that index's own docmap, so
     // a pass that only projected would have nothing to walk, forever.
     const store = bucket();
-    expect(store.snapshot()[".index/v2/manifest.json"]).toBeUndefined();
+    expect(store.snapshot()[".context/search/v2/manifest.json"]).toBeUndefined();
 
     await chain(store, stubD1().client);
 
-    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".index/"))).toBe(
+    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(
       true,
     );
   });
@@ -292,7 +292,7 @@ describe("a projection pass the control plane runs itself", () => {
     expect(pass.failure).toBe(null);
     // Non-vacuity: the index really did advance, so "moved" is describing
     // something rather than being hardcoded true.
-    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".index/"))).toBe(
+    expect(Object.keys(store.snapshot()).some((key) => key.startsWith(".context/search/"))).toBe(
       true,
     );
   });
