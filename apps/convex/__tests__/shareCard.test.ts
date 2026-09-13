@@ -2,7 +2,7 @@
  * THE CARD, IN THE CUSTOMER'S OWN BUCKET.
  *
  * A card is derived from a note the customer wrote, so it lives where that note
- * lives — under `.images/` in their storage, not ours. **Revoking our
+ * lives — under `.context/assets/images/` in their storage, not ours. **Revoking our
  * credential takes the previews with it**, which is the product's promise
  * working rather than a cost of it.
  *
@@ -73,7 +73,7 @@ describe("where a card is stored", () => {
   });
 
   /**
-   * A card in `.images/` is readable by anyone who can read a note that
+   * A card in `.context/assets/images/` is readable by anyone who can read a note that
    * references it. The full 64-character token is the capability itself, so it
    * must not be sitting in a filename that other people can see.
    */
@@ -617,9 +617,9 @@ describe("serving a card", () => {
     await addMember(t, workspaceId, lkId, "member");
 
     const leaf = cardImageLeaf(token, "Chapter transition");
-    // `.images/` is dot-prefixed, so `isPlumbing` hides it from every listing
+    // `.context/assets/images/` is dot-prefixed, so `isPlumbing` hides it from every listing
     // and every read that goes through the manifest.
-    expect(`.images/${leaf}`.startsWith(".")).toBe(true);
+    expect(`.context/assets/images/${leaf}`.startsWith(".")).toBe(true);
   });
 });
 

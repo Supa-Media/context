@@ -33,6 +33,7 @@
  * @property {string} etag              unquoted etag, comparable across backends
  * @property {() => Promise<string>} text
  * @property {() => Promise<ArrayBuffer>} arrayBuffer
+ * @property {string} [contentType]       preserved by storage-layout migration
  *
  * @typedef {Object} ListedObject
  * @property {string} key
@@ -64,8 +65,9 @@
  * @property {(options?: {prefix?: string, delimiter?: string, cursor?: string, limit?: number}) => Promise<ListResult>} list
  */
 
-/** Probe objects live under a dot-prefixed path, so they are never note surface. */
-export const PROBE_PREFIX = ".context-probe/";
+/** Probe objects live under Context's reserved tree, so they are never note surface. */
+export { PROBE_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
+import { PROBE_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 
 /**
  * An etag no real object can have. Used to prove that a wrong precondition is

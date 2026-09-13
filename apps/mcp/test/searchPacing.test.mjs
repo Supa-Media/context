@@ -150,7 +150,7 @@ function createBucket() {
     live[kind] += 1;
     peak[kind] = Math.max(peak[kind], live[kind]);
     if (kind !== "get") return;
-    if (key.startsWith(".index/v2/shard-")) {
+    if (key.startsWith(".context/search/v2/shard-")) {
       liveShardGets += 1;
       peak.shardGet = Math.max(peak.shardGet, liveShardGets);
     } else if (key.endsWith(".md") && key !== "privacy.md") {
@@ -161,7 +161,7 @@ function createBucket() {
   const leave = (kind, key) => {
     live[kind] -= 1;
     if (kind !== "get") return;
-    if (key.startsWith(".index/v2/shard-")) liveShardGets -= 1;
+    if (key.startsWith(".context/search/v2/shard-")) liveShardGets -= 1;
     else if (key.endsWith(".md") && key !== "privacy.md") liveNoteGets -= 1;
   };
 
@@ -483,7 +483,7 @@ async function runAClaimIsNotCertainty(check) {
   // The same corpus with the routing input removed, which is what this walk did
   // before shard filters existed. Any hit it finds and the routed walk does not
   // is a visible, matching note that routing dropped.
-  const manifestKey = ".index/v2/manifest.json";
+  const manifestKey = ".context/search/v2/manifest.json";
   const stored = JSON.parse(await (await bucket.get(manifestKey)).text());
   const withFilters = JSON.stringify(stored);
   delete stored.filters;
@@ -957,7 +957,7 @@ export async function runSearchPacingChecks(check) {
     check(
       "the fixtures really did write shard objects",
       [...bucket.objects.keys()].some((key) => key === shardKey(0)) ||
-        [...bucket.objects.keys()].some((key) => key.startsWith(".index/v2/shard-"))
+        [...bucket.objects.keys()].some((key) => key.startsWith(".context/search/v2/shard-"))
     );
   } finally {
     restore();

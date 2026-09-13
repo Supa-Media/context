@@ -841,7 +841,7 @@ export async function runToolArgumentChecks(check) {
     check(
       "nothing reached the other context's bucket while all of that was asked",
       other.get("1-projects/probe.md")?.body === "OTHER-MARKER" &&
-        [...other.keys()].every((key) => !key.startsWith(".audit/"))
+        [...other.keys()].every((key) => !key.startsWith(".context/audit/"))
     );
 
     /* ------------------- the same, one tool at a time ---------------------- */

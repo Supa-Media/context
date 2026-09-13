@@ -107,11 +107,11 @@ describe("notePathIndex", () => {
   test("PRIVACY_KEY is a plumbing key excluded from the docmap entirely, not merely filtered here", async () => {
     // Documented rather than merely asserted: `isPlumbing` runs *in addition*
     // to `canSee` in `notePathIndex`, but the indexer's own `isIndexable`
-    // already keeps `.index/` and `privacy.md` out of the docmap in the first
+    // already keeps `.context/search/` and `privacy.md` out of the docmap in the first
     // place. This pins the outcome either layer is responsible for.
     const store = bucket();
     await indexed(store);
     const found = await notePathIndex(store, "private");
-    expect(found!.paths.some((path) => path.startsWith(".index/"))).toBe(false);
+    expect(found!.paths.some((path) => path.startsWith(".context/search/"))).toBe(false);
   });
 });

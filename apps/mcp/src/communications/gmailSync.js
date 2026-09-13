@@ -242,7 +242,7 @@ export const GMAIL_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
  *     characters are unsafe to a `ContextStore` key. They are unsafe here
  *     because the resulting path is later embedded, VERBATIM, as the target
  *     of `[[path|label]]` in `packages/communications`' rendering — a
- *     filename of `evil]] and [[.audit/x` would close that link early and
+ *     filename of `evil]] and [[.context/audit/x` would close that link early and
  *     open a second one the sender chose, in a note presented as the
  *     owner's own. Replacing them with `-` closes it at the source, so the
  *     rendering layer's `defangOutsideFence` (which protects the LABEL half)
@@ -503,7 +503,7 @@ export async function resolveDayAttachments(options) {
       // A cross-message duplicate (the identical bytes, a different message
       // or attachmentId) reuses the existing file with no second write —
       // "the same file arriving twice is one object," the same rule the
-      // `.images/` store already keeps.
+      // `.context/assets/images/` store already keeps.
       manifest.resolved[key] = {
         contentHash,
         filename: attachment.filename,

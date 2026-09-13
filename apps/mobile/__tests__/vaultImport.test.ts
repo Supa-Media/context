@@ -32,13 +32,14 @@ describe("an Obsidian vault selection", () => {
       picked("Vault/.git/config"),
       picked("Vault/.context/jobs/secret"),
       picked("Vault/.audit/events.jsonl"),
+      picked("Vault/.context/audit/events.jsonl"),
       picked("Vault/privacy.md"),
       picked("Vault/.DS_Store"),
       picked("Vault/notes/keep.md"),
     ]);
 
     expect(plan.files.map((file) => file.path)).toEqual(["notes/keep.md"]);
-    expect(plan.skipped).toBe(7);
+    expect(plan.skipped).toBe(8);
   });
 
   test("refuses paths that escape the vault and files too large for one safe request", () => {

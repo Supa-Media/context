@@ -632,13 +632,13 @@ export async function runStoreChecks(check, gateway) {
 
   const legitimateStore = s3(() => new Response("ok", { headers: { etag: '"v1"' } }));
   await legitimateStore.get(".history/1-projects/a.2026-08-25.md");
-  await legitimateStore.list({ prefix: ".proposals/pending/" });
+  await legitimateStore.list({ prefix: ".context/proposals/pending/" });
   await legitimateStore.list({});
   check(
     "dot-prefixed plumbing keys and trailing-slash prefixes still work",
     legitimateStore.fetchImpl.calls[0].url.pathname ===
       "/example-bucket/.history/1-projects/a.2026-08-25.md" &&
-      legitimateStore.fetchImpl.calls[1].url.searchParams.get("prefix") === ".proposals/pending/" &&
+      legitimateStore.fetchImpl.calls[1].url.searchParams.get("prefix") === ".context/proposals/pending/" &&
       legitimateStore.fetchImpl.calls[2].url.searchParams.has("prefix") === false
   );
 

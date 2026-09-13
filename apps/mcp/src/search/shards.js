@@ -62,6 +62,7 @@ import {
   exceedsUtf8Bytes,
   inWaves,
 } from "./maintain.js";
+import { SEARCH_PREFIX } from "../../../../packages/shared/src/storageLayout.cjs";
 
 /**
  * What a **query** needs to know about the index, and nothing else: how many
@@ -74,7 +75,7 @@ import {
  * downloaded all of it to learn a shard count. That surface moved to
  * `DOCMAP_KEY`, which only maintenance reads. See `serializeManifest`.
  */
-export const MANIFEST_KEY = ".index/v2/manifest.json";
+export const MANIFEST_KEY = `${SEARCH_PREFIX}v2/manifest.json`;
 /**
  * The diff surface: what the last pass believes each shard holds, by version
  * token. Read by the sync and by nothing else.
@@ -89,9 +90,9 @@ export const MANIFEST_KEY = ".index/v2/manifest.json";
  * Both readers get the same honesty from it: an unreadable or stale docmap is
  * a note not yet found, never a note reported missing.
  */
-export const DOCMAP_KEY = ".index/v2/docmap.json";
+export const DOCMAP_KEY = `${SEARCH_PREFIX}v2/docmap.json`;
 /** v1's single object, deleted once a v2 manifest exists — dead weight. */
-export const LEGACY_V1_KEY = ".index/search-v1.json";
+export const LEGACY_V1_KEY = `${SEARCH_PREFIX}search-v1.json`;
 
 /**
  * One shard, in bytes, and it governs both directions: a stored shard past it
@@ -520,7 +521,7 @@ function placeUnclaimed(manifest, entries, claimedShard, volumeCap) {
 }
 
 /**
- * `.index/v2/shard-<nnn>.json`. Dot-prefixed for the same reason v1's key is:
+ * `.context/search/v2/shard-<nnn>.json`. Dot-prefixed for the same reason v1's key is:
  * `isPlumbing` already hides every dot-segment key from every tool at every
  * scope, so the index is unreachable through the note surface without a single
  * new rule.
@@ -529,7 +530,7 @@ function placeUnclaimed(manifest, entries, claimedShard, volumeCap) {
  * @returns {string}
  */
 export function shardKey(id) {
-  return `.index/v2/shard-${String(id).padStart(3, "0")}.json`;
+  return `${SEARCH_PREFIX}v2/shard-${String(id).padStart(3, "0")}.json`;
 }
 
 // -- in-memory shapes ------------------------------------------------------
@@ -1739,7 +1740,7 @@ function auditCandidates(manifest, busy, nowMs, count = AUDIT_SHARDS_PER_SYNC) {
 }
 
 /**
- * Bring `.index/v2/` as close to the bucket as one budget allows, and hand back
+ * Bring `.context/search/v2/` as close to the bucket as one budget allows, and hand back
  * what was built — CONTRACT.md § "The sharded index … Maintenance".
  *
  * GET the manifest, list the notes, diff the listing against `docsByShard`,

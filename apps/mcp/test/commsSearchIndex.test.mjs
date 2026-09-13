@@ -556,7 +556,7 @@ async function runVisibilityChecks(check) {
   // The direct proof: A's own stored shard object never contains a doc whose
   // content came from B's note — two entirely separate stores, so nothing in
   // A's bytes was ever computed from B's bucket at all.
-  const shardKeysA = [...workspaceA.objects.keys()].filter((k) => k.startsWith(".index/v2/shard-"));
+  const shardKeysA = [...workspaceA.objects.keys()].filter((k) => k.startsWith(".context/search/v2/shard-"));
   let sawB = false;
   for (const key of shardKeysA) {
     if (workspaceA.objects.get(key).body.includes("B holds")) sawB = true;
@@ -896,7 +896,7 @@ async function runTenantCollisionChecks(check) {
   check(
     "...and A's stored index bytes never contain B's text",
     ![...a.objects.entries()].some(
-      ([key, stored]) => key.startsWith(".index/") && stored.body.includes("yankeemikebravo")
+      ([key, stored]) => key.startsWith(".context/search/") && stored.body.includes("yankeemikebravo")
     )
   );
   // Non-negotiable 2: tenancy is bucket-level, so a sub-document key is a
@@ -958,9 +958,9 @@ async function runLegacyIndexChecks(check) {
   const bucket = createBucket();
   bucket.seed(dayPath, dayText, uploaded);
   bucket.seed(plainPath, plainText, uploaded);
-  bucket.seed(".index/v2/shard-000.json", bytes, uploaded);
+  bucket.seed(".context/search/v2/shard-000.json", bytes, uploaded);
   bucket.seed(
-    ".index/v2/manifest.json",
+    ".context/search/v2/manifest.json",
     JSON.stringify({
       version: 3,
       shardCount: 1,
@@ -988,7 +988,7 @@ async function runLegacyIndexChecks(check) {
     uploaded
   );
   bucket.seed(
-    ".index/v2/docmap.json",
+    ".context/search/v2/docmap.json",
     JSON.stringify({
       version: 3,
       shardCount: 1,
@@ -1122,8 +1122,8 @@ async function runRebuildChecks(check) {
   fresh.seed(dayPath, twoMessages, uploaded);
   await converge(fresh);
 
-  const shardKeys = [...incremental.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-")).sort();
-  const freshKeys = [...fresh.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-")).sort();
+  const shardKeys = [...incremental.objects.keys()].filter((key) => key.startsWith(".context/search/v2/shard-")).sort();
+  const freshKeys = [...fresh.objects.keys()].filter((key) => key.startsWith(".context/search/v2/shard-")).sort();
   check("both indexes hold the same shard objects", JSON.stringify(shardKeys) === JSON.stringify(freshKeys));
 
   /*
@@ -1181,8 +1181,8 @@ async function runRebuildChecks(check) {
       shardKeys.some((key) => incremental.objects.get(key).body.includes(otherPath))
   );
 
-  const docmapIncremental = JSON.parse(incremental.objects.get(".index/v2/docmap.json").body);
-  const docmapFresh = JSON.parse(fresh.objects.get(".index/v2/docmap.json").body);
+  const docmapIncremental = JSON.parse(incremental.objects.get(".context/search/v2/docmap.json").body);
+  const docmapFresh = JSON.parse(fresh.objects.get(".context/search/v2/docmap.json").body);
   check(
     "the diff surface names each note once, in both",
     JSON.stringify(docmapIncremental.docsByShard.map((s) => s.map(([p]) => p))) ===
@@ -1253,7 +1253,7 @@ async function runNoMessageFallbackChecks(check) {
   check(
     "...and from the stored shard's bytes, so nothing is merely being filtered on the way out",
     ![...bucket.objects.entries()].some(
-      ([key, stored]) => key.startsWith(".index/v2/shard-") && stored.body.includes("plaintext-canary-beta")
+      ([key, stored]) => key.startsWith(".context/search/v2/shard-") && stored.body.includes("plaintext-canary-beta")
     )
   );
   const idle = await syncShardedIndex(bucket, { budget: createSearchBudget(2000) });
@@ -1430,7 +1430,7 @@ async function runShardSizingChecks(check) {
     "...across several shards, because the sizing followed the documents rather than the objects",
     built.manifest.shardCount > 1
   );
-  const shardObjects = [...mailbox.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-"));
+  const shardObjects = [...mailbox.objects.keys()].filter((key) => key.startsWith(".context/search/v2/shard-"));
   check(
     "...and the shards were actually written, which under the note-count sizing none ever was",
     shardObjects.length > 1 &&
@@ -1626,10 +1626,10 @@ async function runShardSizingChecks(check) {
   const behind = createBucket();
   for (const note of plainNotes(20)) behind.seed(note.path, note.text);
   await converge(behind, 2000, { shardByteCap: cap });
-  const docmapAtOneShard = behind.objects.get(".index/v2/docmap.json").body;
+  const docmapAtOneShard = behind.objects.get(".context/search/v2/docmap.json").body;
   for (const note of days) behind.seed(note.path, note.text);
   const behindAfter = await converge(behind, 2000, { shardByteCap: cap });
-  behind.objects.set(".index/v2/docmap.json", { body: docmapAtOneShard, etag: "stale", uploaded: new Date() });
+  behind.objects.set(".context/search/v2/docmap.json", { body: docmapAtOneShard, etag: "stale", uploaded: new Date() });
   const nextPass = await syncShardedIndex(behind, {
     budget: createSearchBudget(2000),
     shardByteCap: cap,
@@ -1690,7 +1690,7 @@ async function runShardSizingChecks(check) {
     "a day whose documents no shard can hold is shed rather than refusing the shard's write",
     shedPass.shed.includes(huge.path)
   );
-  const shedShards = [...tight.objects.keys()].filter((key) => key.startsWith(".index/v2/shard-"));
+  const shedShards = [...tight.objects.keys()].filter((key) => key.startsWith(".context/search/v2/shard-"));
   check(
     "...so shards are still written, under the cap",
     shedShards.length > 0 &&
@@ -1833,6 +1833,6 @@ async function runShardSizingChecks(check) {
     "a shard no amount of shedding can fit is refused, and named as refused rather than as pending alone",
     refused.oversizedShards > 0 &&
       refused.pending > 0 &&
-      [...impossible.objects.keys()].every((key) => !key.startsWith(".index/v2/shard-"))
+      [...impossible.objects.keys()].every((key) => !key.startsWith(".context/search/v2/shard-"))
   );
 }

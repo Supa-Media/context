@@ -64,6 +64,7 @@ import {
 } from "./privacy";
 import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
 import { indexByName, rewriteLinks } from "@context/shared/src/links";
+import { HISTORY_PREFIX, IMAGE_PREFIX, legacyStorageKey } from "@context/shared/src/storageLayout.cjs";
 // The gateway's search, imported rather than ported — see `searchNotes` below.
 // `apps/mcp` targets the Workers runtime, which is Convex's runtime too, so
 // these run here unmodified over the same store `provisioning.ts` already
@@ -111,7 +112,6 @@ const MANIFEST_CAS_ATTEMPTS = 5;
  * the customer's to enable at their provider — but buckets connected before
  * that change are full of them, so `deletePath` still purges what it finds.
  */
-const HISTORY_PREFIX = ".history/";
 
 /**
  * Where the one copy this product still keeps for somebody goes.
@@ -1566,52 +1566,58 @@ async function historyKeysFor(
 ): Promise<string[]> {
   // A folder's history mirrors its shape (`.history/1-projects/note.md.<stamp>.md`),
   // so the whole subtree goes. A file's history is the siblings sharing its name.
-  const prefix = pathIsFolder ? `${HISTORY_PREFIX}${path}/` : `${HISTORY_PREFIX}${path}.`;
   const keys: string[] = [];
-  let cursor: string | undefined;
-  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
-    const listing = await store.list({ prefix, cursor, limit: 1000 });
-    for (const object of listing.objects ?? []) {
-      // For a file, a `/` in the tail would mean a directory we did not put
-      // there — leave it rather than sweep something we cannot explain.
-      if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
-      if (deleted !== null) {
-        // Which note does this snapshot belong to? `.history/a.md.X.md` could
-        // be a version of `a.md` stamped `X`, or of a note actually called
-        // `a.md.X` — a prefix test cannot tell, and testing the deleted set and
-        // the survivors separately gets it wrong in both directions at once:
-        // `a.md` shields `a.md.notes.md`'s snapshots from a delete that took
-        // it, and `a.md.notes.md` is swept by a delete of `a.md`.
-        //
-        // Longest match decides, the same way `visibilityOf` resolves a key
-        // against overlapping folder rules. The snapshot belongs to the most
-        // specific note whose name it extends, and it goes only if that note
-        // is one of the ones actually deleted.
-        let owner: string | null = null;
-        for (const key of [...deleted, ...survivors]) {
-          if (!object.key.startsWith(`${HISTORY_PREFIX}${key}.`)) continue;
-          if (owner === null || key.length > owner.length) owner = key;
+  const currentPrefix = pathIsFolder ? `${HISTORY_PREFIX}${path}/` : `${HISTORY_PREFIX}${path}.`;
+  const storagePrefixes = [currentPrefix, legacyStorageKey(currentPrefix)].filter(
+    (value): value is string => Boolean(value),
+  );
+  for (const prefix of storagePrefixes) {
+    let cursor: string | undefined;
+    for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      const listing = await store.list({ prefix, cursor, limit: 1000 });
+      for (const object of listing.objects ?? []) {
+        const logicalKey = `${currentPrefix}${object.key.slice(prefix.length)}`;
+        // For a file, a `/` in the tail would mean a directory we did not put
+        // there — leave it rather than sweep something we cannot explain.
+        if (!(pathIsFolder || !object.key.slice(prefix.length).includes("/"))) continue;
+        if (deleted !== null) {
+          // Which note does this snapshot belong to? `.history/a.md.X.md` could
+          // be a version of `a.md` stamped `X`, or of a note actually called
+          // `a.md.X` — a prefix test cannot tell, and testing the deleted set and
+          // the survivors separately gets it wrong in both directions at once:
+          // `a.md` shields `a.md.notes.md`'s snapshots from a delete that took
+          // it, and `a.md.notes.md` is swept by a delete of `a.md`.
+          //
+          // Longest match decides, the same way `visibilityOf` resolves a key
+          // against overlapping folder rules. The snapshot belongs to the most
+          // specific note whose name it extends, and it goes only if that note
+          // is one of the ones actually deleted.
+          let owner: string | null = null;
+          for (const key of [...deleted, ...survivors]) {
+            if (!logicalKey.startsWith(`${HISTORY_PREFIX}${key}.`)) continue;
+            if (owner === null || key.length > owner.length) owner = key;
+          }
+          if (owner === null || !deleted.includes(owner)) continue;
         }
-        if (owner === null || !deleted.includes(owner)) continue;
+        keys.push(object.key);
       }
-      keys.push(object.key);
+      // The one walk with nowhere to put the answer. Its only caller has already
+      // deleted the live keys by the time it runs, so it cannot refuse, and
+      // `DeleteResult` carries only `paths` — there is no `truncated` to report
+      // through. A short walk here leaves snapshots of a note somebody
+      // permanently deleted, which is the lie the delete copy must not tell.
+      //
+      // Already reachable at `LIST_PAGE_CAP`, and the fold below does not widen
+      // it as much as it looks: on a store that misreports consistently,
+      // `deletePath` never gets this far, because `keysUnder` (folder) or
+      // `namesExtending` (file) refuses first. What is left needs a store that
+      // misbehaves only under `.history/`, or only sometimes — narrow, but not
+      // nothing, and stating "not made worse" flatly would be the overclaim.
+      // Left as it is rather than papered over: the fix is to resolve the history
+      // before the live keys go, which is a bigger change than this one.
+      if (!listing.truncated || !listing.cursor) break;
+      cursor = listing.cursor;
     }
-    // The one walk with nowhere to put the answer. Its only caller has already
-    // deleted the live keys by the time it runs, so it cannot refuse, and
-    // `DeleteResult` carries only `paths` — there is no `truncated` to report
-    // through. A short walk here leaves snapshots of a note somebody
-    // permanently deleted, which is the lie the delete copy must not tell.
-    //
-    // Already reachable at `LIST_PAGE_CAP`, and the fold below does not widen
-    // it as much as it looks: on a store that misreports consistently,
-    // `deletePath` never gets this far, because `keysUnder` (folder) or
-    // `namesExtending` (file) refuses first. What is left needs a store that
-    // misbehaves only under `.history/`, or only sometimes — narrow, but not
-    // nothing, and stating "not made worse" flatly would be the overclaim.
-    // Left as it is rather than papered over: the fix is to resolve the history
-    // before the live keys go, which is a bigger change than this one.
-    if (!listing.truncated || !listing.cursor) break;
-    cursor = listing.cursor;
   }
   return keys;
 }
@@ -3023,7 +3029,7 @@ export const MAX_STORED_IMAGE_BYTES = 5_000_000;
  * on `IMAGE_PREFIX` in the gateway, which reads the same store from the other
  * side.
  */
-export const IMAGE_PREFIX = ".images/";
+export { IMAGE_PREFIX };
 
 /**
  * The leaf extensions `read_image` will serve back.
@@ -3076,7 +3082,8 @@ export const STORABLE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set([
  * then requires the character class below; then a `.` past position 0; then an
  * extension in `IMAGE_MIME_TYPES`. Only the
  * character class was enforced here, so `writeImage` would happily resolve for
- * `abc`, `abc.txt` and `abc.svg` — measured, returning `{ key: ".images/abc" }`
+ * `abc`, `abc.txt` and `abc.svg` — measured, returning
+ * `{ key: ".context/assets/images/abc" }`
  * — every one of which `read_image` refuses forever.
  *
  * (An earlier version of this comment said "two halves" and enumerated three
@@ -3172,7 +3179,9 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(leaf) || leaf.length > 200) {
     throw new FileOpError("PATH_INVALID", "That is not a valid stored-object name.");
   }
-  const object = await store.get(`${IMAGE_PREFIX}${leaf}`);
+  const key = `${IMAGE_PREFIX}${leaf}`;
+  const legacyKey = legacyStorageKey(key);
+  const object = (await store.get(key)) || (legacyKey ? await store.get(legacyKey) : null);
   if (object === null) throw notFound();
   // `arrayBuffer` rather than `text`: a PNG decoded as UTF-8 is mojibake, and
   // the adapters that predate images only guaranteed `text`.

@@ -666,7 +666,7 @@ export async function runEncryptionGatewayChecks(check) {
      * search and every scheduled sweep actually runs — read note bodies with a
      * bare `object.text()`, so an envelope's own terms (`a256gcm`,
      * `context-encrypted`, the callout's words, the base64url of `ct`) were
-     * tokenised into `.index/v2/shard-*.json`, an object that lives **in the
+     * tokenised into `.context/search/v2/shard-*.json`, an object that lives **in the
      * customer's own bucket under the same credential as the note**. The
      * `indexableText` call the decision file points at lived in `syncIndex`,
      * which nothing has called since the v2 index landed.
@@ -681,7 +681,7 @@ export async function runEncryptionGatewayChecks(check) {
      * was never built.
      */
     const indexObjects = [...a.objects.keys()]
-      .filter((key) => key.startsWith(".index/"))
+      .filter((key) => key.startsWith(".context/search/"))
       .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
       .join("\n");
     check(
@@ -885,7 +885,7 @@ export async function runEncryptionGatewayChecks(check) {
 
     /* -- (13) and the audit trail records the path, never the content ------- */
 
-    const auditKeys = [...a.objects.keys()].filter((key) => key.startsWith(".audit/"));
+    const auditKeys = [...a.objects.keys()].filter((key) => key.startsWith(".context/audit/"));
     const audit = auditKeys
       .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
       .join("\n");
@@ -1043,7 +1043,7 @@ export async function runEncryptionGatewayChecks(check) {
         !lockedLog.includes("Only the passphrase beside this"),
     );
     const lockedAudit = [...a.objects.keys()]
-      .filter((key) => key.startsWith(".audit/"))
+      .filter((key) => key.startsWith(".context/audit/"))
       .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
       .join("\n");
     check(
@@ -1323,7 +1323,7 @@ export async function runEncryptionGatewayChecks(check) {
     check(
       "the export never appears in the audit trail",
       !(await (async () => {
-        const keys = [...a.objects.keys()].filter((key) => key.startsWith(".audit/"));
+        const keys = [...a.objects.keys()].filter((key) => key.startsWith(".context/audit/"));
         const text = keys.map((key) => new TextDecoder().decode(a.objects.get(key).bytes)).join("\n");
         return text.includes(KEY_A);
       })()),
@@ -1332,7 +1332,7 @@ export async function runEncryptionGatewayChecks(check) {
     /*
       THE KEY LEAVES IN THE RESPONSE BODY AND NOWHERE ELSE.
 
-      The audit check above covers `.audit/`. This one covers the gateway's
+      The audit check above covers `.context/audit/`. This one covers the gateway's
       own structured logs, which are the other place a value that passes
       through a request routinely ends up — `console.log` is captured for the
       length of one export and searched for the material itself. A log line is
@@ -1530,7 +1530,7 @@ export async function runEncryptionGatewayChecks(check) {
     );
 
     const auditAfterRotate = [...a.objects.keys()]
-      .filter((key) => key.startsWith(".audit/"))
+      .filter((key) => key.startsWith(".context/audit/"))
       .map((key) => new TextDecoder().decode(a.objects.get(key).bytes))
       .join("\n");
     check(

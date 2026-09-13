@@ -1482,7 +1482,7 @@ export async function runConsoleBridgeChecks(check) {
         a#frag                   ->  /meetings/sessions/a, dropping /finalize
 
     The gateway saved the bucket key — `matchMeetingRoute` runs `isMeetingId`
-    before `sessionKey` interpolates anything, so `.meetings/sessions/<id>.json`
+    before `sessionKey` interpolates anything, so `.context/meetings/sessions/<id>.json`
     is never built from a malformed id — and the outbox saved the disk, keying
     entries `${sessionId}:${kind}` inside one JSON structure rather than as
     filenames. Nothing saved the URL.

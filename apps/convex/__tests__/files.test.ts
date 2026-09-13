@@ -275,7 +275,8 @@ describe("Obsidian vault import", () => {
 
   test("clears every bucket object in a resumable owner-only phase before replacement uploads", async () => {
     const f = await fixture();
-    f.backend.seed(".audit/events.jsonl", "audit");
+    f.backend.seed(".audit/legacy-events.jsonl", "legacy audit");
+    f.backend.seed(".context/audit/events.jsonl", "audit");
     f.backend.seed(".context/recover/privacy.md", "old privacy");
     f.backend.seed("attachment.png", new Uint8Array([1, 2, 3]));
     for (let index = 0; index < 205; index += 1) {
@@ -303,7 +304,7 @@ describe("Obsidian vault import", () => {
       { workspaceId: f.workspaceId, jobId: job.jobId, sourceFingerprint: "vault-replace-resumable" },
     ));
     expect(errorCode(unauthorized)).toBe("WORKSPACE_NOT_FOUND");
-    expect(Object.keys(f.backend.snapshot())).toHaveLength(214);
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(215);
 
     const counted = await owner.action(api.functions.files.clearVaultImportBatch, {
       workspaceId: f.workspaceId,
@@ -312,10 +313,10 @@ describe("Obsidian vault import", () => {
     });
     expect(counted.replacement).toEqual({
       phase: "deleting",
-      totalObjects: 214,
+      totalObjects: 215,
       deletedObjects: 0,
     });
-    expect(Object.keys(f.backend.snapshot())).toHaveLength(214);
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(215);
 
     const firstPage = await owner.action(api.functions.files.clearVaultImportBatch, {
       workspaceId: f.workspaceId,
@@ -324,10 +325,10 @@ describe("Obsidian vault import", () => {
     });
     expect(firstPage.replacement).toEqual({
       phase: "deleting",
-      totalObjects: 214,
+      totalObjects: 215,
       deletedObjects: 100,
     });
-    expect(Object.keys(f.backend.snapshot())).toHaveLength(114);
+    expect(Object.keys(f.backend.snapshot())).toHaveLength(115);
 
     await owner.action(api.functions.files.clearVaultImportBatch, {
       workspaceId: f.workspaceId,
@@ -341,8 +342,8 @@ describe("Obsidian vault import", () => {
     });
     expect(cleared.replacement).toEqual({
       phase: "uploading",
-      totalObjects: 214,
-      deletedObjects: 214,
+      totalObjects: 215,
+      deletedObjects: 215,
     });
     expect(f.backend.snapshot()).toEqual({});
 

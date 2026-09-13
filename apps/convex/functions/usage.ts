@@ -4,7 +4,7 @@
  * ## The line this module is built along
  *
  * There is already a record of what a person did in their own context: the
- * audit trail, in **their** bucket, under `.audit/`, which they can read,
+ * audit trail, in **their** bucket, under `.context/audit/`, which they can read,
  * export and delete. Building the admin dashboard by reading that would
  * quietly convert a customer-owned record into a product-analytics pipeline,
  * which is the move CLAUDE.md's first non-negotiable forbids.

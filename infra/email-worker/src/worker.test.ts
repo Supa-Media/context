@@ -350,16 +350,16 @@ describe("an emailed image is stored as an image", () => {
 
   const storeAll = { ...RESOLUTION, attachmentPolicy: "store" as const };
 
-  it("writes the image under `.images/` at all, so the rest of this is about a real object", async () => {
+  it("writes the image under `.context/assets/images/` at all, so the rest of this is about a real object", async () => {
     const { bucket } = await run(messageWithImage(), { stub: { resolution: storeAll } });
-    const stored = [...bucket.objects.keys()].filter((key) => key.startsWith(".images/"));
+    const stored = [...bucket.objects.keys()].filter((key) => key.startsWith(".context/assets/images/"));
     expect(stored).toHaveLength(1);
-    expect(stored[0]).toMatch(/^\.images\/[0-9a-f]{64}\.png$/);
+    expect(stored[0]).toMatch(/^\.context\/assets\/images\/[0-9a-f]{64}\.png$/);
   });
 
   it("labels it `image/png`, not markdown", async () => {
     const { bucket } = await run(messageWithImage(), { stub: { resolution: storeAll } });
-    const key = [...bucket.objects.keys()].find((k) => k.startsWith(".images/"))!;
+    const key = [...bucket.objects.keys()].find((k) => k.startsWith(".context/assets/images/"))!;
     expect(bucket.types.get(key)).toBe("image/png");
   });
 
@@ -382,7 +382,7 @@ describe("a message that should be captured is", () => {
     expect(observed.rejected).toEqual([]);
     const keys = [...bucket.objects.keys()];
     expect(keys.filter((key) => key.startsWith("0-inbox/email/"))).toHaveLength(1);
-    expect(keys.filter((key) => key.startsWith(".audit/"))).toHaveLength(1);
+    expect(keys.filter((key) => key.startsWith(".context/audit/"))).toHaveLength(1);
   });
 
   it("marked as untrusted inbound, in the frontmatter and in the body", async () => {
@@ -451,7 +451,7 @@ describe("a message that should be captured is", () => {
     // came from. `auth_method` could once only hold a passing method, so its
     // presence read as proof; it can hold `none` now, and says which.
     const { bucket } = await run(rawMessage({ authResults: null }));
-    const audit = [...bucket.objects.entries()].find(([key]) => key.startsWith(".audit/"))![1];
+    const audit = [...bucket.objects.entries()].find(([key]) => key.startsWith(".context/audit/"))![1];
     const entry = JSON.parse(String(audit)) as { details: Record<string, unknown> };
     expect(entry.details.auth_method).toBe("none");
     expect(entry.details.auth_failure).toBe("no_authentication_results");
@@ -471,7 +471,7 @@ describe("a message that should be captured is", () => {
     // here would break an existing brain connecting with zero migration.
     const { bucket } = await run(rawMessage());
     for (const key of bucket.objects.keys()) {
-      expect(key.startsWith("0-inbox/") || key.startsWith(".audit/")).toBe(true);
+      expect(key.startsWith("0-inbox/") || key.startsWith(".context/audit/")).toBe(true);
     }
   });
 
@@ -856,7 +856,7 @@ describe("a Dropbox-backed context", () => {
     expect(observed.rejected).toEqual([]);
     const paths = uploads.map((upload) => upload.path);
     expect(paths.filter((path) => path.startsWith("/0-inbox/email/"))).toHaveLength(1);
-    expect(paths.filter((path) => path.startsWith("/.audit/"))).toHaveLength(1);
+    expect(paths.filter((path) => path.startsWith("/.context/audit/"))).toHaveLength(1);
   });
 
   it("writes inside the folder the customer chose, and nowhere else", async () => {

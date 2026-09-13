@@ -591,7 +591,7 @@ from any `context:write` grant directly, without passing through
 `transcribeChunk` at all. The gateway caps a segment's text, one request body,
 and how many segments a session holds — but never the size of the stored record,
 so a padded id was the one field those caps did not reach. The record lives at
-`.meetings/sessions/<id>.json`, and `isPlumbing` refuses a dot-prefixed segment
+`.context/meetings/sessions/<id>.json`, and `isPlumbing` refuses a dot-prefixed segment
 at every tier including the owner's, so the growth is invisible to the person
 whose storage bill it lands on. `MAX_SEGMENT_ID_CHARS` = 200 closes it.
 

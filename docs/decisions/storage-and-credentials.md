@@ -198,6 +198,32 @@ include another's; and a counter may never fail the thing it counts, so the
 report is deferred behind the response and dropped entirely on a host that
 cannot defer.
 
+### Context-owned objects have one versioned namespace
+
+Every object Context creates that is not a user-authored note or attachment
+lives under `.context/`: audit records, search indexes, meeting session state,
+generated image objects, legacy ACLs, integration queues, proposals, probes and
+migration journals each have a purpose-named child. User-authored roots remain
+untouched, and `.obsidian/` remains the user's rather than ours.
+
+Storage-layout v1 replaces the former sibling dot folders. Readers prefer v1
+and fall back to legacy durable data; new writes use only v1. Search indexes are
+disposable and may rebuild instead of paying a second read for a legacy index.
+The owner-only migration copies bounded batches, refuses storage without
+conditional create/write, byte-verifies every destination, records resumable
+progress at `.context/migrations/storage-layout-v1.json`, and never overwrites a
+different destination. Copy completion writes `.context/manifest.json`.
+Deletion is a distinct explicit phase, unavailable until a seven-day rollback
+window has elapsed, and re-verifies each source/destination pair before removing
+the source. Re-running either phase is safe.
+
+**What a simplification of this would cost.** Writing another top-level hidden
+folder recreates the clutter this layout removes; deleting during copy removes
+rollback; unconditional copy can destroy a user's manually recovered object;
+and requiring migration before reads breaks existing buckets. The gateway
+migration checks pin all four properties, while producer tests pin the new
+paths.
+
 ### Version history is the customer's object versioning, not a copy we keep
 
 Every write path in this product used to snapshot the body it was about to

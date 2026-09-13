@@ -41,6 +41,7 @@ import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
 import { runEncryptionRotationChecks } from "./encryptionRotation.test.mjs";
 import { runRotationCursorAdversarialChecks } from "./encryptionRotationCursor.test.mjs";
+import { runStorageLayoutChecks } from "./storageLayout.test.mjs";
 import {
   CONTROL_PLANE_ORIGIN,
   GATEWAY_SECRET,
@@ -435,8 +436,28 @@ const tools = await rpc("priv-token", "tools/list");
 // note too, and these are the two reads that know the bodies are appended to
 // one and that a model has to ask for them. 27 with `set_encryption`, which is
 // a write over one note's own bytes and, like `set_visibility` beside it, a
-// personal connection's.
-check("34 tools listed", tools.result?.tools.length === 34);
+// personal connection's. 35 adds the owner-only storage-layout migration.
+check("35 tools listed", tools.result?.tools.length === 35);
+check(
+  "storage migration is advertised only to an owner-tier connection",
+  tools.result.tools.some((tool) => tool.name === "migrate_storage_layout") &&
+    !(await rpc("pub-token", "tools/list"))?.result?.tools?.some(
+      (tool) => tool.name === "migrate_storage_layout",
+    ),
+);
+check(
+  "a direct team-tier migration call is masked like an unknown tool",
+  (await call("pub-token", "migrate_storage_layout", {}))?.content?.[0]?.text ===
+    "unknown tool: migrate_storage_layout",
+);
+await contextStore.put(".audit/000-layout-tool.json", "legacy audit");
+const layoutMigration = await call("priv-token", "migrate_storage_layout", { batch_size: 1 });
+check(
+  "the owner migration tool copies a legacy object without deleting it",
+  !layoutMigration.isError &&
+    objects.has(".audit/000-layout-tool.json") &&
+    objects.has(".context/audit/000-layout-tool.json"),
+);
 
 // -- list_plugins through the worker
 //
@@ -1215,7 +1236,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 34);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 35);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1441,7 +1462,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 34
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 35
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -2982,7 +3003,7 @@ check(
     privateChanges?.includes("inherited-private")
 );
 const listAfterAudit = (await call("priv-token", "list_notes"))?.content?.[0]?.text;
-check("audit plumbing is hidden from note listings", lacks(listAfterAudit, ".audit/"));
+check("audit plumbing is hidden from note listings", lacks(listAfterAudit, ".context/audit/"));
 
 // -- path token + inbox
 const pt = await worker.fetch(
@@ -3147,8 +3168,8 @@ check(
 );
 check(
   "completed Granola webhook leaves no pending event",
-  ![...objects.keys()].some((key) => key.startsWith(".granola-events/pending/")) &&
-    [...objects.keys()].some((key) => key.startsWith(".granola-events/completed/"))
+  ![...objects.keys()].some((key) => key.startsWith(".context/integrations/granola/events/pending/")) &&
+    [...objects.keys()].some((key) => key.startsWith(".context/integrations/granola/events/completed/"))
 );
 const granolaDuplicate = await worker.fetch(await signedGranolaRequest(granolaEvent), env, {
   waitUntil() {},
@@ -3275,7 +3296,7 @@ check("calendar note reports recurring support", recurringCal.includes("Common r
 // these checks authenticate for real, so the control plane goes back first.
 controlPlane.install();
 //
-// The premise of the whole feature. `.images/` is plumbing, so it is invisible
+// The premise of the whole feature. `.context/assets/images/` is plumbing, so it is invisible
 // to every listing and unreadable by every note tool — that part is free. What
 // is not free is reaching an image *at all* without reopening any of it, and
 // this is the only path that does: name a note you can already see, and that
@@ -3299,33 +3320,33 @@ const SHARED_IMAGE = `${"d".repeat(64)}.png`;
 const SCRIPT_OBJECT = `${"e".repeat(64)}.sh`;
 
 for (const leaf of [TEAM_IMAGE, PRIVATE_IMAGE, ORPHAN_IMAGE, SHARED_IMAGE, SCRIPT_OBJECT]) {
-  await contextStore.put(`.images/${leaf}`, PNG_BYTES);
+  await contextStore.put(`.context/assets/images/${leaf}`, PNG_BYTES);
 }
 // Markdown inside the image store. Not note surface, at any scope: it must be
 // unlistable and unsearchable exactly like the binaries beside it.
-await contextStore.put(".images/stray.md", "# IMAGESTOREMARKER\n");
+await contextStore.put(".context/assets/images/stray.md", "# IMAGESTOREMARKER\n");
 // 1-projects is a team-default folder; 1-projects/secret-thing is private.
 await contextStore.put(
   "1-projects/portable/with-image.md",
-  `# team note\n\n![a screenshot](.images/${TEAM_IMAGE})\n`
+  `# team note\n\n![a screenshot](.context/assets/images/${TEAM_IMAGE})\n`
 );
 await contextStore.put(
   "1-projects/secret-thing/with-image.md",
-  `# private note\n\n![a screenshot](.images/${PRIVATE_IMAGE})\n`
+  `# private note\n\n![a screenshot](.context/assets/images/${PRIVATE_IMAGE})\n`
 );
 // One image, two notes, two visibilities. The consequence is asserted below
 // rather than left to be discovered.
 await contextStore.put(
   "1-projects/portable/shared-image.md",
-  `# team half\n\n![shared](.images/${SHARED_IMAGE})\n`
+  `# team half\n\n![shared](.context/assets/images/${SHARED_IMAGE})\n`
 );
 await contextStore.put(
   "1-projects/secret-thing/shared-image.md",
-  `# private half\n\n![shared](.images/${SHARED_IMAGE})\n`
+  `# private half\n\n![shared](.context/assets/images/${SHARED_IMAGE})\n`
 );
 await contextStore.put(
   "1-projects/portable/with-script.md",
-  `# team note\n\n[not an image](.images/${SCRIPT_OBJECT})\n`
+  `# team note\n\n[not an image](.context/assets/images/${SCRIPT_OBJECT})\n`
 );
 await contextStore.put("1-projects/portable/no-image.md", "# team note with no image at all\n");
 
@@ -3343,7 +3364,7 @@ check(
 
 const okImage = await call("priv-token", "read_image", {
   note: "1-projects/portable/with-image.md",
-  image: `.images/${TEAM_IMAGE}`,
+  image: `.context/assets/images/${TEAM_IMAGE}`,
 });
 const okImageBlock = okImage.content?.find((block) => block.type === "image");
 check(
@@ -3370,7 +3391,7 @@ const refusalText = (result) => (result.isError ? result.content?.[0]?.text : `R
 // callers to it. That is a refusal about the caller's own request, so it is
 // deliberately NOT in the byte-identity set below — it discloses nothing about
 // what exists, because nothing was looked up to answer it.
-const bareHash = await call("priv-token", "read_image", { image: `.images/${TEAM_IMAGE}` });
+const bareHash = await call("priv-token", "read_image", { image: `.context/assets/images/${TEAM_IMAGE}` });
 check(
   "an image cannot be resolved without naming a note",
   bareHash.isError === true && refusalText(bareHash).includes('missing required argument "note"')
@@ -3381,7 +3402,7 @@ check(
 // string is a string, and reaches `toolReadImage`.
 const emptyNote = await call("priv-token", "read_image", {
   note: "",
-  image: `.images/${TEAM_IMAGE}`,
+  image: `.context/assets/images/${TEAM_IMAGE}`,
 });
 check(
   "...and naming an empty one, which the schema does allow through, resolves nothing",
@@ -3389,7 +3410,7 @@ check(
 );
 const unreferenced = await call("priv-token", "read_image", {
   note: "1-projects/portable/no-image.md",
-  image: `.images/${TEAM_IMAGE}`,
+  image: `.context/assets/images/${TEAM_IMAGE}`,
 });
 check(
   "a note that does not reference the image resolves nothing",
@@ -3397,7 +3418,7 @@ check(
 );
 const orphan = await call("priv-token", "read_image", {
   note: "1-projects/portable/with-image.md",
-  image: `.images/${ORPHAN_IMAGE}`,
+  image: `.context/assets/images/${ORPHAN_IMAGE}`,
 });
 check("an image no named note references resolves nothing", refusalText(orphan) === REFUSAL);
 
@@ -3420,7 +3441,7 @@ check("an image no named note references resolves nothing", refusalText(orphan) 
 //
 // What the mutated tool returns is the **image's bytes**, at private and team
 // scope alike, and nothing else in the gateway can return them. The image lives
-// under `.images/`, a dot-prefixed segment, so `isPlumbing` refuses it and
+// under `.context/assets/images/`, a dot-prefixed segment, so `isPlumbing` refuses it and
 // `read_note` of that key answers `not found` at every scope. The `note`
 // argument is the *only* authorization the image store has — the neighbouring
 // check above says so in its own words, an image no named note references
@@ -3430,7 +3451,7 @@ check("an image no named note references resolves nothing", refusalText(orphan) 
 // `.csv` as the note.
 //
 // It is not `#116` that made this reachable, which version two also claimed.
-// `writeImage` writes only under `.images/`, and a plumbing key can never be
+// `writeImage` writes only under `.context/assets/images/`, and a plumbing key can never be
 // the `note` argument. A non-`.md` object on the *note* surface arrives the way
 // the repo already documents keys arriving — Obsidian's sync, rclone, the
 // provider's own console — none of which pass through our path validation.
@@ -3439,11 +3460,11 @@ check("an image no named note references resolves nothing", refusalText(orphan) 
 // cannot be what refuses it and only the `.md` check can.
 await contextStore.put(
   "1-projects/portable/notes.csv",
-  `filename,key\nshot.png,.images/${TEAM_IMAGE}\n`
+  `filename,key\nshot.png,.context/assets/images/${TEAM_IMAGE}\n`
 );
 const nonMarkdownNote = await call("priv-token", "read_image", {
   note: "1-projects/portable/notes.csv",
-  image: `.images/${TEAM_IMAGE}`,
+  image: `.context/assets/images/${TEAM_IMAGE}`,
 });
 check(
   "a non-markdown object cannot stand in for the note, even holding the leaf",
@@ -3451,7 +3472,7 @@ check(
 );
 const teamReachingIntoPrivate = await call("team-token", "read_image", {
   note: "1-projects/secret-thing/with-image.md",
-  image: `.images/${PRIVATE_IMAGE}`,
+  image: `.context/assets/images/${PRIVATE_IMAGE}`,
 });
 check(
   "a note the caller cannot see resolves nothing",
@@ -3485,17 +3506,17 @@ check(
  * would satisfy the assertion after.
  */
 const OVERRIDE_IMAGE = `${"9".repeat(64)}.png`;
-await contextStore.put(`.images/${OVERRIDE_IMAGE}`, PNG_BYTES);
+await contextStore.put(`.context/assets/images/${OVERRIDE_IMAGE}`, PNG_BYTES);
 const overridePath = "1-projects/portable/override-image.md";
 await contextStore.put(
   overridePath,
-  `# team note, for now\n\n![a screenshot](.images/${OVERRIDE_IMAGE})\n`
+  `# team note, for now\n\n![a screenshot](.context/assets/images/${OVERRIDE_IMAGE})\n`
 );
 check(
   "the positive control: a team folder's note resolves its image for a team caller",
   (await call("team-token", "read_image", {
     note: overridePath,
-    image: `.images/${OVERRIDE_IMAGE}`,
+    image: `.context/assets/images/${OVERRIDE_IMAGE}`,
   })).content?.find((block) => block.type === "image")?.data === PNG_BASE64
 );
 const overrideEtag = (await call("priv-token", "read_note", { path: overridePath }))
@@ -3512,7 +3533,7 @@ check(
 );
 const teamReachingIntoOverride = await call("team-token", "read_image", {
   note: overridePath,
-  image: `.images/${OVERRIDE_IMAGE}`,
+  image: `.context/assets/images/${OVERRIDE_IMAGE}`,
 });
 check(
   "a note made private by exact-note override resolves no image for a team caller",
@@ -3880,11 +3901,11 @@ await contextStore.delete(recasedOverridePath);
  * the first.
  */
 const WIDENED_IMAGE = `${"8".repeat(64)}.png`;
-await contextStore.put(`.images/${WIDENED_IMAGE}`, PNG_BYTES);
+await contextStore.put(`.context/assets/images/${WIDENED_IMAGE}`, PNG_BYTES);
 const widenedPath = "2-areas/private/meetings/widened-image.md";
 await contextStore.put(
   widenedPath,
-  `# published inside a private folder\n\n![a screenshot](.images/${WIDENED_IMAGE})\n`
+  `# published inside a private folder\n\n![a screenshot](.context/assets/images/${WIDENED_IMAGE})\n`
 );
 const widenedEtag = (await call("priv-token", "read_note", { path: widenedPath }))
   ?.content?.[0]?.text?.match(/etag: (\S+)/)?.[1];
@@ -3903,17 +3924,17 @@ check(
   "a note published by exact-note override inside a private folder resolves its image",
   (await call("team-token", "read_image", {
     note: widenedPath,
-    image: `.images/${WIDENED_IMAGE}`,
+    image: `.context/assets/images/${WIDENED_IMAGE}`,
   })).content?.find((block) => block.type === "image")?.data === PNG_BASE64
 );
 const missingNote = await call("priv-token", "read_image", {
   note: "1-projects/portable/does-not-exist.md",
-  image: `.images/${TEAM_IMAGE}`,
+  image: `.context/assets/images/${TEAM_IMAGE}`,
 });
 check("a note that does not exist resolves nothing", refusalText(missingNote) === REFUSAL);
 const missingImage = await call("priv-token", "read_image", {
   note: "1-projects/portable/with-image.md",
-  image: `.images/${"f".repeat(64)}.png`,
+  image: `.context/assets/images/${"f".repeat(64)}.png`,
 });
 check("an image that does not exist resolves nothing", refusalText(missingImage) === REFUSAL);
 check(
@@ -3946,7 +3967,7 @@ const HOSTILE_TARGETS = [
   ["a note", "1-projects/secret-thing/status.md"],
   ["a traversal attempt", "../../privacy.md"],
   ["other plumbing", ".history/1-projects/portable/with-image.md"],
-  ["a nested path inside the image store", ".images/nested/../../privacy.md"],
+  ["a nested path inside the image store", ".context/assets/images/nested/../../privacy.md"],
 ];
 await contextStore.put(
   "1-projects/portable/hostile-refs.md",
@@ -3961,7 +3982,7 @@ for (const [label, target] of HOSTILE_TARGETS) {
 }
 const scriptObject = await call("priv-token", "read_image", {
   note: "1-projects/portable/with-script.md",
-  image: `.images/${SCRIPT_OBJECT}`,
+  image: `.context/assets/images/${SCRIPT_OBJECT}`,
 });
 check(
   "an object in .images that is not an image type resolves nothing",
@@ -3983,16 +4004,16 @@ check(
 // decision. A decision nothing enforces is a comment.
 const SVG_OBJECT = `${"d".repeat(64)}.svg`;
 await contextStore.put(
-  `.images/${SVG_OBJECT}`,
+  `.context/assets/images/${SVG_OBJECT}`,
   new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 );
 await contextStore.put(
   "1-projects/portable/with-svg.md",
-  `# team note\n\n![a diagram](.images/${SVG_OBJECT})\n`
+  `# team note\n\n![a diagram](.context/assets/images/${SVG_OBJECT})\n`
 );
 const svgObject = await call("priv-token", "read_image", {
   note: "1-projects/portable/with-svg.md",
-  image: `.images/${SVG_OBJECT}`,
+  image: `.context/assets/images/${SVG_OBJECT}`,
 });
 check("an SVG is never served, however it is referenced", refusalText(svgObject) === REFUSAL);
 check(
@@ -4010,14 +4031,14 @@ check(
 const BIG_IMAGE = `${"1".repeat(64)}.jpg`;
 const BIG_BYTES = new Uint8Array(70_000);
 for (let i = 0; i < BIG_BYTES.length; i += 1) BIG_BYTES[i] = (i * 31 + 7) % 256;
-await contextStore.put(`.images/${BIG_IMAGE}`, BIG_BYTES);
+await contextStore.put(`.context/assets/images/${BIG_IMAGE}`, BIG_BYTES);
 await contextStore.put(
   "1-projects/portable/big-image.md",
-  `# team note\n\n![big](.images/${BIG_IMAGE})\n`
+  `# team note\n\n![big](.context/assets/images/${BIG_IMAGE})\n`
 );
 const bigImage = await call("priv-token", "read_image", {
   note: "1-projects/portable/big-image.md",
-  image: `.images/${BIG_IMAGE}`,
+  image: `.context/assets/images/${BIG_IMAGE}`,
 });
 check(
   "an image larger than one base64 chunk round-trips byte for byte",
@@ -4034,14 +4055,14 @@ check(
 // conceal — and a silent "not found" here would send someone hunting for a
 // missing object that is present and merely too big.
 const HUGE_IMAGE = `${"2".repeat(64)}.png`;
-await contextStore.put(`.images/${HUGE_IMAGE}`, new Uint8Array(5_000_001));
+await contextStore.put(`.context/assets/images/${HUGE_IMAGE}`, new Uint8Array(5_000_001));
 await contextStore.put(
   "1-projects/portable/huge-image.md",
-  `# team note\n\n![huge](.images/${HUGE_IMAGE})\n`
+  `# team note\n\n![huge](.context/assets/images/${HUGE_IMAGE})\n`
 );
 const hugeImage = await call("priv-token", "read_image", {
   note: "1-projects/portable/huge-image.md",
-  image: `.images/${HUGE_IMAGE}`,
+  image: `.context/assets/images/${HUGE_IMAGE}`,
 });
 check(
   "an oversized image is refused by size, and says so rather than hiding",
@@ -4052,25 +4073,25 @@ check(
   refusalText(
     await call("team-token", "read_image", {
       note: "1-projects/secret-thing/with-image.md",
-      image: `.images/${PRIVATE_IMAGE}`,
+      image: `.context/assets/images/${PRIVATE_IMAGE}`,
     })
   ) === REFUSAL
 );
 
 // The image store is flat. A nested key inside it is not addressable, so the
-// leaf can never be a path — the check that stops `.images/a/b.png` is the same
-// one that stops `.images/../../privacy.md` once the traversal filter is gone.
-await contextStore.put(`.images/nested/${TEAM_IMAGE}`, PNG_BYTES);
+// leaf can never be a path — the check that stops `.context/assets/images/a/b.png` is the same
+// one that stops `.context/assets/images/../../privacy.md` once the traversal filter is gone.
+await contextStore.put(`.context/assets/images/nested/${TEAM_IMAGE}`, PNG_BYTES);
 await contextStore.put(
   "1-projects/portable/nested-ref.md",
-  `# team note\n\n![nested](.images/nested/${TEAM_IMAGE})\n`
+  `# team note\n\n![nested](.context/assets/images/nested/${TEAM_IMAGE})\n`
 );
 check(
   "a nested key inside the image store is not addressable",
   refusalText(
     await call("priv-token", "read_image", {
       note: "1-projects/portable/nested-ref.md",
-      image: `.images/nested/${TEAM_IMAGE}`,
+      image: `.context/assets/images/nested/${TEAM_IMAGE}`,
     })
   ) === REFUSAL
 );
@@ -4085,7 +4106,7 @@ check(
 // check rather than a footnote.
 const teamViaTeamNote = await call("team-token", "read_image", {
   note: "1-projects/portable/shared-image.md",
-  image: `.images/${SHARED_IMAGE}`,
+  image: `.context/assets/images/${SHARED_IMAGE}`,
 });
 check(
   "an image referenced by both a private and a team note is team-reachable via the team note",
@@ -4097,7 +4118,7 @@ check(
   refusalText(
     await call("team-token", "read_image", {
       note: "1-projects/secret-thing/shared-image.md",
-      image: `.images/${SHARED_IMAGE}`,
+      image: `.context/assets/images/${SHARED_IMAGE}`,
     })
   ) === REFUSAL
 );
@@ -4113,7 +4134,7 @@ check(
 // So this asserts the join: a note in exactly the shape
 // `renderCaptureNote` emits, resolving through the real tool.
 const CAPTURE_IMAGE = `${"9".repeat(64)}.png`;
-await contextStore.put(`.images/${CAPTURE_IMAGE}`, PNG_BYTES);
+await contextStore.put(`.context/assets/images/${CAPTURE_IMAGE}`, PNG_BYTES);
 await contextStore.put(
   "1-projects/portable/email-capture.md",
   [
@@ -4125,7 +4146,7 @@ await contextStore.put(
     "## Attachments",
     "",
     // Byte-for-byte the line infra/email-worker/src/note.ts writes.
-    `- ![shot.png](.images/${CAPTURE_IMAGE}) — image/png, 1.2 KB`,
+    `- ![shot.png](.context/assets/images/${CAPTURE_IMAGE}) — image/png, 1.2 KB`,
     "",
     "_Attachment files came from the same untrusted sender as the text above._",
     "",
@@ -4133,7 +4154,7 @@ await contextStore.put(
 );
 const fromCapture = await call("priv-token", "read_image", {
   note: "1-projects/portable/email-capture.md",
-  image: `.images/${CAPTURE_IMAGE}`,
+  image: `.context/assets/images/${CAPTURE_IMAGE}`,
 });
 check(
   "an image the email worker stored resolves from the note it wrote",
@@ -4152,7 +4173,7 @@ check(
 const listedAfterImages = await call("priv-token", "list_notes", {});
 check(
   "no image appears in a listing, at any scope",
-  !listedAfterImages.content[0].text.includes(".images/")
+  !listedAfterImages.content[0].text.includes(".context/assets/images/")
 );
 check(
   "an image prefix lists nothing rather than listing the store",
@@ -4160,7 +4181,7 @@ check(
 );
 // Searching for the hash *does* match the note that references it, which is
 // right. The guarantee is about the store itself: markdown sitting inside
-// `.images/` is not note surface and must never be searchable. (Seeded at the
+// `.context/assets/images/` is not note surface and must never be searchable. (Seeded at the
 // top of this section, so the listing checks above cover it as well.)
 check(
   "search never reaches inside the image store",
@@ -4170,7 +4191,7 @@ check(
 );
 check(
   "read_note still cannot read an image",
-  (await call("priv-token", "read_note", { path: `.images/${TEAM_IMAGE}` })).isError === true
+  (await call("priv-token", "read_note", { path: `.context/assets/images/${TEAM_IMAGE}` })).isError === true
 );
 
 
@@ -4353,6 +4374,7 @@ await runEncryptionGatewayChecks(check);
 await runEncryptionPassphraseChecks(check);
 await runEncryptionRotationChecks(check);
 await runRotationCursorAdversarialChecks(check);
+await runStorageLayoutChecks();
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own
