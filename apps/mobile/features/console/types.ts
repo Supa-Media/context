@@ -1,4 +1,5 @@
 import type { AdvancedView } from "./advanced/advanced";
+import type { PluginsView } from "./plugins/plugins";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
@@ -348,6 +349,16 @@ export interface ConsoleData {
    * follows.
    */
   advanced: AdvancedView;
+  /**
+   * The Obsidian plugins already in the selected context's bucket.
+   *
+   * A four-member union rather than a list and a flag, because "the console
+   * cannot ask yet" is a real state with its own screen and must not decay into
+   * an empty list — an empty list here is a claim that somebody's vault has no
+   * plugins in it. See `plugins/plugins.ts`, and `plugins/usePlugins.ts` for
+   * why the live console answers `unavailable` today.
+   */
+  plugins: PluginsView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**
