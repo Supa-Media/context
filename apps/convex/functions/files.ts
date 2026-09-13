@@ -89,6 +89,10 @@ import { inventoryPlugins } from "../../mcp/src/plugins/inventory.js";
 // which is Convex's runtime too. It holds the write token for the life of one
 // call and puts it in exactly one place, an `Authorization` header.
 import { createD1Client } from "../../mcp/src/search/d1/client.js";
+import {
+  migrateStorageLayout as migrateStorageLayoutOp,
+  STORAGE_LAYOUT_ROLLBACK_MS,
+} from "../../mcp/src/storageLayout.js";
 /*
  * The Gmail pipeline, imported rather than ported, for exactly the reason the
  * two imports above are: `apps/mcp` targets the Workers runtime, which is
@@ -548,6 +552,23 @@ const privacyResetValidator = v.object({
   partial: v.boolean(),
 });
 
+const storageMigrationResultValidator = v.object({
+  kind: v.literal("storageMigrated"),
+  state: v.union(
+    v.literal("copying"),
+    v.literal("copied"),
+    v.literal("cleaning"),
+    v.literal("conflict"),
+    v.literal("unsupported"),
+    v.literal("complete"),
+  ),
+  objectsCopied: v.number(),
+  objectsVerified: v.number(),
+  objectsDeleted: v.number(),
+  conflicts: v.number(),
+  error: v.optional(v.string()),
+});
+
 const searchResultsValidator = v.object({
   kind: v.literal("searchResults"),
   hits: v.array(
@@ -742,6 +763,7 @@ const operationResultValidator = v.union(
   visibilityResultValidator,
   folderCreatedValidator,
   privacyResetValidator,
+  storageMigrationResultValidator,
   imageWrittenValidator,
   imageValidator,
   pluginInventoryValidator,
@@ -952,6 +974,10 @@ const operationValidator = v.union(
     ),
   }),
   v.object({ kind: v.literal("resetPrivacy") }),
+  v.object({
+    kind: v.literal("migrateStorage"),
+    cleanup: v.boolean(),
+  }),
 );
 
 type FileOperation =
@@ -1025,7 +1051,8 @@ type FileOperation =
       actorRole: WorkspaceRole;
       action: FormAction;
     }
-  | { kind: "resetPrivacy" };
+  | { kind: "resetPrivacy" }
+  | { kind: "migrateStorage"; cleanup: boolean };
 
 /**
  * What a file operation hands back to the console.
@@ -1039,6 +1066,15 @@ type FileOperation =
  */
 type OperationResult =
   | ({ kind: "formApplied" } & FormResult)
+  | {
+      kind: "storageMigrated";
+      state: "copying" | "copied" | "cleaning" | "conflict" | "unsupported" | "complete";
+      objectsCopied: number;
+      objectsVerified: number;
+      objectsDeleted: number;
+      conflicts: number;
+      error?: string;
+    }
   | ({ kind: "searchResults" } & SearchResults)
   | ({ kind: "pluginInventory" } & PluginInventory)
   | { kind: "pluginSettings"; json: string; etag: string | null }
@@ -1631,7 +1667,75 @@ export const runFileOperation = internalAction({
         });
       }
     }
+    if (args.operation.kind === "migrateStorage" && result.kind === "storageMigrated") {
+      const continuing =
+        (args.operation.cleanup && result.state === "cleaning") ||
+        (!args.operation.cleanup && result.state === "copying");
+      if (continuing) {
+        await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
+          workspaceId: args.workspaceId,
+          scope: "private",
+          operation: {
+            kind: "migrateStorage",
+            cleanup: args.operation.cleanup,
+          },
+        });
+      } else if (!args.operation.cleanup && result.state === "copied") {
+        await ctx.scheduler.runAfter(
+          STORAGE_LAYOUT_ROLLBACK_MS + 5_000,
+          internal.functions.files.runFileOperation,
+          {
+            workspaceId: args.workspaceId,
+            scope: "private",
+            operation: { kind: "migrateStorage", cleanup: true },
+          },
+        );
+      }
+    }
     return result;
+  },
+});
+
+/**
+ * Refresh the bucket's observed capabilities, then start the resumable copy.
+ *
+ * Kept internal and reached only through the scheduler: verification decrypts
+ * the binding, so its result must never flow back through a public action.
+ */
+export const runStorageLayoutMigration = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+  },
+  returns: storageMigrationResultValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => {
+    const verification = await ctx.runAction(
+      internal.functions.provisioning.verifyStorageBinding,
+      args,
+    );
+    if (
+      !verification.verified ||
+      verification.conditionalCreate !== true ||
+      verification.conditionalWrite !== true
+    ) {
+      return {
+        kind: "storageMigrated",
+        state: "unsupported",
+        objectsCopied: 0,
+        objectsVerified: 0,
+        objectsDeleted: 0,
+        conflicts: 0,
+        error: "migration requires conflict-safe storage writes",
+      };
+    }
+    return (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "private",
+      operation: { kind: "migrateStorage", cleanup: false },
+    })) as Extract<OperationResult, { kind: "storageMigrated" }>;
   },
 });
 
@@ -2930,6 +3034,22 @@ export async function executeOperation(
       case "resetPrivacy": {
         const result = await resetPrivacyManifest(store, { scope, now });
         return { kind: "privacyReset", ...result };
+      }
+      case "migrateStorage": {
+        const result = await migrateStorageLayoutOp(store, {
+          cleanup: operation.cleanup,
+          batchSize: 8,
+          now: new Date(now),
+        });
+        return {
+          kind: "storageMigrated",
+          state: result.state,
+          objectsCopied: result.objectsCopied,
+          objectsVerified: result.objectsVerified,
+          objectsDeleted: result.objectsDeleted,
+          conflicts: result.conflicts.length,
+          ...(result.error === undefined ? {} : { error: result.error }),
+        };
       }
     }
   } catch (error) {
@@ -4619,6 +4739,56 @@ export const resetPrivacy = action({
         folders: result.folders.length,
         partial: result.partial,
         restored: result.backedUpTo !== null,
+      },
+    });
+    return result;
+  },
+});
+
+/**
+ * Start the versioned on-bucket plumbing migration.
+ *
+ * Owner-only because it reorganizes Context's reserved objects, even though it
+ * never names or rewrites a note; the copy phase is resumable and
+ * non-destructive, and `runFileOperation` schedules cleanup only after the
+ * rollback window has elapsed.
+ */
+export const updateStorageLayout = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: storageMigrationResultValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "storageMigrated" }>> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    await ctx.scheduler.runAfter(0, internal.functions.files.runStorageLayoutMigration, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+    });
+    const result: Extract<OperationResult, { kind: "storageMigrated" }> = {
+      kind: "storageMigrated",
+      state: "copying",
+      objectsCopied: 0,
+      objectsVerified: 0,
+      objectsDeleted: 0,
+      conflicts: 0,
+    };
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "storage.layout_migration_requested",
+      paths: [],
+      details: {
+        state: result.state,
+        objectsCopied: result.objectsCopied,
+        objectsVerified: result.objectsVerified,
+        conflicts: result.conflicts,
       },
     });
     return result;

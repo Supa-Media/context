@@ -193,6 +193,7 @@ export function useFileBrowser(options: {
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
   const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
+  const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
   const [listings, setListings] = useState<Listings>({});
   /**
@@ -1941,6 +1942,24 @@ export function useFileBrowser(options: {
     });
   }, [resetPrivacyAction, run, workspaceId]);
 
+  /**
+   * Start the resumable storage-layout migration for an owner.
+   *
+   * The action copies only Context's reserved plumbing objects; it never
+   * names a note path, and the server delays deletion of the legacy copies
+   * for the rollback window after every destination has been verified.
+   */
+  const updateStorageLayout = useCallback(() => {
+    void run(async () => {
+      await updateStorageLayoutAction({ workspaceId: workspaceId! });
+      return {
+        touched: [],
+        message:
+          "Context is checking this bucket and will migrate its hidden system files in the background when it is safe. Your notes and folders are unchanged.",
+      };
+    });
+  }, [run, updateStorageLayoutAction, workspaceId]);
+
   // Keep the tree open down to whatever is selected, so a path opened from a
   // link or restored after a move does not appear in a collapsed tree.
   useEffect(() => {
@@ -2471,6 +2490,7 @@ export function useFileBrowser(options: {
       openLinkPaths,
       linkPaths,
       resetPrivacy,
+      updateStorageLayout: options.isOwner === true ? updateStorageLayout : undefined,
       // A control that cannot work is a control that is not drawn. All three
       // have to hold: the manifest is broken, this is the owner, and this
       // console can act.
@@ -2533,6 +2553,7 @@ export function useFileBrowser(options: {
       paste,
       rename,
       resetPrivacy,
+      updateStorageLayout,
       resolveWith,
       save,
       search,
