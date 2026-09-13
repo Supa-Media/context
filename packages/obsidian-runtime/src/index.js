@@ -6,4 +6,8 @@ export {
   parsePluginRpcRequest,
 } from "./protocol.js";
 
-export { parsePluginSandboxMessage, pluginSandboxDocument } from "./sandbox.js";
+export {
+  parsePluginSandboxMessage,
+  pluginSandboxDocument,
+  sandboxFrameIsOurs,
+} from "./sandbox.js";
