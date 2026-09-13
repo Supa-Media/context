@@ -579,6 +579,24 @@ const SEYI_TREE: DemoContextTree = {
       "opposite: the craft serves the room rather than the recording.",
       "",
     ].join("\n"),
+    /*
+      THE PARAGRAPHS HERE ARE ONE LINE EACH, AND THAT IS THE POINT.
+
+      This note is `defaultSelection` — it is what the console opens on, what
+      the e2e fixture shows first, and what every screenshot of the editor has
+      ever contained. It used to be hard-wrapped at about fifty characters, so
+      the demo text *appeared* to wrap at a comfortable width on a wide screen
+      while the layout was doing nothing at all: measured in Chromium at
+      1440x900, the element holding the first sentence was 1160px wide with
+      `max-width: none` on every ancestor. A reader saw a tidy column; a real
+      note, written the way people write them, ran to about 150 characters a
+      line. Pre-wrapped demo data hid that from every visual check there was,
+      which is why it survived — `--lp-measure`, in `LiveEditor.web.tsx` and in
+      `files/webview/styles.ts`, is the fix, and this note is how it is seen.
+
+      So the wording is a persona's and the line breaks are the browser's. Do
+      not re-wrap this.
+    */
     "1-projects/context-lc.md": [
       "---",
       "updated: 2026-08-26",
@@ -587,14 +605,9 @@ const SEYI_TREE: DemoContextTree = {
       "",
       "# Context.LC — build decisions",
       "",
-      "Tenancy is bucket-level, never prefix-level. No key",
-      "namespacing inside a customer bucket, so an existing",
-      "workspace connects with zero migration and Obsidian",
-      "Remotely Save keeps working.",
+      "Tenancy is bucket-level, never prefix-level. No key namespacing inside a customer bucket, so an existing workspace connects with zero migration and Obsidian Remotely Save keeps working.",
       "",
-      "A shared context is just a workspace with more than",
-      "one member — so a storage binding hangs off a",
-      "workspaceId, never a userId.",
+      "A shared context is just a workspace with more than one member — so a storage binding hangs off a workspaceId, never a userId.",
       "",
     ].join("\n"),
     "1-projects/dc-chapter.md": [
