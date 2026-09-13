@@ -205,7 +205,6 @@ import type { GatewayCredential } from "./storage";
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
-const MAX_MANAGED_PLUGIN_OBJECTS = 5_000;
 
 /**
  * Maintenance passes that may chain behind one search's worth of work.
@@ -860,11 +859,18 @@ const operationValidator = v.union(
     manifestJson: v.string(),
     mainJs: v.string(),
     stylesCss: v.union(v.string(), v.null()),
+    lifecycleGeneration: v.number(),
   }),
   v.object({
     kind: v.literal("pluginManagedUninstall"),
     pluginId: v.string(),
     expectedVersion: v.string(),
+    lifecycleGeneration: v.number(),
+  }),
+  v.object({
+    kind: v.literal("pluginManagedFence"),
+    pluginId: v.string(),
+    lifecycleGeneration: v.number(),
   }),
   v.object({
     kind: v.literal("pluginBundleRead"),
@@ -990,8 +996,15 @@ type FileOperation =
       manifestJson: string;
       mainJs: string;
       stylesCss: string | null;
+      lifecycleGeneration: number;
     }
-  | { kind: "pluginManagedUninstall"; pluginId: string; expectedVersion: string }
+  | {
+      kind: "pluginManagedUninstall";
+      pluginId: string;
+      expectedVersion: string;
+      lifecycleGeneration: number;
+    }
+  | { kind: "pluginManagedFence"; pluginId: string; lifecycleGeneration: number }
   | { kind: "pluginBundleRead"; pluginId: string; bundleFingerprint: string }
   | { kind: "pluginRename"; from: string; to: string; expectedEtag: string }
   | { kind: "pluginDelete"; path: string; expectedEtag: string }
@@ -1153,6 +1166,13 @@ function managedPluginSegment(value: string, label: string): string {
 
 function managedPluginRoot(pluginId: string): string {
   return `.context/plugins/${managedPluginSegment(pluginId, "id")}`;
+}
+
+function managedPointerGeneration(pointer: Record<string, unknown>): number {
+  const generation = pointer.lifecycleGeneration;
+  return Number.isSafeInteger(generation) && (generation as number) >= 0
+    ? generation as number
+    : 0;
 }
 
 async function putImmutablePluginObject(store: FileStore, key: string, text: string): Promise<void> {
@@ -2477,8 +2497,15 @@ export async function executeOperation(
         const existing = await store.get(pointerKey);
         if (existing) {
           try {
-            const current = JSON.parse(await existing.text()) as { state?: unknown };
-            if (current.state === "uninstalling") {
+            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
+            const currentGeneration = managedPointerGeneration(current);
+            if (currentGeneration > operation.lifecycleGeneration) {
+              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+            }
+            if (
+              current.state === "uninstalling" &&
+              currentGeneration === operation.lifecycleGeneration
+            ) {
               throw new FileOpError("CONFLICT", "That plugin is currently being uninstalled.");
             }
           } catch (error) {
@@ -2489,6 +2516,7 @@ export async function executeOperation(
           id: operation.pluginId,
           version: operation.version,
           repository: operation.repository,
+          lifecycleGeneration: operation.lifecycleGeneration,
         });
         const written = await store.put(pointerKey, pointer, {
           onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
@@ -2503,7 +2531,7 @@ export async function executeOperation(
         const pointerKey = `${root}/current.json`;
         const pointer = await store.get(pointerKey);
         if (!pointer) throw new FileOpError("FILE_NOT_FOUND", "That managed plugin is not installed.");
-        let current: { id?: unknown; version?: unknown };
+        let current: Record<string, unknown>;
         try {
           current = JSON.parse(await pointer.text()) as { id?: unknown; version?: unknown };
         } catch {
@@ -2512,34 +2540,52 @@ export async function executeOperation(
         if (current.id !== operation.pluginId || current.version !== operation.expectedVersion) {
           throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
         }
-        if (store.capabilities?.conditionalWrite !== true) {
+        if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
+          throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
+        }
+        if (store.capabilities?.conditionalDelete !== true) {
           throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely uninstall plugins.");
         }
-        const locked = await store.put(pointerKey, JSON.stringify({
-          id: operation.pluginId,
-          version: operation.expectedVersion,
-          state: "uninstalling",
-        }), { onlyIf: { etagMatches: pointer.etag } });
-        if (locked === null) {
+        const deleted = await store.delete(pointerKey, { onlyIf: { etagMatches: pointer.etag } });
+        if (deleted === null) {
           throw new FileOpError("CONFLICT", "That managed plugin changed before uninstall.");
         }
-        let seen = 0;
-        while (true) {
-          // Restart from the beginning after deletion: provider cursors over a
-          // mutating listing can skip the page that shifted underneath them.
-          const page = await store.list({ prefix: `${root}/`, limit: 1_000 });
-          const objects = page.objects.filter((object) => object.key !== pointerKey);
-          if (objects.length === 0) break;
-          for (const object of objects) {
-            seen += 1;
-            if (seen > MAX_MANAGED_PLUGIN_OBJECTS) {
-              throw new FileOpError("PLUGIN_TOO_LARGE", "That managed plugin has too many objects to uninstall safely.");
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.expectedVersion };
+      }
+      case "pluginManagedFence": {
+        if (
+          store.capabilities?.conditionalWrite !== true ||
+          store.capabilities?.conditionalCreate !== true
+        ) {
+          throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely recover plugins.");
+        }
+        const pointerKey = `${managedPluginRoot(operation.pluginId)}/current.json`;
+        const existing = await store.get(pointerKey);
+        if (existing) {
+          try {
+            const current = JSON.parse(await existing.text()) as Record<string, unknown>;
+            if (managedPointerGeneration(current) > operation.lifecycleGeneration) {
+              throw new FileOpError("CONFLICT", "A newer plugin operation already completed.");
             }
-            await store.delete(object.key);
+          } catch (error) {
+            if (error instanceof FileOpError) throw error;
           }
         }
-        await store.delete(pointerKey);
-        return { kind: "pluginManaged", pluginId: operation.pluginId, version: operation.expectedVersion };
+        const fence = JSON.stringify({
+          id: operation.pluginId,
+          state: "recovering",
+          lifecycleGeneration: operation.lifecycleGeneration,
+        });
+        const written = await store.put(pointerKey, fence, {
+          onlyIf: existing ? { etagMatches: existing.etag } : { absent: true },
+        });
+        if (written === null) {
+          const raced = await store.get(pointerKey);
+          if (!raced || await raced.text() !== fence) {
+            throw new FileOpError("CONFLICT", "Plugin recovery lost a concurrent storage change.");
+          }
+        }
+        return { kind: "pluginManaged", pluginId: operation.pluginId, version: "" };
       }
       case "pluginBundleRead": {
         const inventory = await inventoryPlugins(store) as PluginInventory;

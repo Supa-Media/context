@@ -177,6 +177,20 @@ const schema = defineSchema({
     .index("by_workspace", ["workspaceId"])
     .index("by_workspace_plugin", ["workspaceId", "pluginId"]),
 
+  /** Serializes managed bundle changes against review, grants, and runtime issuance. */
+  obsidianPluginLifecycles: defineTable({
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    generation: v.number(),
+    busy: v.boolean(),
+    operation: v.union(
+      v.literal("installing"),
+      v.literal("uninstalling"),
+      v.literal("recovering"),
+    ),
+    updatedAt: v.number(),
+  }).index("by_workspace_plugin", ["workspaceId", "pluginId"]),
+
   /** Short-lived, hashed bearer bindings held by the trusted sandbox host. */
   obsidianPluginRuntimeSessions: defineTable({
     workspaceId: v.id("workspaces"),

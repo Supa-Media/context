@@ -412,6 +412,36 @@ describe("Obsidian plugin inventory", () => {
     })).toMatchObject({ ok: false, error: { code: "REQUEST_REPLAYED" } });
 
     version = "1.1.0";
+    const bindingId = await f.t.run(async (ctx) => (await ctx.db
+      .query("storageBindings")
+      .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+      .unique())!._id);
+    await f.t.run((ctx) => ctx.db.patch(bindingId, {
+      capabilities: { conditionalWrite: true, conditionalCreate: false, conditionalDelete: true },
+    }));
+    const failedUpdate = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.installCommunityPlugin,
+      { workspaceId: f.workspaceId, pluginId: "virtual-linker" },
+    ));
+    expect(errorCode(failedUpdate)).toBe("STORAGE_UNSAFE");
+    expect((await asUser(f.t, f.owner).query(api.functions.obsidianPlugins.listPluginGrants, {
+      workspaceId: f.workspaceId,
+    }))[0].status).toBe("revoked");
+    const revokedSession = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_failed_update",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(revokedSession)).toBe("PLUGIN_SESSION_INVALID");
+    await f.t.run((ctx) => ctx.db.patch(bindingId, {
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+    }));
     await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.installCommunityPlugin, {
       workspaceId: f.workspaceId,
       pluginId: "virtual-linker",
@@ -434,7 +464,10 @@ describe("Obsidian plugin inventory", () => {
       workspaceId: f.workspaceId,
     });
     expect(after.plugins[0]).toMatchObject({ source: "obsidian", version: "0.9.0" });
-    expect(Object.keys(f.backend.snapshot()).some((key) => key.startsWith(".context/plugins/virtual-linker/"))).toBe(false);
+    expect(f.backend.snapshot()).not.toHaveProperty(".context/plugins/virtual-linker/current.json");
+    expect(f.backend.snapshot()).toHaveProperty(
+      ".context/plugins/virtual-linker/releases/1.1.0/main.js",
+    );
     expect(f.backend.snapshot()).toHaveProperty(".obsidian/plugins/virtual-linker/main.js");
   });
 
@@ -698,6 +731,18 @@ describe("Obsidian plugin inventory", () => {
       api.functions.obsidianPlugins.listRuntimeStates,
       { workspaceId: f.workspaceId },
     ))[0]).toMatchObject({ status: "blocked", errorCode: "GRANT_REVOKED" });
+    const revokedToken = await captureError(() => asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "after_revoke",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      },
+    ));
+    expect(errorCode(revokedToken)).toBe("PLUGIN_SESSION_INVALID");
   });
 
   test("only an owner can grant a plugin and a blocked bundle cannot be granted", async () => {
@@ -766,7 +811,7 @@ describe("Obsidian plugin inventory", () => {
     ));
     expect(errorCode(widened)).toBe("INVALID_NETWORK_GRANT");
 
-    const approved = await asUser(f.t, f.owner).action(
+    const unavailable = await captureError(() => asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.approvePlugin,
       {
         workspaceId: f.workspaceId,
@@ -775,49 +820,76 @@ describe("Obsidian plugin inventory", () => {
         capabilities: ["vault:read", "network:request"],
         networkHosts: ["API.EXAMPLE.COM"],
       },
-    );
-    expect(approved.networkHosts).toEqual(["api.example.com"]);
-    const runtimeToken = (await asUser(f.t, f.owner).action(
-      api.functions.obsidianPlugins.loadPluginBundle,
-      { workspaceId: f.workspaceId, pluginId: "web", bundleFingerprint: fingerprint },
-    )).runtimeToken;
+    ));
+    expect(errorCode(unavailable)).toBe("NETWORK_RUNTIME_UNAVAILABLE");
+  });
 
-    const storageFetch = f.backend.fetchImpl;
-    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
-      const url = new URL(typeof input === "string" ? input : String(input));
-      if (url.hostname === "api.example.com") {
-        return new Response("{\"ok\":true}", {
-          status: 200,
-          headers: { "content-type": "application/json", "set-cookie": "secret=value" },
-        });
-      }
-      return await storageFetch(input, init);
+  test("a lifecycle generation prevents review and runtime issuance from racing bundle changes", async () => {
+    const f = await fixture();
+    const pluginId = "race-safe";
+    const fingerprint = "v2:reviewed-bundle";
+    const reviewedGeneration = await f.t.query(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: f.workspaceId, pluginId },
+    );
+    expect(reviewedGeneration).toBe(0);
+
+    const generation = await f.t.mutation(internal.functions.obsidianPlugins.recordLifecycle, {
+      workspaceId: f.workspaceId,
+      actorUserId: f.owner,
+      pluginId,
+      version: "1.0.0",
+      action: "installing",
     });
-    const response = await asUser(f.t, f.owner).action(
-      api.functions.obsidianPlugins.executePluginRequest,
+    const staleReview = await captureError(() => f.t.mutation(
+      internal.functions.obsidianPlugins.persistGrant,
       {
-        runtimeToken,
-        request: {
-          version: 1,
-          requestId: "network_1",
-          operation: {
-            kind: "network.request",
-            url: "https://api.example.com/items",
-            method: "GET",
-            headers: [],
-          },
+        workspaceId: f.workspaceId,
+        actorUserId: f.owner,
+        pluginId,
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read"],
+        networkHosts: [],
+        expectedLifecycleGeneration: reviewedGeneration,
+      },
+    ));
+    expect(errorCode(staleReview)).toBe("PLUGIN_LIFECYCLE_CHANGED");
+    const midLifecycleReview = await captureError(() => f.t.query(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: f.workspaceId, pluginId },
+    ));
+    expect(errorCode(midLifecycleReview)).toBe("PLUGIN_LIFECYCLE_BUSY");
+
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.recoverPluginLifecycle, {
+      workspaceId: f.workspaceId,
+      pluginId,
+      confirmation: "RECOVER_PLUGIN",
+    });
+    const staleWriter = await captureError(() => f.t.action(
+      internal.functions.files.runFileOperation,
+      {
+        workspaceId: f.workspaceId,
+        scope: "private",
+        operation: {
+          kind: "pluginManagedInstall",
+          pluginId,
+          version: "1.0.0",
+          repository: "example/race-safe",
+          manifestJson: JSON.stringify({ id: pluginId, version: "1.0.0" }),
+          mainJs: "class RaceSafe {}",
+          stylesCss: null,
+          lifecycleGeneration: generation,
         },
       },
+    ));
+    expect(errorCode(staleWriter)).toBe("CONFLICT");
+    expect(await f.t.query(internal.functions.obsidianPlugins.snapshotLifecycle, {
+      workspaceId: f.workspaceId,
+      pluginId,
+    })).toBe(generation + 1);
+    expect(f.backend.snapshot()[".context/plugins/race-safe/current.json"]).toContain(
+      `"lifecycleGeneration":${generation + 1}`,
     );
-    if (!response.ok) throw new Error("expected brokered request to succeed");
-    const networkResult = response.result as {
-      status: number;
-      headers: Array<{ name: string; value: string }>;
-      body: ArrayBuffer;
-    };
-    expect(response).toMatchObject({ ok: true, result: { status: 200 } });
-    expect(networkResult.headers).not.toContainEqual(expect.objectContaining({ name: "set-cookie" }));
-    expect(new TextDecoder().decode(networkResult.body)).toBe("{\"ok\":true}");
   });
 });
 

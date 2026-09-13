@@ -406,32 +406,59 @@ export const installCommunityPlugin = action({
     if (releaseBytes > MAX_PLUGIN_ASSET_BYTES) {
       throw pluginError("PLUGIN_DOWNLOAD_TOO_LARGE", "The plugin download is too large");
     }
-    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
-      workspaceId: args.workspaceId,
-      scope: "private",
-      operation: {
-        kind: "pluginManagedInstall",
+    const lifecycleGeneration = await ctx.runMutation(
+      internal.functions.obsidianPlugins.recordLifecycle,
+      {
+        workspaceId: args.workspaceId,
+        actorUserId,
         pluginId,
         version,
-        repository,
-        manifestJson: manifestJson!,
-        mainJs: mainJs!,
-        stylesCss,
+        action: "installing",
       },
-    });
+    );
+    let result;
+    try {
+      result = await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: "private",
+        operation: {
+          kind: "pluginManagedInstall",
+          pluginId,
+          version,
+          repository,
+          manifestJson: manifestJson!,
+          mainJs: mainJs!,
+          stylesCss,
+          lifecycleGeneration,
+        },
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleEnd, {
+        workspaceId: args.workspaceId,
+        pluginId,
+        generation: lifecycleGeneration,
+      }).catch(() => undefined);
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleOutcome, {
+        workspaceId: args.workspaceId, actorUserId, pluginId, version, outcome: "install-failed",
+      }).catch(() => undefined);
+      throw error;
+    }
     if (result.kind !== "pluginManaged") throw pluginError("PLUGIN_INSTALL_FAILED", "Plugin install failed");
-    await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycle, {
-      workspaceId: args.workspaceId,
-      actorUserId,
-      pluginId,
-      version,
-      action: "installed",
-    });
+    try {
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleEnd, {
+        workspaceId: args.workspaceId, pluginId, generation: lifecycleGeneration,
+      });
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleOutcome, {
+        workspaceId: args.workspaceId, actorUserId, pluginId, version, outcome: "installed",
+      }).catch(() => undefined);
+    } catch {
+      // Installation already completed; audit failure must not invite a retry.
+    }
     return { pluginId, version, installed: true as const };
   },
 });
 
-/** Remove only Context-managed bytes; an Obsidian installation is untouched. */
+/** Deactivate Context's pointer; immutable cached releases remain available for safe rollback. */
 export const uninstallCommunityPlugin = action({
   args: {
     workspaceId: v.id("workspaces"),
@@ -457,23 +484,94 @@ export const uninstallCommunityPlugin = action({
       entry.bundleFingerprint === args.bundleFingerprint
     );
     if (!plugin) throw pluginError("PLUGIN_CHANGED", "The managed plugin changed; refresh and try again");
+    const lifecycleGeneration = await ctx.runMutation(
+      internal.functions.obsidianPlugins.recordLifecycle,
+      {
+        workspaceId: args.workspaceId,
+        actorUserId,
+        pluginId: plugin.id,
+        version: plugin.version,
+        action: "uninstalling",
+      },
+    );
+    try {
+      await ctx.runAction(internal.functions.files.runFileOperation, {
+        workspaceId: args.workspaceId,
+        scope: "private",
+        operation: {
+          kind: "pluginManagedUninstall",
+          pluginId: plugin.id,
+          expectedVersion: plugin.version,
+          lifecycleGeneration,
+        },
+      });
+    } catch (error) {
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleEnd, {
+        workspaceId: args.workspaceId,
+        pluginId: plugin.id,
+        generation: lifecycleGeneration,
+      }).catch(() => undefined);
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleOutcome, {
+        workspaceId: args.workspaceId, actorUserId, pluginId: plugin.id,
+        version: plugin.version, outcome: "uninstall-failed",
+      }).catch(() => undefined);
+      throw error;
+    }
+    try {
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleEnd, {
+        workspaceId: args.workspaceId,
+        pluginId: plugin.id,
+        generation: lifecycleGeneration,
+      });
+      await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleOutcome, {
+        workspaceId: args.workspaceId, actorUserId, pluginId: plugin.id,
+        version: plugin.version, outcome: "uninstalled",
+      }).catch(() => undefined);
+    } catch {
+      // Uninstall already completed; audit failure must not invite a retry.
+    }
+    return { pluginId: plugin.id, uninstalled: true as const };
+  },
+});
+
+/** Explicitly fence and release an interrupted managed lifecycle operation. */
+export const recoverPluginLifecycle = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    confirmation: v.literal("RECOVER_PLUGIN"),
+  },
+  returns: v.object({ pluginId: v.string(), recovered: v.literal(true) }),
+  handler: async (ctx, args): Promise<{ pluginId: string; recovered: true }> => {
+    const actorUserId = await callerId(ctx);
+    await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const pluginId = safePluginId(args.pluginId);
+    const generation = await ctx.runMutation(
+      internal.functions.obsidianPlugins.startLifecycleRecovery,
+      { workspaceId: args.workspaceId, actorUserId, pluginId },
+    );
     await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope: "private",
-      operation: {
-        kind: "pluginManagedUninstall",
-        pluginId: plugin.id,
-        expectedVersion: plugin.version,
-      },
+      operation: { kind: "pluginManagedFence", pluginId, lifecycleGeneration: generation },
     });
-    await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycle, {
+    await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleEnd, {
+      workspaceId: args.workspaceId,
+      pluginId,
+      generation,
+    });
+    await ctx.runMutation(internal.functions.obsidianPlugins.recordLifecycleOutcome, {
       workspaceId: args.workspaceId,
       actorUserId,
-      pluginId: plugin.id,
-      version: plugin.version,
-      action: "uninstalled",
-    });
-    return { pluginId: plugin.id, uninstalled: true as const };
+      pluginId,
+      version: "recovery",
+      outcome: "recovered",
+    }).catch(() => undefined);
+    return { pluginId, recovered: true as const };
   },
 });
 
@@ -584,6 +682,10 @@ export const approvePlugin = action({
       workspaceId: args.workspaceId,
       minimum: "owner",
     });
+    const lifecycleGeneration = await ctx.runQuery(
+      internal.functions.obsidianPlugins.snapshotLifecycle,
+      { workspaceId: args.workspaceId, pluginId: args.pluginId },
+    );
 
     const inventory = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
@@ -612,6 +714,14 @@ export const approvePlugin = action({
       if (plugin.verdict !== "needs-approval" || networkHosts.some((host) => !detected.has(host))) {
         throw pluginError("INVALID_NETWORK_GRANT", "Only detected network hosts may be granted");
       }
+      // Direct server fetch cannot pin DNS across resolution and connection,
+      // so a public-looking approved host could rebind to a private address.
+      // Keep the protocol shape, but fail closed until a public-only egress
+      // service enforces that boundary on every request and redirect.
+      throw pluginError(
+        "NETWORK_RUNTIME_UNAVAILABLE",
+        "Networked plugins require the public-only egress service",
+      );
     }
 
     return await ctx.runMutation(internal.functions.obsidianPlugins.persistGrant, {
@@ -621,6 +731,7 @@ export const approvePlugin = action({
       bundleFingerprint: args.bundleFingerprint,
       capabilities,
       networkHosts,
+      expectedLifecycleGeneration: lifecycleGeneration,
     });
   },
 });
@@ -633,10 +744,23 @@ export const persistGrant = internalMutation({
     bundleFingerprint: v.string(),
     capabilities: v.array(capabilityValidator),
     networkHosts: v.array(v.string()),
+    expectedLifecycleGeneration: v.number(),
   },
   returns: grantSummaryValidator,
   handler: async (ctx, args): Promise<GrantSummary> => {
     await requireOwner(ctx, args.workspaceId, args.actorUserId);
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (
+      (lifecycle?.generation ?? 0) !== args.expectedLifecycleGeneration ||
+      lifecycle?.busy === true
+    ) {
+      throw pluginError("PLUGIN_LIFECYCLE_CHANGED", "Plugin files changed during review; review again");
+    }
     const existing = await ctx.db
       .query("obsidianPluginGrants")
       .withIndex("by_workspace_plugin", (q) =>
@@ -713,10 +837,18 @@ export const persistRuntimeSession = internalMutation({
         q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
       )
       .unique();
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
     const now = Date.now();
     if (
       !grant || grant.status !== "active" ||
       grant.bundleFingerprint !== args.bundleFingerprint ||
+      grant.capabilities.includes("network:request") ||
+      lifecycle?.busy === true ||
       args.expiresAt <= now || args.expiresAt > now + RUNTIME_SESSION_MS + 5_000
     ) {
       throw pluginError("PLUGIN_NOT_GRANTED", "Review and enable this plugin first");
@@ -763,9 +895,17 @@ export const resolveRuntimeSession = internalQuery({
         q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
       )
       .unique();
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
+      )
+      .unique();
     if (
       !grant || grant.status !== "active" ||
-      grant.bundleFingerprint !== session.bundleFingerprint
+      grant.bundleFingerprint !== session.bundleFingerprint ||
+      grant.capabilities.includes("network:request") ||
+      lifecycle?.busy === true
     ) return null;
     const membership = await getMembership(ctx, session.workspaceId, session.createdBy);
     if (membership?.role !== "owner") return null;
@@ -782,8 +922,34 @@ export const resolveRuntimeSession = internalQuery({
 
 export const claimRuntimeRequest = internalMutation({
   args: { tokenHash: v.string(), requestId: v.string(), operation: v.string() },
-  returns: v.union(v.literal("claimed"), v.literal("replayed"), v.literal("limited")),
+  returns: v.union(
+    v.literal("claimed"), v.literal("replayed"), v.literal("limited"), v.literal("invalid"),
+  ),
   handler: async (ctx, args) => {
+    const session = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique();
+    if (!session || session.expiresAt <= Date.now()) return "invalid" as const;
+    const grant = await ctx.db
+      .query("obsidianPluginGrants")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
+      )
+      .unique();
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", session.workspaceId).eq("pluginId", session.pluginId)
+      )
+      .unique();
+    if (
+      !grant || grant.status !== "active" ||
+      grant.bundleFingerprint !== session.bundleFingerprint ||
+      grant.capabilities.includes("network:request") ||
+      lifecycle?.busy === true ||
+      (await getMembership(ctx, session.workspaceId, session.createdBy))?.role !== "owner"
+    ) return "invalid" as const;
     const existing = await ctx.db
       .query("obsidianPluginRuntimeRequests")
       .withIndex("by_session_request", (q) =>
@@ -806,19 +972,61 @@ export const claimRuntimeRequest = internalMutation({
   },
 });
 
-/** Install/update/uninstall always clears authority for the prior bundle. */
+/** Snapshot review authority before reading bundle bytes. */
+export const snapshotLifecycle = internalQuery({
+  args: { workspaceId: v.id("workspaces"), pluginId: v.string() },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (lifecycle?.busy === true) {
+      throw pluginError("PLUGIN_LIFECYCLE_BUSY", "Plugin files are changing; try again when it finishes");
+    }
+    return lifecycle?.generation ?? 0;
+  },
+});
+
+/** Install/update/uninstall takes a lease and clears prior bundle authority atomically. */
 export const recordLifecycle = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
     pluginId: v.string(),
     version: v.string(),
-    action: v.union(v.literal("installed"), v.literal("uninstalled")),
+    action: v.union(v.literal("installing"), v.literal("uninstalling")),
   },
-  returns: v.null(),
+  returns: v.number(),
   handler: async (ctx, args) => {
     await requireOwner(ctx, args.workspaceId, args.actorUserId);
     const now = Date.now();
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (lifecycle?.busy === true) {
+      throw pluginError("PLUGIN_LIFECYCLE_BUSY", "Plugin files are already changing");
+    }
+    const generation = (lifecycle?.generation ?? 0) + 1;
+    const lifecycleFields = {
+      generation,
+      busy: true,
+      operation: args.action,
+      updatedAt: now,
+    };
+    if (lifecycle) await ctx.db.patch(lifecycle._id, lifecycleFields);
+    else {
+      await ctx.db.insert("obsidianPluginLifecycles", {
+        workspaceId: args.workspaceId,
+        pluginId: args.pluginId,
+        ...lifecycleFields,
+      });
+    }
     const grant = await ctx.db
       .query("obsidianPluginGrants")
       .withIndex("by_workspace_plugin", (q) =>
@@ -853,6 +1061,85 @@ export const recordLifecycle = internalMutation({
       workspaceId: args.workspaceId,
       actorUserId: args.actorUserId,
       action: `plugin.${args.action}`,
+      details: { pluginId: args.pluginId, version: args.version },
+    });
+    return generation;
+  },
+});
+
+export const startLifecycleRecovery = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    pluginId: v.string(),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    await requireOwner(ctx, args.workspaceId, args.actorUserId);
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (!lifecycle?.busy) {
+      throw pluginError("PLUGIN_RECOVERY_NOT_NEEDED", "This plugin has no interrupted operation");
+    }
+    if (lifecycle.operation === "recovering") return lifecycle.generation;
+    const generation = lifecycle.generation + 1;
+    await ctx.db.patch(lifecycle._id, {
+      generation,
+      operation: "recovering",
+      updatedAt: Date.now(),
+    });
+    return generation;
+  },
+});
+
+export const recordLifecycleEnd = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    generation: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const lifecycle = await ctx.db
+      .query("obsidianPluginLifecycles")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (!lifecycle || lifecycle.generation !== args.generation) return null;
+    await ctx.db.patch(lifecycle._id, {
+      busy: false,
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+});
+
+export const recordLifecycleOutcome = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    pluginId: v.string(),
+    version: v.string(),
+    outcome: v.union(
+      v.literal("installed"),
+      v.literal("uninstalled"),
+      v.literal("install-failed"),
+      v.literal("uninstall-failed"),
+      v.literal("recovered"),
+    ),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireOwner(ctx, args.workspaceId, args.actorUserId);
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: `plugin.${args.outcome}`,
       details: { pluginId: args.pluginId, version: args.version },
     });
     return null;
@@ -1117,6 +1404,9 @@ export const executePluginRequest = action({
     }
     if (claim === "limited") {
       return rpcFailure(parsed.request.requestId, "SESSION_LIMIT_REACHED", "Restart this plugin to continue");
+    }
+    if (claim === "invalid") {
+      throw pluginError("PLUGIN_SESSION_INVALID", "Start this plugin again");
     }
 
     const operation = parsed.request.operation as RpcOperation;

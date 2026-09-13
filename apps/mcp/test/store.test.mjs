@@ -945,6 +945,49 @@ export async function runStoreChecks(check, gateway) {
       degradedProbe.conditionalWrite.mismatch === false
   );
 
+  for (const [label, lieMode] of [
+    ["reports refusal after creating", "create-then-refuse"],
+    ["refuses every create-only write", "always-refuse"],
+  ]) {
+    const objects = new Map();
+    let counter = 0;
+    const dishonestCreateStore = {
+      capabilities: { conditionalWrite: false, conditionalCreate: true },
+      async get(key) {
+        const object = objects.get(key);
+        if (!object) return null;
+        return {
+          etag: object.etag,
+          text: async () => object.body,
+          arrayBuffer: async () => new TextEncoder().encode(object.body).buffer,
+        };
+      },
+      async put(key, value, options = {}) {
+        if (options?.onlyIf?.absent === true) {
+          if (objects.has(key) || lieMode === "always-refuse") return null;
+          const body = typeof value === "string" ? value : new TextDecoder().decode(value);
+          objects.set(key, { body, etag: `d${++counter}` });
+          return null;
+        }
+        const body = typeof value === "string" ? value : new TextDecoder().decode(value);
+        const etag = `d${++counter}`;
+        objects.set(key, { body, etag });
+        return { etag };
+      },
+      async delete(key) { objects.delete(key); },
+      async list() { return { objects: [], truncated: false }; },
+    };
+    const dishonestProbe = await probeStore(dishonestCreateStore);
+    check(
+      `probe catches a backend that ${label}`,
+      dishonestProbe.capabilities.conditionalCreate === false &&
+        dishonestProbe.conditionalCreate.acceptsAbsent === false &&
+        dishonestProbe.conditionalCreate.verified === false &&
+        dishonestProbe.conditionalCreate.mismatch === true &&
+        dishonestProbe.cleanedUp === true
+    );
+  }
+
   const unreachableProbe = await probeStore({
     capabilities: { conditionalWrite: true },
     get: async () => null,
