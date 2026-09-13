@@ -99,7 +99,17 @@ export function themeVars(
     "--lp-body": "-apple-system, system-ui, sans-serif",
     "--lp-mono": `${mono ?? "ui-monospace"}, ui-monospace, Menlo, monospace`,
 
-    "--lp-size": compact ? "16px" : "14.5px",
+    /*
+      16px at both densities. This was 14.5px on the pointer layout, and the
+      reading measure is a multiple of it, so the small type was shrinking the
+      column as well as the glyphs: at 40em, 14.5px drew 580px of text where
+      16px draws 640px. Measured against Obsidian in a pane of the same width,
+      14.5px put about 12px of ink on a line against Obsidian's 14px and left
+      320px gutters against its 238 — the note read as small text lost in a
+      wide pane, which is what it was. One size is also one thing to keep in
+      step rather than two.
+    */
+    "--lp-size": "16px",
     "--lp-leading": compact ? "1.5" : "1.75",
     "--lp-pad-top": compact ? "8px" : "14px",
     "--lp-pad-x": compact ? "24px" : "16px",

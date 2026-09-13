@@ -982,10 +982,24 @@ describe("the palette", () => {
     w.destroy();
   });
 
-  test("the measure changes with the density, not with a second breakpoint", () => {
+  /*
+    The note's type is one size, and the density decides other things.
+
+    This used to assert 16px against 14.5px and was named for the measure
+    changing with the density. Both halves were wrong to keep: the pointer's
+    14.5px had nothing arguing for it, and because the measure is a multiple
+    of the type it shrank the column as well as the glyphs. The size is now
+    the same at both densities and this asserts that it is — a re-split is a
+    decision, not a tidy-up, and it would move the column too.
+
+    What still branches is drawn here alongside it, so a reader can see the
+    difference is deliberate rather than left over: a phone reads the note in
+    full-strength text, a pointer inspects it beside a file tree in the
+    quieter one.
+  */
+  test("the note's type is one size at both densities, and the tone is not", () => {
     expect(themeVars(darkColors, "Menlo", true)["--lp-size"]).toBe("16px");
-    expect(themeVars(darkColors, "Menlo", false)["--lp-size"]).toBe("14.5px");
-    // A phone reads the note; a pointer inspects it beside a file tree.
+    expect(themeVars(darkColors, "Menlo", false)["--lp-size"]).toBe("16px");
     expect(themeVars(darkColors, "Menlo", true)["--lp-content"]).toBe(darkColors.text);
     expect(themeVars(darkColors, "Menlo", false)["--lp-content"]).toBe(darkColors.text2);
   });
@@ -1063,18 +1077,22 @@ describe("the palette", () => {
 
     /*
       Unlike every other line in `themeVars`, this one does not branch on
-      `compact` — and that is the argument rather than an oversight. The type
-      scale differs between the two (16px and 14.5px); a measure stated as a
-      multiple of the type is the same line at both. A pixel measure would have
-      had to be two numbers kept in step by hand.
+      `compact` — and that is the argument rather than an oversight. A measure
+      stated as a multiple of the type is the same line whatever the type
+      scale is, so it survives a change to either density's size; a pixel
+      measure would have been two numbers kept in step by hand. Both densities
+      happen to draw 16px today, which makes the property constant twice over
+      rather than making the indirection pointless.
     */
     expect(compact).toBe(pointer);
 
     /*
       And it carries NO UNIT. A font-relative length inside a custom property
       may be resolved where the property is declared or where it is used, and
-      engines differ; the wrapper is Times New Roman at 16px and the note is a
-      sans at 14.5px, so those are two different lengths. `styles.ts`
+      engines differ. The wrapper and the note also draw in different faces —
+      Times New Roman on the wrapper, a sans in the note — which is what made
+      `ch` ambiguous here, and their sizes agreeing today is not something this
+      may lean on. `styles.ts`
       multiplies by 1em against the text itself. A unit sneaking back in here
       is that ambiguity returning, silently, on one engine only.
     */
@@ -1083,7 +1101,7 @@ describe("the palette", () => {
     /*
       The band the number has to stay inside, which is the design decision
       rather than the value. Prose in a system sans averages 0.45-0.55em a
-      character, so 36em is roughly 65-80 characters and the comfortable range
+      character, so 40em is roughly 73-89 characters and the comfortable range
       is 60-75. Anything outside this changes how the note reads and should
       have to edit a test that says so.
       `e2e/webkit/readingMeasure.spec.ts` checks the rendered result.
