@@ -3572,15 +3572,29 @@ the window. The fixture is now normal unwrapped paragraphs — same wording, the
 browser's line breaks — and re-wrapping it would hide this whole class of bug
 again.
 
-**The measure is `--lp-measure`, in `ch`, one value for both densities.**
-`layout.readingMeasureCh` is 62; `ch` is the advance of "0", which every system
-sans draws wider than its average lowercase letter, so 62ch of box holds about
-75 characters in the widest face measured and nearer 68 in the narrower ones.
-Characters rather than pixels because the same note is drawn at 14.5px beside a
-file tree and at 16px on a phone, and a measure in characters is the same
-sentence at both. On a phone it cannot bind at all — 342pt of text inside 24pt
-gutters is far narrower — so `--lp-pad-x` still governs there, which is the
-point rather than an accident.
+**The measure is `--lp-measure`, one value for both densities, relative to the
+type rather than in pixels.** `layout.readingMeasureEm` is 36, so the column is
+36 times the note's own font size: the same line at 14.5px beside a file tree
+and at 16px on a phone, where a pixel width would have been two numbers to keep
+in step. Measured in a browser, 36em is 522px in the console's face and holds 68
+characters; prose in a system sans averages 0.45-0.55em a character, so it lands
+between about 65 and 80 across faces against a comfortable band of 60-75. On a
+phone it cannot bind at all — 342pt of text inside 24pt gutters is far narrower —
+so `--lp-pad-x` still governs there, which is the point rather than an accident.
+
+**`em`, not the `ch` that nominally means "characters", and CI is why.** The
+first version of this was `62ch`. `ch` is the advance of the digit zero, so it
+tracks a face's *digits* rather than its prose, and the two diverge: the same
+declaration measured **75 characters in Chromium and 91 in WebKit on the same
+Linux runner**, which the WebKit job caught before this merged. `ch` was
+ambiguous a second way as well — a font-relative length inside a custom property
+may be resolved where the property is declared or where it is substituted, and
+engines differ; the note's wrapper is Times New Roman at 16px while the note is
+a sans at 14.5px, so those are two different lengths. So the property now
+carries a **bare number** and the rule that draws the text multiplies it by
+`1em` there, against the type it is measuring. The unitless value is asserted on
+both hosts: a unit sneaking back in is that ambiguity returning silently, on one
+engine only.
 
 **Nothing is allowed to be wider than the prose.** The constraint is on
 `.cm-content` rather than on `.cm-line`, because a table, a form and a rendered
@@ -3617,8 +3631,11 @@ from both ends.
 unit test here can tell a `max-width` that binds from one that does not — which
 is exactly the state this editor was already in.
 `e2e/webkit/readingMeasure.spec.ts` drives the built web export in a real engine
-at 1440x900 and at 390x844 and asserts the **character count** on the rendered
-line, that the column is centred and its margins still take a click at the first
-width, and that `--lp-pad-x` alone governs at the second. It measures the line
-box rather than `.cm-content`, because `.cm-content` is deliberately still the
-full width of the pane.
+at 1440x900 and at 390x844 and asserts the rendered **column in em** (tight —
+that one is the layout's own arithmetic) and the **character count** (loose —
+that one is the font's), that the column is centred and its margins still take a
+click at the first width, and that `--lp-pad-x` alone governs at the second. It
+measures the line box rather than `.cm-content`, because `.cm-content` is
+deliberately still the full width of the pane, and it logs the width, the em
+multiple, the count and the resolved face on every run, so a failure names the
+font it is arguing with rather than only a number.

@@ -1047,7 +1047,7 @@ describe("the palette", () => {
     expect(at).toBeGreaterThan(-1);
     const rule = css.slice(at, css.indexOf("}", at));
 
-    expect(rule).toContain("padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2))");
+    expect(rule).toContain("padding-inline: max(0px, calc((100% - var(--lp-measure) * 1em) / 2))");
     // The same rule the web console has, on the column rather than the line,
     // and by padding rather than by width — see `liveEditorMount.test.ts` for
     // both halves of why.
@@ -1057,54 +1057,60 @@ describe("the palette", () => {
     );
   });
 
-  test("the reading measure is stated in characters, so it is one value for both densities", () => {
+  test("the reading measure is a bare multiple, so it is one value for both densities", () => {
     const compact = themeVars(darkColors, "Menlo", true)["--lp-measure"];
     const pointer = themeVars(darkColors, "Menlo", false)["--lp-measure"];
 
     /*
       Unlike every other line in `themeVars`, this one does not branch on
       `compact` — and that is the argument rather than an oversight. The type
-      scale differs between the two (16px and 14.5px); a measure in `ch` is
-      the same number of characters at both sizes, which is what a reading
-      measure is a constraint on. A pixel measure would have had to be two
-      numbers kept in step by hand.
+      scale differs between the two (16px and 14.5px); a measure stated as a
+      multiple of the type is the same line at both. A pixel measure would have
+      had to be two numbers kept in step by hand.
     */
     expect(compact).toBe(pointer);
-    expect(compact).toMatch(/^\d+ch$/);
 
     /*
-      And the band it has to stay inside, which is the design decision rather
-      than the number. 60-75 characters is the comfortable range; `ch` is the
-      advance of "0" and runs 1.10-1.21 characters of prose to the unit, so the
-      value that lands inside that range is somewhere in the high fifties to
-      mid sixties. Anything outside this is a deliberate change to how the note
-      reads and should have to edit a test that says so.
-      `e2e/webkit/readingMeasure.spec.ts` is what checks the rendered result.
+      And it carries NO UNIT. A font-relative length inside a custom property
+      may be resolved where the property is declared or where it is used, and
+      engines differ; the wrapper is Times New Roman at 16px and the note is a
+      sans at 14.5px, so those are two different lengths. `styles.ts`
+      multiplies by 1em against the text itself. A unit sneaking back in here
+      is that ambiguity returning, silently, on one engine only.
     */
-    expect(layout.readingMeasureCh).toBeGreaterThanOrEqual(55);
-    expect(layout.readingMeasureCh).toBeLessThanOrEqual(68);
+    expect(compact).toMatch(/^\d+$/);
+
+    /*
+      The band the number has to stay inside, which is the design decision
+      rather than the value. Prose in a system sans averages 0.45-0.55em a
+      character, so 36em is roughly 65-80 characters and the comfortable range
+      is 60-75. Anything outside this changes how the note reads and should
+      have to edit a test that says so.
+      `e2e/webkit/readingMeasure.spec.ts` checks the rendered result.
+    */
+    expect(layout.readingMeasureEm).toBeGreaterThanOrEqual(30);
+    expect(layout.readingMeasureEm).toBeLessThanOrEqual(40);
   });
 
   test("the phone's own width is what governs there — the measure cannot bind", () => {
     const compact = themeVars(darkColors, "Menlo", true);
-    const chars = Number(compact["--lp-measure"]?.replace("ch", ""));
+    const ems = Number(compact["--lp-measure"]);
     const size = Number(compact["--lp-size"]?.replace("px", ""));
     const pad = Number(compact["--lp-pad-x"]?.replace("px", ""));
 
     /*
-      `ch` is the advance of "0", which in a system sans is a little over half
-      the em — 0.5 is a deliberate UNDER-estimate of the measure's width in
-      pixels, so this test is conservative in the direction that matters.
-      Against the widest phone this app runs on (a 430pt iPhone Pro Max, and
-      wider than the 390 the WebKit suite uses), the text column is still far
-      narrower than the measure, so the padding that insets the column computes
-      to zero and `--lp-pad-x` is what decides the line length. If that ever
-      stops being true the phone quietly
-      gains a centred column with slack either side, which is not what a note
-      on a phone should look like.
+      The measure in points is exactly the multiple times the type size — no
+      font metric involved, which is the other half of why the unit is em: this
+      arithmetic is the layout's, not a guess about a face. Against the widest
+      phone this app runs on (a 430pt iPhone Pro Max, wider than the 390 the
+      WebKit suite uses) the text column is still far narrower, so the padding
+      that insets the column computes to zero and `--lp-pad-x` decides the line
+      length. If that ever stops being true the phone quietly gains a centred
+      column with slack either side, which is not what a note on a phone should
+      look like.
     */
     const widestPhone = 430 - 2 * pad;
-    expect(chars * size * 0.5).toBeGreaterThan(widestPhone);
+    expect(ems * size).toBeGreaterThan(widestPhone);
   });
 
   test("only our own custom properties are written", () => {

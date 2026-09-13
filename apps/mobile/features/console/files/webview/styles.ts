@@ -64,13 +64,15 @@ export function guestStyles(): string {
   --lp-pad-bottom: 32px;
 
   /*
-    The reading measure — how long a line of prose may get. In characters, so
-    it means the same thing at both densities; the value is
-    layout.readingMeasureCh, which carries the argument for the number and
-    reaches the real document through themeVars. This copy is the
+    The reading measure — how long a line of prose may get, as a multiple of
+    the note's own font size, so it is the same sentence at both densities.
+    A bare number: the rule that uses it multiplies by 1em there, where the
+    note's type is, rather than here where this element's is. The value is
+    layout.readingMeasureEm, which carries the argument for the number and
+    reaches the real document through themeVars; this copy is the
     broken-bridge fallback, like the colours above.
   */
-  --lp-measure: 62ch;
+  --lp-measure: 36;
 
   /* How much of the editor something else is covering. See the inset message. */
   --lp-inset-bottom: 0px;
@@ -144,12 +146,15 @@ html, body {
     the paragraph's left edge, and why a click in the margin still has to
     reach the editor.
 
-    On a phone it never binds: 62ch at 16px is at least 540pt of text and the
-    widest phone this runs on has under 400 inside its gutters, so the max()
-    floor is zero, --lp-pad-x is the only gutter, and this is the rule that
-    does nothing until somebody turns an iPad sideways.
+    On a phone it never binds: 36em at 16px is 576pt of text and the widest
+    phone this runs on has under 400 inside its gutters, so the max() floor is
+    zero, --lp-pad-x is the only gutter, and this is the rule that does
+    nothing until somebody turns an iPad sideways.
+
+    1em is this element's own font size — var(--lp-size), the note's — which
+    is why the number arrives unitless and is multiplied here.
   */
-  padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2));
+  padding-inline: max(0px, calc((100% - var(--lp-measure) * 1em) / 2));
 }
 #root .cm-line { padding: 0; }
 #root .cm-cursor, #root .cm-dropCursor { border-left-color: var(--lp-caret); }

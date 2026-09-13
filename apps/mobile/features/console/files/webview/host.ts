@@ -107,15 +107,19 @@ export function themeVars(
 
     /*
       The reading measure — the note's line length, which is the one value
-      here that does NOT change with the density, because it is stated in
-      characters: the same 62 of them at 16px and at 14.5px. Sending it at all
-      is the point rather than an optimisation. `styles.ts` reads
-      `var(--lp-measure)`, and a custom property no one declares makes its
-      whole declaration invalid at computed-value time — so an undeclared one
-      here is not a fallback to a sensible width, it is the measure silently
-      gone, which is the shape of the bug PR #487 fixed.
+      here that does NOT change with the density, because it is a multiple of
+      whatever the density's own type size is: 36 of them at 16px and at
+      14.5px. It travels as a bare number and `styles.ts` multiplies by 1em
+      where the text is; see `layout.readingMeasureEm` for why the unit is em
+      and why the multiplication is down there.
+
+      Sending it at all is the point rather than an optimisation. `styles.ts`
+      reads `var(--lp-measure)`, and a custom property no one declares makes
+      its whole declaration invalid at computed-value time — so an undeclared
+      one here is not a fallback to a sensible width, it is the measure
+      silently gone, which is the shape of the bug PR #487 fixed.
     */
-    "--lp-measure": `${layout.readingMeasureCh}ch`,
+    "--lp-measure": String(layout.readingMeasureEm),
   };
 }
 

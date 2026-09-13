@@ -877,7 +877,20 @@ describe("the rendered note has a reading measure", () => {
     const m = mount({ value: "# note\n\nprose\n", editable: true });
 
     const content = block(".cm-lp-root .cm-content");
-    expect(content).toContain("padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2))");
+    expect(content).toContain(
+      "padding-inline: max(0px, calc((100% - var(--lp-measure) * 1em) / 2))",
+    );
+
+    /*
+      The unit is added HERE and not where the property is declared. A
+      font-relative length inside a custom property may be resolved at the
+      declaring element or at the using one, and engines differ — and the
+      wrapper this is declared on is Times New Roman at 16px while the note is
+      a sans at 14.5px, so the two answers are different lengths. Shipped as
+      `62ch`, that read 75 characters a line in Chromium and 91 in WebKit on
+      the same runner.
+    */
+    expect(block(".cm-lp-root")).toMatch(/--lp-measure:\s*\d+;/);
 
     /*
       Padding rather than `max-width: var(--lp-measure); margin-inline: auto`,

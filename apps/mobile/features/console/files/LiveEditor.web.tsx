@@ -270,9 +270,18 @@ function ensureStyles(colors: Colors): void {
     declared on one host and read on both is a declaration that silently
     becomes nothing on the other. themeVars sends this one too.
 
-    The number is layout.readingMeasureCh, which carries the argument for it.
+    A BARE NUMBER, and the unit is added by the rule that uses it. A
+    font-relative length inside a custom property may be resolved either where
+    the property is declared or where it is substituted, and engines differ —
+    and those are two different lengths here, because this element is Times New
+    Roman at 16px (nothing sets a face on it) while the note is a sans at
+    14.5px. Multiplying by 1em down in .cm-content resolves it against the text
+    it is measuring, on every engine.
+
+    The number is layout.readingMeasureEm, which carries the argument for it,
+    including why it is em rather than the ch that nominally means characters.
   */
-  --lp-measure: ${layout.readingMeasureCh}ch;
+  --lp-measure: ${layout.readingMeasureEm};
   height: 100%;
 }
 .cm-lp-root .cm-editor { height: 100%; background: transparent; }
@@ -321,8 +330,11 @@ function ensureStyles(colors: Colors): void {
     The max() floor is what hands the width back at narrow widths: once the
     pane is no wider than the measure the padding is zero and .cm-scroller's
     --lp-pad-x is the only gutter, which is the phone.
+
+    1em is this element's own font size — the note's — which is the point of
+    doing the multiplication here rather than storing a length.
   */
-  padding-inline: max(0px, calc((100% - var(--lp-measure)) / 2));
+  padding-inline: max(0px, calc((100% - var(--lp-measure) * 1em) / 2));
 }
 .cm-lp-root .cm-line { padding: 0; }
 /*

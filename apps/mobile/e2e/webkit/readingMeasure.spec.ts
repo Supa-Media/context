@@ -18,15 +18,24 @@ import { expect, test } from "@playwright/test";
  * note is now written as normal unwrapped paragraphs, which is what makes the
  * measurement below mean anything.
  *
- * ## Characters, not pixels
+ * ## Characters, not pixels — and why the bounds on the count are wide
  *
  * These assert the count of characters that land on a rendered line rather
  * than a pixel width, because the count is the constraint and the pixels are
- * whatever the font happens to be on the runner. The measure is set in `ch`
- * (`layout.readingMeasureCh`), which is the advance of "0" — wider than the
- * average lowercase letter, so 62ch of box holds something like 75 characters
- * of prose. That relationship is exactly the sort of arithmetic that should be
- * checked against a browser instead of trusted, which is what this does.
+ * whatever the font happens to be. The measure is `layout.readingMeasureEm`
+ * em of the note's own type, which is a fixed box; how many characters fit in
+ * it is a property of the face, and the face here is whatever the runner
+ * resolved `system-ui` to.
+ *
+ * That is not hypothetical. This shipped for one CI run as `62ch` and came
+ * back **75 characters in Chromium and 91 in WebKit on the same Linux
+ * runner** — `ch` is the advance of "0", so it tracks a face's digits rather
+ * than its prose, and the two diverge. Hence `em`, and hence bounds wide
+ * enough that a different default sans is not a failure: what these catch is
+ * the measure gone (about 150 characters, which is the defect) or a measure
+ * nobody could read. The design number is measured in a real face and
+ * recorded in `tokens.ts`. Every case logs what it saw, so a failure here
+ * says which font it was arguing with.
  *
  * ## What a chromium pass proves here
  *
@@ -54,6 +63,9 @@ async function paragraph(page: import("@playwright/test").Page): Promise<{
   right: number;
   longestLine: number;
   lines: number;
+  /** What the note is actually set in, so a surprising count can be read. */
+  font: string;
+  fontSize: number;
 }> {
   await page.goto("/e2e-fixture");
   // `1-projects/context-lc.md` is `SEYI_TREE.defaultSelection`, so the note
@@ -94,6 +106,7 @@ async function paragraph(page: import("@playwright/test").Page): Promise<{
 
     const box = line.getBoundingClientRect();
     const pane = scroller.getBoundingClientRect();
+    const style = getComputedStyle(line);
     return {
       width: box.width,
       paneWidth: pane.width,
@@ -101,8 +114,19 @@ async function paragraph(page: import("@playwright/test").Page): Promise<{
       right: pane.right - box.right,
       longestLine: Math.max(...lines),
       lines: lines.length,
+      font: style.fontFamily,
+      fontSize: Number.parseFloat(style.fontSize),
     };
   });
+}
+
+/** Everything a failure would want to know, on one line of the report. */
+function say(where: string, box: { width: number; longestLine: number; font: string; fontSize: number }): void {
+  const ems = (box.width / box.fontSize).toFixed(1);
+  console.log(
+    `[reading measure] ${where}: ${box.width.toFixed(0)}px (${ems}em) holding ` +
+      `${box.longestLine} characters at ${box.fontSize}px in ${box.font}`,
+  );
 }
 
 test.describe("at a desktop console width", () => {
@@ -110,26 +134,36 @@ test.describe("at a desktop console width", () => {
 
   test("a paragraph is a readable column, not the width of the pane", async ({ page }) => {
     const box = await paragraph(page);
+    say("desktop", box);
 
     // The defect, stated as the thing that must not come back: the paragraph
     // filled the pane. It now takes a fraction of it.
     expect(box.width).toBeLessThan(box.paneWidth - 100);
 
     /*
-      And the reason that matters, in the unit the constraint is really in.
-      The design value is 62ch (`layout.readingMeasureCh`), which measured 75
-      characters here and lands nearer 68 in a narrower face — the band these
-      bounds sit around is 60-75.
+      The box itself, which is the half that is the layout's rather than the
+      font's: the measure is a multiple of the note's own type size, so this
+      is exact arithmetic and a tight bound is honest here in a way it is not
+      on the character count below.
+    */
+    expect(box.width / box.fontSize).toBeGreaterThan(30);
+    expect(box.width / box.fontSize).toBeLessThan(42);
 
-      They are deliberately looser than that band, because how many characters
-      fit in 62ch is a property of whatever font the runner resolved
-      `system-ui` to, and this file must not go red because a CI image shipped
-      a different sans. What it is for is the two failures that are not about
-      fonts at all: the measure gone (about 150 characters, the defect), and a
-      measure set to something nobody would read.
+    /*
+      And the reason that box matters, in the unit the constraint is really
+      in. The design value is 36em (`layout.readingMeasureEm`), measured at 68
+      characters in the console's own face; prose averages 0.45-0.55em a
+      character, so a different sans puts this anywhere from about 65 to 80.
+
+      These bounds are deliberately wider than that. How many characters fit is
+      the font's business, and this file must not go red because a CI image
+      shipped a different default — what it is for is the two failures that are
+      not about fonts at all: the measure gone (about 150 characters, which is
+      the defect) and a measure nobody could read. The line above is where the
+      tight bound lives, because that one is arithmetic.
     */
     expect(box.longestLine).toBeGreaterThan(50);
-    expect(box.longestLine).toBeLessThanOrEqual(85);
+    expect(box.longestLine).toBeLessThanOrEqual(95);
 
     // The paragraph really did wrap more than once — a one-line paragraph
     // would satisfy everything above while proving nothing.
@@ -184,6 +218,7 @@ test.describe("at the phone viewport", () => {
   */
   test("the padding governs and the measure never binds", async ({ page }) => {
     const box = await paragraph(page);
+    say("phone", box);
 
     /*
       The whole width the scroller has, less its own gutters, is what the note
