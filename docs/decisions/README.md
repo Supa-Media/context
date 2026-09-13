@@ -288,6 +288,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The guard is the load-bearing half, and describing created the need for it
 - Everything degrades to "we could not read it", never to a refusal
 - The render is true, not hand-drawn, and that is the trade
+- The drawing editor is a page, because a dynamic import is not a lazy chunk
+- The page never sees the customer's Markdown
+- Fonts are served from our own origin, and that is not a preference
 
 ## [Testing and guards](./testing.md)
 

@@ -150,6 +150,16 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      # The drawing editor is a page of its own, not part of the console
+      # bundle — measured, an `import()` of it inside the console is not a lazy
+      # chunk under Metro and costs every page load 9MB. It is built here into
+      # `public/drawing-assets/` and served from our own origin, fonts
+      # included, so the editor never reaches for esm.sh when somebody opens
+      # their own private drawing. It fails loudly rather than skipping: a
+      # silent skip is a deploy whose drawings do not open.
+      - name: Build the drawing editor
+        run: node scripts/build-drawing-editor.mjs
+
       - name: Export web bundle
         working-directory: apps/mobile
         run: npx expo export --platform web

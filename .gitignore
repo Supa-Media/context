@@ -64,3 +64,11 @@ docs/shots/*.html
 apps/mobile/web-build/
 apps/mobile/e2e/webkit/playwright-report/
 apps/mobile/e2e/webkit/test-results/
+
+# The standalone drawing editor and its fonts, built by
+# `scripts/build-drawing-editor.mjs` so the console can serve them from its own
+# origin instead of a CDN (see `features/console/files/drawingBridge.ts` for
+# why the editor is a separate page at all). Not committed: it is megabytes of
+# a dependency's code, and a committed copy is a second thing to keep in step
+# with every version bump.
+apps/mobile/public/drawing-assets/
