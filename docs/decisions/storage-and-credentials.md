@@ -553,6 +553,35 @@ new count. Existing migrations created before this field was added resume from
 their saved cursor and fall back to a cumulative checked count rather than
 restarting a potentially multi-day copy just to manufacture a percentage.
 
+The copy waits for the same settling window the fresh-bucket path waits for,
+and for the same reason. The section above documents R2 IAM changes as
+eventually consistent for up to a minute; the migration path started its walk
+in the tick the key was minted and treated the first error of any kind as
+final, so an upgrade of a context that already had storage reported that the
+copy had stopped and then completed on a retry that changed nothing. Beginning
+a migration therefore queues a readiness gate rather than the copy: it runs the
+same `probeStore` a pasted credential gets, every five seconds for up to two
+minutes, and hands over to the walk only once the new bucket has both listed
+and accepted a write. A bucket that never answers inside that window fails as
+`TARGET_NOT_READY`.
+
+Failures *during* the copy are retried on the same window rather than ending
+the migration, because a page that failed is not a migration that failed — the
+target is minutes old, the source is somebody else's storage, and both are
+reached over a network. The window measures one unbroken run of failures, not
+the migration: a page that lands schedules its successor with no deadline, so a
+long copy is never on a clock that started at its first object. Only failures
+that would answer identically forever skip the retry — the migration's own
+preconditions (`SOURCE_UNAVAILABLE`) and an object too large to move
+(`OBJECT_TOO_LARGE`). A read-back that does not match a write made moments ago
+is retried, because on a bucket this new that is far likelier to be propagation
+than a backend that corrupts what it is given.
+
+A stopped migration is recorded in both places a stopped migration has to be
+recorded: the row the copy resumes from, and the plan the console reads.
+Writing only the row is how a migration becomes invisible — the owner watches a
+copy that has already stopped, with no retry offered and nothing to wait for.
+
 Cutover is conditional on the exact source binding id recorded at the start.
 If the owner reconnects storage while the copy is running, the migration fails
 closed and the newly connected binding stays live. The source bucket is never
@@ -560,6 +589,12 @@ deleted. A failed copy keeps its cursor and managed credential for a safe retry;
 that envelope participates in the normal key-rotation pass and workspace
 deletion cascade. Successful cutover moves the credential onto the ordinary
 binding and deletes the migration row.
+
+The tests that fail if the waiting is reversed are the
+`waiting for a managed bucket that has only just been made` cases in
+`apps/convex/__tests__/managedProvisioning.test.ts` — including the two that
+prove an upgrade and a retry queue the gate rather than the copy, which is the
+wiring the gate's own cases cannot see.
 
 The settings panel reports files checked, says which storage remains
 authoritative, and offers an owner-only retry. This is still not the free exit

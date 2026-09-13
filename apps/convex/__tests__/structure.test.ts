@@ -1054,6 +1054,13 @@ describe("no public function can reach a storage secret", () => {
         // resumable copy page. Internal-only; the source binding remains live
         // until a quiet verification pass and atomic source-id-checked cutover.
         "functions.managedProvisioning.runManagedStorageMigration",
+        // The readiness gate in front of that copy, and the narrowest use of
+        // the same parked credential: it opens the destination secret to ask
+        // the new bucket one question — does it answer, and will it take a
+        // write — and moves nothing either way. Internal-only, reached by the
+        // same two schedule edges, and it cannot widen what the copy it
+        // precedes could already do with the identical secret.
+        "functions.managedProvisioning.awaitManagedTargetReady",
         // THE THIRD KIND, AND THE WEAKEST ONE.
         //
         // Opens the parked PKCE verifier so the authorization code can be
