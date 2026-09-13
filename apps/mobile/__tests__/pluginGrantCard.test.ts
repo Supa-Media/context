@@ -124,15 +124,31 @@ describe("no control that cannot succeed", () => {
   test("a viewer with no actions is offered nothing to press", () => {
     const container = card(plugin(), { grants: [], loading: false });
     expect(buttons(container)).toHaveLength(0);
+    expect(container.textContent).toBe("");
   });
 
-  test("a plugin that cannot run here is offered nothing", () => {
+  /*
+    Nineteen won't-run rows repeating "there is nothing to approve" directly
+    under the line that already told them to keep it in Obsidian is a sentence
+    people stop reading — including on the rows where it carries something.
+  */
+  test("a plugin that cannot run here draws nothing at all", () => {
     const container = card(plugin({ verdict: "wont-run" }), {
       grants: [],
       loading: false,
       actions: actions(),
     });
-    expect(buttons(container).some((label) => /approve/i.test(label))).toBe(false);
+    expect(container.textContent).toBe("");
+  });
+
+  test("but a won't-run plugin that still holds a grant is not silent", () => {
+    const container = card(plugin({ verdict: "wont-run" }), {
+      grants: [grant()],
+      loading: false,
+      actions: actions(),
+    });
+    expect(container.textContent).toContain("Approved");
+    expect(buttons(container).some((label) => /revoke/i.test(label))).toBe(true);
   });
 
   test("grants still loading renders nothing rather than an empty standing", () => {
@@ -177,6 +193,48 @@ describe("the form opens closed", () => {
     expect(approved[0]).toContain("highlightr-plugin:");
     expect(approved[0]).toContain("vault:read");
     expect(approved[0]).not.toContain("vault:delete");
+  });
+});
+
+describe("a refused approval says why", () => {
+  test("the server's own sentence survives to the form", async () => {
+    const container = card(plugin(), {
+      grants: [],
+      loading: false,
+      actions: {
+        approve: async () => {
+          throw Object.assign(new Error("convex"), {
+            data: { code: "PLUGIN_CHANGED", message: "The plugin changed; review it again" },
+          });
+        },
+        revoke: async () => {},
+      },
+    });
+    press(container, "Review access");
+    await act(async () => {
+      press(container, "Approve this bundle");
+    });
+    expect(container.textContent).toContain("The plugin changed; review it again");
+    // Still open: a form that closes on a refusal looks like one that worked.
+    expect(container.querySelector("[data-testid='plugin-approve-highlightr-plugin']")).not.toBeNull();
+  });
+
+  test("a refusal with nothing to quote still says nothing was granted", async () => {
+    const container = card(plugin(), {
+      grants: [],
+      loading: false,
+      actions: {
+        approve: async () => {
+          throw new Error("network");
+        },
+        revoke: async () => {},
+      },
+    });
+    press(container, "Review access");
+    await act(async () => {
+      press(container, "Approve this bundle");
+    });
+    expect(container.textContent).toContain("nothing was granted");
   });
 });
 

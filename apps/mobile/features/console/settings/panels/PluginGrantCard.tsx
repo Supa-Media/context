@@ -9,8 +9,8 @@ import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { useArming } from "../../useArming";
 import {
-  ALL_CAPABILITIES,
   DEFAULT_CAPABILITIES,
+  GRANTABLE_CAPABILITIES,
   STALE_NOTE,
   approvalOffer,
   capabilityDetail,
@@ -55,6 +55,7 @@ export function PluginGrantCard({
   const [open, setOpen] = useState(false);
   const [chosen, setChosen] = useState<PluginCapability[]>([...DEFAULT_CAPABILITIES]);
   const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   /*
     Two presses, like every other Revoke in this console. A grant is the only
     thing standing between a plugin and somebody's notes, and taking it away is
@@ -76,9 +77,24 @@ export function PluginGrantCard({
   const fingerprint = plugin.bundleFingerprint;
   const canApprove = offer.kind === "available" && actions !== undefined && fingerprint !== null;
 
+  /*
+    Nothing granted, nothing grantable, nothing to press — so draw nothing.
+
+    Without this, all nineteen won't-run rows gain "There is nothing to approve:
+    this plugin cannot run in Context", directly under the line that already told
+    them to keep it in Obsidian. A sentence repeated on every row that cannot act
+    is a sentence people stop reading, including on the rows where it carries
+    something — the networked one, and the one whose bundle could not be read.
+  */
+  if (standing.kind === "none" && standing.revokedAt === undefined) {
+    if (offer.kind === "not-runnable") return null;
+    if (!canApprove && offer.kind === "available") return null;
+  }
+
   async function approve() {
     if (!canApprove || fingerprint === null) return;
     setBusy(true);
+    setFailure(null);
     try {
       await actions?.approve({
         pluginId: plugin.id,
@@ -86,6 +102,14 @@ export function PluginGrantCard({
         capabilities: chosen,
       });
       setOpen(false);
+    } catch (error) {
+      /*
+        The server's own refusal, kept. `approvePlugin` has real things to say —
+        `PLUGIN_CHANGED` when the bundle moved between the scan and the press,
+        `PLUGIN_NOT_RUNNABLE`, `NETWORK_RUNTIME_UNAVAILABLE` — and a form that
+        closes silently on any of them looks like a button that does nothing.
+      */
+      setFailure(approvalFailure(error));
     } finally {
       setBusy(false);
     }
@@ -144,7 +168,7 @@ export function PluginGrantCard({
             it on here.
           </Text>
 
-          {ALL_CAPABILITIES.filter((capability) => capability !== "network:request").map(
+          {GRANTABLE_CAPABILITIES.map(
             (capability) => {
               const on = chosen.includes(capability);
               return (
@@ -195,6 +219,12 @@ export function PluginGrantCard({
             />
             <Button label="Cancel" onPress={() => setOpen(false)} />
           </Row>
+          {failure ? (
+            <Text variant="error" testID={`plugin-approve-failed-${plugin.id}`}>
+              {failure}
+            </Text>
+          ) : null}
+
           {chosen.length === 0 ? (
             <Text variant="rowSub" style={styles.lead}>
               A grant with nothing in it would let the plugin load and do nothing. Pick at least
@@ -205,6 +235,25 @@ export function PluginGrantCard({
       ) : null}
     </View>
   );
+}
+
+/**
+ * What to show when an approval is refused.
+ *
+ * A `ConvexError` carries the backend's own `message`, which is written for this
+ * reader — "The plugin changed; review it again" is more use than anything this
+ * component could compose. Anything else falls back to a sentence that says what
+ * did not happen, because "an error occurred" tells somebody nothing about
+ * whether their plugin is now approved.
+ */
+function approvalFailure(error: unknown): string {
+  const data = (error as { data?: unknown } | null)?.data;
+  if (typeof data === "object" && data !== null) {
+    const message = (data as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim() !== "") return message.trim();
+  }
+  if (typeof data === "string" && data.trim() !== "") return data.trim();
+  return "That approval did not go through, so nothing was granted. Read the plugins again and try once more.";
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({

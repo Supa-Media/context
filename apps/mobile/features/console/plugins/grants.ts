@@ -184,6 +184,23 @@ export const DEFAULT_CAPABILITIES: readonly PluginCapability[] = [
 /** Every capability, in the order the package lists them. */
 export const ALL_CAPABILITIES: readonly PluginCapability[] = PLUGIN_CAPABILITIES;
 
+/**
+ * The capabilities a consent form may actually offer today.
+ *
+ * `network:request` is not one of them, and it is excluded here rather than
+ * filtered at the call site so the reason lives beside the list and a test can
+ * hold it: `approvePlugin` fails closed on any network grant until the
+ * public-only egress service exists, so a tickbox for it would be a control
+ * that makes the whole form fail on submit.
+ *
+ * Derived from `ALL_CAPABILITIES` rather than written out, so a capability
+ * added to the enforcer appears here automatically and only a deliberate
+ * exclusion has to be stated.
+ */
+export const GRANTABLE_CAPABILITIES: readonly PluginCapability[] = ALL_CAPABILITIES.filter(
+  (capability) => capability !== "network:request",
+);
+
 /* -------------------------------------------------------------------------- */
 /*                            whether to offer it                             */
 /* -------------------------------------------------------------------------- */

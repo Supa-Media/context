@@ -4,6 +4,7 @@ import { PLUGIN_CAPABILITIES } from "@context/obsidian-runtime";
 import {
   ALL_CAPABILITIES,
   DEFAULT_CAPABILITIES,
+  GRANTABLE_CAPABILITIES,
   STALE_NOTE,
   approvalOffer,
   capabilityDetail,
@@ -152,6 +153,24 @@ describe("the capability list is the enforcer's list", () => {
   test("a plugin's own settings are not a note, and are allowed by default", () => {
     expect([...DEFAULT_CAPABILITIES]).toContain("settings:write");
     expect(capabilityDetail("settings:write")).toContain(".context/plugins/");
+  });
+});
+
+describe("the form offers only what can be granted today", () => {
+  test("network is excluded, and everything else is offered", () => {
+    expect([...GRANTABLE_CAPABILITIES]).not.toContain("network:request");
+    expect(GRANTABLE_CAPABILITIES).toHaveLength(ALL_CAPABILITIES.length - 1);
+  });
+
+  /*
+    Derived, not written out: a capability added to the enforcer must appear in
+    the form on its own, and only a deliberate exclusion should need stating.
+  */
+  test("it tracks the enforcer's list rather than keeping its own", () => {
+    for (const capability of ALL_CAPABILITIES) {
+      if (capability === "network:request") continue;
+      expect(GRANTABLE_CAPABILITIES).toContain(capability);
+    }
   });
 });
 
