@@ -2028,16 +2028,69 @@ export const livePreviewStyles = `
   diagram frame beside it is and what a form is not.
 */
 .cm-lp-form {
-  border: 1px solid var(--lp-code-bg);
-  border-radius: 12px;
-  padding: 14px 16px 16px;
+  /*
+    A real hairline. This was --lp-code-bg, which is the code fence's FILL:
+    #F5F5F5 on a #FFFFFF ground, so in light mode the card had no visible edge
+    at all and the form read as loose controls dropped into the note. --lp-line
+    is the palette's own separator and is the same value every hairline in the
+    app is drawn in.
+  */
+  border: 1px solid var(--lp-line);
+  /*
+    One radius family — 10 on the card, 8 on the field, 8 on the button. It was
+    12 / 9 / 11, three radii no two of which agreed, which is what made a small
+    card read as three unrelated objects stacked up.
+  */
+  border-radius: 10px;
+  /* The padding belongs to the three bands inside, so their rules can run edge
+     to edge. */
+  overflow: hidden;
   margin: 0.6em 0;
   font-family: var(--lp-body);
   font-size: 0.94em;
   line-height: 1.45;
   color: var(--lp-content);
 }
-.cm-lp-form-row { margin-bottom: 12px; }
+/*
+  WHAT THIS BOX IS, AND WHERE WHAT YOU TYPE GOES.
+
+  See FormWidget.drawHead. The destination is the half that earns the strip:
+  responses live in a sister note by design, and a reader had no way to learn
+  which one before pressing Submit.
+*/
+.cm-lp-form-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--lp-line);
+  background: var(--lp-code-bg);
+}
+.cm-lp-form-kind {
+  font-family: var(--lp-mono);
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+.cm-lp-form-dest { font-size: 0.82em; color: var(--lp-muted); }
+.cm-lp-form-dest-path { font-family: var(--lp-mono); color: var(--lp-content); }
+.cm-lp-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+}
+.cm-lp-form-row { display: flex; flex-direction: column; gap: 6px; }
+/* The label and its character count, on one line. */
+.cm-lp-form-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
 /*
   A field's name is its label verbatim, with underscores spaced out. Sentence
   case is left alone rather than title-cased: the author wrote the name, and a
@@ -2045,12 +2098,17 @@ export const livePreviewStyles = `
   are about a field they cannot find.
 */
 .cm-lp-form-label {
-  display: block;
-  font-size: 0.85em;
+  /*
+    Small, spaced and upper-case: a field name is a label rather than a
+    sentence, and at 0.85em in sentence case it read as body copy that happened
+    to be grey — the note's own prose and the form's chrome in the same voice.
+    The name itself is still verbatim; see drawField.
+  */
+  font-size: 0.76em;
   font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--lp-muted);
-  letter-spacing: 0.01em;
-  margin-bottom: 5px;
 }
 /*
   The word rather than an asterisk. An asterisk has to be learned, is invisible
@@ -2060,30 +2118,47 @@ export const livePreviewStyles = `
 */
 .cm-lp-form-required {
   font-weight: 500;
-  font-size: 0.92em;
+  /* Not upper-cased with the name: it is a note about the field, not part of
+     what the field is called. */
+  text-transform: none;
+  letter-spacing: 0.02em;
   color: var(--lp-muted);
-  opacity: 0.8;
+  opacity: 0.85;
 }
 .cm-lp-form-input {
   display: block;
   width: 100%;
   box-sizing: border-box;
   font: inherit;
+  font-family: var(--lp-body);
   color: var(--lp-content);
   background: var(--lp-code-bg);
-  border: 1px solid transparent;
-  border-radius: 9px;
+  /*
+    A real border at rest rather than a transparent one. A filled slab with no
+    edge is a block of colour; the edge is what says "you type in here", and
+    without it the only thing distinguishing a field from a code span was its
+    width.
+  */
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 8px;
   padding: 8px 10px;
   /* Safari draws its own rounded fill over the one above without this. */
   -webkit-appearance: none;
   appearance: none;
 }
+.cm-lp-form-input::placeholder { color: var(--lp-muted); opacity: 0.7; }
 /* The two controls that are meaningless at full width and a target at 18px. */
 .cm-lp-form-input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--lp-link); }
 .cm-lp-form-input[type="date"], .cm-lp-form-input[type="number"] { width: auto; min-width: 10em; }
 .cm-lp-form-input:focus {
   outline: none;
   border-color: var(--lp-link);
+  /*
+    A ring as well as the border. The border alone moves one pixel of colour on
+    focus, which is not enough to find the field you just tabbed to — and this
+    is the control a keyboard user reaches Submit through.
+  */
+  box-shadow: 0 0 0 3px var(--lp-focus-ring);
 }
 textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 /*
@@ -2092,17 +2167,20 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   field before it.
 */
 .cm-lp-form-count {
-  text-align: right;
-  font-size: 0.78em;
+  font-size: 0.76em;
   color: var(--lp-muted);
-  margin-top: 3px;
+  /* Digits that change under the reader's eye must not move the label. */
+  font-variant-numeric: tabular-nums;
 }
 .cm-lp-form-foot {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-  margin-top: 14px;
+  padding: 11px 14px;
+  /* The action is separated from the fields rather than being the next thing
+     in the stack — pressing it is not the same kind of act as filling one in. */
+  border-top: 1px solid var(--lp-line);
 }
 /*
   The app's primary button, in CSS: the accent fill, white ink, 11px corners and
@@ -2111,16 +2189,18 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-submit {
   font: inherit;
+  font-family: var(--lp-body);
   font-weight: 600;
   color: #ffffff;
   background: var(--lp-link);
   border: none;
-  border-radius: 11px;
-  padding: 9px 18px;
+  border-radius: 8px;
+  padding: 7px 16px;
   cursor: pointer;
   -webkit-appearance: none;
   appearance: none;
 }
+.cm-lp-form-submit:focus-visible { outline: 2px solid var(--lp-link); outline-offset: 2px; }
 .cm-lp-form-submit:disabled { opacity: 0.45; cursor: default; }
 .cm-lp-form-status { font-size: 0.88em; color: var(--lp-muted); }
 .cm-lp-form-status-ok { color: var(--lp-link); font-weight: 600; }
@@ -2140,7 +2220,10 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 */
 .cm-lp-form-broken {
   border-style: dashed;
+  border-color: var(--lp-line-strong);
   color: var(--lp-muted);
+  /* No head, no fields, no foot — so this one carries its own padding. */
+  padding: 14px;
 }
 .cm-lp-form-broken-title { font-weight: 600; color: var(--lp-content); }
 .cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }

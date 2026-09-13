@@ -234,6 +234,9 @@ function ensureStyles(colors: Colors): void {
   */
   --lp-line: ${colors.line};
   --lp-line-strong: ${colors.lineStrong};
+  /* The wash behind a focused control, so focus is a ring rather than one
+     pixel of border changing colour. */
+  --lp-focus-ring: ${colors.accentDim};
   /*
     What the note is drawn *on*. The editor itself is transparent (below), so
     this names the surface behind it rather than painting one. The checkbox's
