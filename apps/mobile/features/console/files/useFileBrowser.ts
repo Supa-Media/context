@@ -19,6 +19,7 @@
  *    it does not, which is the one thing this product cannot afford to do.
  */
 
+import { isDrawingPath, newDrawing } from "@context/drawings";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { ConvexError } from "convex/values";
 import { useAction, useMutation, useQuery } from "convex/react";
@@ -1721,13 +1722,40 @@ export function useFileBrowser(options: {
       if (problem !== null) return setNotice(problem);
       const path = joinPath(folder, name);
       void run(async () => {
-        await writeNote({ workspaceId: workspaceId!, path, text: `# ${name.replace(/\.md$/i, "")}\n\n` });
+        /*
+          A drawing is seeded as a drawing, whichever control got here.
+
+          `# name` is right for a note and is a file the gateway *refuses* on a
+          `.excalidraw.md` path — `toolWriteNote` demands that a write to one
+          carry a payload, so a person who typed `plan.excalidraw` into New
+          note used to get an error rather than a drawing. Branching on the
+          name rather than adding a second write path means every surface that
+          creates a note gets this: the toolbar, the phone's `+`, and a folder
+          row's menu.
+        */
+        const text = isDrawingPath(name) ? newDrawing() : `# ${name.replace(/\.md$/i, "")}\n\n`;
+        await writeNote({ workspaceId: workspaceId!, path, text });
         return { touched: [path] };
       }).then((ok) => {
         if (ok) select(path);
       });
     },
     [listings, run, select, workspaceId, writeNote],
+  );
+
+  /**
+   * New drawing: the same creation as above, with the suffix supplied.
+   *
+   * A person names a diagram, not a file format, and `<name>.excalidraw.md` is
+   * two extensions they should not have to know about. Delegating rather than
+   * writing means the collision and name checks are the note's, once.
+   */
+  const createDrawing = useCallback(
+    (folder: string, rawName: string) => {
+      const trimmed = rawName.trim();
+      createNote(folder, isDrawingPath(ensureMarkdown(trimmed)) ? trimmed : `${trimmed}.excalidraw`);
+    },
+    [createNote],
   );
 
   const createFolder = useCallback(
@@ -2556,6 +2584,7 @@ export function useFileBrowser(options: {
       paste,
       copyTo,
       createNote,
+      createDrawing,
       createFolder,
       rename,
       move,
@@ -2606,6 +2635,7 @@ export function useFileBrowser(options: {
       copyTo,
       createFolder,
       createNote,
+      createDrawing,
       destroy,
       discard,
       discardLocalCopies,

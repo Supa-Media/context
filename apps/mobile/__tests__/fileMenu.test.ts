@@ -225,6 +225,7 @@ describe("a folder", () => {
     expect(ids(list)).toEqual([
       "open",
       "newNote",
+      "newDrawing",
       "newFolder",
       "rename",
       "duplicate",
@@ -246,6 +247,7 @@ describe("a folder", () => {
 
   test("says where the new note goes", () => {
     expect(find(list, "newNote")?.label).toBe("New note here");
+    expect(find(list, "newDrawing")?.label).toBe("New drawing here");
     expect(find(list, "newFolder")?.label).toBe("New folder here");
   });
 });
@@ -253,13 +255,15 @@ describe("a folder", () => {
 describe("empty space", () => {
   const list = menu({ kind: "background", folder: "1-projects" });
 
-  test("offers only the two creations", () => {
-    expect(ids(list)).toEqual(["newNote", "newFolder"]);
+  test("offers only the three creations", () => {
+    // Drawing sits between them because it is a *file* like a note, and the
+    // folder is the odd one out: it makes a place rather than a thing.
+    expect(ids(list)).toEqual(["newNote", "newDrawing", "newFolder"]);
   });
 
   /** No "here": there is nowhere else it could mean. */
   test("needs no word for where", () => {
-    expect(labels(list)).toEqual(["New note", "New folder"]);
+    expect(labels(list)).toEqual(["New note", "New drawing", "New folder"]);
   });
 });
 

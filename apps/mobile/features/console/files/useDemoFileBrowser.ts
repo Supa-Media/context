@@ -185,6 +185,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       paste: noop,
       copyTo: noop,
       createNote: noop,
+      createDrawing: noop,
       createFolder: noop,
       rename: noop,
       move: noop,

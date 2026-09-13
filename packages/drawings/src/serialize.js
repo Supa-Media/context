@@ -21,11 +21,17 @@
  * from a template would silently drop every one of those, and the customer
  * would find out in Obsidian.
  *
- * That is also why there is no "create a drawing from nothing" export here. The
- * plugin writes the scaffolding, with a warning line whose exact wording is its
- * own; inventing our own version of that is how two producers of one format
- * start to disagree. A new drawing is created by the editor that owns the
- * format, and this edits what comes back.
+ * That is also why there is no "create a drawing from nothing" export *here*.
+ * A file that already exists is edited, never regenerated, and nothing in this
+ * module may produce a body from a template.
+ *
+ * Scaffolding a file that does not exist yet is a different operation and lives
+ * in `scaffold.js`, which carries the argument for why the rule stops at this
+ * module's edge: without it the console could not offer New drawing at all, and
+ * a person had to install Obsidian to start a diagram in a product that renders
+ * and edits them natively. The plugin's own markers are copied there rather
+ * than composed, and the moment that file is written every later change comes
+ * back through here.
  *
  * ## The fence language is the customer's choice, not ours
  *

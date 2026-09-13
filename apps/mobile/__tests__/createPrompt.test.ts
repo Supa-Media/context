@@ -47,11 +47,12 @@ afterEach(() => {
 
 interface Made {
   notes: string[];
+  drawings: string[];
   folders: string[];
 }
 
 function mount(folder: string): Made {
-  const made: Made = { notes: [], folders: [] };
+  const made: Made = { notes: [], drawings: [], folders: [] };
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -68,6 +69,7 @@ function mount(folder: string): Made {
           folder,
           onCancel: () => {},
           onCreateNote: (name: string) => made.notes.push(name),
+          onCreateDrawing: (name: string) => made.drawings.push(name),
           onCreateFolder: (name: string) => made.folders.push(name),
         }),
       ),
@@ -115,7 +117,9 @@ describe("the phone's + asks which of the two it is", () => {
     mount("1-projects");
     // The whole point of the change: Folder is reachable. Note is asserted
     // alongside it so this cannot pass by rendering an empty dialog.
-    expect(labels()).toEqual(expect.arrayContaining(["New note", "New folder"]));
+    expect(labels()).toEqual(
+      expect.arrayContaining(["New note", "New drawing", "New folder"]),
+    );
   });
 
   test("it says where the thing is going", () => {
@@ -132,19 +136,34 @@ describe("the phone's + asks which of the two it is", () => {
     const made = mount("1-projects");
     press("New note");
     name("plan");
-    expect(made).toEqual({ notes: ["plan"], folders: [] });
+    expect(made).toEqual({ notes: ["plan"], drawings: [], folders: [] });
   });
 
   test("choosing Folder creates a folder and no note", () => {
     const made = mount("1-projects");
     press("New folder");
     name("editor-polish");
-    expect(made).toEqual({ notes: [], folders: ["editor-polish"] });
+    expect(made).toEqual({ notes: [], drawings: [], folders: ["editor-polish"] });
+  });
+
+  test("choosing Drawing creates a drawing and nothing else", () => {
+    /*
+      The third row, and the reason it is a row rather than a name somebody has
+      to know to type: a drawing is `<name>.excalidraw.md`, two extensions, and
+      until this existed the only way to start one was to install Obsidian.
+      Wired to its own handler for the reason the Folder row is — a Drawing row
+      that called `onCreateNote` would look completely correct on screen and
+      would write a note the gateway then refuses.
+    */
+    const made = mount("1-projects");
+    press("New drawing");
+    name("ingest");
+    expect(made).toEqual({ notes: [], drawings: ["ingest"], folders: [] });
   });
 
   test("nothing is created by opening the chooser", () => {
     // A `+` that wrote a note the moment it was pressed is what this replaced:
     // the bar used to call `createNote(folder, "Untitled")` directly.
-    expect(mount("1-projects")).toEqual({ notes: [], folders: [] });
+    expect(mount("1-projects")).toEqual({ notes: [], drawings: [], folders: [] });
   });
 });
