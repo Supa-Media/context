@@ -122,6 +122,18 @@ interface StorageBinding {
   noteCountedAt?: number;
   noteCountTruncated?: boolean;
   /**
+   * Where the storage-layout migration got to. Absent until it has run through
+   * us, which is the only state the console still offers it in.
+   */
+  storageLayoutState?:
+    | "copying"
+    | "copied"
+    | "cleaning"
+    | "conflict"
+    | "unsupported"
+    | "complete";
+  storageLayoutAt?: number;
+  /**
    * Load-bearing for Re-verify: the probe is queued, not awaited, so the pane
    * watches this field to know its outcome landed. See `storage/reverify.ts`.
    */
@@ -462,6 +474,8 @@ export function useLiveConsoleData(): ConsoleData {
           noteCount: binding.noteCount,
           noteCountedAt: binding.noteCountedAt,
           noteCountTruncated: binding.noteCountTruncated,
+          layoutState: binding.storageLayoutState,
+          layoutStateAt: binding.storageLayoutAt,
           forcePathStyle: binding.forcePathStyle,
           // `objectCount`, `paraPresent` and `versioningOn` are deliberately
           // not set. Nothing has counted this bucket, looked for PARA folders,

@@ -195,6 +195,7 @@ import {
   readImage,
 } from "./lib/fileOps";
 import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
+import { storageLayoutStateValidator } from "./lib/storageLayout";
 import {
   ensureFormResponseFiles,
   runFormAction,
@@ -550,14 +551,7 @@ const privacyResetValidator = v.object({
 
 const storageMigrationResultValidator = v.object({
   kind: v.literal("storageMigrated"),
-  state: v.union(
-    v.literal("copying"),
-    v.literal("copied"),
-    v.literal("cleaning"),
-    v.literal("conflict"),
-    v.literal("unsupported"),
-    v.literal("complete"),
-  ),
+  state: storageLayoutStateValidator,
   objectsCopied: v.number(),
   objectsVerified: v.number(),
   objectsDeleted: v.number(),
@@ -1664,6 +1658,24 @@ export const runFileOperation = internalAction({
       }
     }
     if (args.operation.kind === "migrateStorage" && result.kind === "storageMigrated") {
+      /*
+        WHAT THE BUCKET SAID, WRITTEN DOWN WHERE A QUERY CAN REACH IT.
+
+        The bucket stays authoritative — `migrateStorageLayout` keeps its own
+        state under `.context/` and short-circuits on `complete`. This is the
+        copy the console reads, and it is recorded on **every** pass rather
+        than only at the end, so an owner watching a long migration sees
+        `copying` rather than nothing at all.
+
+        Before this, nothing outside the bucket knew the migration had ever
+        run. The console's offer to run it was therefore answered by a flag on
+        one device, and came back on the next browser and the next phone for a
+        bucket already migrated — which is the nag this is here to end.
+      */
+      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+        workspaceId: args.workspaceId,
+        state: result.state,
+      });
       const continuing =
         (args.operation.cleanup && result.state === "cleaning") ||
         (!args.operation.cleanup && result.state === "copying");
@@ -1717,6 +1729,17 @@ export const runStorageLayoutMigration = internalAction({
       verification.conditionalCreate !== true ||
       verification.conditionalWrite !== true
     ) {
+      /*
+        A refusal is an answer, and it is the one most worth remembering: a
+        bucket that cannot do conflict-safe writes will never run this, so
+        offering it again is offering something that cannot happen. Recorded
+        here rather than in `runFileOperation` because this arm never reaches
+        it — the operation is not attempted at all.
+      */
+      await ctx.runMutation(internal.functions.storage.recordStorageLayoutState, {
+        workspaceId: args.workspaceId,
+        state: "unsupported",
+      });
       return {
         kind: "storageMigrated",
         state: "unsupported",

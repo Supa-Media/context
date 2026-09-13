@@ -30,6 +30,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Managed storage: a bucket we run, in an account that holds nothing else
 - One managed account per deployment, never shared
 - A migration pass is walked in waves, and an unchanged object is read twice
+- The migration's outcome is recorded, because an offer nobody can answer is a nag
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
