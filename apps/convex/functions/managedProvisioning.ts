@@ -8,7 +8,7 @@ import {
   mutation,
 } from "../_generated/server";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import type { QueryCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { requireWorkspaceRole } from "./lib/workspaceAuth";
 import { decryptSecret, encryptSecret, requireKeyset } from "./lib/crypto";
 import { recordAudit } from "./lib/audit";
@@ -29,6 +29,7 @@ import {
   managedBucketName,
 } from "./lib/managedStorage";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { probeStore } from "../../mcp/src/store/index.js";
 import {
   reconcileMigrationObject,
   type MigrationStore,
@@ -37,6 +38,19 @@ import {
 const MIGRATION_PAGE_SIZE = 25;
 const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
 const MANAGED_STORAGE_SETUP_TIMEOUT_MS = 2 * 60 * 1000;
+const MANAGED_STORAGE_SETTLE_POLL_MS = 5 * 1000;
+
+/**
+ * Failures that mean the same thing however many times they are tried.
+ *
+ * Everything else — a refused signature, a 404 for a bucket that exists, a
+ * reset socket — is treated as a bucket that has not settled yet, because on
+ * this path that is overwhelmingly what it is.
+ */
+const TERMINAL_MIGRATION_ERRORS = new Set([
+  "SOURCE_UNAVAILABLE",
+  "OBJECT_TOO_LARGE",
+]);
 
 /**
  * Tear down resources belonging to the dedicated CUJ account only.
@@ -212,8 +226,11 @@ export const provisionManagedStorage = internalAction({
       if (!resumed) return await fail("PROVISION_FAILED");
       await ctx.scheduler.runAfter(
         0,
-        internal.functions.managedProvisioning.runManagedStorageMigration,
-        { workspaceId: args.workspaceId },
+        internal.functions.managedProvisioning.awaitManagedTargetReady,
+        {
+          workspaceId: args.workspaceId,
+          retryUntil: Date.now() + MANAGED_STORAGE_SETUP_TIMEOUT_MS,
+        },
       );
       return { ok: true };
     }
@@ -496,12 +513,129 @@ export const beginManagedStorageMigration = internalMutation({
         updatedAt: now,
       });
     }
+    /*
+      The copy is not started here, and that is the fix this indirection
+      exists for. The bucket and the key it needs were minted seconds ago and
+      are not usable at R2's S3 endpoint the instant Cloudflare's API returns
+      — so the first thing that happens is a wait for the target to answer,
+      exactly as `completeManagedProvisioning` waits for the BYO path's
+      scheduled verification. Starting the walk in this tick is what made an
+      upgrade report a failed copy that a retry then completed untouched.
+    */
     await ctx.scheduler.runAfter(
       0,
-      internal.functions.managedProvisioning.runManagedStorageMigration,
-      { workspaceId: args.workspaceId },
+      internal.functions.managedProvisioning.awaitManagedTargetReady,
+      {
+        workspaceId: args.workspaceId,
+        retryUntil: now + MANAGED_STORAGE_SETUP_TIMEOUT_MS,
+      },
     );
     return null;
+  },
+});
+
+/**
+ * Prove the managed bucket answers, then start the copy.
+ *
+ * ## Why a wait, rather than just letting the copy fail and be retried
+ *
+ * Because "retry" here is a person reading a screen that says their upgrade
+ * did not work. A newly minted bucket-scoped token takes a moment to become
+ * usable at the S3 endpoint, which is not a failure and must not be reported
+ * as one — every managed upgrade would hit it, and every one of them would be
+ * told the copy stopped and offered a button that then worked first time.
+ *
+ * So this polls the target until it is reachable *and* writable, and only then
+ * hands over to the walk. Nothing is moved and nothing is switched while it
+ * waits: the customer's own storage stays bound and serving throughout, and a
+ * target that never answers inside the window fails with a code of ours rather
+ * than hanging.
+ *
+ * `probeStore` is the same probe `verifyStorageBinding` runs against a pasted
+ * credential — one listing, one write, one read, cleaned up after itself, under
+ * `.context/`, never note surface. Running the same readiness question on both
+ * paths is the point; a managed bucket is not a special kind of bucket.
+ */
+export const awaitManagedTargetReady = internalAction({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** Absolute deadline. Past it, an unready bucket is a failure. */
+    retryUntil: v.number(),
+  },
+  returns: v.object({ ready: v.boolean() }),
+  handler: async (ctx, args): Promise<{ ready: boolean }> => {
+    const migration: Doc<"managedStorageMigrations"> | null =
+      await ctx.runQuery(
+        internal.functions.managedProvisioning.migrationForCopy,
+        { workspaceId: args.workspaceId },
+      );
+    // Cancelled, already finished, or failed by something else. Not ours.
+    if (migration === null || migration.status !== "copying") {
+      return { ready: false };
+    }
+
+    let ready = false;
+    try {
+      const secretAccessKey = await decryptSecret(
+        migration.encryptedTargetSecretAccessKey,
+        requireKeyset(),
+        { workspaceId: args.workspaceId },
+      );
+      const target = storeForBinding({
+        provider: "r2",
+        endpoint: migration.targetEndpoint,
+        region: "auto",
+        bucket: migration.targetBucket,
+        accessKeyId: migration.targetAccessKeyId,
+        secretAccessKey,
+        capabilities: { conditionalWrite: true },
+        status: "connected",
+      });
+      const probe = await probeStore(target);
+      // Not `probe.ok`: that folds in conditional-write verification, which is
+      // a question about the binding and is asked at cutover by the ordinary
+      // verification `applyBinding` schedules. What the copy needs to start is
+      // narrower and is exactly these two.
+      ready = probe.reachable === true && probe.writable === true;
+    } catch {
+      // An envelope that will not open, or a store that cannot be built. Both
+      // resolve the same way as an unready bucket: try again until the
+      // deadline, then say so.
+      ready = false;
+    }
+
+    if (ready) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.managedProvisioning.runManagedStorageMigration,
+        { workspaceId: args.workspaceId },
+      );
+      return { ready: true };
+    }
+
+    const remaining = args.retryUntil - Date.now();
+    if (remaining > 0) {
+      // Hoisted rather than inlined into the call: `structure.test.ts` reads
+      // scheduled targets positionally, and a nested call in the delay slot
+      // hides from it what was queued.
+      const delay = Math.min(MANAGED_STORAGE_SETTLE_POLL_MS, remaining);
+      await ctx.scheduler.runAfter(
+        delay,
+        internal.functions.managedProvisioning.awaitManagedTargetReady,
+        args,
+      );
+      return { ready: false };
+    }
+
+    console.error("managed_storage.target_not_ready", {
+      workspaceId: args.workspaceId,
+      bucket: migration.targetBucket,
+    });
+    await ctx.runMutation(
+      internal.functions.managedProvisioning.failManagedStorageMigration,
+      { workspaceId: args.workspaceId, errorCode: "TARGET_NOT_READY" },
+    );
+    return { ready: false };
   },
 });
 
@@ -546,6 +680,41 @@ export const resumeManagedStorageMigration = internalMutation({
   },
 });
 
+/**
+ * Stop a migration in both places a stopped migration has to be recorded.
+ *
+ * The row is what the copy resumes from; the plan is what the console reads.
+ * Writing one without the other is how a migration ends up invisible — either
+ * a screen reporting progress on a walk that stopped, or a failure the owner is
+ * shown with a copy still running behind it.
+ */
+async function failMigrationRowAndPlan(
+  ctx: MutationCtx,
+  row: Doc<"managedStorageMigrations"> | null,
+  workspaceId: Id<"workspaces">,
+  errorCode: string,
+): Promise<void> {
+  if (row !== null && row.status === "copying") {
+    await ctx.db.patch(row._id, {
+      status: "failed",
+      errorCode,
+      updatedAt: Date.now(),
+    });
+  }
+  const plan = await ctx.db
+    .query("workspacePlans")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .unique();
+  if (plan !== null) {
+    await ctx.db.patch(plan._id, {
+      managedProvisioning: "failed",
+      managedProvisioningError: errorCode,
+      managedProvisioningAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+  }
+}
+
 /** Record a closed error code while keeping the source binding live. */
 export const failManagedStorageMigration = internalMutation({
   args: { workspaceId: v.id("workspaces"), errorCode: v.string() },
@@ -555,25 +724,7 @@ export const failManagedStorageMigration = internalMutation({
       .query("managedStorageMigrations")
       .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
       .unique();
-    if (row !== null && row.status === "copying") {
-      await ctx.db.patch(row._id, {
-        status: "failed",
-        errorCode: args.errorCode,
-        updatedAt: Date.now(),
-      });
-    }
-    const plan = await ctx.db
-      .query("workspacePlans")
-      .withIndex("by_workspace", (q) => q.eq("workspaceId", args.workspaceId))
-      .unique();
-    if (plan !== null) {
-      await ctx.db.patch(plan._id, {
-        managedProvisioning: "failed",
-        managedProvisioningError: args.errorCode,
-        managedProvisioningAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    }
+    await failMigrationRowAndPlan(ctx, row, args.workspaceId, args.errorCode);
     return null;
   },
 });
@@ -622,11 +773,15 @@ export const recordMigrationPage = internalMutation({
       args.nextCursor !== undefined &&
       args.nextCursor === args.expectedCursor
     ) {
-      await ctx.db.patch(row._id, {
-        status: "failed",
-        errorCode: "CURSOR_STALLED",
-        updatedAt: Date.now(),
-      });
+      // The plan is failed alongside the row, because the console reads the
+      // plan. Failing only the row left an owner watching a copy that had
+      // already stopped, with no retry offered and nothing to wait for.
+      await failMigrationRowAndPlan(
+        ctx,
+        row,
+        args.workspaceId,
+        "CURSOR_STALLED",
+      );
       return { applied: false, cutover: false };
     }
     const objectsProcessedInPhase =
@@ -787,7 +942,18 @@ export const finishManagedStorageMigration = internalMutation({
 
 /** Count or reconcile one resumable page, then schedule the next one. */
 export const runManagedStorageMigration = internalAction({
-  args: { workspaceId: v.id("workspaces") },
+  args: {
+    workspaceId: v.id("workspaces"),
+    /**
+     * Deadline for the *current run of failures*, not for the migration.
+     *
+     * Set when a page first fails and carried across the retries of that one
+     * page; a page that succeeds schedules its successor without it, so the
+     * window starts again. A copy of a thousand objects is therefore not on a
+     * two-minute clock — only an unbroken streak of failures is.
+     */
+    retryUntil: v.optional(v.number()),
+  },
   returns: v.object({ copied: v.number(), complete: v.boolean() }),
   handler: async (
     ctx,
@@ -869,6 +1035,8 @@ export const runManagedStorageMigration = internalAction({
         );
         return { copied, complete: result.cutover };
       }
+      // Deliberately without `retryUntil`: this page landed, so the next one
+      // gets a full window of its own rather than inheriting a spent clock.
       await ctx.scheduler.runAfter(
         0,
         internal.functions.managedProvisioning.runManagedStorageMigration,
@@ -888,6 +1056,38 @@ export const runManagedStorageMigration = internalAction({
         phase: migration.phase,
         errorCode,
       });
+      /*
+        A page that failed is not a migration that failed.
+
+        The target is a bucket minted minutes ago, the source is somebody
+        else's storage, and both are reached over the network — so a single
+        refused request is the expected kind of event, not the end of the job.
+        Ending it there is what put "the copy stopped" in front of a customer
+        whose retry then worked without changing anything, and on a long copy
+        it would throw away a walk that was most of the way done.
+
+        `VERIFY_FAILED` is retried for the same reason: a read-back that does
+        not match a write made moments ago is far likelier to be a bucket that
+        has not settled than a bucket that corrupts what it is given. What is
+        *not* retried is anything that would answer identically forever — the
+        migration's own preconditions, and an object too large to move.
+
+        Nothing is written while retrying: the row stays `copying` at the cursor
+        it already had, the plan stays as it was, and the source binding is
+        untouched. The customer sees the copy still running, because it is.
+      */
+      const deadline =
+        args.retryUntil ?? Date.now() + MANAGED_STORAGE_SETUP_TIMEOUT_MS;
+      const remaining = deadline - Date.now();
+      if (!TERMINAL_MIGRATION_ERRORS.has(errorCode) && remaining > 0) {
+        const delay = Math.min(MANAGED_STORAGE_SETTLE_POLL_MS, remaining);
+        await ctx.scheduler.runAfter(
+          delay,
+          internal.functions.managedProvisioning.runManagedStorageMigration,
+          { workspaceId: args.workspaceId, retryUntil: deadline },
+        );
+        return { copied: 0, complete: false };
+      }
       await ctx.runMutation(
         internal.functions.managedProvisioning.failManagedStorageMigration,
         { workspaceId: args.workspaceId, errorCode },
