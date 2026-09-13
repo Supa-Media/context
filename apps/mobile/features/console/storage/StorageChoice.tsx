@@ -4,6 +4,7 @@ import { FormError } from "../../design/components/Input";
 import { Text } from "../../design/components/Text";
 import { leading, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { EARLY_TESTER_PRICE_SHORT } from "../settings/panels/premium";
 import { ConnectForm } from "./ConnectForm";
 import { DROPBOX_REDIRECT_ORIGINS } from "./dropbox";
 import { useDropboxStart } from "./useDropboxStart";
@@ -93,10 +94,18 @@ export function StorageChoiceBody({
           }}
         />
         {managed === undefined ? null : (
+          /*
+            The badge is the number and the sub says what kind of number it is.
+            Splitting it that way keeps the badge a badge — it is a pill beside
+            a title, and "$5 a month — early tester price, held for as long as
+            you keep it" is a paragraph — while still putting the framing on
+            the card somebody chooses from rather than only on the confirm
+            screen behind it.
+          */
           <ChoiceCard
             testID="choose-managed"
             title="Context-managed Premium storage"
-            sub="Get 50 GB for this context. Context sets it up and keeps it running."
+            sub={`Get 50 GB for this context. Context sets it up and keeps it running. ${EARLY_TESTER_PRICE_SHORT}`}
             badge={managed.price}
             badgeTone="neutral"
             selected={false}

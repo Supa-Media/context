@@ -59,6 +59,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { PremiumBody } from "../features/console/settings/panels/PremiumPanel";
 import {
+  EARLY_TESTER_PRICE_NOTE,
   EXPORT_PROMISE,
   demoPremiumView,
   unreadablePremiumView,
@@ -476,6 +477,51 @@ describe("what the section says about itself", () => {
     // They were separate strings once and drifted: a row that said "Mail,
     // calendar & chats" opened a panel headed "Integrations".
     expect(mount(view()).textContent ?? "").toContain("Premium");
+  });
+
+  test("the price says it is an early-tester price, on the rendered screen", () => {
+    /*
+      Rendered rather than asserted on the pure module, because this file's own
+      history is the argument for it: `entitlementRows` grew a field named
+      `hint` where `ToggleOption` wanted `detail`, type-checked, and dropped
+      three sentences of copy off the owner's screen with a green suite behind
+      it. A price promise that exists only in a constant nobody mounts is the
+      same bug wearing a different name.
+    */
+    const text = mount(view()).textContent ?? "";
+    expect(text).toContain(EARLY_TESTER_PRICE_NOTE);
+  });
+
+  test("...and a paying context is told the price it is holding", () => {
+    const text =
+      mount(
+        view({
+          status: status({
+            status: "active",
+            selected: { managedStorage: true, fastSearch: false },
+            active: { managedStorage: true, fastSearch: false },
+            storageIsManaged: true,
+          }),
+        }),
+      ).textContent ?? "";
+    expect(text).toContain(EARLY_TESTER_PRICE_NOTE);
+  });
+
+  test("a cancelled context is NOT promised a price it is no longer holding", () => {
+    /*
+      The one state where this copy would be a lie, and the reason
+      `earlyTesterPriceNote` is a function. "Yours stays at this price for as
+      long as you keep it" under a card reading "Premium has ended for this
+      context" promises a rate nobody held — and reads as an inducement to
+      come back, which is what makes it dishonest rather than just stale.
+    */
+    const text =
+      mount(view({ status: status({ status: "canceled" }) })).textContent ?? "";
+    expect(text).not.toContain(EARLY_TESTER_PRICE_NOTE);
+    expect(text).not.toMatch(/early tester/i);
+    // The section still says what it is, and still says how to leave.
+    expect(text).toContain("Premium has ended for this context");
+    expect(text).toContain(EXPORT_PROMISE);
   });
 });
 

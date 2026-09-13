@@ -7,6 +7,7 @@ import { Text } from "../../design/components/Text";
 import { leading, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import {
+  EARLY_TESTER_PRICE_NOTE,
   EXPORT_PROMISE,
   entitlementRows,
   entitlementsHint,
@@ -132,6 +133,17 @@ export function ManagedConfirm({
             {price}
           </Text>
         </Row>
+        {/*
+          What the number on the row above actually is, before the terms that
+          apply to it. This screen is the one place in the product where
+          somebody is a tap away from being charged, so the held-price half of
+          the sentence is said here in full rather than in the short form the
+          storage card uses — a promise abbreviated at the moment of payment is
+          the one somebody would be right to feel misled by later.
+        */}
+        <Hint style={styles.gap}>
+          <Text variant="rowSub">{EARLY_TESTER_PRICE_NOTE}</Text>
+        </Hint>
         <Hint style={styles.gap}>
           <Text variant="rowSub">
             Billed monthly. Cancel any time from this context&apos;s settings; cancelling

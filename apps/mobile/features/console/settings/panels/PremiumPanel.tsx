@@ -25,6 +25,7 @@ import {
   demoPremiumView,
   describePremium,
   describeSessionFailure,
+  earlyTesterPriceNote,
   entitlementRows,
   entitlementsHint,
   formatPrice,
@@ -314,6 +315,19 @@ export function PremiumBody({
               {formatPrice(status)}
             </Text>
           </Row>
+
+          {/*
+            Directly under the number, because that is the only place it can be
+            read as a fact about this price rather than marketing further down
+            the page — and absent on `canceled`, where the held-price half of
+            it would be a promise about a subscription this context no longer
+            has. `earlyTesterPriceNote` is the one place that decides.
+          */}
+          {earlyTesterPriceNote(state) === null ? null : (
+            <Hint style={styles.hint}>
+              <Text variant="rowSub">{earlyTesterPriceNote(state)}</Text>
+            </Hint>
+          )}
 
           {renewalLine(status) === null ? null : (
             <Hint style={styles.hint}>
