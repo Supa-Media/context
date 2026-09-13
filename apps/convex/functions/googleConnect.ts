@@ -1478,7 +1478,7 @@ export const startGoogleSyncRun = mutation({
     requireGoogleProductsEnabled(requested);
     throw new ConvexError({
       code: "GOOGLE_SYNC_FORWARD_ONLY",
-      message: "Google Mail, Calendar and Chat sync forward from their current cursors; historical backfill is disabled.",
+      message: "Google Mail, Calendar and Chat sync forward from their current positions; historical backfill is disabled.",
     });
   },
 });

@@ -457,10 +457,18 @@ export const googleForwardSyncJob = internalQuery({
         return { kind: "skip" as const, reason: "CHAT_SOURCE_LIMIT" };
       }
       // A disconnect stops provider reads; it does not delete notes already
-      // written into the customer's bucket. Keep every row that has ever held
-      // Chat in the shared contribution set so another active account cannot
-      // erase the disconnected account's history on its next render.
-      const chatContributors = workspaceConnections.filter((row) => row.chat !== undefined);
+      // written into the customer's bucket. Keep rows that can contribute now,
+      // plus disconnected rows that have actually contributed before. A row
+      // disconnected before its first pass has no manifest to wait on, and
+      // including it turns every active Chat pass into a permanent
+      // CHAT_WAITING_FOR_ACCOUNT.
+      const chatContributors = workspaceConnections.filter((row) => {
+        if (row.chat === undefined) return false;
+        return (
+          (row.disconnectedAt === undefined && row.products.includes("chat")) ||
+          row.chat.lastSyncedAt !== undefined
+        );
+      });
       const chat = connection.chat!;
       return {
         kind: "run" as const,

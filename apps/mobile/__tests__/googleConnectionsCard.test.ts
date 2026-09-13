@@ -146,17 +146,17 @@ describe("GoogleConnectionsCard", () => {
     */
     expect(text).not.toContain("Email, Calendar, Chat connected");
     expect(text).toContain("Email");
-    expect(text).toContain("Connected; forward sync setup is pending");
+    expect(text).toContain("Connected; waiting for the first scheduled mail pass");
     expect(text).not.toContain("Start Email");
     // Where each one writes, stated at rest rather than only inside a field.
     expect(text).toContain("0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md");
     expect(text).toContain("0-inbox/calendar/YYYY-MM-DD.md");
     expect(text).toContain("2-areas/communications/daily/YYYY-MM-DD.md");
     expect(text).toContain("Calendar");
-    expect(text).toContain("Connected; upcoming event sync setup is pending");
+    expect(text).toContain("Connected; waiting for the first scheduled calendar pass");
     expect(text).not.toContain("Start Calendar sync");
     expect(text).toContain("Chat");
-    expect(text).toContain("Ready for 2 Chat spaces");
+    expect(text).toContain("Watching 2 Chat spaces");
     expect(text).not.toContain("Start Chat sync");
     expect(text).not.toContain("cursor");
     expect(text).toContain("SCOPES INCOMPLETE");
@@ -503,7 +503,7 @@ describe("GoogleConnectionsCard", () => {
     const text = screen.container.textContent ?? "";
     // The summary line went; the block's own status is the claim now.
     expect(text).not.toContain("Email connected");
-    expect(text).toContain("Ready for new mail");
+    expect(text).toContain("Watching for new mail");
     expect(text).not.toContain("Calendar:");
     expect(text).not.toContain("0-inbox/calendar/YYYY-MM-DD.md");
     screen.unmount();
@@ -595,7 +595,7 @@ describe("the sync schedule on a connected account", () => {
     screen.unmount();
   });
 
-  test("a Calendar panel is not shown a schedule that only advances mail", () => {
+  test("a Calendar panel shows the account schedule that drives calendar passes", () => {
     const account = connection(neverSynced);
     const screen = render(
       createElement(GoogleConnectionsCard, {
@@ -614,10 +614,10 @@ describe("the sync schedule on a connected account", () => {
       }),
     );
     const text = screen.container.textContent ?? "";
-    expect(text).not.toContain("Sync schedule");
-    expect(text).not.toContain("Every 15 min");
+    expect(text).toContain("Sync schedule");
+    expect(text).toContain("Every 15 min");
     // Calendar's own honest sentence is still there.
-    expect(text).toContain("Connected; upcoming event sync setup is pending");
+    expect(text).toContain("Connected; waiting for the first scheduled calendar pass");
     screen.unmount();
   });
 
