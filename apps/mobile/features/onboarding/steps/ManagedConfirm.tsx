@@ -59,7 +59,7 @@ export type ManagedConfirmState = "choosing" | "opening" | "ready" | "failed";
 export const FIRST_RUN_AFTER_PAY = [
   "Stripe brings you back here.",
   "We create your storage and lay out the standard folders.",
-  "Your context is ready — usually in a few seconds.",
+  "Keep this page open until storage is confirmed — it can take up to 2 minutes.",
 ] as const;
 
 export function ManagedConfirm({

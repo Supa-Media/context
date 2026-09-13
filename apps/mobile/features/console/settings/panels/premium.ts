@@ -108,6 +108,7 @@ export function managedMigrationCopy(status: PremiumStatus): {
   title: string;
   body: string;
   failed: boolean;
+  canRetry?: boolean;
   percent?: number;
 } | null {
   if (
@@ -118,6 +119,10 @@ export function managedMigrationCopy(status: PremiumStatus): {
     return null;
   }
   if (status.managedProvisioning === "failed") {
+    if (status.managedMigrationPhase === undefined) {
+      const failure = managedFailureCopy(status.managedProvisioningError);
+      return { ...failure, failed: true };
+    }
     return {
       title: "Your notes are still in your original storage",
       body:
@@ -127,6 +132,25 @@ export function managedMigrationCopy(status: PremiumStatus): {
     };
   }
   const phase = status.managedMigrationPhase;
+  if (status.managedProvisioning === "ready" && phase === undefined) {
+    return {
+      title: "Managed storage is not connected",
+      body:
+        "Premium is active, but its managed bucket is not connected to this context. " +
+        "Try setup again; it is safe and will reuse the same bucket.",
+      failed: true,
+      canRetry: true,
+    };
+  }
+  if (phase === undefined) {
+    return {
+      title: "Creating managed storage",
+      body:
+        "This can take up to 2 minutes while the new bucket and its access settle. " +
+        "Keep this page open until we confirm that storage is ready.",
+      failed: false,
+    };
+  }
   const processed = status.managedMigrationObjectsProcessed;
   const total = status.managedMigrationObjectsTotal;
   const percent =
@@ -249,16 +273,15 @@ export function checkoutReturnCopy(
       tone: "neutral",
       title: "Still working",
       body:
-        "Stripe has your payment and we are waiting for the confirmation. This " +
-        "can take a minute. You can close this — we will finish on our own, and " +
-        `${where} will be ready when you come back.`,
+        "Stripe has your payment and we are waiting for confirmation. Setup can " +
+        `take up to 2 minutes; keep this page open until ${where} is ready.`,
       working: true,
     };
   }
   return {
     tone: "neutral",
     title: "Payment received",
-    body: `Setting up ${where}. This usually takes a few seconds.`,
+    body: `Setting up ${where}; this can take up to 2 minutes, so keep this page open until it is ready.`,
     working: true,
   };
 }

@@ -268,6 +268,7 @@ describe("managed-storage migration", () => {
           selected: { managedStorage: true, fastSearch: false },
           active: { managedStorage: true, fastSearch: false },
           managedProvisioning: "failed",
+          managedMigrationPhase: "copy",
         }),
         retryManagedStorage: async () => {},
       }),
@@ -503,7 +504,8 @@ describe("the return from Stripe", () => {
     expect(notice).not.toBeNull();
     const words = notice?.textContent ?? "";
     expect(words).toContain("Payment received");
-    expect(words).toContain("a few seconds");
+    expect(words).toContain("up to 2 minutes");
+    expect(words).toContain("keep this page open");
     expect(words.toLowerCase()).not.toContain("failed");
     expect(words.toLowerCase()).not.toContain("error");
   });
@@ -537,7 +539,7 @@ describe("the return from Stripe", () => {
     expect(words).toContain("This context is on the free plan");
   });
 
-  test("still waiting: different words, same spinner, and permission to leave", () => {
+  test("still waiting: different words, same spinner, and a clear instruction to stay", () => {
     jest.useFakeTimers();
     try {
       const container = mount(view(), { returned: "done", slowAfter: 20 });
@@ -548,7 +550,8 @@ describe("the return from Stripe", () => {
         container.querySelector('[data-testid="premium-checkout-return"]')
           ?.textContent ?? "";
       expect(words).toContain("Still working");
-      expect(words).toContain("You can close this");
+      expect(words).toContain("up to 2 minutes");
+      expect(words).toContain("keep this page open");
       expect(words.toLowerCase()).not.toContain("failed");
     } finally {
       jest.useRealTimers();

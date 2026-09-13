@@ -582,4 +582,18 @@ describe("a Dropbox binding on the settings pane", () => {
     expect(screen.text).toContain("Revoke the key at your provider");
     screen.unmount();
   });
+
+  test("managed storage cannot offer controls for a credential the customer does not own", () => {
+    const screen = mountSettings({
+      provider: "r2",
+      managed: true,
+      bucket: "ctx-example",
+      endpoint: "https://example.invalid",
+      region: "auto",
+    });
+    expect(screen.text).toContain("Context-managed storage");
+    expect(screen.q("storage-rebind")).toBeNull();
+    expect(screen.q("storage-disconnect")).toBeNull();
+    screen.unmount();
+  });
 });

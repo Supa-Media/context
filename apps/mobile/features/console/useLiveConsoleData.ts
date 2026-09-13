@@ -86,6 +86,7 @@ interface WorkspaceSummary {
 
 interface StorageBinding {
   provider: string;
+  managed: boolean;
   /**
    * Optional, because a Dropbox binding has none of them — see the validator
    * on `getStorageBinding`. `maskedAccessKeyId` in particular is `undefined`
@@ -466,6 +467,7 @@ export function useLiveConsoleData(): ConsoleData {
           errorCode: binding.errorCode,
           updatedAt: binding.updatedAt,
           lastVerifiedAt: binding.lastVerifiedAt,
+          managed: binding.managed,
         };
 
   const selected = contexts.find((c) => c.id === selectedContextId) ?? null;

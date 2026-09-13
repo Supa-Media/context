@@ -545,6 +545,7 @@ function BindingCard({
 
   const addressing = forcePathStyleToAddressing(storage.forcePathStyle);
   const isDropbox = storage.provider === "dropbox";
+  const isManaged = storage.managed === true;
 
   /**
    * Only the fields this backend actually has.
@@ -556,7 +557,10 @@ function BindingCard({
    * capability rows below follow — absent, never a placeholder.
    */
   const fields: Array<{ label: string; value: string }> = [
-    { label: "Provider", value: isDropbox ? "Dropbox" : storage.provider },
+    {
+      label: "Provider",
+      value: isManaged ? "Context-managed storage" : isDropbox ? "Dropbox" : storage.provider,
+    },
   ];
   // Which account, not just which provider — the two things the field was
   // stored for are saying whose Dropbox this is and noticing a *different*
@@ -716,17 +720,19 @@ function BindingCard({
           that has never existed for it — the same lie the failure copy avoids
           by not telling a Dropbox owner to paste an access key.
         */}
-        <Button
-          label={isDropbox ? "Reconnect" : "Rotate key"}
-          accessibilityLabel={
-            isDropbox
-              ? "Reconnect Dropbox, or connect a bucket instead"
-              : "Paste a new access key and secret"
-          }
-          disabled={actions === undefined || disconnecting}
-          onPress={onRebind}
-          testID="storage-rebind"
-        />
+        {isManaged ? null : (
+          <Button
+            label={isDropbox ? "Reconnect" : "Rotate key"}
+            accessibilityLabel={
+              isDropbox
+                ? "Reconnect Dropbox, or connect a bucket instead"
+                : "Paste a new access key and secret"
+            }
+            disabled={actions === undefined || disconnecting}
+            onPress={onRebind}
+            testID="storage-rebind"
+          />
+        )}
         {/*
           Two presses, and the second expires.
 
@@ -738,19 +744,21 @@ function BindingCard({
           from the control plane", so reconnecting needs a value R2 or S3 shows
           exactly once, at creation. There is no undo and no copy of it here.
         */}
-        <Button
-          label={
-            disconnecting
-              ? "Disconnecting…"
-              : disconnect.stage === "armed"
-                ? "Press again to disconnect"
-                : "Disconnect"
-          }
-          variant="danger"
-          disabled={actions === undefined || disconnecting}
-          onPress={disconnect.press}
-          testID="storage-disconnect"
-        />
+        {isManaged ? null : (
+          <Button
+            label={
+              disconnecting
+                ? "Disconnecting…"
+                : disconnect.stage === "armed"
+                  ? "Press again to disconnect"
+                  : "Disconnect"
+            }
+            variant="danger"
+            disabled={actions === undefined || disconnecting}
+            onPress={disconnect.press}
+            testID="storage-disconnect"
+          />
+        )}
       </Row>
 
       {/*
@@ -758,7 +766,7 @@ function BindingCard({
         press rather than in a paragraph scrolled off the top of the pane — and
         beside the one thing that is *not* reversible.
       */}
-      {disconnect.stage === "armed" ? (
+      {!isManaged && disconnect.stage === "armed" ? (
         <Hint>
           <Text variant="hint">
             Your bucket and every file in it are untouched — Context only forgets how

@@ -282,6 +282,8 @@ export const verifyStorageBinding = internalAction({
      * write". Meaningless without `structure`, and ignored without it.
      */
     resume: v.optional(v.boolean()),
+    /** Retry a newly minted managed credential until this absolute deadline. */
+    retryUntil: v.optional(v.number()),
   },
   returns: v.object({
     verified: v.boolean(),
@@ -515,9 +517,29 @@ export const verifyStorageBinding = internalAction({
  */
 async function record(
   ctx: ActionCtx,
-  args: { workspaceId: Id<"workspaces">; actorUserId?: Id<"users"> },
+  args: {
+    workspaceId: Id<"workspaces">;
+    actorUserId?: Id<"users">;
+    structure?: StructureChoice;
+    resume?: boolean;
+    retryUntil?: number;
+  },
   outcome: VerificationOutcome,
 ): Promise<VerificationOutcome> {
+  if (
+    !outcome.verified &&
+    args.retryUntil !== undefined &&
+    Number.isFinite(args.retryUntil) &&
+    Date.now() < args.retryUntil
+  ) {
+    const delay = Math.min(5_000, Math.max(0, args.retryUntil - Date.now()));
+    await ctx.scheduler.runAfter(
+      delay,
+      internal.functions.provisioning.verifyStorageBinding,
+      args,
+    );
+    return outcome;
+  }
   const error = outcome.error
     ? truncate(outcome.error, MAX_RECORDED_ERROR_LENGTH)
     : undefined;

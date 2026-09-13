@@ -104,11 +104,13 @@ test("coming back from Stripe waits without alarming anybody", async ({ page }) 
   expect(body.toLowerCase()).not.toContain("failed");
 });
 
-test("and a wait that has gone on too long offers a way out", async ({ page }) => {
+test("and a wait that has gone on too long keeps the hand-off visible", async ({ page }) => {
   await page.goto(`${STORAGE}&at=settling&slow=yes`);
   await expect(page.getByTestId("managed-settling-slow")).toBeVisible();
-  await expect(page.getByTestId("managed-settling-own")).toBeVisible();
-  await expect(page.getByTestId("managed-settling-carry-on")).toBeVisible();
+  await expect(page.getByText(/up to 2 minutes/i)).toBeVisible();
+  await expect(page.getByText(/keep this page open/i)).toBeVisible();
+  await expect(page.getByTestId("managed-settling-own")).toHaveCount(0);
+  await expect(page.getByTestId("managed-settling-carry-on")).toHaveCount(0);
 });
 
 test("provisioning that failed says the money is safe, and offers both ways on", async ({ page }) => {
