@@ -37,7 +37,27 @@ describe("the generated file", () => {
       // 64 hex characters. A truncated or absent digest would make a re-sync
       // diff unreadable, which is the only thing the record is for.
       expect(source.digest).toMatch(/^[0-9a-f]{64}$/);
-      expect(source.version).not.toBe("");
+      // THE VERSION IS THE ONE FIELD HERE THAT UPSTREAM WRITES.
+      //
+      // `name`, `url` and `note` are constants in the generator's own
+      // `SOURCES`; `digest` it computes. `version` is captured out of the
+      // fetched text by `/^#\s*VERSION=(\S+)/`, and `\S+` accepts anything
+      // that is not whitespace — including a block-comment terminator, which
+      // is how a remote file would end the comment the generator interpolates
+      // it into and carry on as TypeScript, in a file the control plane
+      // imports.
+      //
+      // Line comments here on purpose: a block comment about a block-comment
+      // terminator cannot contain one, which is a small demonstration of the
+      // hazard and cost me one failing run to notice.
+      //
+      // The generator constrains it now, and this asserts the artifact rather
+      // than the script, for the same reason the digest check above exists:
+      // the script is not run in CI and this file is what ships. A re-sync
+      // that brings in a version marker outside this charset fails here
+      // instead of landing.
+      expect({ v: source.version, ok: /^[A-Za-z0-9][A-Za-z0-9._+:-]{0,63}$/.test(source.version) })
+        .toEqual({ v: source.version, ok: true });
     }
   });
 

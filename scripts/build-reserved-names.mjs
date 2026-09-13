@@ -71,14 +71,39 @@ const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
  */
 const CLAIMABLE = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/;
 
+/**
+ * The charset a source's own version marker has to fit.
+ *
+ * `version` is the one field in the emitted record that **upstream** writes:
+ * the others are constants in `SOURCES` or a digest computed here. It is
+ * captured by `/^#\s*VERSION=(\S+)/`, and non-whitespace includes the two
+ * characters that end a block comment — which is the comment this script
+ * interpolates it into, in a file `apps/convex` imports. A remote file could
+ * therefore close that comment and carry on as TypeScript.
+ *
+ * Filtered rather than escaped, matching `CLAIMABLE` above: a marker outside
+ * this charset is not a version we can render, so the digest fallback below
+ * answers instead. Escaping would keep an unreadable string in the record for
+ * no benefit, and the fallback is already the honest answer for a source with
+ * no marker at all.
+ *
+ * `apps/convex/__tests__/reservedNames.test.ts` asserts the same charset on
+ * the committed artifact, because this script does not run in CI and the
+ * artifact is what ships.
+ */
+const SAFE_VERSION = /^[A-Za-z0-9][A-Za-z0-9._+:-]{0,63}$/;
+
 async function fetchList(source) {
   const response = await fetch(source.url);
   if (!response.ok) throw new Error(`${source.name}: HTTP ${response.status}`);
   const text = await response.text();
+  const claimed = /^#\s*VERSION=(\S+)/m.exec(text)?.[1];
   const version =
-    /^#\s*VERSION=(\S+)/m.exec(text)?.[1] ??
-    // No marker in this source; the digest is the version.
-    `sha256:${sha256(text).slice(0, 12)}`;
+    claimed !== undefined && SAFE_VERSION.test(claimed)
+      ? claimed
+      // No marker in this source, or one this cannot render; the digest is the
+      // version. See `SAFE_VERSION`.
+      : `sha256:${sha256(text).slice(0, 12)}`;
   const names = text
     .split("\n")
     .map((line) => line.trim().toLowerCase())
