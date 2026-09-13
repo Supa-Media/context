@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { Text } from "../../design/components/Text";
+import { useThemedStyles } from "../../design/theme";
 import { Confirm } from "../files/Dialogs";
 import { openStore } from "../../offline/store";
 
@@ -80,11 +81,12 @@ export function StorageMigrationConfirm({
  * to; the panel decides only whether this context has the action at all.
  */
 export function StorageMigrationCard({ run }: { run: () => void }) {
+  const styles = useThemedStyles(makeStyles);
   const [confirming, setConfirming] = useState(false);
   return (
     <Card testID="settings-storage-migration">
-      <Row divided>
-        <Grow>
+      <Row divided style={styles.row}>
+        <Grow style={styles.grow}>
           <Text variant="rowTitle">{STORAGE_MIGRATION_TITLE}</Text>
           <Text variant="rowSub">
             A one-time reorganization of Context&apos;s own hidden files under .context/. Your
@@ -240,3 +242,20 @@ export function StorageMigrationActions({
     </View>
   );
 }
+
+const makeStyles = () =>
+  StyleSheet.create({
+    /**
+     * The button drops below the words rather than squeezing them.
+     *
+     * `Row` does not wrap and `Grow` carries `minWidth: 0`, so inside a 390pt
+     * phone's settings panel the text column was crushed to about 110pt: a
+     * three-line heading beside a button at its full width. Wrapping needs
+     * both halves — somewhere to wrap *to* (`flexWrap`), and a floor under the
+     * text (`minWidth`) so the layout prefers a second line to a narrower
+     * column. `alignItems` because a wrapped row's two lines should both start
+     * at the left edge rather than centre on each other.
+     */
+    row: { flexWrap: "wrap", alignItems: "flex-start" },
+    grow: { minWidth: 240 },
+  });

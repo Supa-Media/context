@@ -36,13 +36,15 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted. 6 checks in this file.
+ * Run as temporary local edits and reverted. 7 checks in this file.
  *
  *   the settings row drawn for everyone (its guard dropped)                  1
  *   `useStorageMigrationOffer` ignoring the stored dismissal                 2
  *   the notice's button running the update without confirming first          1
  *   the dismissal held in component state and never written down             1
  *   running the update not answering the offer (the notice stays)            1
+ *   the settings card's row not wrapping (`flexWrap` dropped)                 1
+ *   the text column's `minWidth` floor dropped                                1
  *
  * One mutation is **not** detected and is worth naming rather than leaving to
  * be discovered: dropping `storageMigration.visible` from the notice's own
@@ -249,6 +251,26 @@ describe("Settings → Storage is the permanent home", () => {
     pressLabel("Cancel");
     expect(calls).toEqual([]);
     expect(document.body.textContent ?? "").not.toContain(NOTE_SAFETY);
+  });
+
+  test("its row wraps rather than crushing the words on a phone", async () => {
+    /*
+      Found by looking, not by failing: at 390pt the panel's card put a
+      three-line heading in a 110pt column beside a button at its full width,
+      because `Row` does not wrap and `Grow` carries `minWidth: 0`.
+
+      jsdom lays nothing out, so this reads the two CSS properties that decide
+      it off the real react-native-web styles rather than claiming to measure a
+      wrap. Both halves are needed and both are asserted: somewhere to wrap to,
+      and a floor under the text so the layout prefers a second line to a
+      narrower column.
+    */
+    const host = await settingsStorage(console_([]));
+    const card = host.querySelector('[data-testid="settings-storage-migration"]') as HTMLElement;
+    const row = card.firstElementChild as HTMLElement;
+    expect(getComputedStyle(row).flexWrap).toBe("wrap");
+    const grow = row.firstElementChild as HTMLElement;
+    expect(getComputedStyle(grow).minWidth).not.toBe("0px");
   });
 
   test("and an absent action is an absent row", async () => {
