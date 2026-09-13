@@ -380,3 +380,28 @@ for a drawing exactly as for a note.
 "Excalidraw Data" as the name of every drawing. Replacing `drawingName` with a
 `.md` trim restores `plan.excalidraw`. `frontmatter.test.ts`,
 `breadcrumbPath.test.ts` and `fileTabs.test.ts` fail respectively.
+
+## A bare `%%` ends a section, and that rule has one definition
+
+The plugin writes `%%` on its own line to hide the payload from Obsidian.
+`textElementsSpan` — the span `serialize.js` splices somebody's labels over —
+has always stopped there. `splitSections`, which decides what a label *is*,
+stopped only at a heading, so for a drawing with no `Element Links` and no
+`Embedded Files` (any drawing whose shapes point at nothing, which is most of
+them) the `%%` directly after the last label was read as one more label.
+
+It surfaced wherever labels are shown rather than counted: a `%%` in a
+drawing's label list, a `%%` term in the index for every drawing, and a `%%`
+in the description of an *unreadable* drawing — the one case those Markdown
+labels exist for, so the defect was loudest exactly where the fallback matters.
+
+The reader and the writer disagreeing about where a drawing's labels end is the
+failure `textElementsSpan`'s own comment refuses ("two copies of a span
+calculation are two chances for the reader and the writer to disagree"), so the
+`%%` rule is now one string used by both. It is a **line**, never an
+occurrence: `100%% off ^id` is somebody's label.
+
+**What a simplification costs.** Inlining the pattern in either place lets the
+two drift again; dropping it from `splitSections` restores the phantom label.
+`packages/drawings/test/test.mjs` group (10) fails — three checks, plus one that
+pins that `%%` inside a label is still text.

@@ -142,6 +142,22 @@ const SECTIONS = [
 ];
 
 /**
+ * The `%%` that opens the payload comment, as a line of its own.
+ *
+ * A line, not an occurrence: `100%% off ^id` is somebody's label and the
+ * plugin's own wrapper is a bare `%%`. Written once because two things stop at
+ * it — `splitSections`, which decides what a label *is*, and
+ * `textElementsSpan`, which decides which bytes `serialize.js` splices over.
+ * A drawing where those two disagreed would be one whose labels are read from
+ * one span and rewritten over another.
+ */
+const PAYLOAD_COMMENT = "%%[ \\t]*$";
+const PAYLOAD_COMMENT_LINE = new RegExp(`^${PAYLOAD_COMMENT}`);
+
+/** The next boundary after a section's heading: any heading, or that comment. */
+const NEXT_SECTION = new RegExp(`^(?:#{1,6}[ \\t]+\\S|${PAYLOAD_COMMENT})`, "m");
+
+/**
  * Split `text` into a drawing.
  *
  * Returns `{ name, textElements, elementLinks, embeddedFiles, elements,
@@ -219,6 +235,19 @@ function stripFrontmatter(text) {
  *
  * A heading it does not know ends the section it is in, so prose somebody added
  * under their own heading never lands inside `Text Elements`.
+ *
+ * **And so does `%%`.** The plugin writes it on its own line to hide the
+ * payload from Obsidian, and for a drawing that links to nothing — no `Element
+ * Links`, no `Embedded Files`, which is most drawings — it is the line directly
+ * after the last label. Ending only at a heading read it as one more label, so
+ * `%%` appeared in a drawing's label list, in `drawingSearchText` for every
+ * drawing in the index, and in the description of an unreadable drawing, which
+ * is the case those labels exist for.
+ *
+ * `textElementsSpan` has always stopped there. Two places deciding where
+ * somebody's labels end is exactly the reader/writer disagreement that
+ * function's own comment refuses, so the rule is written once, below, and both
+ * of them use it.
  */
 function splitSections(text) {
   const out = {};
@@ -231,6 +260,11 @@ function splitSections(text) {
   };
 
   for (const line of text.split("\n")) {
+    if (PAYLOAD_COMMENT_LINE.test(line)) {
+      flush();
+      current = null;
+      continue;
+    }
     if (/^#{1,6}\s+/.test(line)) {
       const match = SECTIONS.find(([, pattern]) => pattern.test(line));
       flush();
@@ -296,7 +330,7 @@ export function textElementsSpan(text) {
   if (!heading) return null;
   const start = heading.index + heading[0].length + 1;
   const rest = text.slice(start);
-  const next = /^(?:#{1,6}[ \t]+\S|%%[ \t]*$)/m.exec(rest);
+  const next = NEXT_SECTION.exec(rest);
   return { start, end: next ? start + next.index : text.length };
 }
 
