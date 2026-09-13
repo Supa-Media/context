@@ -72,7 +72,7 @@ export function guestStyles(): string {
     reaches the real document through themeVars; this copy is the
     broken-bridge fallback, like the colours above.
   */
-  --lp-measure: 36;
+  --lp-measure: 40;
 
   /* How much of the editor something else is covering. See the inset message. */
   --lp-inset-bottom: 0px;
@@ -146,7 +146,7 @@ html, body {
     the paragraph's left edge, and why a click in the margin still has to
     reach the editor.
 
-    On a phone it never binds: 36em at 16px is 576pt of text and the widest
+    On a phone it never binds: 40em at 16px is 640pt of text and the widest
     phone this runs on has under 400 inside its gutters, so the max() floor is
     zero, --lp-pad-x is the only gutter, and this is the rule that does
     nothing until somebody turns an iPad sideways.
