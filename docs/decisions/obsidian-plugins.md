@@ -458,3 +458,60 @@ back inside Obsidian. Moving it into `serialize.js` puts a template next to the
 splice and invites the next person to reach for it when editing.
 `packages/drawings/test/test.mjs` group (11) and three checks in
 `apps/mobile/__tests__/fileBrowserGuards.test.ts` fail.
+
+## The editor is cached by a worker scoped to its own directory
+
+Shipping the drawing editor as a page rather than as part of the console was
+measured and is not in question: importing it took the console's web JavaScript
+from 5.7MB to 14.6MB **on every page load**, for a feature most sessions never
+open. The cost stated at the time was that editing a drawing needed a network.
+A drawing still rendered offline, because `DrawingView` draws from the file the
+console already holds, so losing connectivity cost the editor rather than the
+content.
+
+The obvious answer to that is to bundle it after all, on the grounds that 8MB
+is not much. It is not 8MB idle: it is 14.6MB of blocking script on every page
+load, for everybody, including the people who never open a drawing. Caching the
+page that already exists gets the same outcome and changes the console's
+page-load size by nothing.
+
+**Scope is the whole design.** A worker's scope is the directory it is served
+from, so this one is emitted beside the editor at
+`/drawing-assets/editor/sw.js` and controls that directory and nothing else. A
+worker at the origin root would sit in front of every console request, and a
+bug in it would serve a stale app shell to people who never open a drawing.
+Confined, the worst it can do is serve a stale editor. It is registered from
+`DrawingEditor.web.tsx` rather than at app start, so the load that pays for the
+2.4MB is the load that caches it.
+
+**Stale while revalidate, because the filenames are not hashed.** `editor.js`
+and `editor.css` keep their names across deploys, so cache-first with no
+refresh would pin somebody to the version they first opened. Every response is
+served from the cache and refetched behind it. The one-version lag is safe here
+and would not be in the console: the page and its bundle always deploy
+together, and what crosses between them is a versioned protocol
+(`context.drawing.v1`), so a console that has moved on can tell rather than
+guess.
+
+**No precache manifest.** The build emits a page, a bundle, a stylesheet and a
+directory of fonts whose names change when the font list does. A manifest is a
+second list to keep in step, which is the failure `bundle.generated.ts` needs a
+whole CI job to prevent. Caching what was actually fetched needs no list.
+
+**Native is deliberately not done this way, and is not done yet.** A phone has
+no service worker, and the `WebView`'s HTTP cache is off on purpose:
+`DrawingEditor.tsx` passes `incognito`, so nothing the page touches outlives
+the view in a shared web store. Under `incognito`, `cacheEnabled` and Android's
+`cacheMode` do nothing, and removing `incognito` to get caching would also
+start persisting cookies, `localStorage` and IndexedDB for that origin. That is
+a privacy trade for a two-line win. The native answer is to download the
+editor's files to app storage and load a `file://` copy, which keeps
+`incognito`; it needs a manifest, a place to put it and a refresh rule, and it
+is not built.
+
+**What a simplification costs.** Registering the worker at the origin root, or
+widening `cacheable`, puts every console request behind it. Dropping the
+revalidation pins a device to one build for ever. Caching a response regardless
+of `response.ok` serves a bad deploy's 404 offline permanently.
+`apps/mobile/__tests__/drawingServiceWorker.test.ts` holds each, and its
+sabotage record names the one that started at zero.
