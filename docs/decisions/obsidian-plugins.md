@@ -506,8 +506,30 @@ the view in a shared web store. Under `incognito`, `cacheEnabled` and Android's
 start persisting cookies, `localStorage` and IndexedDB for that origin. That is
 a privacy trade for a two-line win. The native answer is to download the
 editor's files to app storage and load a `file://` copy, which keeps
-`incognito`; it needs a manifest, a place to put it and a refresh rule, and it
-is not built.
+`incognito`. It is not built, and the three things standing in the way are
+worth writing down rather than rediscovering:
+
+- **The page loads a module script.** `build-drawing-editor.mjs` emits
+  `format: "esm"` and the page carries `<script type="module">`. A module
+  script is fetched with CORS semantics and a `file://` page has an opaque
+  origin, so a downloaded copy may not boot at all without relaxing the
+  WebView's file-access flags — which is the security surface this was
+  avoiding. The clean fix is an IIFE bundle, and that changes the web path
+  that is currently working.
+- **The font filenames are hashed.** They come from esbuild's `file` loader,
+  so nothing can enumerate them ahead of time. A downloader needs a manifest
+  emitted by the build; `metafile: true` is already on, so this is small, but
+  it does not exist.
+- **The message check would have to change.** `DrawingEditor.tsx` compares
+  `originOf(event.nativeEvent.url)` against the http origin it asked for. From
+  a `file://` page that returns null and falls back to the expected origin, so
+  the check that "a redirected or injected page cannot drive this" passes
+  vacuously. It should compare the exact URL loaded rather than an origin,
+  which is stronger for both transports — but it is a security control, and
+  changing it silently while adding file access is exactly the pairing that
+  should not happen in one unreviewed step.
+
+None of the three can be verified without a device or a simulator.
 
 **What a simplification costs.** Registering the worker at the origin root, or
 widening `cacheable`, puts every console request behind it. Dropping the
