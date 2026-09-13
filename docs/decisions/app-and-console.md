@@ -3551,3 +3551,91 @@ What it costs: `settings.spec.ts`'s pointer-width case reaches Settings through
 `rail-settings` rather than the compact account menu, because the compact block
 is no longer drawn at that width — one control where the product has one, rather
 than a stand-in for a region that was missing.
+
+### The note is a measured column, and the demo note stopped faking one
+
+Measured in Chromium at 1440x900: the element holding the first sentence of the
+console's own demo note was **1160px wide, with `max-width: none` on every one
+of its first eight ancestors**. Prose was full-bleed across whatever width the
+editor pane had — about 150 characters to a line, roughly double the 60-75 that
+is comfortable to read — and there was no `max-width` anywhere in either of the
+editor's two stylesheets.
+
+**Why nobody had seen it.** `placeholderData.ts` authored
+`1-projects/context-lc.md` as hard-wrapped source lines of about fifty
+characters, and that note is `defaultSelection` — what the console opens on,
+what the e2e fixture shows, and what every screenshot of the editor has ever
+contained. The newlines were doing the wrapping. A reader saw a tidy column that
+the layout had nothing to do with, so every visual check of this editor passed
+while a real note, written the way people write them, ran to the full width of
+the window. The fixture is now normal unwrapped paragraphs — same wording, the
+browser's line breaks — and re-wrapping it would hide this whole class of bug
+again.
+
+**The measure is `--lp-measure`, one value for both densities, relative to the
+type rather than in pixels.** `layout.readingMeasureEm` is 36, so the column is
+36 times the note's own font size: the same line at 14.5px beside a file tree
+and at 16px on a phone, where a pixel width would have been two numbers to keep
+in step. Measured in a browser, 36em is 522px in the console's face and holds 68
+characters; prose in a system sans averages 0.45-0.55em a character, so it lands
+between about 65 and 80 across faces against a comfortable band of 60-75. On a
+phone it cannot bind at all — 342pt of text inside 24pt gutters is far narrower —
+so `--lp-pad-x` still governs there, which is the point rather than an accident.
+
+**`em`, not the `ch` that nominally means "characters", and CI is why.** The
+first version of this was `62ch`. `ch` is the advance of the digit zero, so it
+tracks a face's *digits* rather than its prose, and the two diverge: the same
+declaration measured **75 characters in Chromium and 91 in WebKit on the same
+Linux runner**, which the WebKit job caught before this merged. `ch` was
+ambiguous a second way as well — a font-relative length inside a custom property
+may be resolved where the property is declared or where it is substituted, and
+engines differ; the note's wrapper is Times New Roman at 16px while the note is
+a sans at 14.5px, so those are two different lengths. So the property now
+carries a **bare number** and the rule that draws the text multiplies it by
+`1em` there, against the type it is measuring. The unitless value is asserted on
+both hosts: a unit sneaking back in is that ambiguity returning silently, on one
+engine only.
+
+**Nothing is allowed to be wider than the prose.** The constraint is on
+`.cm-content` rather than on `.cm-line`, because a table, a form and a rendered
+diagram are block children of the same element: measure the lines alone and each
+of those starts at a different left edge from the paragraph above it, which
+reads as broken layout rather than as a wide table. A wide table gets its own
+horizontal scroller (`.cm-lp-grid`, which already had one) so it stays inside
+the column instead of dragging the document sideways.
+
+**It is padding, not `max-width`, and that is the one non-obvious line.**
+`max-width: var(--lp-measure); margin-inline: auto` draws exactly the same
+column and was measured and rejected: it leaves `.cm-content` 572px wide inside
+a 1192px pane, so a click in the 310px either side lands on `.cm-scroller`, the
+editor never takes focus, and clicking beside a line to put the caret in it does
+nothing. That is half the note's apparent area no longer being the editing
+surface — a worse bug than the one being fixed, and an invisible one, since the
+page looks right. So `.cm-content` keeps the pane's full width and the column is
+cut out of it with `padding-inline: max(0px, calc((100% - var(--lp-measure)) /
+2))`: CodeMirror still maps a click in the margin to the nearest position, and
+the `max()` floor hands the width straight back once the pane is narrower than
+the measure, which is the phone. `readingMeasure.spec.ts` clicks in the margin,
+so the tidier-looking recipe cannot come back quietly.
+
+**It is declared twice, and that is the whole of PR #487's lesson.** The same
+stylesheet runs inside the iOS WebView with the palette arriving over a bridge,
+and an undeclared custom property makes its *whole declaration* invalid at
+computed-value time — not an error, not a fallback. So `--lp-measure` is in the
+base `.cm-lp-root` rule (`LiveEditor.web.tsx`), in the guest's `:root`
+(`files/webview/styles.ts`), and in `themeVars` (`files/webview/host.ts`), and
+`liveEditorMount.test.ts` and `webviewBridge.test.ts` hold that relationship
+from both ends.
+
+**The guard that proves it binds is not in Jest.** jsdom lays nothing out, so no
+unit test here can tell a `max-width` that binds from one that does not — which
+is exactly the state this editor was already in.
+`e2e/webkit/readingMeasure.spec.ts` drives the built web export in a real engine
+at 1440x900 and at 390x844 and asserts the rendered **column in em** (tight —
+that one is the layout's own arithmetic) and the **character count** (loose —
+that one is the font's), that the column is centred and its margins still take a
+click at the first width, and that `--lp-pad-x` alone governs at the second. It
+measures the line box rather than `.cm-content`, because `.cm-content` is
+deliberately still the full width of the pane, and it logs the width, the em
+multiple, the count and the resolved face on every run, so a failure names the
+font it is arguing with rather than only a number.
