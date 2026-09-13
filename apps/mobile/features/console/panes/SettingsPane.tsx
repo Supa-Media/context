@@ -29,6 +29,7 @@ import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
 import { SharedLinksPanel } from "../settings/panels/SharedLinksPanel";
 import { AdvancedPanel } from "../settings/panels/AdvancedPanel";
+import { PluginsPanel } from "../settings/panels/PluginsPanel";
 import { selectedContext, type ConsoleData, type ConsoleStorage, type StorageActions } from "../types";
 import type { SettingsSectionKey } from "../settings/sections";
 import { useArming } from "../useArming";
@@ -370,6 +371,17 @@ export function SettingsPane({
         for all of them.
       */}
       <FastSearchCard view={data.fastSearch} demo={data.demo} />
+      </>
+      ) : null}
+
+      {show("plugins") ? (
+      <>
+      <PanelHead section="plugins" sectioned={section !== undefined}>
+        The Obsidian plugins already in this context&apos;s bucket, and what each one can do
+        here. Context reads <Text variant="mono">.obsidian/</Text> and never writes to it —
+        nothing on this screen changes your vault.
+      </PanelHead>
+      <PluginsPanel view={data.plugins} />
       </>
       ) : null}
 

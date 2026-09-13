@@ -4,6 +4,7 @@ import { privacyViewOf } from "../privacy/map";
 import { visibilityWord } from "../privacy/words";
 import { fastSearchPill } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
+import { pluginsPreview } from "../plugins/plugins";
 import type { ConsoleData } from "../types";
 import type { SettingsSectionKey } from "./sections";
 
@@ -165,6 +166,15 @@ export function settingsPreview(
       // state is a badge somebody clears by turning on a copy of their notes.
       return fastSearchPill(status.state)?.label ?? null;
     }
+
+    case "plugins":
+      /*
+        `null` for everything that is not a completed read — the console having
+        no way to ask, and a read that failed, are both absences, and "None"
+        from either is a sentence about somebody's vault that nobody checked.
+        See `pluginsPreview`.
+      */
+      return pluginsPreview(data.plugins);
 
     /*
       Silent, each for its own reason — see the header. Written out rather
