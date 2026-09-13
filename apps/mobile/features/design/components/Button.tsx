@@ -145,9 +145,16 @@ export function Button({
  *
  * Between `.mini` (6/12 — a chip in a dense toolbar, too small to be the
  * default action of a modal a phone shows) and the hero CTA (14/27, which is
- * what made the confirm twice the size of Cancel). `justifyContent` because a
- * row of actions with different word lengths should centre its labels rather
- * than hang them off the leading edge.
+ * what made the confirm twice the size of Cancel). The radius is the one the
+ * dialogs' own fields and wells are drawn at, so the action row belongs to the
+ * card it sits in rather than to the toolbar the `mini` chip came from.
+ *
+ * `justifyContent` is **inert today** and is stated as such rather than
+ * implied to be doing something: `base` sets `alignSelf: "flex-start"`, so
+ * these buttons hug their labels and there is no free space to centre in. It
+ * is here for the case `decision` already has — a caller that stretches one to
+ * a width, which a phone dialog eventually will — where the label should sit
+ * in the middle rather than hang off the leading edge.
  */
 const DIALOG_ACTION = {
   gap: 8,
