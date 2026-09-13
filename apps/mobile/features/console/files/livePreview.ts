@@ -43,6 +43,15 @@
 import { EditorState, Range, RangeSet, StateField, type Extension } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { FormWidget, formFences, formHost } from "./formBlock";
+/*
+  The gateway's own inverse of what it writes into a response cell. Imported
+  rather than reimplemented for the reason `formBlock.ts`'s header gives about
+  the grammar: a second copy of this is a second answer that can disagree, and
+  the disagreement would show up as a person's submitted text drawn back to them
+  wrong. `forms.js` is pure, zero-dependency, DOM-free JavaScript; three
+  surfaces already reach for it.
+*/
+import { unescapeCell } from "../../../../mcp/src/forms.js";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { css } from "@codemirror/lang-css";
@@ -772,69 +781,185 @@ function decodeEntity(source: string): string | null {
 /** The one HTML tag a cell may contain that means something here. */
 const BREAK_TAG_RE = /^<br\s*\/?>$/i;
 
+/** `a` and `b` as one class attribute, dropping the empties. */
+function joinClasses(outer: string | null, own: string | null): string | null {
+  if (outer === null) return own;
+  if (own === null) return outer;
+  return `${outer} ${own}`;
+}
+
+/**
+ * A wiki link, drawn as the words rather than as its own brackets.
+ *
+ * `[[note]]` is not a grammar node — the lezer Markdown dialect reads it as an
+ * ordinary `Link` around `[note]` with the outer brackets as plain text, so
+ * hiding the link's own marks (which is right for `[label](url)`) leaves the
+ * reader `[note]`: one bracket at each end and no link. `noteLinks` normally
+ * covers for this by decorating the whole span, and it cannot reach inside a
+ * block widget.
+ *
+ * So the cell finds them itself, the same shape `noteLinksIn` parses, and draws
+ * the alias where there is one. Drawn in the link colour and **not followable**
+ * — the ref that resolves a path against the open note belongs to `noteLinks`
+ * and does not reach here. That is a real gap against the mono-line rendering
+ * this replaces, and it is stated rather than papered over: the link is one
+ * press of the eye away, where it is followable again.
+ */
+const WIKI_LINK_RE = /!?\[\[([^[\]]+)\]\]/g;
+
 /**
  * One `TableCell` node, as the runs that draw it.
  *
- * Walks the cell's own subtree rather than re-lexing its text, so what is drawn
- * agrees with what the grammar parsed — the same reason every other pass in
- * this file reads the tree. Three node kinds are turned into the characters
- * they stand for rather than styled, and it is not a coincidence that they are
- * exactly what `apps/mcp/src/forms.js` writes:
+ * Built as a per-character map and then merged into runs rather than by walking
+ * children recursively, because the interesting content is **not** a clean
+ * tree: an escape, an entity, a `<br>` and a wiki link each stand for different
+ * text than they are written as, and they nest inside styled spans. A position
+ * map answers "what is drawn here, in what face" once for each of them.
  *
- *  - **`Escape`** — `\|` is how a pipe survives a cell, and `\\` a backslash.
- *    Drawing the backslash would put one in front of every pipe in a response
- *    table, which is the forms feature's own output rendered wrong.
+ * Four kinds of range stand in for other text, and it is not a coincidence that
+ * the first three are exactly what `apps/mcp/src/forms.js` writes — `forms.js`
+ * escapes every value it puts in a response row:
+ *
+ *  - **`Escape`** — `\|` is how a pipe survives a cell, `\\` a backslash.
+ *    Drawing the backslash would put one in front of every pipe somebody typed.
  *  - **`HTMLTag`** — `<br>` is how a newline survives one. Every other tag is
- *    drawn as its own text: this file has no `innerHTML` and is not gaining
- *    one for a feature nobody asked for.
- *  - **`Entity`** — `&lt;` is how a `<` survives the above. Decoding these
- *    *after* the break is recognised is what keeps somebody who typed a literal
- *    `<br>` seeing `<br>`, which is the round trip `escapeCell` orders its own
- *    replacements for.
+ *    drawn as its own text: this file has no `innerHTML` and is not gaining one.
+ *  - **`Entity`** — `&lt;` is how a `<` survives the above. Decoded *after* the
+ *    break is recognised, which is what keeps somebody who typed a literal
+ *    `<br>` seeing `<br>` — the ordering `escapeCell` sorts its replacements for.
+ *  - **`InlineCode`** — taken whole, and its text run through the gateway's own
+ *    `unescapeCell`. The grammar emits no `Escape`, `Entity` or `HTMLTag` inside
+ *    a code span (CommonMark says its content is literal), so the three rules
+ *    above simply do not fire there and a submitted `` `a|b` `` came back as
+ *    `` `a\|b` ``. GFM unescapes a cell's pipes before inline parsing, so this
+ *    is the spec's answer as well as the round trip's, and using `unescapeCell`
+ *    rather than a second copy of it is what stops the two readers disagreeing.
  *
  * Marks are dropped under exactly the rule the rest of the note follows, so a
  * cell is never the one place `**` shows through.
  */
 function cellRuns(state: EditorState, cell: SyntaxNode): CellRun[] {
-  const raw: CellRun[] = [];
-  const add = (text: string, className: string | null): void => {
-    if (text !== "") raw.push({ text, className });
-  };
+  const base = cell.from;
+  const text = state.doc.sliceString(cell.from, cell.to);
+  /** The classes covering each character, innermost last. */
+  const classAt: (string | null)[] = new Array<string | null>(text.length).fill(null);
+  /** Pure syntax, drawn as nothing. */
+  const hidden: boolean[] = new Array<boolean>(text.length).fill(false);
+  /** Ranges that stand in for other text, keyed by where they start. */
+  const stands = new Map<number, { to: number; text: string; className: string | null }>();
+  /** Code spans, whose content is literal and so claims its whole range. */
+  const literal: Array<{ from: number; to: number }> = [];
 
-  const walk = (node: SyntaxNode, classes: readonly string[]): void => {
-    const className = classes.length === 0 ? null : classes.join(" ");
-    let at = node.from;
-    for (let child = node.firstChild; child !== null; child = child.nextSibling) {
-      if (child.from > at) add(state.doc.sliceString(at, child.from), className);
-      at = Math.max(at, child.to);
-
-      // Pure syntax: drawn as nothing at all, the same as everywhere else.
-      if (HIDDEN_MARKS.has(child.name) || isHiddenPlumbing(child)) continue;
-
-      const source = state.doc.sliceString(child.from, child.to);
-      if (child.name === "Escape") {
-        add(source.slice(1), className);
-        continue;
-      }
-      if (child.name === "HTMLTag") {
-        add(BREAK_TAG_RE.test(source) ? "\n" : source, className);
-        continue;
-      }
-      if (child.name === "Entity") {
-        add(decodeEntity(source) ?? source, className);
-        continue;
-      }
-      const own = styleClassFor(child.name);
-      walk(child, own === null ? classes : [...classes, own]);
+  const paint = (from: number, to: number, className: string): void => {
+    for (let at = from; at < to; at += 1) {
+      classAt[at - base] = joinClasses(classAt[at - base], className);
     }
-    if (at < node.to) add(state.doc.sliceString(at, node.to), className);
   };
 
-  walk(cell, []);
+  syntaxTree(state).iterate({
+    from: cell.from,
+    to: cell.to,
+    enter(node) {
+      // Ancestors of the cell overlap the range; they are not in it.
+      if (node.from < cell.from || node.to > cell.to || node.to <= node.from) return;
+
+      if (HIDDEN_MARKS.has(node.name) || isHiddenPlumbing(node.node)) {
+        for (let at = node.from; at < node.to; at += 1) hidden[at - base] = true;
+        return false;
+      }
+
+      const source = state.doc.sliceString(node.from, node.to);
+      const outer = classAt[node.from - base];
+
+      if (node.name === "InlineCode") {
+        literal.push({ from: node.from, to: node.to });
+        /*
+          The marks are the backtick runs at either end; what is between them is
+          the literal content, and `unescapeCell` is the inverse of what wrote it.
+        */
+        const opening = node.node.firstChild;
+        const closing = node.node.lastChild;
+        const innerFrom = opening === null ? node.from : opening.to;
+        const innerTo = closing === null ? node.to : closing.from;
+        stands.set(node.from, {
+          to: node.to,
+          text: unescapeCell(state.doc.sliceString(innerFrom, innerTo)) as string,
+          className: joinClasses(outer, "cm-lp-code"),
+        });
+        return false;
+      }
+      if (node.name === "Escape") {
+        stands.set(node.from, { to: node.to, text: source.slice(1), className: outer });
+        return false;
+      }
+      if (node.name === "HTMLTag") {
+        stands.set(node.from, {
+          to: node.to,
+          text: BREAK_TAG_RE.test(source) ? "\n" : source,
+          className: outer,
+        });
+        return false;
+      }
+      if (node.name === "Entity") {
+        stands.set(node.from, { to: node.to, text: decodeEntity(source) ?? source, className: outer });
+        return false;
+      }
+
+      const own = styleClassFor(node.name);
+      if (own !== null) paint(node.from, node.to, own);
+      return undefined;
+    },
+  });
+
+  /*
+    Wiki links last, and not inside a code span: `` `[[note]]` `` is literal
+    text and the span has already said what it draws. Only a code span blocks
+    one — an `Escape` *inside* the link is how an alias is written in a table
+    cell at all (`[[target\|alias]]`, because a bare pipe would end the cell),
+    so treating any overlapping replacement as a clash would refuse exactly the
+    links that are written correctly.
+  */
+  WIKI_LINK_RE.lastIndex = 0;
+  for (let found = WIKI_LINK_RE.exec(text); found !== null; found = WIKI_LINK_RE.exec(text)) {
+    const from = base + found.index;
+    const to = from + found[0].length;
+    if (literal.some((span) => span.from < to && span.to > from)) continue;
+    /*
+      The alias, which is what a reader is meant to see. Split on the last pipe
+      and then unescape, so the backslash that let the pipe survive the cell is
+      not drawn — the target keeps it, and the target is not what is drawn.
+    */
+    const inside = found[1];
+    const pipe = inside.lastIndexOf("|");
+    const shown = pipe === -1 ? inside : inside.slice(pipe + 1);
+    stands.set(from, {
+      to,
+      text: (unescapeCell(shown) as string).trim(),
+      className: joinClasses(classAt[found.index], "cm-lp-link"),
+    });
+  }
+
+  const raw: CellRun[] = [];
+  const add = (piece: string, className: string | null): void => {
+    if (piece !== "") raw.push({ text: piece, className });
+  };
+  for (let at = 0; at < text.length; ) {
+    const stand = stands.get(base + at);
+    if (stand !== undefined) {
+      add(stand.text, stand.className);
+      at = stand.to - base;
+      continue;
+    }
+    if (hidden[at]) {
+      at += 1;
+      continue;
+    }
+    add(text[at], classAt[at]);
+    at += 1;
+  }
 
   // Adjacent runs in the same face are one run. Not cosmetic: the widget makes
-  // a span per run, and a cell of plain text would otherwise be one span per
-  // character between its markup.
+  // a span per run, and the loop above emits one per character.
   const runs: CellRun[] = [];
   for (const run of raw) {
     const last = runs[runs.length - 1];
@@ -867,13 +992,50 @@ export function alignmentsIn(text: string): CellAlign[] {
   });
 }
 
-/** The `TableCell` children of one header or body row, in order. */
-function cellsOf(row: SyntaxNode): SyntaxNode[] {
+/**
+ * THE COLUMNS OF ONE ROW — AND THE GRAMMAR DOES NOT GIVE YOU THESE.
+ *
+ * The obvious implementation is the `TableCell` children, and it is wrong in
+ * the way that matters most here: **lezer emits no `TableCell` for an empty
+ * cell.** `| 1 |  | 3 |` has two of them, so taking the children shifts every
+ * column to its right — a reader is shown `3` under the header `b`, with no
+ * hint that anything moved. In a form's response table an unanswered optional
+ * field does exactly that to every column after it, which is the feature's own
+ * output silently misattributed.
+ *
+ * So the columns are the gaps *between the delimiters*, which are the `|`
+ * characters and are always in the tree. A gap holds the row's `TableCell` when
+ * there is one and is an empty column when there is not.
+ *
+ * The leading and trailing gaps are dropped only when they are empty, which is
+ * what makes this right for both pipe styles: `| a | b |` opens and closes on a
+ * delimiter and has two columns, and GFM's optional `a | b` has no outer pipes
+ * and also has two.
+ *
+ * Returns one entry per column, `null` where the column is empty.
+ */
+function cellsOf(row: SyntaxNode): Array<SyntaxNode | null> {
+  const delimiters: Array<{ from: number; to: number }> = [];
   const cells: SyntaxNode[] = [];
   for (let child = row.firstChild; child !== null; child = child.nextSibling) {
-    if (child.name === "TableCell") cells.push(child);
+    if (child.name === "TableDelimiter") delimiters.push({ from: child.from, to: child.to });
+    else if (child.name === "TableCell") cells.push(child.node);
   }
-  return cells;
+
+  const gaps: Array<{ from: number; to: number }> = [];
+  let at = row.from;
+  for (const delimiter of delimiters) {
+    gaps.push({ from: at, to: delimiter.from });
+    at = delimiter.to;
+  }
+  gaps.push({ from: at, to: row.to });
+
+  if (gaps.length > 0 && gaps[0].to <= gaps[0].from) gaps.shift();
+  if (gaps.length > 0 && gaps[gaps.length - 1].to <= gaps[gaps.length - 1].from) gaps.pop();
+
+  return gaps.map(
+    (gap) => cells.find((cell) => cell.from >= gap.from && cell.to <= gap.to) ?? null,
+  );
 }
 
 function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
@@ -883,11 +1045,11 @@ function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
 
   for (let child = table.firstChild; child !== null; child = child.nextSibling) {
     if (child.name === "TableHeader") {
-      header = cellsOf(child).map((cell) => cellRuns(state, cell));
+      header = cellsOf(child).map((cell) => (cell === null ? [] : cellRuns(state, cell)));
       continue;
     }
     if (child.name === "TableRow") {
-      rows.push(cellsOf(child).map((cell) => cellRuns(state, cell)));
+      rows.push(cellsOf(child).map((cell) => (cell === null ? [] : cellRuns(state, cell))));
       continue;
     }
     /*
@@ -982,9 +1144,12 @@ export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
  * a `\n` in `cellRuns`, so the break is drawn by this file rather than parsed
  * by the browser.
  *
- * `ignoreEvent` is left at the default, which is what keeps a click landing in
- * the document under the grid: unlike a form, a table is something to read, and
- * a press near one should still put the caret in the note.
+ * `ignoreEvent` is left at CodeMirror's default, which **ignores** events inside
+ * the widget — the same behaviour `FormWidget` asks for explicitly. It costs
+ * nothing today, because a grid exists only while the note is read-only and
+ * there is no caret to place either way; it is named here so that a later
+ * change making tables interactive knows it is a decision rather than an
+ * oversight.
  */
 export class TableGridWidget extends WidgetType {
   constructor(private readonly grid: TableGrid) {
@@ -1720,7 +1885,23 @@ export function livePreview() {
     create: (state) => decorationsFor(state),
     update(value, transaction) {
       const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
-      if (!transaction.docChanged && !transaction.selection && !readOnlyChanged) return value;
+      /*
+        And the tree, which arrives late on a note of any size. CodeMirror parses
+        the first few thousand characters synchronously and finishes the rest on
+        an idle callback, announcing it with a transaction that carries no
+        document change, no selection and no change of `readOnly` — the third
+        input, by a fourth route. Without this a reader scrolling past roughly
+        the first screen of a long note finds raw markdown below it until a
+        click, which is the same symptom the `readOnly` comparison above was
+        added to kill.
+
+        Identity, not contents: the language state hands back a new `Tree` when
+        it has parsed further, and the same one otherwise.
+      */
+      const treeChanged = syntaxTree(transaction.state) !== syntaxTree(transaction.startState);
+      if (!transaction.docChanged && !transaction.selection && !readOnlyChanged && !treeChanged) {
+        return value;
+      }
       return decorationsFor(transaction.state);
     },
     provide: (field) => EditorView.decorations.from(field),

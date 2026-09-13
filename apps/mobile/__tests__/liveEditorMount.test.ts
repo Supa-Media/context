@@ -29,6 +29,7 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { EditorView } from "@codemirror/view";
 import { deleteCharBackward, insertNewline } from "@codemirror/commands";
+import { forceParsing, syntaxTree, syntaxTreeAvailable } from "@codemirror/language";
 import { LiveEditor, type EditorControls } from "../features/console/files/LiveEditor.web";
 
 /**
@@ -127,6 +128,28 @@ function viewIn(container: HTMLElement): EditorView {
   const view = dom === null ? null : EditorView.findFromDOM(dom as HTMLElement);
   if (view === null) throw new Error("no EditorView mounted");
   return view;
+}
+
+/**
+ * Table grids in the decoration set, rather than in the DOM.
+ *
+ * CodeMirror renders only the viewport, so a widget below the fold is absent
+ * from the DOM whether or not it was computed — asserting on `querySelector`
+ * would pass for the wrong reason on a short note and fail for the wrong reason
+ * on a long one. The decorations are the thing under test.
+ */
+function gridsIn(view: EditorView): number {
+  let found = 0;
+  for (const source of view.state.facet(EditorView.decorations)) {
+    const set = typeof source === "function" ? source(view) : source;
+    const iter = set.iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { widget?: { constructor: { name: string } } };
+      if (spec.widget?.constructor.name === "TableGridWidget") found += 1;
+      iter.next();
+    }
+  }
+  return found;
 }
 
 /** The editor's text, read out of the DOM CodeMirror actually built. */
@@ -592,6 +615,50 @@ describe("toggling reading mode redraws the note on the spot", () => {
     m.update({ editable: true });
     expect(m.container.querySelector(".cm-lp-form")).toBeNull();
     expect(renderedText(m.container)).toContain("layout: table");
+
+    m.unmount();
+  });
+
+  /**
+   * THE TREE IS THE THIRD INPUT, AND IT ARRIVES BY A FOURTH ROUTE.
+   *
+   * `decorationsFor` reads the document, the selection and `readOnly` — but it
+   * reads all three *through the syntax tree*, and on a note of any size that
+   * tree is not there yet. CodeMirror parses roughly the first three thousand
+   * characters up front and finishes the rest as idle work, announcing each
+   * advance with a transaction that carries no document change, no selection
+   * and no change of `readOnly`.
+   *
+   * So a note long enough to matter — which is most notes worth reading —
+   * would draw its first screen and leave everything below it as raw markdown
+   * until something else happened to invalidate the set. Same symptom as the
+   * eye doing nothing, one input over.
+   *
+   * The test forces the parse rather than waiting for the idle callback,
+   * because the callback only advances as far as the *viewport* and a jsdom
+   * editor has no height to scroll. What is being pinned is the predicate: a
+   * transaction whose only news is a longer tree must rebuild the decorations.
+   */
+  test("a table below the first parsed chunk becomes a grid when the parse reaches it", () => {
+    const filler = Array.from(
+      { length: 140 },
+      (_, index) => `Paragraph ${index} of ordinary prose in this note.`,
+    ).join("\n\n");
+    const doc = `${filler}\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n`;
+
+    const m = mount({ value: doc, editable: false });
+    const view = viewIn(m.container);
+
+    // The premise: the note really is longer than the first parse.
+    expect(syntaxTreeAvailable(view.state, doc.length)).toBe(false);
+    expect(gridsIn(view)).toBe(0);
+
+    act(() => {
+      forceParsing(view, doc.length, 5000);
+    });
+
+    expect(syntaxTree(view.state).length).toBe(doc.length);
+    expect(gridsIn(view)).toBe(1);
 
     m.unmount();
   });
