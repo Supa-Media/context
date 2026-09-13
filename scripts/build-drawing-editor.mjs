@@ -126,6 +126,20 @@ async function main() {
   await cp(path.join(PACKAGE, "index.css"), path.join(OUT, "editor", "editor.css"));
   await writeFile(path.join(OUT, "editor", "index.html"), pageHtml());
 
+  /*
+    The service worker that makes a drawing editable offline, copied beside the
+    page rather than written from a string here.
+
+    Beside it because a worker's scope is the directory it is served from, and
+    `/drawing-assets/editor/` is exactly what this one should control — an
+    origin-root worker would sit in front of every console request, and a bug in
+    it would serve a stale app shell to people who never open a drawing. Copied
+    rather than templated because it is 130 lines of real logic with a test
+    (`__tests__/drawingServiceWorker.test.ts`), and logic inside a build script's
+    string literal is logic nothing runs in CI.
+  */
+  await cp(path.join(SOURCE, "sw.js"), path.join(OUT, "editor", "sw.js"));
+
   const fonts = path.join(OUT, "editor", "fonts");
   await mkdir(fonts, { recursive: true });
   let fontBytes = 0;

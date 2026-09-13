@@ -199,4 +199,24 @@ module.exports = [
       },
     },
   },
+  {
+    /*
+      And the service worker beside it, which runs in a worker rather than in
+      the page: no `window`, no `document`, and `self` instead. Listed
+      separately rather than folding these globals into the block above,
+      because a page that reached for `caches` or `clients` should still be
+      told it is wrong.
+    */
+    files: ["drawing-editor/sw.js"],
+    languageOptions: {
+      globals: {
+        self: "readonly",
+        caches: "readonly",
+        clients: "readonly",
+        fetch: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
 ];
