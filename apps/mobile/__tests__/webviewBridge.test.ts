@@ -984,7 +984,7 @@ describe("the palette", () => {
 
   test("the measure changes with the density, not with a second breakpoint", () => {
     expect(themeVars(darkColors, "Menlo", true)["--lp-size"]).toBe("16px");
-    expect(themeVars(darkColors, "Menlo", false)["--lp-size"]).toBe("14.5px");
+    expect(themeVars(darkColors, "Menlo", false)["--lp-size"]).toBe("16px");
     // A phone reads the note; a pointer inspects it beside a file tree.
     expect(themeVars(darkColors, "Menlo", true)["--lp-content"]).toBe(darkColors.text);
     expect(themeVars(darkColors, "Menlo", false)["--lp-content"]).toBe(darkColors.text2);
@@ -1063,18 +1063,22 @@ describe("the palette", () => {
 
     /*
       Unlike every other line in `themeVars`, this one does not branch on
-      `compact` — and that is the argument rather than an oversight. The type
-      scale differs between the two (16px and 14.5px); a measure stated as a
-      multiple of the type is the same line at both. A pixel measure would have
-      had to be two numbers kept in step by hand.
+      `compact` — and that is the argument rather than an oversight. A measure
+      stated as a multiple of the type is the same line whatever the type
+      scale is, so it survives a change to either density's size; a pixel
+      measure would have been two numbers kept in step by hand. Both densities
+      happen to draw 16px today, which makes the property constant twice over
+      rather than making the indirection pointless.
     */
     expect(compact).toBe(pointer);
 
     /*
       And it carries NO UNIT. A font-relative length inside a custom property
       may be resolved where the property is declared or where it is used, and
-      engines differ; the wrapper is Times New Roman at 16px and the note is a
-      sans at 14.5px, so those are two different lengths. `styles.ts`
+      engines differ. The wrapper and the note also draw in different faces —
+      Times New Roman on the wrapper, a sans in the note — which is what made
+      `ch` ambiguous here, and their sizes agreeing today is not something this
+      may lean on. `styles.ts`
       multiplies by 1em against the text itself. A unit sneaking back in here
       is that ambiguity returning, silently, on one engine only.
     */

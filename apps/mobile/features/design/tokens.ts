@@ -412,8 +412,9 @@ export const layout = {
    * file that is not in points, because the constraint is not a width: the eye
    * loses the start of the next line somewhere past about 75 characters, and a
    * 1440px console pane was giving a real paragraph roughly 150. Relative to
-   * the type, because the same note is drawn at 14.5px beside a file tree and
-   * at 16px on a phone, and one multiple is the same sentence at both.
+   * the type, because a measure stated as a multiple of the note's own size is
+   * the same sentence whatever that size is — both densities draw 16px today,
+   * and this does not have to be revisited if either ever stops.
    *
    * ## Why `em` and not `ch`, which is the unit that means "characters"
    *
