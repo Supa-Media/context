@@ -13,6 +13,14 @@ export type SandboxEvent =
   | { type: "loaded" | "unloaded" }
   | { type: "rpc"; request: object; respond: (response: unknown) => void }
   | { type: "crashed"; code: string; message: string }
+  /**
+   * The frame stopped being the document we wrote — see `sandboxFrameIsOurs`.
+   *
+   * Deliberately **not** a `crashed`: that path reloads the bundle up to three
+   * times, and a bundle that navigates away would simply do it again on each
+   * attempt. This one ends the plugin.
+   */
+  | { type: "disowned" }
   | { type: "notice"; message: string }
   | {
       type: "registration";

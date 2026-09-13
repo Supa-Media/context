@@ -126,6 +126,25 @@ export function useRuntime(options: {
       });
       return;
     }
+    /*
+      A FRAME THAT NAVIGATED AWAY IS STOPPED, NOT RETRIED.
+
+      `crashed` below reloads up to three times, which is right for a bundle
+      that threw and wrong for one that left: it would simply leave again on
+      each attempt. So this ends the plugin and records `blocked` — the status
+      whose own copy already says "Context turned this version off" — without
+      touching the owner's approval, exactly as Stop does.
+    */
+    if (event.type === "disowned") {
+      setSandboxes((was) => was.filter((one) => one.nonce !== sandbox.nonce));
+      void reportStatus({
+        workspaceId, pluginId, bundleFingerprint,
+        status: "blocked", attempts: sandbox.attempts,
+        errorCode: "SANDBOX_DISOWNED",
+        errorMessage: "This plugin's sandbox stopped being the one Context started, so Context stopped it.",
+      }).catch(() => undefined);
+      return;
+    }
     if (event.type === "crashed") {
       setSandboxes((was) => was.filter((one) => one.nonce !== sandbox.nonce));
       if (sandbox.attempts < 3) {

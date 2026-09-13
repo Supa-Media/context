@@ -274,6 +274,43 @@ export function pluginSandboxDocument() {
 }
 
 /**
+ * Whether the frame that just fired `load` is still the document we wrote.
+ *
+ * ## Why a count is the whole answer
+ *
+ * `sandbox="allow-scripts"` without `allow-same-origin` denies the frame the
+ * parent's DOM, and the CSP above denies it `fetch`, workers, child frames,
+ * forms, objects and every external asset. **Not one of them stops a document
+ * navigating itself.** `allow-top-navigation` governs the *top-level* browsing
+ * context, not a frame's own, and the CSP directive that would have covered it
+ * — `navigate-to` — was removed from the specification and ships in no engine.
+ * So the frame can stop being ours, and the host cannot ask it politely
+ * whether it still is: reading `contentWindow.location` across an opaque
+ * origin throws, and any answer the frame itself gave would be the untrusted
+ * party vouching for itself.
+ *
+ * What the host *can* see is the `load` event, and that is exact rather than a
+ * heuristic. `srcdoc` is written once, from a `useMemo` constant, and is never
+ * re-set for the life of the element — so the first load is the document we
+ * wrote and any later one is a document somebody else chose.
+ *
+ * A frame that is no longer ours must be handed nothing further: not the
+ * sandbox nonce, not the bundle, and no answer to an `rpc` it sends. After a
+ * navigation `event.source` still equals `frame.contentWindow`, so identity
+ * alone stops distinguishing the successor from the original — this count is
+ * what the host has instead.
+ *
+ * Native needs no equivalent because it refuses the navigation outright
+ * (`originWhitelist` plus `onShouldStartLoadWithRequest`); a WebView can be
+ * told what it may load, an iframe cannot.
+ *
+ * @param {number} loadCount How many `load` events this element has fired.
+ */
+export function sandboxFrameIsOurs(loadCount) {
+  return loadCount === 1;
+}
+
+/**
  * Strictly recognize messages that may cross from the untrusted frame.
  * @param {unknown} value
  * @param {string} expectedNonce
