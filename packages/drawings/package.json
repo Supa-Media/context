@@ -12,10 +12,11 @@
     },
     "./excalidraw": "./src/excalidraw.js",
     "./scene": "./src/scene.js",
-    "./lzstring": "./src/lzstring.js"
+    "./lzstring": "./src/lzstring.js",
+    "./serialize": "./src/serialize.js"
   },
   "scripts": {
-    "test": "node test/test.mjs",
+    "test": "node test/test.mjs && node test/serialize.test.mjs",
     "typecheck": "echo \"no typecheck (JSDoc-typed ESM, checked by consumers)\" && exit 0",
     "lint": "echo \"no lint configured yet\" && exit 0"
   },
