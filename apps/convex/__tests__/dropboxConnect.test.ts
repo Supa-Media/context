@@ -304,7 +304,7 @@ describe("the browser that started the connect is the one that may finish it", (
    * an attacker sending somebody else's code to a server the attacker controls.
    * It says nothing about an attacker who uses the **legitimate** redirect:
    *
-   *   1. the attacker owns their own brain, and starts a connect for it —
+   *   1. the attacker owns their own workspace, and starts a connect for it —
    *      every check in `startDropboxConnect` passes, because the attacker
    *      really is the owner of the workspace they named;
    *   2. they send the resulting authorize URL to somebody else;

@@ -48,7 +48,7 @@ export function ChatsPanel({
         */}
         {personal
           ? "Google Chat spaces, and — in the desktop app — the Messages on your Mac. Two different mechanisms, one place to look."
-          : "Chats are read into a brain, not into a workspace. A conversation has people in it who did not agree to a shared bucket."}
+          : "Chats are read into a personal workspace, not into a shared one. A conversation has people in it who did not agree to a shared bucket."}
       </PanelHead>
 
       {personal ? (
@@ -70,8 +70,8 @@ export function ChatsPanel({
           <ThisMachineCard focus="chats" />
         </>
       ) : (
-        <WorkspaceRefusalCard title="Chats belong to a brain">
-          Switch to a personal brain to connect Google Chat or this Mac&apos;s Messages.
+        <WorkspaceRefusalCard title="Chats belong to a personal workspace">
+          Switch to a personal workspace to connect Google Chat or this Mac&apos;s Messages.
           A workspace receives a chat only when somebody moves the note here.
         </WorkspaceRefusalCard>
       )}

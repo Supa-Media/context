@@ -45,7 +45,7 @@ export function providerLabel(provider: string): string {
 const MANAGED_LOCATION = "managed";
 
 /**
- * The whole pill: `R2 · brain`, `Dropbox · second/`, `R2 · managed`, or just
+ * The whole pill: `R2 · notes-bucket`, `Dropbox · second/`, `R2 · managed`, or just
  * `Dropbox`.
  *
  * The location half is the bucket when there is one, else the root prefix —

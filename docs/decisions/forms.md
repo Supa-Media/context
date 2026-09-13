@@ -101,7 +101,7 @@ collecting anything. The relaxation is deliberately narrow, and it is two gates:
 
 The exemption applies to the *call*, never to the listing. `toolsForSession`
 needs no branch for it: a connection that can take part in a form is by
-construction one whose person owns their own brain — that is where the username
+construction one whose person owns their own workspace — that is where the username
 a response is recorded under comes from — so `writesAnywhere` is already true of
 it. A listing branch would only ever have fired for a connection whose
 submissions are then refused for want of a name.

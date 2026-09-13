@@ -414,7 +414,7 @@ describe("/gateway/session", () => {
    * The widening, and the two things that did not widen with it.
    *
    * A grant covers every context its person is a live member of, so a client
-   * connected once can address a brain shared with its owner. What travels with
+   * connected once can address a workspace shared with its owner. What travels with
    * each entry is the **role in that context**, which is what the gateway
    * clamps scopes and the visibility tier to — reach is not permission — and
    * the grant's own context stays separately identified as the default, because
@@ -1279,7 +1279,7 @@ describe("/gateway/binding — the search index", () => {
    * tests keep theirs together: a context alice really is a member of opens.
    *
    * The credential belongs to the *context*, not to the caller's role in it —
-   * the same as the bucket key beside it. A member searching bob's brain is
+   * the same as the bucket key beside it. A member searching bob's workspace is
    * answered from bob's database, filtered by `canSee` at read time, so the
    * gateway needs the projection for whichever context the call addressed.
    */

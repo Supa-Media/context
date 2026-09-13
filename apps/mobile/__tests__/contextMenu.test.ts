@@ -61,7 +61,7 @@ function context(
 function railData(
   contexts = [
     context("ctx-1", "agent", "owner"),
-    // Somebody else's brain, reached by invitation. Leave is offered here.
+    // Somebody else's workspace, reached by invitation. Leave is offered here.
     context("ctx-2", "friend", "editor"),
     // A workspace the viewer created. It sits in the Workspaces group beside
     // workspaces they were invited into, and Leave must NOT be offered on it —

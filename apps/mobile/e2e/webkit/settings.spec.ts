@@ -149,13 +149,13 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
   await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
   /*
     The identity block by its testID rather than by its words. Its second line
-    is "Personal brain · you're the owner" — kind and role in one sentence,
+    is "Personal workspace · you're the owner" — kind and role in one sentence,
     because being the owner is a fact about you in this context rather than a
     fourth row in a column of properties — so an exact-text match on the kind
     alone no longer names a node, and a looser one would match the section
     list once a row ever previews the same words.
   */
-  await expect(page.getByTestId("overview-identity")).toContainText("Personal brain");
+  await expect(page.getByTestId("overview-identity")).toContainText("Personal workspace");
   await expect(page.getByTestId("settings-sections")).toHaveCount(0);
 
   // Back pops that level rather than closing the overlay.

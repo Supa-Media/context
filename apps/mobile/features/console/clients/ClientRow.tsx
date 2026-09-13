@@ -12,7 +12,7 @@ import type { ConsoleClient } from "../types";
  *
  * A row that is not yours says so. Only a context's `owner` is shown anybody
  * else's grants at all — `functions/grants.listGrants` narrowed to that after
- * somebody invited into a personal brain found the owner's clients in their
+ * somebody invited into a personal workspace found the owner's clients in their
  * own Settings — and what is left is the other half of the same confusion: in
  * a shared context the owner's list holds their colleagues' apps too, under
  * a heading that says every app *you* add appears below, on a card under

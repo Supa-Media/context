@@ -82,7 +82,7 @@
  * nothing — so "the control is on screen at that width" is asserted by the
  * mounted tests each surface already has (`consoleChrome.test.ts` for the phone
  * console, `meetingsEntry.test.ts` and `meetingsFlow.test.ts` for the meetings
- * entries, `railSections.test.ts` for the rail) rather than restated here.
+ * entries, `railGroup.test.ts` for the rail) rather than restated here.
  *
  * This is the same shape as `frame.ts`'s "what is deliberately kept although no
  * density reaches it": a list whose worth is that it is read, kept honest by
@@ -296,7 +296,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reason:
       "The staff console. It is platform-wide rather than about any one context, " +
       "so it is in no switcher and no strip — putting it there would imply it " +
-      "belongs to whichever brain is selected — and everyone gets the same URL " +
+      "belongs to whichever workspace is selected — and everyone gets the same URL " +
       "while `requireAdmin` on the server decides what it renders. It is reached " +
       "by typing the address, on purpose.",
     marker: "Reached by typing the address",
@@ -697,7 +697,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: PHONE,
       },
       {
-        surface: "Claim your @name, at the end of the rail's Brains group",
+        surface: "Claim your @name, in the pinned top slot of the rail's one list",
         control: {
           file: "features/console/ConsoleRail.tsx",
           contains: ['testID="rail-claim-context"', "onPress={onClaimContext!}"],
@@ -709,7 +709,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: POINTER,
       },
       {
-        surface: "the way out of an invitation for somebody with no brain",
+        surface: "the way out of an invitation for somebody with no workspace of their own",
         control: {
           file: "features/invite/InviteScreen.tsx",
           contains: ['testID="invite-welcome"'],

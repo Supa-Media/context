@@ -109,7 +109,7 @@ function writeAll(): void {
 
 function strip(editor: EditorState, sync?: SyncFacts): ReactElement {
   return createElement(StatusBar, {
-    segments: statusSegments({ editor, storageLabel: "R2 · brain", now: Date.now(), sync }),
+    segments: statusSegments({ editor, storageLabel: "R2 · notes-bucket", now: Date.now(), sync }),
   });
 }
 

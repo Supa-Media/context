@@ -19,7 +19,7 @@
  *    workspace is addressed by name and reached from a settings section, so
  *    the confirmation is the name itself, checked on the server rather than
  *    in the panel. A client that skipped the field cannot skip the check.
- *  - **Shared only.** A brain is the one context a person is allowed exactly
+ *  - **Shared only.** A workspace is the one context a person is allowed exactly
  *    one of, its slug is the person's own username, and its capture address
  *    is live on the apex. Releasing that is account deletion's business and
  *    is deliberately not reachable from a settings panel.
@@ -166,19 +166,19 @@ describe("deleteWorkspace", () => {
     });
   });
 
-  test("a brain is not deletable here — it goes with the account", async () => {
+  test("a workspace is not deletable here — it goes with the account", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const brain = await createWorkspace(t, owner, "seyi", { kind: "personal" });
+    const workspace = await createWorkspace(t, owner, "seyi", { kind: "personal" });
     const error = await captureError(() =>
       asUser(t, owner).mutation(api.functions.account.deleteWorkspace, {
-        workspaceId: brain,
+        workspaceId: workspace,
         confirmSlug: "seyi",
       }),
     );
     expect(errorCode(error)).toBe("PERSONAL_CONTEXT");
     await t.run(async (ctx) => {
-      expect(await ctx.db.get(brain)).not.toBeNull();
+      expect(await ctx.db.get(workspace)).not.toBeNull();
     });
   });
 

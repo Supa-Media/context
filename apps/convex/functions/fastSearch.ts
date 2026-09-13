@@ -559,7 +559,7 @@ const SEARCHABLE_CONTEXT_CAP = 50;
  * only the ones serving from a hosted index, with the rest in a second list
  * the page could do nothing with but apologise — which made the search page a
  * dead end for the ordinary account, the one paying for nothing and owning a
- * brain in its own bucket. `lib/fastSearch.ts` has always said what the right
+ * workspace in its own bucket. `lib/fastSearch.ts` has always said what the right
  * answer is: "either condition false means the existing R2 shard index serves
  * the search, exactly as it does today… the fast path is an upgrade, and its
  * absence is the product as it already is." The blended page is the one

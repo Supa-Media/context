@@ -105,8 +105,8 @@ afterEach(() => {
 function context(over: Partial<SearchableContext> = {}): SearchableContext {
   return {
     workspaceId: "w1",
-    slug: "my-brain",
-    displayName: "My Brain",
+    slug: "my-workspace",
+    displayName: "My Workspace",
     search: "slow",
     fastSearch: "off",
     owner: true,
@@ -116,8 +116,8 @@ function context(over: Partial<SearchableContext> = {}): SearchableContext {
 
 const hit = {
   workspaceId: "w1",
-  slug: "my-brain",
-  displayName: "My Brain",
+  slug: "my-workspace",
+  displayName: "My Workspace",
   path: "1-projects/review.md",
   title: "Review cycle",
   snippet: "the review cycle runs quarterly",
@@ -188,8 +188,8 @@ describe("a context with no hosted index is searched, not apologised for", () =>
     expect(text()).toContain("was searched from your own bucket");
     expect(text()).toContain("Fast search makes it instant");
 
-    await press("search-upsell-open-my-brain");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-brain?settings=search");
+    await press("search-upsell-open-my-workspace");
+    expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=search");
   });
 
   test("an owner who is not paying is sent to Premium, not to a switch they cannot throw", async () => {
@@ -197,31 +197,31 @@ describe("a context with no hosted index is searched, not apologised for", () =>
       baseView({ contexts: [context({ fastSearch: "unavailable" })] }),
     );
     expect(text()).toContain("Premium");
-    await press("search-upsell-open-my-brain");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-brain?settings=premium");
+    await press("search-upsell-open-my-workspace");
+    expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=premium");
   });
 
   test("somebody else's context says whose decision it is, with nothing to press", () => {
     const { text } = mount(
       baseView({
-        contexts: [context({ slug: "team-brain", owner: false })],
-        results: [{ ...hit, slug: "team-brain" }],
+        contexts: [context({ slug: "team-workspace", owner: false })],
+        results: [{ ...hit, slug: "team-workspace" }],
       }),
     );
     expect(text()).toContain("Its owner can turn fast search on");
     expect(
-      document.body.querySelector('[data-testid="search-upsell-open-team-brain"]'),
+      document.body.querySelector('[data-testid="search-upsell-open-team-workspace"]'),
     ).toBeNull();
   });
 
   test("a context still building its index says so honestly, with nothing to press", () => {
     const { text } = mount(
-      baseView({ contexts: [context({ slug: "big-brain", fastSearch: "preparing" })] }),
+      baseView({ contexts: [context({ slug: "big-workspace", fastSearch: "preparing" })] }),
     );
     expect(text()).toContain("still being built");
     expect(text()).not.toContain("Nothing matches");
     expect(
-      document.body.querySelector('[data-testid="search-upsell-open-big-brain"]'),
+      document.body.querySelector('[data-testid="search-upsell-open-big-workspace"]'),
     ).toBeNull();
   });
 
@@ -243,14 +243,14 @@ describe("the scope chooser", () => {
     const { text } = mount(
       baseView({
         contexts: [
-          context({ workspaceId: "w1", slug: "fast-brain", search: "fast", fastSearch: "on" }),
-          context({ workspaceId: "w2", slug: "slow-brain" }),
+          context({ workspaceId: "w1", slug: "fast-workspace", search: "fast", fastSearch: "on" }),
+          context({ workspaceId: "w2", slug: "slow-workspace" }),
         ],
       }),
     );
     await openPicker();
-    expect(document.body.querySelector('[data-testid="search-chip-slow-brain"]')).toBeTruthy();
-    expect(document.body.querySelector('[data-testid="search-chip-fast-brain"]')).toBeTruthy();
+    expect(document.body.querySelector('[data-testid="search-chip-slow-workspace"]')).toBeTruthy();
+    expect(document.body.querySelector('[data-testid="search-chip-fast-workspace"]')).toBeTruthy();
     expect(text()).toContain("slower");
   });
 

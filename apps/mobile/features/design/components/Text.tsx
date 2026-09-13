@@ -175,7 +175,7 @@ const variantsFor = (colors: Colors) => ({
    *
    * `rowSub` at 12.5 is the pointer size and reads as a caption beside a
    * label you can already see. Here the value is half the reason the row
-   * exists — "R2 · brain" is the answer, "Storage" is only the question — so
+   * exists — "R2 · notes-bucket" is the answer, "Storage" is only the question — so
    * it is read at the size the rest of the phone is read at, one step under
    * the label rather than two. The same argument `railTouch` makes.
    */

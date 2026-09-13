@@ -156,7 +156,7 @@ describe("a workspace this screen must not offer to delete", () => {
 });
 
 describe("who is blocked, decided in one place", () => {
-  test("a brain goes with the account, never from a settings panel", () => {
+  test("a workspace goes with the account, never from a settings panel", () => {
     const reason = deletionBlockedReason({ kind: "personal", storageIsManaged: false });
     expect(reason).not.toBeNull();
     expect(reason ?? "").toContain("account");

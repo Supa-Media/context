@@ -7,7 +7,7 @@
  *     against the gateway's real `privacy.md` parser, not against a copy of
  *     what we think it wants.
  *  2. A bucket that already holds someone's context comes out **byte-identical**.
- *     Connecting an existing brain is the primary case, not the edge case: the
+ *     Connecting an existing workspace is the primary case, not the edge case: the
  *     founder's own bucket has been live since August, is synced to Obsidian,
  *     and must connect with nothing changed and nothing migrated.
  */
@@ -423,13 +423,13 @@ describe("a custom layout is written in the owner's own words", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Somebody's brain, as it looked before we ever touched it: a hand-written
+ * Somebody's workspace, as it looked before we ever touched it: a hand-written
  * privacy manifest with real sharing decisions in it, a hand-written index, and
  * notes. Module-scope because the resume tests further down have to prove this
  * bucket is refused too — a scaffold that can be finished must not become a way
  * into a vault that was here first.
  */
-function seedLiveBrain(store: { seed(key: string, body: string): void }): void {
+function seedLiveWorkspace(store: { seed(key: string, body: string): void }): void {
   store.seed(
     PRIVACY_KEY,
     [
@@ -438,6 +438,9 @@ function seedLiveBrain(store: { seed(key: string, body: string): void }): void {
       "version: 1",
       "---",
       "",
+      // Verbatim from a bucket that has been running since before the word
+      // "brain" was retired. A fixture of a live vault that stops looking like
+      // the live vaults it stands for has stopped testing anything.
       "# Brain Privacy Map",
       "",
       "<!-- BEGIN BRAIN PRIVACY RULES -->",
@@ -460,7 +463,7 @@ function seedLiveBrain(store: { seed(key: string, body: string): void }): void {
       "",
     ].join("\n"),
   );
-  store.seed(INDEX_KEY, "# My brain\n\nHand-written manifest.\n");
+  store.seed(INDEX_KEY, "# My workspace\n\nHand-written manifest.\n");
   store.seed("1-projects/ship-the-thing.md", "# Ship the thing\n");
   store.seed("1-projects/secret-plan.md", "# Secret plan\n");
   store.seed("2-areas/health/notes.md", "# Health\n");
@@ -469,7 +472,7 @@ function seedLiveBrain(store: { seed(key: string, body: string): void }): void {
 }
 
 /**
- * An existing brain, connected for the first time.
+ * An existing workspace, connected for the first time.
  *
  * "Nothing changes" is asserted as *byte-identical*, not as "we did not crash":
  * the failure mode this guards against is a scaffold that quietly replaces a
@@ -480,7 +483,7 @@ function seedLiveBrain(store: { seed(key: string, body: string): void }): void {
 describe("an existing context is never overwritten", () => {
   test("every existing object is byte-identical afterwards", async () => {
     const store = memoryStore();
-    seedLiveBrain(store);
+    seedLiveWorkspace(store);
     const before = store.snapshot();
 
     const result = await scaffoldContext(store, { structureTemplate: "para" });
@@ -495,7 +498,7 @@ describe("an existing context is never overwritten", () => {
 
   test("the owner's privacy rules survive exactly, read back through the gateway", async () => {
     const store = memoryStore();
-    seedLiveBrain(store);
+    seedLiveWorkspace(store);
     await scaffoldContext(store, { structureTemplate: "para" });
 
     const { parsePrivacyManifest, canSee } = gatewayInternals();
@@ -513,7 +516,7 @@ describe("an existing context is never overwritten", () => {
   /**
    * The regression this design exists for.
    *
-   * A brain connected before snapshots stopped accumulated one object per
+   * A workspace connected before snapshots stopped accumulated one object per
    * overwrite under a key that sorts *before* every note — tens of thousands
    * (`.` is 0x2E, `0` is 0x30). A flat first-page listing of that bucket comes
    * back looking completely empty, and a detector built on one would scaffold
@@ -548,7 +551,7 @@ describe("an existing context is never overwritten", () => {
    * The volume test above proves the *outcome*; this proves the reason for it,
    * so a future refactor that reaches the same answer by some other means still
    * has to be deliberate about the delimiter. With a flat listing, the whole
-   * `.history/` subtree — tens of thousands of objects on a real brain, all
+   * `.history/` subtree — tens of thousands of objects on a real workspace, all
    * sorting before every digit and letter — is what comes back.
    */
   test("lists the root with a delimiter, so a subtree collapses to one prefix", async () => {
@@ -894,7 +897,7 @@ describe("a half-written scaffold can be finished", () => {
    */
   test("a vault that was here before we arrived is refused, resume or not", async () => {
     const store = memoryStore();
-    seedLiveBrain(store);
+    seedLiveWorkspace(store);
     const before = store.snapshot();
 
     expect(
@@ -1035,7 +1038,7 @@ describe("through the real S3 adapter", () => {
     const backend = memoryS3(FAKE_BUCKET);
     const store = new S3Store({
       ...FAKE_S3,
-      rootPrefix: "notes/brain/",
+      rootPrefix: "notes/workspace/",
       fetchImpl: backend.fetchImpl,
     }) as unknown as ScaffoldStore;
 
@@ -1043,9 +1046,9 @@ describe("through the real S3 adapter", () => {
 
     // The scaffolder asked for `index.md`…
     expect(result.written.sort()).toEqual([INDEX_KEY, PRIVACY_KEY].sort());
-    // …and the bucket got `notes/brain/index.md`.
+    // …and the bucket got `notes/workspace/index.md`.
     expect([...backend.objects.keys()].sort()).toEqual(
-      ["notes/brain/index.md", "notes/brain/privacy.md"].sort(),
+      ["notes/workspace/index.md", "notes/workspace/privacy.md"].sort(),
     );
   });
 });
@@ -1153,12 +1156,12 @@ describe("a shared workspace's starting manifest", () => {
   });
 
   /**
-   * The regression that matters most. A personal brain is the majority case and
+   * The regression that matters most. A personal workspace is the majority case and
    * the one where a `team` default would hand somebody's notes to whoever they
    * later invite, without being asked. Sabotage `startingVisibility`'s
    * `personal` branch and this is what fails.
    */
-  test("a personal brain is untouched by any of this", async () => {
+  test("a personal workspace is untouched by any of this", async () => {
     const shared = memoryStore();
     const personal = memoryStore();
     const omitted = memoryStore();
@@ -1254,17 +1257,17 @@ describe("a shared workspace's starting manifest", () => {
   });
 
   /**
-   * A brain's `index.md` is its owner's own manifest and may describe anything.
+   * A workspace's `index.md` is its owner's own manifest and may describe anything.
    * Publishing it to everybody they later share a folder with is not ours to
    * decide, so the root stays shut there — including on the repair path, which
    * defaults to `personal`.
    */
-  test("a brain's front page is not published, and neither is a repaired one", () => {
+  test("a workspace's front page is not published, and neither is a repaired one", () => {
     const { parsePrivacyManifest, canSee } = gatewayInternals();
 
-    const brain = parsePrivacyManifest(renderPrivacyManifest("para", [], "personal"));
-    expect(brain.overrides.size).toBe(0);
-    expect(canSee(INDEX_KEY, "team", brain.rules, brain.overrides)).toBe(false);
+    const workspace = parsePrivacyManifest(renderPrivacyManifest("para", [], "personal"));
+    expect(workspace.overrides.size).toBe(0);
+    expect(canSee(INDEX_KEY, "team", workspace.rules, workspace.overrides)).toBe(false);
 
     const repaired = parsePrivacyManifest(
       renderPrivacyManifestForFolders(["1-projects", "handbook"]),

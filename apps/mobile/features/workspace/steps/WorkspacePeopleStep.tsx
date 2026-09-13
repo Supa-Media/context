@@ -17,7 +17,7 @@ import type { CreateWorkspaceController } from "../useCreateWorkspace";
 
 /**
  * Step 4 — the people. The step that makes this a workspace rather than a
- * second brain.
+ * second personal workspace.
  *
  * ## Why the invitations are queued rather than sent one at a time
  *

@@ -49,9 +49,9 @@ describe("a group takes its workspace's slug as a prefix", () => {
   });
 
   test("a reserved word cannot be smuggled in as a label", () => {
-    // `brain`, `workspace` and friends are a mail-interception control, and the
+    // `workspace`, `brain` and friends are a mail-interception control, and the
     // label is the half a person types.
-    expect(buildGroupName("supa", "brain").ok).toBe(false);
+    expect(buildGroupName("supa", "workspace").ok).toBe(false);
     expect(buildGroupName("supa", "postmaster").ok).toBe(false);
   });
 

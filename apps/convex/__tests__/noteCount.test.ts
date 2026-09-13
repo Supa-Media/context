@@ -11,7 +11,7 @@ import { COUNT_PAGE_CAP, countNotes } from "../functions/lib/noteCount";
  *
  * Three properties decide whether the number is worth printing:
  *
- *  1. **It counts notes, not objects.** `.history/` on a live brain holds tens
+ *  1. **It counts notes, not objects.** `.history/` on a live workspace holds tens
  *     of thousands of revisions of the same handful of files. An object count
  *     is a number about our own plumbing wearing the label "your notes".
  *  2. **It survives that plumbing.** A flat listing returns `.history/…` first,

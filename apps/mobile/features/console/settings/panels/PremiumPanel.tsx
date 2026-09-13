@@ -62,7 +62,7 @@ import { useArming } from "../../useArming";
  *
  * ## Per context, not per person
  *
- * The subscription hangs off this brain or workspace. That is the first thing
+ * The subscription hangs off this workspace. That is the first thing
  * the section says, because it is the thing somebody is most likely to get
  * wrong: they will assume upgrading their account upgrades everything they can
  * reach, and it does not.
@@ -233,7 +233,7 @@ export function PremiumBody({
         {settingsSectionLabel("premium")}
       </Text>
       <Text variant="paneSub" style={styles.sectionSub}>
-        What this brain or workspace pays for. Premium is per context rather
+        What this workspace pays for. Premium is per context rather
         than per person, so upgrading this one leaves every other context you
         can reach exactly as it is.
       </Text>

@@ -148,7 +148,7 @@ and the three tests that pin it, are in
 [communications](./communications.md), "A firehose is not attention". The
 test that fails if this reverts to exclusion is `toolOrient answers "what came
 in" with a pointer, never silence`; the one that fails if the collapse itself
-is dropped is `a brain with a year of channel-day notes still surfaces its own
+is dropped is `a workspace with a year of channel-day notes still surfaces its own
 recent notes in orient`.
 
 ### `search` and `fetch` exist because ChatGPT's chats can call nothing else

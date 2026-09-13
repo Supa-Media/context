@@ -32,7 +32,7 @@ export interface StatusFacts {
   editor: EditorState;
   /** From the last SaveResult. `undefined` until something has been saved. */
   conflictCheck?: ConflictCheck;
-  /** "R2 · brain", or null when no bucket is bound. */
+  /** "R2 · my-bucket", or null when no bucket is bound. */
   storageLabel: string | null;
   /**
    * How much of this context is in the hosted fast-search index — already
@@ -304,7 +304,7 @@ function conflictCheckSegment(check: ConflictCheck | undefined): StatusSegment |
  *
  * `index` leads that group and is deliberately **not** adjacent to `storage`.
  * The two describe different objects: the bucket is the customer's, and the
- * fast-search index is a copy in a database Supa Media runs. "R2 · brain · 62%
+ * fast-search index is a copy in a database Supa Media runs. "R2 · notes-bucket · 62%
  * indexed" run together reads as 62% of the bucket, which is a claim about
  * somebody's own storage that nothing has measured — the exact species of
  * invention issue #25 was about.

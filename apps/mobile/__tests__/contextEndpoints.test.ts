@@ -8,7 +8,7 @@
  * A connection reaches every context its person belongs to, so the bare
  * endpoint is the headline and these named URLs are the narrower thing: the
  * context an unaddressed call lands in. The question that produced the file was
- * "are my agents supposed to see your brain automatically" — the answer is now
+ * "are my agents supposed to see your workspace automatically" — the answer is now
  * yes, and this is what remains of the first answer to it.
  *
  * Two properties, and they fail in opposite directions:

@@ -46,7 +46,7 @@ export function useTabs(
    * it — the rule is "a folder that is loaded and does not hold this note", and
    * a *subfolder* of the previous context is never loaded in the next one, so
    * those tabs survived indefinitely. The strip then showed note names from the
-   * person's own brain while they were inside somebody else's workspace, which
+   * person's own workspace while they were inside somebody else's, which
    * is precisely what `useFileBrowser`'s reset effect exists to prevent for the
    * tree, the selection and the editor.
    *

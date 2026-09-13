@@ -56,7 +56,7 @@ const CONNECTED_BINDING = {
   provider: "Cloudflare R2",
   endpoint: "acct.r2.cloudflarestorage.com",
   region: "auto",
-  bucket: "brain",
+  bucket: "notes-bucket",
   maskedAccessKeyId: "a1b2…8f3c",
   capabilities: { conditionalWrite: true },
   status: "connected",
@@ -170,7 +170,7 @@ describe("the signed-in console states no fact it cannot answer", () => {
     const { text } = renderSettings(useLiveConsoleData);
     expect(text).toContain("Conditional writes verified");
     expect(text).toContain("Cloudflare R2");
-    expect(text).toContain("brain");
+    expect(text).toContain("workspace");
     expect(text).toContain("a1b2…8f3c");
     expect(text).toContain("Connected");
   });

@@ -565,7 +565,7 @@ export async function runSearchShardsChecks(check) {
     // postings repeat every doc's path once per unique term, so a shard of
     // real notes under long paths crossed SHARD_PARSE_BYTE_CAP at about half
     // of NOTES_PER_SHARD and its write was refused on every pass — the live
-    // brain's permanent "still catching up". The legacy body is built from the
+    // workspace's permanent "still catching up". The legacy body is built from the
     // same in-memory shard by the fixture rule above, and interning must beat
     // it by at least 2x on this corpus or the plateau is back.
     const shard = emptyShard();

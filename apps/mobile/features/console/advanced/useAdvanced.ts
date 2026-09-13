@@ -132,7 +132,7 @@ export function useAdvanced(options: {
     Absent for anyone who is not an owner — the same rule `keyExport` follows,
     and `deleteWorkspace` is owner-only on the backend. Present-but-`blocked`
     is the other state, and it is deliberately not the same thing: a workspace
-    on storage we run, or a brain, has a *reason* worth saying rather than a
+    on storage we run, or a personal workspace, has a *reason* worth saying rather than a
     control worth hiding.
   */
   const deletion: WorkspaceDeletion | undefined = useMemo(() => {

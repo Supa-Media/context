@@ -6,7 +6,7 @@
  * STORAGE WE RUN, OFFERED WHERE A WORKSPACE IS MADE.
  *
  * The card was missing from this step and present in first run, which read as
- * a policy — "managed storage is for brains" — and was a wiring gap. Billing
+ * a policy — "managed storage is for workspaces" — and was a wiring gap. Billing
  * is keyed by `workspaceId` throughout (`billing.status`, `startCheckout`,
  * `managedBucketName`), so a workspace has always been a thing that can be put
  * on storage we run; the only route to it was finishing the flow and finding
@@ -19,7 +19,7 @@
  *    payment. `onboardingManaged.test.ts` makes the same assertion about the
  *    other flow; both matter, because the two steps pass the offer in
  *    separately.
- * 2. **The confirmation names this workspace**, not the creator's brain. The
+ * 2. **The confirmation names this workspace**, not the creator's own. The
  *    billable unit is the thing people get wrong, and getting it wrong here
  *    would mean somebody paying twice for what they thought was an account.
  * 3. **It does not promise a return it cannot make.** Stripe comes back to a

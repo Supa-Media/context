@@ -526,7 +526,7 @@ export function BrowsePane({
   const atContextRoot = compact && (selected === null ? landing !== null : selected.path === "");
 
   /**
-   * `R2 · brain · 62% indexed · 12 notes, 8 folders`, for the context's own
+   * `R2 · notes-bucket · 62% indexed · 12 notes, 8 folders`, for the context's own
    * page.
    *
    * **This line lost its home and is being given one.** It was the file tree's

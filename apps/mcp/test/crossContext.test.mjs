@@ -2,7 +2,7 @@
  * One connection, several contexts — and the clamps that make that safe.
  *
  * A grant covers every context its person is a live member of, so a client
- * connected once can address a brain shared with its owner by passing
+ * connected once can address a workspace shared with its owner by passing
  * `context: "@name"` on a tool call. This suite is the half that says what that
  * must **not** buy, because reach and permission are different questions and
  * the widening only moved the first one.
@@ -34,7 +34,7 @@
  *    cannot reach one. Two-party, working.
  * 5. **The "present but unusable" guard is dropped**, so a `context` that is
  *    not a usable name falls through to the default — 6 checks failed, one per
- *    shape. That is the quiet version of writing into the wrong brain.
+ *    shape. That is the quiet version of writing into the wrong workspace.
  *
  * 6. **`surveyOtherContexts` reads each front page at the caller's own
  *    clearance** rather than at the one the addressed context's role earns —
@@ -71,7 +71,7 @@ const TOKEN_EDITOR = `cat_cross_editor_${"0".repeat(24)}`;
 /**
  * Somebody whose *home* context is the one they were invited into.
  *
- * They connected their client to a brain shared with them, so the grant's own
+ * They connected their client to a workspace shared with them, so the grant's own
  * context is one they are only a `member` of — and they are an `editor`
  * somewhere else. This is the fixture that catches re-clamping an
  * already-clamped scope set: the intersection of two roles takes write away
@@ -201,7 +201,7 @@ export async function runCrossContextChecks(check) {
   controlPlane.addWorkspace("ws_shared", "theirs", s3Binding("cross-theirs", "BB"));
   controlPlane.addWorkspace("ws_stranger", "stranger", s3Binding("cross-stranger", "CC"));
   // A context this person is a member of whose owner never shared its front
-  // page — the common case for a freshly scaffolded brain.
+  // page — the common case for a freshly scaffolded workspace.
   controlPlane.addWorkspace("ws_quiet", "quiet", s3Binding("cross-quiet", "DD"));
   // Seven more, all pointing at one bucket: this test is about how many
   // contexts orientation opens, not about what is in them.
@@ -209,7 +209,7 @@ export async function runCrossContextChecks(check) {
     controlPlane.addWorkspace(`ws_extra_${n}`, `extra-${n}`, s3Binding("cross-extra", "EE"));
   }
 
-  // One person, two memberships: owner of their own brain, plain `member` of
+  // One person, two memberships: owner of their own workspace, plain `member` of
   // somebody else's. The third context exists and is nothing to do with them.
   await controlPlane.addGrant({
     accessToken: TOKEN_OWNER,
@@ -297,7 +297,7 @@ export async function runCrossContextChecks(check) {
   theirs.set("index.md", { body: "THEIRS-INDEX-MARKER", etag: "ti" });
   theirs.set("1-projects/shared-name.md", { body: "THEIRS-MARKER", etag: "t1" });
   theirs.set("2-areas/kept-private.md", { body: "THEIRS-PRIVATE-MARKER", etag: "t2" });
-  // A plugin in somebody else's brain. `.obsidian/` sits outside the privacy
+  // A plugin in somebody else's workspace. `.obsidian/` sits outside the privacy
   // manifest's reach entirely — `isPlumbing` hides it from `read_note`,
   // `list_notes` and search for every role — so `list_plugins` is the only read
   // path into it, and the question is who may take it.
@@ -395,7 +395,7 @@ export async function runCrossContextChecks(check) {
       context: "@theirs",
     })
   );
-  check("a member's write into somebody else's brain is refused", /permission denied/i.test(refusedWrite));
+  check("a member's write into somebody else's workspace is refused", /permission denied/i.test(refusedWrite));
   check("and names the context it was refused in", refusedWrite.includes("@theirs"));
   check(
     "and nothing was written",
@@ -694,7 +694,7 @@ export async function runCrossContextChecks(check) {
     An argument that is present and unusable is refused rather than ignored. A
     client that sent `context: 123` meant somewhere else and failed to say
     where; serving the default is the quiet version of writing into the wrong
-    brain, which is the whole failure this feature is built around.
+    workspace, which is the whole failure this feature is built around.
   */
   for (const nonsense of [123, "", "   ", { slug: "theirs" }, ["theirs"], true]) {
     const answer = textOf(
@@ -1019,7 +1019,7 @@ export async function runCrossContextChecks(check) {
     It is not dead code. `TOKEN_GUEST` is a `member` where it connected and an
     owner elsewhere, so only that arm can offer it the tool at all: without it,
     somebody connected at a colleague's context could never call `list_plugins`
-    for their own brain over that connection.
+    for their own workspace over that connection.
   */
   const visitorOffered = await toolNamesFor(env, TOKEN_VISITOR);
   check(

@@ -93,7 +93,7 @@ describe("safeNextRoute", () => {
 describe("landing call to action", () => {
   test("invites a visitor to create a context", () => {
     expect(landingCtaHref(signedOut)).toBe(LOGIN_ROUTE);
-    expect(landingCtaLabel(signedOut)).toBe("Create your brain");
+    expect(landingCtaLabel(signedOut)).toBe("Create your workspace");
   });
 
   test("offers a signed-in visitor their console instead", () => {

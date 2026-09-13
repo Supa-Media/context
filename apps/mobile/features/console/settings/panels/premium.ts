@@ -398,8 +398,8 @@ export function describePremium(
       return {
         title: "This context is on Premium",
         blurb:
-          "Billed to this brain or workspace rather than to you, so a work workspace " +
-          "can go on a work card while a personal brain stays personal.",
+          "Billed to this workspace rather than to you, so a work workspace " +
+          "can go on a work card while a personal one stays personal.",
       };
     case "past_due":
       return {
@@ -427,7 +427,7 @@ export function describePremium(
       return {
         title: "This context is on the free plan",
         blurb:
-          "Premium is priced per brain or per workspace, not per person — you are " +
+          "Premium is priced per workspace, not per person — you are " +
           "upgrading a bucket. One card per context, and every other context you " +
           "can reach is unaffected.",
       };

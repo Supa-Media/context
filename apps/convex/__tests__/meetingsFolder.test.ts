@@ -39,14 +39,14 @@ import {
 
 const DEFAULT_FOLDER = "0-inbox/meetings";
 
-async function brain() {
+async function workspace() {
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
   const workspaceId = await createWorkspace(t, owner, "atlas");
   return { t, owner, workspaceId };
 }
 
-async function folderOf(t: Awaited<ReturnType<typeof brain>>["t"], slug: string) {
+async function folderOf(t: Awaited<ReturnType<typeof workspace>>["t"], slug: string) {
   const rows = await t.run((ctx) =>
     ctx.db
       .query("workspaces")
@@ -58,14 +58,14 @@ async function folderOf(t: Awaited<ReturnType<typeof brain>>["t"], slug: string)
 
 describe("choosing where meetings land", () => {
   test("a context that has never chosen carries nothing, so the default can move", async () => {
-    const { t } = await brain();
+    const { t } = await workspace();
     // Absent, not "0-inbox/meetings": a stored spelling of the default would
     // stop following it, pinning somebody who never expressed a preference.
     expect(await folderOf(t, "atlas")).toBeUndefined();
   });
 
   test("an owner can choose one", async () => {
-    const { t, owner, workspaceId } = await brain();
+    const { t, owner, workspaceId } = await workspace();
     const result = await asUser(t, owner).mutation(api.functions.workspaces.setMeetingsFolder, {
       workspaceId,
       folder: "2-areas/meetings",
@@ -75,7 +75,7 @@ describe("choosing where meetings land", () => {
   });
 
   test("...and clear it again, which stores nothing rather than the default", async () => {
-    const { t, owner, workspaceId } = await brain();
+    const { t, owner, workspaceId } = await workspace();
     await asUser(t, owner).mutation(api.functions.workspaces.setMeetingsFolder, {
       workspaceId,
       folder: "2-areas/meetings",
@@ -89,7 +89,7 @@ describe("choosing where meetings land", () => {
   });
 
   test("the folder the gateway would refuse is refused here", async () => {
-    const { t, owner, workspaceId } = await brain();
+    const { t, owner, workspaceId } = await workspace();
     const refuse = async (folder: string) =>
       errorCode(
         await captureError(() =>
@@ -121,7 +121,7 @@ describe("choosing where meetings land", () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const workspaceId = await createWorkspace(t, owner, "atlas-team", { kind: "shared" });
-    // Meetings are offered your own brain first; the workspace is the *second*
+    // Meetings are offered your own workspace first; a shared one is the *second*
     // offer and takes its folder from the page you are standing on.
     const error = await captureError(() =>
       asUser(t, owner).mutation(api.functions.workspaces.setMeetingsFolder, {
@@ -133,7 +133,7 @@ describe("choosing where meetings land", () => {
   });
 
   test("a member cannot choose where an owner's meetings land", async () => {
-    const { t, owner, workspaceId } = await brain();
+    const { t, owner, workspaceId } = await workspace();
     const stranger = await createUser(t, "stranger@example.invalid");
     const error = await captureError(() =>
       asUser(t, stranger).mutation(api.functions.workspaces.setMeetingsFolder, {
@@ -146,7 +146,7 @@ describe("choosing where meetings land", () => {
   });
 
   test("the choice reaches the console on the workspace list", async () => {
-    const { t, owner, workspaceId } = await brain();
+    const { t, owner, workspaceId } = await workspace();
     await asUser(t, owner).mutation(api.functions.workspaces.setMeetingsFolder, {
       workspaceId,
       folder: "2-areas/meetings",

@@ -18,7 +18,7 @@ export const privacyContent: LegalPageContent = {
     {
       title: "How we use Google data",
       body: [
-        "We use Google data only to provide the integration you requested: connecting your Google accounts to your personal Context.lc brain and syncing selected communications or calendar information into your context.",
+        "We use Google data only to provide the integration you requested: connecting your Google accounts to your personal Context.lc workspace and syncing selected communications or calendar information into your context.",
         "Email and chat sync are forward-only unless the product explicitly offers a user-initiated import. Calendar sync is used to keep current and upcoming calendar context available to you.",
         "We do not sell Google user data, use it for advertising, or use it to train third-party AI models.",
       ],
@@ -27,7 +27,7 @@ export const privacyContent: LegalPageContent = {
       title: "Where your data is stored",
       body: [
         "Context.lc stores context as files and folders in the storage connected to your account or in Context-managed storage when you choose that option.",
-        "Synced communication and calendar notes are private to your personal brain by default. Email, chat, and iMessage-style communication sync is not intended for shared workspaces.",
+        "Synced communication and calendar notes are private to your personal workspace by default. Email, chat, and iMessage-style communication sync is not intended for shared workspaces.",
         "OAuth tokens are encrypted server-side and are used only to maintain the connection you authorized.",
       ],
     },
@@ -93,7 +93,7 @@ export const termsContent: LegalPageContent = {
       title: "Google integrations",
       body: [
         "Google integrations are optional. If you connect Gmail, Google Calendar, or Google Chat, Context.lc uses the approved scopes only to sync the information you enabled into your personal context.",
-        "Google-connected communications are meant for personal brains, not shared workspaces. You are responsible for ensuring that any synced content you later share is appropriate to share.",
+        "Google-connected communications are meant for personal workspaces, not shared ones. You are responsible for ensuring that any synced content you later share is appropriate to share.",
       ],
     },
     {

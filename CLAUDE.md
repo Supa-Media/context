@@ -33,7 +33,7 @@ breaking one, stop and say so rather than working around it.
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
 2. **Tenancy is bucket-level, never prefix-level.** Do not namespace keys inside
    a bucket — no `tenants/<id>/`, no `workspaces/<slug>/`. A note lives at
-   `1-projects/foo.md`, full stop. An existing brain must connect and work
+   `1-projects/foo.md`, full stop. An existing workspace must connect and work
    unchanged, without a mandatory migration; user-authored keys are never
    rewritten, and pre-v1 plumbing remains dual-readable until its owner runs
    the resumable storage-layout migration. One workspace maps to one bucket (optionally
@@ -58,7 +58,8 @@ breaking one, stop and say so rather than working around it.
    own identity, storage binding, privacy manifest, audit trail and connector
    grants. **Never** extend the legacy shared-token model (`PRIVATE_TOKEN` /
    `TEAM_TOKEN` / `PUBLIC_TOKEN`) to multiple customers — it is single-tenant by
-   construction and exists only to keep the original brain running. MCP access
+   construction and exists only to keep the original single-tenant deployment
+   running. MCP access
    uses OAuth with per-client revocable grants; token-in-URL is a compatibility
    fallback and never the security boundary. Prove isolation with tests: one
    tenant must not enumerate, read, or infer the existence of another.
@@ -89,7 +90,8 @@ packages/hook/   `npx @supa-media/context-hook` — the session-end hook that sa
 
 ### The gateway (`apps/mcp`)
 
-Originally a single-tenant personal Brain worker; being generalized in place.
+Originally a single-tenant personal `brain` Worker — a deployment name, and one
+of the few places the retired noun survives; being generalized in place.
 Zero npm dependencies — keep it that way. It runs on the Workers runtime, so use
 Web Crypto and `fetch`, not Node APIs. `pnpm test` there runs the suite against
 an in-memory store stub: fast, offline, currently 3,325 checks. **Do not let it
@@ -102,21 +104,27 @@ its *plumbing* freely; changing its *semantics* is a decision for
 
 ## Vocabulary
 
-Three user-facing nouns (decided by the owner, 2026-08):
+One user-facing noun for a context (decided by the owner, 2026-09-13, reversing
+the three-noun rule of 2026-08):
 
-- **Brain** — a personal context: the workspace a username names, exactly one
-  per person. "Create your brain", "@seyi's brain".
-- **Workspace** — a shared context: slug-addressed, several members, no single
-  personal owner. Deliberately the same word as the internal noun.
+- **Workspace** — a context, personal or shared. A person's own is a workspace;
+  so is a slug-addressed one with several members. Where the two have to be told
+  apart, say **personal workspace** and **shared workspace** — the distinction
+  is real (only a personal one has an ingestion alias, a mailbox, a calendar,
+  and it is deleted with its account); having two *nouns* for it was the mistake.
 - **Context** — the aggregate, and the product name: everything one person can
-  reach through the endpoint. New copy never uses "context" for a single unit;
-  a sentence that needs "either kind" says "a brain or a workspace".
+  reach through the endpoint. New copy never uses "context" for a single unit.
+- **Brain** — retired. No new user-facing copy uses it.
 
 Code identifiers do not change: `workspace`/`workspaceId` stay the internal
 unit, `kind: "personal" | "shared"` stays the discriminator. `brain`, `brains`,
 `workspace` and `context` are reserved names (`functions/lib/names.ts`) —
-ingestion is on the apex, so that list is a security control. Exceptions and the
-legacy-name policy: [vocabulary-and-workspaces](./docs/decisions/vocabulary-and-workspaces.md).
+ingestion is on the apex, so that list is a security control, and **retiring a
+word does not free its name**: people go on saying it, which is exactly what
+makes the handle worth claiming. The on-bucket `<!-- BEGIN BRAIN PRIVACY RULES
+-->` markers keep the word too; they are a stable storage format, not copy.
+Exceptions and the legacy-name policy:
+[vocabulary-and-workspaces](./docs/decisions/vocabulary-and-workspaces.md).
 
 ## The workspace model
 

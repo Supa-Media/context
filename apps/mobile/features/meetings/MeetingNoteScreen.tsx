@@ -375,7 +375,7 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
  * `null` where either is missing, which is not a defensive default but the two
  * real cases: a meeting that has not been written yet has no path, and a record
  * from a build before `MeetingRecord.destination` existed has no slug. A link
- * built on a guessed context would open the right path in the wrong brain, and
+ * built on a guessed context would open the right path in the wrong workspace, and
  * the address bar would not say so.
  *
  * Exported for the suite, which is the only way to check a URL that is built

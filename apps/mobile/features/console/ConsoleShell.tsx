@@ -9,7 +9,7 @@ import { layout, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
-import { railSections } from "./rail";
+import { railGroup } from "./rail";
 import { selectedContext, type ConsoleData } from "./types";
 import { tierChipLabel } from "./visibility";
 
@@ -58,6 +58,7 @@ export function ConsoleShell({
   const narrow = width < layout.narrowBreakpoint;
   const current = selectedContext(data);
   const insideContext = route.kind === "context";
+  const group = railGroup({ contexts: data.contexts, claimable: false });
 
   return (
     <View style={chrome ? styles.console : styles.bare}>
@@ -113,33 +114,31 @@ export function ConsoleShell({
           </View>
 
           {/*
-            Brains and Workspaces, empty sections omitted — the same split,
-            from the same function, as the real console's rail. See `rail.ts`.
-            The landing page never offers the claim or the new-workspace entry:
-            a picture has nowhere to send anybody.
+            One list, personal workspace pinned first — the same shape, from
+            the same function, as the real console's rail. See `rail.ts`. The
+            landing page never offers the claim or the new-workspace entry: a
+            picture has nowhere to send anybody.
           */}
-          {railSections({ contexts: data.contexts, claimable: false }).map((section) => (
-            <View key={section.key} style={[styles.railGroup, narrow && styles.railGroupNarrow]}>
-              <Text variant="railHead" style={styles.railHead}>
-                {section.heading}
+          <View style={[styles.railGroup, narrow && styles.railGroupNarrow]}>
+            <Text variant="railHead" style={styles.railHead}>
+              {group.heading}
+            </Text>
+            {data.contexts.length === 0 && !data.loading ? (
+              <Text variant="rowSub" style={styles.railEmpty}>
+                Nothing here yet
               </Text>
-              {section.key === "brains" && data.contexts.length === 0 && !data.loading ? (
-                <Text variant="rowSub" style={styles.railEmpty}>
-                  Nothing here yet
-                </Text>
-              ) : null}
-              {section.contexts.map((context) => (
-                <RailButton
-                  key={context.id}
-                  label={atName(context.slug)}
-                  accessibilityLabel={`Open ${atName(context.slug)}`}
-                  selected={route.kind === "context" && route.slug === context.slug}
-                  onPress={() => onNavigate(selectContextRoute(context.slug))}
-                  leading={<Dot tone={context.status} />}
-                />
-              ))}
-            </View>
-          ))}
+            ) : null}
+            {group.contexts.map((context) => (
+              <RailButton
+                key={context.id}
+                label={atName(context.slug)}
+                accessibilityLabel={`Open ${atName(context.slug)}`}
+                selected={route.kind === "context" && route.slug === context.slug}
+                onPress={() => onNavigate(selectContextRoute(context.slug))}
+                leading={<Dot tone={context.status} />}
+              />
+            ))}
+          </View>
         </View>
 
         <View style={styles.pane}>{children}</View>

@@ -302,7 +302,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
   async function fixture() {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
-    const workspaceId = await createWorkspace(t, owner, "owner-brain");
+    const workspaceId = await createWorkspace(t, owner, "owner-workspace");
 
     const backend = memoryS3(FAKE_STORAGE.bucket);
     backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
@@ -376,7 +376,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: FOLDER,
       }),
     ).toEqual({
@@ -402,7 +402,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     await linkAndRender(t, owner, workspaceId, FOLDER);
 
     const answer = await t.query(api.functions.shares.previewForNote, {
-      slug: "owner-brain",
+      slug: "owner-workspace",
       path: FOLDER,
     });
     expect(answer.children).not.toContain("salaries.md");
@@ -422,7 +422,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     expect(
       (
         await t.query(api.functions.shares.previewForNote, {
-          slug: "owner-brain",
+          slug: "owner-workspace",
           path: FOLDER,
         })
       ).children,
@@ -449,7 +449,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: FOLDER,
       }),
     ).toEqual({ title: null, cardToken: null, children: [] });
@@ -457,7 +457,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
   /**
    * **The half of the rule that did not move.** `3-resources` is a name this
-   * product wrote into every brain it scaffolds, so it is a handful of guesses
+   * product wrote into every workspace it scaffolds, so it is a handful of guesses
    * per handle rather than a name its owner chose — and naming what is inside
    * it would turn that handful of guesses into a listing of somebody's notes.
    * `isProductMandatedPath` refuses it before any of this runs, contents and
@@ -472,7 +472,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
 
       expect(
         await t.query(api.functions.shares.previewForNote, {
-          slug: "owner-brain",
+          slug: "owner-workspace",
           path: folder,
         }),
       ).toEqual({ title: null, cardToken: null, children: [] });
@@ -555,7 +555,7 @@ describe("end to end, from the bucket to the unauthenticated preview", () => {
     );
 
     const { children } = await t.query(api.functions.shares.previewForNote, {
-      slug: "owner-brain",
+      slug: "owner-workspace",
       path: FOLDER,
     });
     expect(children).toEqual(["a.md", "b.md", "c.md"]);

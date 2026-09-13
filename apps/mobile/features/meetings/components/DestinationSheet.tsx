@@ -135,7 +135,7 @@ export function DestinationSheet({
           {/*
             The heading and the way to the meetings that already exist, on one
             line. Above the fork rather than inside the offers branch, because
-            somebody who owns no brain to record into may still hold meetings
+            somebody who owns no workspace to record into may still hold meetings
             recorded before they lost that membership — and the whole point of
             this row is that a finished meeting is never unreachable.
           */}
@@ -284,7 +284,7 @@ export function DestinationSheet({
 }
 
 /**
- * The viewer owns no brain, so there is nowhere to record into yet.
+ * The viewer owns no workspace, so there is nowhere to record into yet.
  *
  * It offers the name rather than a recording, and it offers nothing at all when
  * the caller gave it nowhere to send them: a button whose only outcome is
@@ -302,7 +302,8 @@ function ClaimName({
   return (
     <>
       <Text variant="paneSub">
-        You do not have a brain yet, so there is nowhere for a meeting to land.
+        You do not have a workspace of your own yet, so there is nowhere for a
+        meeting to land.
         Claim your @name and it becomes your own context — meetings, notes and
         everything else, in storage you own.
       </Text>

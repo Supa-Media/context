@@ -307,7 +307,7 @@ function folderRejectionError(
  * an answer instead of a silent no-op — and it is emphatically not the
  * enforcement. `scaffoldContext` refuses against a non-empty bucket and `get`s
  * every key before it `put`s it, so this mutation's checks could be wrong, or
- * bypassed entirely, and a live brain would still come through untouched.
+ * bypassed entirely, and a live workspace would still come through untouched.
  *
  * Owner-only, for `bindStorage`'s reason: it spends the workspace's budget and
  * writes into the workspace's bucket.
@@ -341,11 +341,11 @@ export const applyStructure = mutation({
     await requireWorkspaceRole(ctx, args.workspaceId, userId, "owner");
 
     // Read here, and handed to the scaffolder below, because it decides what
-    // `privacy.md` says the new folders default to: a personal brain starts
+    // `privacy.md` says the new folders default to: a personal workspace starts
     // all-private, a shared workspace starts team-visible to its members. See
     // `startingVisibility` in `lib/scaffold.ts` for why that is not a widening.
     // Loaded from the row rather than taken as an argument — `kind` is fixed at
-    // creation, and a client that could name it could scaffold somebody's brain
+    // creation, and a client that could name it could scaffold somebody's workspace
     // open.
     // `requireWorkspaceRole` already proved the membership, so this can only be
     // null if the row was deleted between the two reads. Same error either way,
@@ -717,7 +717,7 @@ export const removeMember = mutation({
  *
  * **The destination is still asked for every time, before the microphone
  * opens.** `features/meetings/destination.ts` argues that at length and it is
- * untouched: the first offer is always the person's own brain, the page they
+ * untouched: the first offer is always the person's own workspace, the page they
  * are standing on is offered second with its audience named, and no remembered
  * setting answers silently. This names the folder the *first offer points at*.
  * Those are two decisions, and conflating them is why this setting did not
@@ -758,7 +758,7 @@ export const setMeetingsFolder = mutation({
       throw new ConvexError({
         code: "MEETINGS_FOLDER_NOT_PERSONAL",
         message:
-          "Meetings are offered your own brain first, so the folder is a setting on a brain rather than on a shared workspace.",
+          "Meetings are offered your own workspace first, so the folder is a setting on a personal workspace rather than on a shared one.",
       });
     }
 

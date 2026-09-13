@@ -19,7 +19,7 @@ import { destinationKey } from "./keys";
  * belongs beside it. The moment a second answer exists it has to be asked for,
  * and the asking is what this module is the model for.
  *
- * ## The default is the person's own brain, whatever context they are in
+ * ## The default is the person's own workspace, whatever context they are in
  *
  * This is the whole point of the module and it is a privacy rule rather than a
  * convenience. Somebody reading a note in a shared workspace who presses record
@@ -200,7 +200,8 @@ export interface DestinationContext {
    *
    * Rides on the context rather than arriving as a separate argument, because
    * it belongs to exactly one of them: the first offer is always the person's
-   * own brain, so the folder that offer names is that brain's setting.
+   * own workspace, so the folder that offer names is that workspace's own
+   * setting.
    * `ownPersonalContext` already finds the row, and a parallel parameter would
    * be a second thing the caller has to keep pointed at the same context.
    *
@@ -241,7 +242,7 @@ export interface DestinationOffer {
 export type DestinationChoice =
   | { kind: "choose"; offers: DestinationOffer[]; selectedIndex: number }
   /**
-   * The viewer owns no brain, so there is no inbox to default to and nothing
+   * The viewer owns no workspace, so there is no inbox to default to and nothing
    * to record into yet. The sheet offers to claim their @name instead.
    */
   | { kind: "claimName" };
@@ -349,7 +350,8 @@ export function resolveDestinations(input: {
       },
       /*
         NOTE: this is a statement about membership, not about `privacy.md`. A
-        brain has exactly one member unless its owner has granted somebody
+        personal workspace has exactly one member unless its owner has granted
+        somebody
         access, and the context list this module is handed cannot see a grant.
         Naming that case would need the member list, which is a round trip this
         sheet must not wait on.
@@ -403,7 +405,7 @@ function pageOffer(
       label: folder === "" ? CONTEXT_ROOT_LABEL : folder,
     },
     /*
-      Anything that is not the viewer's own brain has an audience the design
+      Anything that is not the viewer's own workspace has an audience the design
       requires the row to name — a shared workspace's members, or the owner of
       a personal context somebody granted them access to. Both are "not only
       you", which is the fact that has to be in front of somebody before they
@@ -618,13 +620,13 @@ export interface RoutableContext extends DestinationContext {
  * where somebody's meeting lands must be reachable from a test without a
  * renderer.** It was not, and the case below is what that cost.
  *
- * ## `null` in means the recorder's own brain, and it has to
+ * ## `null` in means the recorder's own workspace, and it has to
  *
  * A meeting with no destination is the one-tap Record on `/meetings`, which
  * asks nobody anything. That is not "wherever this device happens to point":
  * this resolver used to answer `defaultContext`, which filters on
  * `role === "owner"` **and nothing else**, over a list sorted oldest-first. So
- * somebody who owns a shared workspace older than their brain had a transcript
+ * somebody who owns a shared workspace older than their own had a transcript
  * written into a bucket their colleagues watch, at whatever visibility that
  * folder carries, with no sheet ever shown to name the audience — and somebody
  * who owns no context at all but is an `editor` somewhere fell through to
@@ -633,19 +635,19 @@ export interface RoutableContext extends DestinationContext {
  * The rule is `ownPersonalContext` — `kind === "personal"` **and**
  * `role === "owner"` — because that is the rule this module already argues for
  * the sheet's first offer, and it is the same question: *where does a capture
- * nobody filed go?* The answer is the person's own brain, always, whatever
+ * nobody filed go?* The answer is the person's own workspace, always, whatever
  * context they are standing in. `defaultContext` stays exactly what `nav.ts`
  * says it is — which screen somebody lands on — and decides nothing about a
  * bucket.
  *
- * Owning no brain answers `null` rather than falling back to anything. The
+ * Owning no workspace answers `null` rather than falling back to anything. The
  * writer reads that as `unavailable`, so the meeting is kept on the device and
  * retried; claiming an @name is what makes the next drain land it. There is no
  * third option: every fallback available here is somebody else's context.
  *
  * ## A named context that is not on the list is `null` too
  *
- * Not the brain. A meeting addressed to `@acme` that quietly landed in the
+ * Not their own workspace. A meeting addressed to `@acme` that quietly landed in the
  * recorder's own bucket would be the destination control appearing to work and
  * doing something else, which is the defect this whole module exists to close.
  */

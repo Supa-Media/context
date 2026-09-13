@@ -207,7 +207,7 @@ export function Landing() {
             <View style={styles.markdownProof}>
               <View style={styles.markdownProofHead}>
                 <View style={styles.markdownProofDot} />
-                <Text style={styles.markdownProofLabel}>your-brain/</Text>
+                <Text style={styles.markdownProofLabel}>your-workspace/</Text>
                 <Text variant="meta">plain files</Text>
               </View>
               <Text style={styles.fileLine}>├── 1-projects/</Text>
@@ -245,7 +245,7 @@ export function Landing() {
           </View>
 
           <View style={styles.foot}>
-            <Text variant="foot">Demo — sign in for your own brain</Text>
+            <Text variant="foot">Demo — sign in for your own workspace</Text>
             <Text variant="foot">Dropbox in one click · or bring your own bucket</Text>
             <Text variant="foot">MIT · self-hostable</Text>
             <Link href="/privacy" style={styles.legalLink}>

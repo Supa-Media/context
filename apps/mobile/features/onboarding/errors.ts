@@ -38,7 +38,7 @@ export interface CreateFailure {
 
 const BY_CODE: Record<string, { headline: string; next?: string }> = {
   WORKSPACE_LIMIT_REACHED: {
-    headline: "You already have as many brains and workspaces as one account can own",
+    headline: "You already have as many workspaces as one account can own",
     next: "This is a limit on creating them, not on using them. Get in touch if you genuinely need more.",
   },
   RATE_LIMITED: {
@@ -113,7 +113,7 @@ export function describeCreateFailure(error: unknown): CreateFailure {
   if (known !== undefined) return known;
 
   return {
-    headline: "We couldn't create your brain",
+    headline: "We couldn't create your workspace",
     next:
       message !== undefined && message.trim().length > 0
         ? message.trim()
@@ -135,6 +135,6 @@ export function describeStructureFailure(error: unknown): CreateFailure {
     next:
       (message !== undefined && message.trim().length > 0
         ? `${message.trim()} `
-        : "") + "Your brain and your bucket are fine — you can make folders in the console.",
+        : "") + "Your workspace and your bucket are fine — you can make folders in the console.",
   };
 }

@@ -482,7 +482,7 @@ describe("verification classifies the bucket without touching it", () => {
   /**
    * The delimiter listing, through the whole stack.
    *
-   * A brain connected before snapshots stopped has an overwrite's worth of
+   * A workspace connected before snapshots stopped has an overwrite's worth of
    * `.history/` per edit, under a key that sorts before every digit. A flat
    * first-page listing of one comes back looking completely empty — so a
    * detector built on one would tell onboarding this live context is a blank
@@ -490,7 +490,7 @@ describe("verification classifies the bucket without touching it", () => {
    * any more; every bucket that already has them still does, and this is the
    * onboarding path they come back through.
    */
-  test("a live brain whose first pages are all .history is not reported empty", async () => {
+  test("a live workspace whose first pages are all .history is not reported empty", async () => {
     const { t, backend, workspaceId } = await connecting();
     for (let index = 0; index < 1500; index += 1) {
       backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
@@ -676,7 +676,7 @@ describe("verification classifies the bucket without touching it", () => {
   /**
    * A failure that never reached the bucket knows nothing new about what is in
    * it. Overwriting a previous `existing-context` with a blank would turn one
-   * DNS blip into onboarding offering to scaffold over a live brain.
+   * DNS blip into onboarding offering to scaffold over a live workspace.
    */
   test("a later failed probe does not erase what the last good one learned", async () => {
     const { t, owner, backend, workspaceId } = await connecting();
@@ -778,14 +778,14 @@ describe("scaffolding the layout the caller asked for", () => {
   });
 
   /**
-   * The primary case. An existing brain connects and sees nothing change.
+   * The primary case. An existing workspace connects and sees nothing change.
    */
-  test("an existing brain is byte-identical afterwards", async () => {
+  test("an existing workspace is byte-identical afterwards", async () => {
     const { t, backend, owner, workspaceId } = await connecting();
     // Undo the empty-bucket assumption: this bucket has been live for months.
     backend.objects.clear();
     backend.seed(PRIVACY_KEY, "# hand written, do not touch\n");
-    backend.seed("index.md", "# My brain\n");
+    backend.seed("index.md", "# My workspace\n");
     backend.seed("1-projects/ship-it.md", "# Ship it\n");
     for (let index = 0; index < 1500; index += 1) {
       backend.seed(`.history/1-projects/ship-it.${index}.md`, "old");
@@ -844,7 +844,7 @@ describe("scaffolding the layout the caller asked for", () => {
 
   test("a customer's rootPrefix is honoured and is not tenancy", async () => {
     const { t, backend, workspaceId } = await connecting({
-      rootPrefix: "notes/brain/",
+      rootPrefix: "notes/workspace/",
     });
     await t.action(internal.functions.provisioning.verifyStorageBinding, {
       workspaceId,
@@ -855,9 +855,9 @@ describe("scaffolding the layout the caller asked for", () => {
     });
 
     expect([...backend.objects.keys()].sort()).toEqual([
-      "notes/brain/index.md",
-      "notes/brain/privacy.md",
-      "notes/brain/work/README.md",
+      "notes/workspace/index.md",
+      "notes/workspace/privacy.md",
+      "notes/workspace/work/README.md",
     ]);
     // Nothing derived from a workspace id ever appears in a key.
     for (const key of backend.objects.keys()) {

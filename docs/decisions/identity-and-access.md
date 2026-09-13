@@ -381,7 +381,7 @@ carries what the shell gives up for it and what it deliberately does not.
 
 ### One connection reaches every context its person belongs to
 
-Asked for by the owner (2026-09-02) after somebody invited into a brain found
+Asked for by the owner (2026-09-02) after somebody invited into a workspace found
 their agents could not open it: *"If I have access to someone's brain, my MCP
 should be able to connect to it."* This **reverses** the section that stood here
 a day earlier, which recorded the opposite as deliberate — that a grant covers
@@ -391,7 +391,7 @@ with the cost stated, which is the only way it should ever have been settled.
 
 `resolveGrantByAccessToken` returns every context its person is a **live
 member** of, and `sessionForContext` in the gateway addresses one of them from a
-tool call's `context: "@name"`. Read live rather than frozen at consent: a brain
+tool call's `context: "@name"`. Read live rather than frozen at consent: a workspace
 shared with you afterwards is reachable from the client you already connected,
 and one you are removed from stops being reachable on the very next call —
 `resolveLiveGrant`'s rule 5, applied to the whole set.
@@ -401,17 +401,17 @@ the connection's own context applies to the addressed one, from the grant's
 scopes and the *target's* role: `effectiveScopes` makes a `member` read-only
 wherever they are a member, and `visibilityTierForGrant` reads `team` for
 anybody who is not that context's owner, so no private note of somebody else's
-is reachable by any client, ever. What a connected client can do in your brain
+is reachable by any client, ever. What a connected client can do in your workspace
 is exactly what you can do in it yourself.
 
 Five things hold it, and each fails a test if removed:
 
 - **The clamp reads the grant's scopes, never the connection's clamped set.**
   `session.grantScopes` exists for this. Re-clamping an already-clamped set
-  intersects two roles, so somebody who connected to a brain they are a `member`
+  intersects two roles, so somebody who connected to a workspace they are a `member`
   of would lose write in a context they *own* — fails closed, and reads as a
   permission bug in the wrong place. The fixture that catches it is a person
-  whose home context is somebody else's brain.
+  whose home context is somebody else's workspace.
 - **The tier is re-read for the target role**, not carried across. Carried, an
   owner's `private` connection reads private notes in a context they are only a
   member of, which is the leak this whole section has to not be.
@@ -497,7 +497,7 @@ Four rules hold that, and each fails a test:
 `listGrants` showed every grant in a context to `owner` and `editor` alike. The
 argument for that was written about a *shared* context — "which robots can read
 our notes" is a question the people responsible for the place need answered —
-and then applied to every context there is. What it meant in a personal brain is
+and then applied to every context there is. What it meant in a personal workspace is
 that somebody invited in to write notes opened Settings and found the owner's
 nine connected clients sitting there: every AI tool that person uses, how much
 of the context each one can read, and when it last read it. That is how it was
@@ -866,7 +866,7 @@ Four guards, and each is the reason the other three are safe to offer:
   confirmation is the name itself. The console gates its button on the same
   comparison, but the mutation is what enforces it — a client that skipped the
   field cannot skip the check.
-- **Shared only.** A brain's slug is the person's own username and its capture
+- **Shared only.** A workspace's slug is the person's own username and its capture
   address is live on the apex, so releasing it is account deletion's business
   and is deliberately not reachable from a settings panel (`PERSONAL_CONTEXT`).
 - **Not while we hold the only key.** On managed storage the notes live in a

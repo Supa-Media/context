@@ -28,7 +28,7 @@
  *     own table calls "the one that matters", and a cursor is the first thing
  *     it has ever been able to write that the remediation reads back.
  *  4. **A budget that counts re-wraps rather than reads.** A bucket whose
- *     notes are mostly NOT encrypted — the ordinary shape of a brain with
+ *     notes are mostly NOT encrypted — the ordinary shape of a workspace with
  *     encryption on for one folder — was passed over for free: 4,002 object
  *     reads in a single call over a 4,000-note bucket, and 10,002 over a
  *     10,000-note one. That is the exact ceiling the cursor exists to remove,

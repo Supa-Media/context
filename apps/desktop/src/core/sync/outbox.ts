@@ -102,7 +102,7 @@ export interface OutboxEntry {
    * `null` — and everything the tray records — means **the connection's own
    * default context**, which is the one this machine's grant was minted for.
    * That is not a fallback: a machine holds one grant, and "the context this
-   * credential is for" and "this person's brain" are the same bucket by
+   * credential is for" and "this person's workspace" are the same bucket by
    * construction.
    *
    * It exists because the console can address a meeting somewhere else. The

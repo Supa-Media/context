@@ -16,16 +16,14 @@ import type { ConsoleContext } from "./types";
  * it would have resolved the other way, which is the shape of bug that is a
  * green suite on one machine and a blank screen on another.
  *
- * ## The strip replaces two headed groups with one row, and pays for it twice
+ * ## The strip has one row and no headings, and pays for that twice
  *
- * The rail splits the contexts into **Brains** and **Workspaces**, and
- * `rail.ts` argues for that split at length: the two kinds are the product's
- * two nouns, and the rail is the one surface where a person meets both. A strip
- * cannot have headings — it is one row, 34pt tall, on a 390pt phone — so the
- * split has to go somewhere else or go away.
+ * The rail is one list too now — `rail.ts` argues for that, and for the pin
+ * and the mark that replaced the headed groups it used to draw. A strip cannot
+ * have headings in any case: it is one row, 34pt tall, on a 390pt phone.
  *
- * It goes onto the dot. `toneForKind` below is what carries the fact the
- * headings carried, and the entries are one undivided list.
+ * What personal-or-shared still has to say goes onto the dot. `toneForKind`
+ * below carries it, and the entries are one undivided list.
  *
  * **That reuses a glyph that means something else in the rail, and the reason
  * it is not a collision is that the two are never on the screen together.** The
@@ -39,18 +37,20 @@ import type { ConsoleContext } from "./types";
  * status at all.** A phone learns that a bucket is unreachable from the context
  * banner and the settings pane, which say it in words, rather than from a 7px
  * pip in a row somebody is scrolling. A pip that meant "unreachable" on one
- * surface and "workspace" on another would be worse than either.
+ * surface and "shared" on another would be worse than either.
  */
 
 /**
- * Brain or workspace, as a colour.
+ * Personal or shared, as a colour.
  *
  * Two tones, and `warn` and `crit` are deliberately not among them: those are
  * the alarm colours the rail's status pip uses, and a *kind* drawn in one of
- * them is a permanent alert about nothing. A brain takes `ok` — the accent-side
- * colour, for the thing that is yours — and a workspace takes `neutral`.
+ * them is a permanent alert about nothing. A personal workspace takes `ok` —
+ * the accent-side colour, for the thing that is yours — and a shared one takes
+ * `neutral`.
  *
- * Read off `kind` and not off `role`. A workspace you own is still a workspace;
+ * Read off `kind` and not off `role`. A shared workspace you own is still
+ * shared;
  * ownership is not what this says, and `rail.ts` records why marking it is a
  * mark on one row rather than a division of the list.
  */
@@ -133,16 +133,17 @@ export interface StripEnds {
  *
  * **An empty row is a band of chrome that does nothing**, so it is not drawn.
  * Now that the current context has moved to the breadcrumb, somebody with one
- * brain and no workspaces has *nothing* to switch to — and their name is on the
- * screen anyway, at the head of the path. The 34pt band goes back to the note.
+ * workspace and no others has *nothing* to switch to — and their name is on
+ * the screen anyway, at the head of the path. The 34pt band goes back to the note.
  *
  * The count is of *things on the strip*, not of contexts, and that distinction
  * is load-bearing rather than pedantic. "New workspace" and "Claim your @name"
- * are destinations — `rail.ts` says of the first that it is "the *whole* group
- * for somebody who is in no workspaces yet, which is how a person who has only
- * ever had a brain finds out that workspaces exist". Counting contexts only
- * would take that away from exactly the person it was written for: one brain,
- * no workspaces, a phone, and no other surface offering it. So somebody with
+ * are destinations — `rail.ts` says of the first that it is "the only *offer*
+ * for somebody who is in no shared workspace yet, which is how a person who
+ * has only ever had their own finds out that shared ones exist". Counting
+ * contexts only would take that away from exactly the person it was written
+ * for: one workspace of their own, no shared ones, a phone, and no other
+ * surface offering it. So somebody with
  * one context and something to reach still gets a strip, and somebody with one
  * context and nothing to reach — the landing page's picture of the console,
  * where every callback is absent — gets none.

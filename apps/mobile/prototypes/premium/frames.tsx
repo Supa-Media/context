@@ -136,7 +136,7 @@ const PRICE = formatPrice(BASE);
 const CEILING = formatBytes(BASE.ceilingBytes);
 
 /** The context these frames are about. The demo console's own name. */
-const CONTEXT = "@seyi's brain";
+const CONTEXT = "@seyi";
 
 /** `{price}`, `{context}` and `{ceiling}` filled from the same source as the UI. */
 function fill(text: string): string {
@@ -217,7 +217,7 @@ function Pricing(): ReactElement {
               {PRICE}
             </Text>
             <Text variant="statLabel" style={styles.priceUnit}>
-              for one brain or one workspace
+              for one workspace
             </Text>
           </View>
           <Text variant="rowSub" style={styles.planLede}>

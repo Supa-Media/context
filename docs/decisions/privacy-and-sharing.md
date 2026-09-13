@@ -90,7 +90,7 @@ chose to publish. That bound is only as good as the space being probed, and
 **the product writes a lot of that space itself.** `scaffoldFiles` lays down
 `privacy.md`, `index.md` and a `README.md` in each of the five PARA folders, the
 five folder names are documented in this file, and the connected-client house
-rules put a `todo.md` at the root. So a fresh brain arrives with roughly a dozen
+rules put a `todo.md` at the root. So a fresh workspace arrives with roughly a dozen
 addresses anybody can guess without knowing a thing about its owner, and a
 handful of guesses per handle is an exhaustible space.
 
@@ -99,7 +99,7 @@ Every one of those is refused and unfurls as the generic card. A name the
 feature. `createTeamShare` still takes any of them and the link still works —
 describing one to an anonymous crawler is the separate question.
 
-**And it is no longer only what a fresh brain arrives with.** The gateway names
+**And it is no longer only what a fresh workspace arrives with.** The gateway names
 folders *after* creation: where `save_context` files a session
 (`4-archive/chat-history` or `0-inbox/sessions`, chosen by whether the manifest
 declares a `4-archive` rule), and where a capture with an `external_id` lands —
@@ -216,7 +216,7 @@ that trade was made in that direction deliberately.
 **And the half of what was asked that was not built.** The link that started
 this was `/console/@seyi?note=3-resources`, and `3-resources` still unfurls as
 the generic card, contents and all. It is one of the five names `applyStructure`
-writes into every brain this product creates, so `isProductMandatedPath` refuses
+writes into every workspace this product creates, so `isProductMandatedPath` refuses
 it — and the argument for that refusal gets *stronger* here rather than weaker.
 Naming what is inside a guessable address turns a handful of guesses per handle
 into a listing of somebody's notes, which is a categorically worse leak than the
@@ -434,7 +434,7 @@ what make it safe, and each fails a test if removed:
   [storage-and-credentials](./storage-and-credentials.md).
 
 It declares the bucket's **real** top-level folders, not the five PARA names,
-because the case this exists for is a brain that arrived with a hand-edited
+because the case this exists for is a workspace that arrived with a hand-edited
 manifest — `0-inbox … 4-archive` over somebody's `Journal/` and `Clients/`
 hands them a file with no line to edit for any folder they have.
 
@@ -833,7 +833,7 @@ rule about how a helper may be used, which no test can state for it:
 
 `renderPrivacyManifest` wrote every folder `private` for every context, and the
 reasoning it carried is right for exactly one of the two kinds: `team` is not
-public, but a brain created five seconds ago has granted nobody anything, so
+public, but a workspace created five seconds ago has granted nobody anything, so
 there is no correct set of folders to open up, and a `team` default would grant
 nothing today and then quietly open a folder the first time somebody was
 invited.
@@ -866,7 +866,7 @@ Three things hold the edges, and each fails a test if removed:
   keeps this a starting layout rather than a switch on the bucket.
 - **`kind` is read off the workspace row inside the mutation**, never taken as
   an argument from a client. A client that could name it could scaffold somebody
-  else's brain open to everyone they later invite.
+  else's workspace open to everyone they later invite.
 - **The repair path keeps the old default.** `resetPrivacyManifest` →
   `renderPrivacyManifestForFolders` defaults to `personal` and must never be
   given a `kind`. It rewrites a manifest that was *failing closed*, against a
@@ -907,7 +907,7 @@ name, and it is a file **we wrote**: at render time `index.md` is the
 scaffolder's own text about the layout it just laid down, with nothing of the
 customer's in it.
 
-**A brain gets nothing here, deliberately.** Its `index.md` is its owner's own
+**A workspace gets nothing here, deliberately.** Its `index.md` is its owner's own
 manifest and may describe anything; publishing it to everyone they later share a
 folder with is not ours to decide. The repair path inherits that through its
 `personal` default, as with the folder rule.
@@ -921,8 +921,8 @@ fails it. Two narrower tests sit beside it, because the walk alone would still
 pass if `index.md` were made readable by widening the default instead of naming
 the file: one asserts the override set is exactly `{index.md: team}` and that a
 sibling root note and a later folder are both still closed, and one asserts a
-brain's and a repaired manifest's roots stay shut. Sabotage in all three
-directions — no override, a `team` default, an override on a brain — fails a
+workspace's and a repaired manifest's roots stay shut. Sabotage in all three
+directions — no override, a `team` default, an override on a workspace — fails a
 different set.
 
 ### Restricting a folder to *some* of a workspace is not built, and the shape it would take

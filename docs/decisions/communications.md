@@ -41,7 +41,7 @@ channels as its direct children, nothing interposed — and that shape survives
 intact. What does not survive is the folder's *name*, for three reasons:
 
 - **The bucket already has an inbox, and it is `0-inbox/`.** PARA numbering is
-  the layout every existing brain was scaffolded with and the one `privacy.md`
+  the layout every existing workspace was scaffolded with and the one `privacy.md`
   carries folder rules for. A second inbox root beside the first is two
   inboxes: two places an unfiled thing can be, two folder rules to keep in
   step, and a `0-inbox` that quietly means "everything except mail".
@@ -355,7 +355,7 @@ Four consequences, each of which is the thing a reviewer should check for:
 
 - **Default private, and that is the folder rule doing it, not a special
   case.** `visibilityOf` returns `private` when no rule matches, and a personal
-  brain is scaffolded all-private. A newly connected mailbox writes into a
+  workspace is scaffolded all-private. A newly connected mailbox writes into a
   folder nobody has named in `privacy.md`, so it is private from the first
   byte, before any code in this package runs.
 - **Never `team` by default, and a shared workspace is where that would have
@@ -419,7 +419,7 @@ thousand notes today — so the shard budget, the manifest and `pending` all
 have to be measured against a mailbox before this is switched on, and the
 switch is per context. And the existing single-document path stays: a note
 that is not a channel-day note is indexed exactly as it is now, so nothing
-about this reaches a brain with no mailbox connected.
+about this reaches a workspace with no mailbox connected.
 
 This is **decided here and built in phase 2**, with `apps/mcp/src/search/CONTRACT.md`
 amended in the same commit as the code. Phase 1 shipped the rendering, the
@@ -470,7 +470,7 @@ messages could not be spread across shards, the single shard's serialized body
 passed `SHARD_PARSE_BYTE_CAP`, and the write was correctly refused on every
 pass. That is the plateau `docs/decisions/search.md` describes ("each pass
 rebuilt the same oversized shard and had its write refused"), reached here by a
-mailbox rather than by a brain of thousands of notes, and it took the 200
+mailbox rather than by a workspace of thousands of notes, and it took the 200
 ordinary notes in that bucket down with it. The threshold was **four messages a
 day**: 1.67 MB of shard at four, past the 2 MB cap at five.
 
@@ -595,7 +595,7 @@ Three properties follow from that split and are each proved by a test in
 The check that fails if this is reversed back to exclusion is
 `toolOrient answers "what came in" with a pointer, never silence`; the check
 that fails if the collapse is dropped entirely is
-`a brain with a year of channel-day notes still surfaces its own recent notes
+`a workspace with a year of channel-day notes still surfaces its own recent notes
 in orient` — sabotaged by returning `null` from every branch of
 `classifyCaptureKind`, which failed 13 of the 16 checks in that block,
 including the ones proving a hand-edited note is not displaced.
@@ -1512,13 +1512,13 @@ floor is enforced in the mutation, not the picker: four minutes is refused from
 a console, a script, and a client that has never seen the UI.
 
 **Why the default is fifteen and not the floor.** Mail is not a chat. Three
-passes an hour keeps a brain within a quarter of an hour of the mailbox at a
+passes an hour keeps a workspace within a quarter of an hour of the mailbox at a
 third of the floor's cost, and somebody who wants the floor can choose it.
 
 **What a person loses by choosing a longer interval**, in the order it starts
 to matter:
 
-1. **Freshness, linearly.** An hourly connection's brain can be an hour behind.
+1. **Freshness, linearly.** An hourly connection's workspace can be an hour behind.
    Nothing else changes: the same bytes are written, later.
 2. **Nothing else, until a day.** A day's note is regenerated from the complete
    current query for that date, so a slow poll writes the same file a fast one

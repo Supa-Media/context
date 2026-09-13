@@ -51,8 +51,8 @@ import { createRoot } from "react-dom/client";
  *  4. `chooseOffer` drops its `refusal !== null` guard.
  *     → `a refused row cannot be chosen by pressing it` fails. (The pure half
  *     is held separately in `meetingsDestination.test.ts`.)
- *  5. The sheet renders the offers branch for a viewer who owns no brain.
- *     → `somebody with no brain is offered their name, not a recording` fails.
+ *  5. The sheet renders the offers branch for a viewer who owns no workspace.
+ *     → `somebody with no workspace is offered their name, not a recording` fails.
  *  6. `confirm` starts the meeting without passing the chosen destination.
  *     → `the meeting that results is the one the sheet described` and `the
  *     default is what starts when nobody changes the selection` fail.
@@ -349,7 +349,7 @@ describe("what the sheet offers", () => {
     mounted.unmount();
   });
 
-  test("somebody with no brain is offered their name, not a recording", async () => {
+  test("somebody with no workspace is offered their name, not a recording", async () => {
     const { store } = await configure();
     const claims: number[] = [];
     const mounted = mount(
@@ -620,7 +620,7 @@ describe("the sheet is also the way to the meetings already recorded", () => {
     mounted.unmount();
   });
 
-  test("and can reach them without owning a brain to record into", async () => {
+  test("and can reach them without owning a workspace to record into", async () => {
     /*
       The `claimName` arm. A person demoted out of the context they recorded in
       still has those meetings on this device, and the whole point of this route

@@ -71,7 +71,7 @@ export function MeetingsPanel({
       {/*
         A control, where there used to be a paragraph.
 
-        This block read `The first offer is always your own brain, in
+        This block read `The first offer is always your own workspace, in
         ${INBOX_FOLDER}` — a constant, interpolated into prose, with nothing
         beside it. Email, Calendar and Chat each let somebody choose where
         their captures land; meetings was the one that did not, and the
