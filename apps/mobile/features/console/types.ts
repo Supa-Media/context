@@ -1,5 +1,6 @@
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
+import type { GrantsView } from "./plugins/grants";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
@@ -359,6 +360,15 @@ export interface ConsoleData {
    * why the live console answers `unavailable` today.
    */
   plugins: PluginsView;
+  /**
+   * What each plugin in the selected context has been allowed to do.
+   *
+   * Separate from `plugins` because the two are answered differently and must
+   * stay so: a grant is a live subscription over control-plane rows, and an
+   * inventory is a scan of the customer's bucket that somebody asks for. Folding
+   * them into one view would drag the expensive half along on every revoke.
+   */
+  pluginGrants: GrantsView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

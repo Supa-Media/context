@@ -48,6 +48,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "highlightr-plugin",
     source: "obsidian",
+    bundleFingerprint: "fp-highlightr-1-2-2",
     name: "Highlightr",
     version: "1.2.2",
     author: "Chetachi",
@@ -61,6 +62,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "readwise-official",
     source: "obsidian",
+    bundleFingerprint: "fp-readwise-2-1-1",
     name: "Readwise Official",
     version: "2.1.1",
     author: "Readwise",
@@ -73,6 +75,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "obsidian-excalidraw-plugin",
     source: "obsidian",
+    bundleFingerprint: "fp-excalidraw-2-4-2",
     name: "Excalidraw",
     version: "2.4.2",
     author: "Zsolt Viczián",
@@ -84,6 +87,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "obsidian-git",
     source: "obsidian",
+    bundleFingerprint: "fp-git-2-24-1",
     name: "Obsidian Git",
     version: "2.24.1",
     author: "Vinzent",
@@ -102,6 +106,7 @@ const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "dataview",
     source: "obsidian",
+    bundleFingerprint: null,
     name: "Dataview",
     version: "0.5.67",
     author: "Michael Brenan",
@@ -500,6 +505,13 @@ export function useDemoConsoleData(): ConsoleData {
         plugins: DEMO_PLUGINS,
       },
     },
+    /*
+      No grants, and no `actions` to make any — the same rule `storageActions`
+      and `shares` follow. The landing page's console has no bucket and no
+      account behind it, so an Approve there would be a button that lies about
+      having granted something.
+    */
+    pluginGrants: { grants: [], loading: false },
     loading: false,
     // Nothing here is fetched, so nothing here can fail: the landing page's
     // console is data, not a subscription.

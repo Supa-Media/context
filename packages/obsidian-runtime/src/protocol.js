@@ -19,6 +19,30 @@ const FORBIDDEN_HEADERS = new Set([
   "referer",
 ]);
 
+/**
+ * Every capability a grant can carry, in the order a person should meet them:
+ * what the plugin can see, then what it can change, then what it can destroy,
+ * then what it can reach outside Context.
+ *
+ * Exported because the console has to draw one row per capability and must not
+ * keep its own copy of this list. A second list drifts silently — a capability
+ * added here and missed there is a permission nobody is ever shown agreeing to,
+ * which is the failure a consent screen exists to prevent. Importing it makes a
+ * new capability a compile error in the UI instead.
+ *
+ * @type {readonly PluginCapability[]}
+ */
+export const PLUGIN_CAPABILITIES = Object.freeze([
+  "vault:read",
+  "metadata:read",
+  "vault:write",
+  "vault:rename",
+  "vault:delete",
+  "settings:read",
+  "settings:write",
+  "network:request",
+]);
+
 const CAPABILITIES = Object.freeze({
   "vault.list": "vault:read",
   "vault.read": "vault:read",
