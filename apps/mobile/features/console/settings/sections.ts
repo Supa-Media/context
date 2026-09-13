@@ -146,8 +146,15 @@ export const SETTINGS_SECTIONS = [
 
       Still no "leave" or "quit": leaving a *workspace* is a different,
       non-destructive action, and it is People's, not this one's.
+
+      "brain" is here and "workspace" deliberately is not. A brain *is* deleted
+      from this screen — it is one per person and it goes with the account, the
+      sentence `deletionBlockedReason` gives for refusing it anywhere else — so
+      "delete my brain" has to land here. A workspace is deleted on its own, in
+      Advanced, and a haystack that answered for both would send somebody who
+      wanted one workspace gone to the screen that closes their account.
     */
-    keywords: "sign out log out logout delete close account remove erase permanently",
+    keywords: "sign out log out logout delete close account remove erase permanently brain",
     label: "Sign out & delete",
     scope: "account",
     group: "Your account",
@@ -353,7 +360,21 @@ export const SETTINGS_SECTIONS = [
   },
   {
     key: "advanced",
-    keywords: "audit history log trail export key keys encryption rotate activity",
+    /*
+      The deletion words are half this haystack, and they are the reason it was
+      rewritten. "Delete this workspace" has lived at the bottom of this
+      section since it shipped, and none of the words somebody types on the way
+      to it — delete, remove, the noun *workspace* itself — were in any
+      section's vocabulary. So "delete workspace" matched nothing at all, and
+      the bare "delete" matched exactly one row: **Sign out & delete**. Somebody
+      who wanted one workspace off their list was handed the control that
+      closes their whole account, which is the worst wrong answer this box can
+      give. The privacy row above states the rule this broke — a word nobody
+      can search for is an answer nobody finds — and a destructive control is
+      where it costs the most.
+    */
+    keywords:
+      "audit history log trail export key keys encryption rotate activity delete remove workspace destroy retire unwanted clutter",
     scope: "context",
     label: "Advanced",
     group: "Your notes",
@@ -450,6 +471,14 @@ const FILLER = new Set([
   "of",
   "on",
   "the",
+  /*
+    "this" for the same reason "my" is here, found the same way: "delete this
+    workspace" is what the row on the Overview page calls itself, and every
+    word having to match meant reading our own label back to us returned
+    nothing. A demonstrative cannot name a setting, so it can never be the word
+    that distinguishes one row from another.
+  */
+  "this",
   "to",
 ]);
 
