@@ -7,6 +7,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import type { FileBrowser } from "../features/console/files/browser";
 import type { FolderListing, OpenNote } from "../features/console/files/types";
+import { parseDrawing } from "@context/drawings";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -252,6 +253,63 @@ describe("the guards that decide whether the server is called at all", () => {
     });
     await settle();
     expect(called("writeNote")).toHaveLength(1);
+  });
+
+  test("a new drawing is written as a drawing, not as a heading", async () => {
+    /*
+      `createNote` seeds `# name\n\n`, which is right for a note and is a file
+      the gateway refuses on a `.excalidraw.md` path: `toolWriteNote` demands
+      that a write to one carries a payload, so this used to be a dead end that
+      surfaced as an error message. It is also why the console could offer no
+      New drawing at all.
+    */
+    unmount = mount({ canEdit: true });
+    await settle();
+
+    await act(async () => {
+      browser.createDrawing("1-projects", "ingest");
+    });
+    await settle();
+
+    const write = called("writeNote").at(-1)?.args as { path: string; text: string };
+    // The suffix is added for you: a person types a name, not a file format.
+    expect(write.path).toBe("1-projects/ingest.excalidraw.md");
+    const parsed = parseDrawing(write.text, write.path);
+    expect(parsed.unreadable).toBeNull();
+    expect(parsed.elements).toEqual([]);
+  });
+
+  test("and typing the suffix into New note reaches the same file", async () => {
+    // The other half, and the one that was actively broken: `plan.excalidraw`
+    // is a name somebody types, and it has to mean the same thing whichever
+    // control they reached for.
+    unmount = mount({ canEdit: true });
+    await settle();
+
+    await act(async () => {
+      browser.createNote("1-projects", "plan.excalidraw");
+    });
+    await settle();
+
+    const write = called("writeNote").at(-1)?.args as { path: string; text: string };
+    expect(write.path).toBe("1-projects/plan.excalidraw.md");
+    expect(parseDrawing(write.text, write.path).unreadable).toBeNull();
+  });
+
+  test("an ordinary note is still a heading and nothing else", async () => {
+    // The control. Without it the branch above could widen onto every note and
+    // this file would not notice.
+    unmount = mount({ canEdit: true });
+    await settle();
+
+    await act(async () => {
+      browser.createNote("1-projects", "plan");
+    });
+    await settle();
+
+    const write = called("writeNote").at(-1)?.args as { path: string; text: string };
+    expect(write.path).toBe("1-projects/plan.md");
+    expect(write.text).toBe("# plan\n\n");
   });
 
   test("selecting a folder does not try to read it as a note", async () => {

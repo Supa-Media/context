@@ -924,9 +924,8 @@ export function BrowsePane({
           */}
           {selected.kind === "file" ? (
             <FrameIconButton
-              icon="eye"
+              icon={reading ? "pencil" : "eye"}
               label={reading ? "Edit this note" : "Read this note"}
-              selected={reading}
               onPress={() => setReadMode(!reading)}
               testID="browse-read"
             />

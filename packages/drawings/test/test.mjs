@@ -64,7 +64,9 @@ import {
   drawingName,
   drawingSearchText,
   isDrawingPath,
+  newDrawing,
   parseDrawing,
+  serializeDrawing,
 } from "../src/index.js";
 
 let passed = 0;
@@ -663,6 +665,60 @@ function drawingFile(payload, { fence = "compressed-json", heading = "##", wrap 
   check(
     "a label below the payload does not become the payload either",
     parseDrawing(inverted).elements?.[0]?.id === "real"
+  );
+}
+
+/* -- (11) a drawing this package created -------------------------------- */
+
+{
+  /*
+    `serialize.js` refuses to build a file from a template, and is right to:
+    it edits bytes somebody's bucket holds, and a regenerating serializer is
+    how frontmatter and hand-written sections get dropped. That argument is
+    about **editing an existing file** and was read for years as "we never
+    write the scaffolding", which left the console unable to offer New drawing
+    at all — a person had to open Obsidian to start one.
+
+    So this is the one place that writes a drawing from nothing, and every
+    check below is about it producing a file the rest of the pipeline already
+    handles rather than a fourth dialect: it parses, it renders, the gateway's
+    own write guard accepts it, and the editor can splice a save into it.
+  */
+  const file = newDrawing();
+
+  const drawing = parseDrawing(file, "1-projects/plan.excalidraw.md");
+  check("a new drawing parses", drawing.unreadable === null);
+  check("and is empty rather than broken", drawing.elements?.length === 0);
+  check("with no phantom labels", drawing.textElements.length === 0);
+
+  // The guard in `toolWriteNote` is "does this parse as a drawing", so a
+  // scaffold that failed here could not be written through the gateway at all.
+  check("it carries a payload, which is what the write guard tests", drawing.unreadable !== "missing");
+
+  // The first thing that happens to a new drawing is somebody drawing on it.
+  const drawn = serializeDrawing(file, [
+    { id: "boxA", type: "rectangle", x: 0, y: 0, width: 10, height: 10 },
+  ]);
+  check("the editor can splice a first shape into it", typeof drawn === "string");
+  check(
+    "and reading that back gives the shape",
+    parseDrawing(drawn ?? "").elements?.[0]?.id === "boxA"
+  );
+
+  // The plugin's own markers, so a file we made is one Obsidian opens in the
+  // Excalidraw view rather than as a page of base64.
+  check("it carries the plugin's frontmatter key", file.includes("excalidraw-plugin: parsed"));
+  check(
+    "and the warning line the plugin writes for a plain-Markdown reader",
+    file.includes("Switch to EXCALIDRAW VIEW")
+  );
+  check("the payload is the plugin's default fence", file.includes("```compressed-json"));
+
+  // Round-tripping our own output is the property `serialize.js` rests on, and
+  // a scaffold is the one input it never saw before.
+  check(
+    "an empty save over a new drawing is a no-op, not a rewrite",
+    serializeDrawing(file, []) === file
   );
 }
 

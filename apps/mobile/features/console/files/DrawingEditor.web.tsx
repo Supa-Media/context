@@ -5,6 +5,7 @@ import { radii, space } from "../../design/tokens";
 import { useThemedStyles, useTheme, type Colors } from "../../design/theme";
 import { parseDrawing, serializeDrawing } from "@context/drawings";
 import { DrawingView } from "./DrawingView";
+import { keepDrawingEditorOffline } from "./drawingOffline";
 import {
   DRAWING_CHANNEL,
   DRAWING_EDITOR_PATH,
@@ -81,6 +82,22 @@ export function DrawingEditor({
   useEffect(() => {
     latest.current = source;
   }, [source]);
+
+  /*
+    Ask for the editor to be kept, so the next drawing opens without a network.
+
+    Here rather than at app start because most sessions never open a drawing,
+    and a worker installed for all of them is an install lifecycle nobody asked
+    for. Mounting this component is the moment somebody is looking at one, so
+    the load that pays for the 2.4MB is the load that caches it.
+
+    Fire and forget, and no dependency: registering twice is a no-op in the
+    browser, and every way it can fail leaves the editor working exactly as it
+    did before — fetched each time. See `drawingOffline.web.ts`.
+  */
+  useEffect(() => {
+    keepDrawingEditorOffline();
+  }, []);
 
   const send = useCallback(() => {
     const target = frame.current?.contentWindow;

@@ -340,6 +340,7 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     paste: record("paste"),
     copyTo: record("copyTo"),
     createNote: record("createNote"),
+    createDrawing: record("createDrawing"),
     createFolder: record("createFolder"),
     rename: record("rename"),
     move: record("move"),

@@ -17,6 +17,7 @@ import {
   MovePicker,
   NamePrompt,
   NEW_FOLDER_HINT,
+  newDrawingHint,
   newNoteHint,
 } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
@@ -329,6 +330,9 @@ export function Explorer({
           return;
         case "newNote":
           setDialog({ kind: "newNote", folder });
+          return;
+        case "newDrawing":
+          setDialog({ kind: "newDrawing", folder });
           return;
         case "newFolder":
           setDialog({ kind: "newFolder", folder });
@@ -706,6 +710,7 @@ export type Dialog =
    */
   | { kind: "create"; folder: string }
   | { kind: "newNote"; folder: string }
+  | { kind: "newDrawing"; folder: string }
   | { kind: "newFolder"; folder: string }
   | { kind: "rename"; path: string }
   | { kind: "move"; path: string }
@@ -782,6 +787,10 @@ export function ExplorerDialogs({
             onClose();
             files.createNote(dialog.folder, name);
           }}
+          onCreateDrawing={(name) => {
+            onClose();
+            files.createDrawing(dialog.folder, name);
+          }}
           onCreateFolder={(name) => {
             onClose();
             files.createFolder(dialog.folder, name);
@@ -798,6 +807,19 @@ export function ExplorerDialogs({
           onConfirm={(name) => {
             onClose();
             files.createNote(dialog.folder, name);
+          }}
+        />
+      );
+    case "newDrawing":
+      return (
+        <NamePrompt
+          title="New drawing"
+          description={newDrawingHint(dialog.folder)}
+          confirmLabel="Create"
+          onCancel={onClose}
+          onConfirm={(name) => {
+            onClose();
+            files.createDrawing(dialog.folder, name);
           }}
         />
       );

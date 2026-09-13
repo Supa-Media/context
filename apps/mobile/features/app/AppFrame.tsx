@@ -1037,7 +1037,6 @@ export function FrameIconButton({
   label,
   icon,
   onPress,
-  selected = false,
   round = false,
   grouped = false,
   testID,
@@ -1045,7 +1044,18 @@ export function FrameIconButton({
   label: string;
   icon: IconName;
   onPress: () => void;
-  selected?: boolean;
+  /*
+    There is no `selected` here, and its removal is the point rather than a
+    tidy-up. It lit this button with `accentDim` for exactly one caller — the
+    note's read toggle — on the argument that one mark cannot draw both "will
+    hide the markup" and "will bring it back", so the state had to live in the
+    fill. That toggle now swaps its glyph between `eye` and `pencil`, which says
+    the same thing in the place a reader is already looking, and a lit *pencil*
+    would have contradicted it: a lit control here means "this mode is on",
+    while the pencil means "press to start editing". The prop went with its last
+    caller rather than staying as a facility nobody uses and the next person has
+    to reason about. See `docs/decisions/app-and-console.md`.
+  */
   /** The phone's shape: a filled circle lying over the document. */
   round?: boolean;
   /**
@@ -1082,15 +1092,10 @@ export function FrameIconButton({
         // lights the way it does under a thumb instead — this is reachable on
         // a narrowed desktop browser, which is a real surface here.
         hovered && (round ? styles.iconButtonPressed : styles.iconButtonHover),
-        selected && styles.iconButtonOn,
         (round || grouped) && pressed && styles.iconButtonPressed,
       ]}
     >
-      <Icon
-        name={icon}
-        size={round || grouped ? 20 : 17}
-        color={selected ? colors.accentText : colors.text2}
-      />
+      <Icon name={icon} size={round || grouped ? 20 : 17} color={colors.text2} />
     </Pressable>
   );
 }
@@ -1480,5 +1485,4 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   iconButtonHover: { backgroundColor: colors.surface3 },
   iconButtonPressed: { backgroundColor: colors.chromePressed },
-  iconButtonOn: { backgroundColor: colors.accentDim },
 });
