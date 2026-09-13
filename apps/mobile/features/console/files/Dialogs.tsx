@@ -4,16 +4,13 @@ import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { describeDeleteForever, describeNameProblem } from "./paths";
+import { describeNameProblem } from "./paths";
 
 /**
  * The console's dialogs.
  *
  * Three shapes, in the mockup's language: a shell, a name prompt, and a
- * destination picker. The fourth — permanent deletion — is deliberately its
- * own component rather than a `<Confirm danger>`, because it is the one action
- * in this product that cannot be undone and it should not be one boolean away
- * from every other confirmation.
+ * destination picker.
  */
 
 function Shell({
@@ -291,79 +288,6 @@ export function Confirm({
       <View style={styles.actions}>
         <Button label="Cancel" onPress={onCancel} />
         <Button label={confirmLabel} variant="white" onPress={onConfirm} />
-      </View>
-    </Shell>
-  );
-}
-
-/**
- * Permanent deletion.
- *
- * Its own component, and it asks you to type the name.
- *
- * That is not friction for its own sake. Archive is reversible — it puts a note
- * in `4-archive/` with its original path intact. This one is not, by design:
- * leaving a hidden copy behind would make the sentence below a lie, in the one
- * product whose entire claim is that you know where your data is. So the
- * sentence is plain, the button is not the default, and you have to spell the
- * name out.
- *
- * The sentence itself lives in `paths.ts` as `describeDeleteForever`, next to
- * the note explaining what it may and may not claim. It has now been wrong in
- * both directions: it claimed "there is no copy kept anywhere" while `.history/`
- * snapshots meant there was, and later claimed deletion "cannot be undone" after
- * this product started telling people to enable versioning at their provider —
- * which is the one setting that makes the noncurrent version outlive the delete.
- * We cannot see that setting, so the sentence names the condition instead of
- * guessing which side of it somebody is on.
- */
-export function DeleteForever({
-  path,
-  isFolder,
-  onCancel,
-  onConfirm,
-}: {
-  path: string;
-  isFolder: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  const colors = useColors();
-  const styles = useThemedStyles(makeStyles);
-  const [typed, setTyped] = useState("");
-  const name = path.slice(path.lastIndexOf("/") + 1);
-  const ready = typed.trim() === name;
-
-  return (
-    <Shell title="Delete permanently" onClose={onCancel}>
-      <Text variant="paneSub">{describeDeleteForever(path, isFolder)}</Text>
-      <View style={styles.hint}>
-        <Text variant="hint">
-          If you might want it back, archive it instead. Archiving moves it to{" "}
-          <Text variant="hint" style={styles.hintStrong}>
-            4-archive/
-          </Text>{" "}
-          and you can move it straight back.
-        </Text>
-      </View>
-      <Text variant="eyebrow">Type {name} to confirm</Text>
-      <TextInput
-        value={typed}
-        onChangeText={setTyped}
-        autoFocus
-        style={styles.input}
-        placeholder={name}
-        placeholderTextColor={colors.muted}
-        accessibilityLabel={`Type ${name} to confirm permanent deletion`}
-      />
-      <View style={styles.actions}>
-        <Button label="Cancel" variant="white" onPress={onCancel} />
-        <Button
-          label="Delete permanently"
-          variant="danger"
-          disabled={!ready}
-          onPress={onConfirm}
-        />
       </View>
     </Shell>
   );

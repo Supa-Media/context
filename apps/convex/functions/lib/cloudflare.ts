@@ -426,6 +426,27 @@ export function r2Endpoint(
 export const R2_REGION = "auto";
 
 /**
+ * How long a freshly minted R2 credential is allowed to take to start working.
+ *
+ * Creating a bucket and minting a key scoped to it do not make that key usable
+ * at the S3 endpoint: Cloudflare documents R2 IAM changes as eventually
+ * consistent for up to a minute, and the first production journey proved the
+ * consequence by probing a new key 266ms after minting it and painting the
+ * connection red (`docs/decisions/storage-and-credentials.md`).
+ *
+ * So **every path that mints an R2 credential and then uses it waits on this
+ * window** rather than believing the first refusal — managed provisioning, the
+ * managed copy's readiness gate, and the customer's own "create a bucket for
+ * me". It lives here, next to the calls that do the minting, because it is a
+ * fact about R2 rather than about any one of those flows, and three copies of
+ * it would be three chances to fix the race in only two places.
+ *
+ * It does **not** apply to a credential somebody pasted: that one is as old as
+ * they are and a refusal is an answer, not a wait. See `bindStorage`.
+ */
+export const R2_CREDENTIAL_SETTLE_MS = 2 * 60 * 1000;
+
+/**
  * The resource selector that scopes a token to exactly one bucket.
  *
  * `com.cloudflare.edge.r2.bucket.<ACCOUNT_ID>_<JURISDICTION>_<BUCKET_NAME>`,

@@ -894,7 +894,7 @@ describe("Obsidian plugin inventory", () => {
 });
 
 describe("Obsidian vault import", () => {
-  test("requires the exact destructive acknowledgement before a replacement job exists", async () => {
+  test("requires the destructive acknowledgement before a replacement job exists", async () => {
     const f = await fixture();
     const owner = asUser(f.t, f.owner);
     const args = {
@@ -906,7 +906,7 @@ describe("Obsidian vault import", () => {
       totalBatches: 1,
     };
 
-    for (const confirmation of [undefined, "i understand", "I understand "]) {
+    for (const confirmation of [undefined, "I understand this", "understand"]) {
       const error = await captureError(() => owner.mutation(
         api.functions.files.startVaultImport,
         { ...args, confirmation },
@@ -916,6 +916,21 @@ describe("Obsidian vault import", () => {
 
     const jobs = await f.t.run((ctx) => ctx.db.query("vaultImportJobs").collect());
     expect(jobs).toEqual([]);
+
+    for (const [index, confirmation] of [
+      "I understand",
+      "i understand",
+      "I UNDERSTAND",
+      "I Understand",
+      "  I understand  ",
+    ].entries()) {
+      const accepted = await owner.mutation(api.functions.files.startVaultImport, {
+        ...args,
+        confirmation,
+        sourceFingerprint: `vault-replace-confirmation-${index}`,
+      });
+      expect(accepted.strategy).toBe("replace");
+    }
   });
 
   test("clears every bucket object in a resumable owner-only phase before replacement uploads", async () => {
@@ -1976,6 +1991,14 @@ describe("a stranger cannot reach another workspace's files", () => {
         as.action(api.functions.files.duplicateEntry, { workspaceId, path: "a.md" }),
       (workspaceId) =>
         as.action(api.functions.files.archiveEntry, { workspaceId, path: "a.md" }),
+      (workspaceId) =>
+        as.action(api.functions.files.trashEntry, { workspaceId, path: "a.md" }),
+      (workspaceId) =>
+        as.action(api.functions.files.restoreTrashEntry, {
+          workspaceId,
+          from: ".context/trash/stamp/a.md",
+          to: "a.md",
+        }),
       (workspaceId) =>
         as.action(api.functions.files.createDirectory, { workspaceId, path: "a" }),
       (workspaceId) =>

@@ -3,6 +3,10 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import {
+  DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT,
+  matchesDestructiveActionAcknowledgement,
+} from "@context/shared";
 import { Button } from "../../design/components/Button";
 import { Card } from "../../design/components/Card";
 import { Check } from "../../design/components/Field";
@@ -186,7 +190,9 @@ export function VaultImportBody({
   const resumingConfirmedReplacement =
     strategy === "replace" && existingJob?.status !== undefined && existingJob.status !== "complete";
   const replacementConfirmed =
-    strategy !== "replace" || replaceConfirmation === "I understand" || resumingConfirmedReplacement;
+    strategy !== "replace" ||
+    matchesDestructiveActionAcknowledgement(replaceConfirmation) ||
+    resumingConfirmedReplacement;
 
   useEffect(() => {
     if (strategy === null && existingJob?.strategy !== undefined)
@@ -246,7 +252,9 @@ export function VaultImportBody({
         totalFiles: plan.files.length,
         totalBytes: plan.totalBytes,
         totalBatches: batches.length,
-        ...(strategy === "replace" ? { confirmation: "I understand" } : {}),
+        ...(strategy === "replace"
+          ? { confirmation: DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT }
+          : {}),
       });
       jobId = job.jobId;
       let latest = job;
@@ -396,7 +404,7 @@ export function VaultImportBody({
               Notes, attachments, access settings, audit files, and Context system files are removed before the selected folder uploads. Context cannot undo this. Your storage provider may retain older versions if bucket versioning is enabled. Ask collaborators and sync tools to stop editing until it finishes.
             </Text>
             <TextField
-              label="Type I understand to continue"
+              label={`Type “${DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT}” to continue`}
               value={replaceConfirmation}
               onChangeText={setReplaceConfirmation}
               autoCapitalize="none"

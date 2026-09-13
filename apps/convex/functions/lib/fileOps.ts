@@ -129,6 +129,7 @@ const MANIFEST_CAS_ATTEMPTS = 5;
  * the notes, which is the test for whether anything else belongs here.
  */
 const RECOVER_PREFIX = ".context/recover/";
+const TRASH_ROOT = ".context/trash";
 
 const ARCHIVE_ROOT = "4-archive";
 
@@ -2365,6 +2366,104 @@ export async function archivePath(
     scope: options.scope,
     now: options.now,
   });
+}
+
+/**
+ * Move a visible entry into hidden, recoverable trash without rewriting its
+ * privacy rules or links. Keeping those rules at the original path makes Undo
+ * restore the exact access state instead of guessing it from the trash folder.
+ */
+export async function trashPath(
+  store: FileStore,
+  options: { path: string; scope: Scope; now: number },
+): Promise<MoveResult> {
+  const path = requirePath(options.path);
+  assertWritablePath(path);
+  const state = await loadPrivacyState(store);
+  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+
+  const sourceIsFolder = await isFolder(store, path);
+  const walk = sourceIsFolder
+    ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
+    : { keys: [path], withheld: [] };
+  if (!sourceIsFolder && (await store.get(path)) === null) throw notFound();
+  if (walk.keys.length === 0) throw notFound();
+
+  const stamp = timestampSlug(options.now);
+  let destination = `${TRASH_ROOT}/${stamp}/${path}`;
+  for (let attempt = 2; attempt <= 100; attempt += 1) {
+    if ((await hiddenKeysAt(store, destination)).length === 0) break;
+    destination = `${TRASH_ROOT}/${stamp}-${attempt}/${path}`;
+  }
+  const pairs = walk.keys.map((key) => ({
+    source: key,
+    destination: sourceIsFolder ? `${destination}${key.slice(path.length)}` : destination,
+  }));
+  await movePairs(store, pairs);
+  return { from: path, to: destination, paths: pairs.map((pair) => pair.destination) };
+}
+
+/** Restore one trash result to the original path encoded inside its key. */
+export async function restoreTrashedPath(
+  store: FileStore,
+  options: { from: string; to: string; scope: Scope },
+): Promise<MoveResult> {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(to);
+  const match = /^\.context\/trash\/[^/]+\/(.+)$/.exec(from);
+  if (match === null || match[1] !== to) {
+    throw new FileOpError("PATH_INVALID", "That trash entry does not match this restore path.");
+  }
+  const state = await loadPrivacyState(store);
+  if (!canSee(to, options.scope, state.rules, state.overrides)) throw notFound();
+  const sources = await hiddenKeysAt(store, from);
+  if (sources.length === 0) throw notFound();
+  const sourceIsFolder = sources.length > 1 || sources[0] !== from;
+  const pairs = sources.map((source) => ({
+    source,
+    destination: sourceIsFolder ? `${to}${source.slice(from.length)}` : to,
+  }));
+  await movePairs(store, pairs);
+  return { from, to, paths: pairs.map((pair) => pair.destination) };
+}
+
+async function hiddenKeysAt(store: FileStore, path: string): Promise<string[]> {
+  if ((await store.get(path)) !== null) return [path];
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({ prefix: `${path}/`, cursor, limit: 1_000 });
+    for (const object of listing.objects) {
+      keys.push(object.key);
+      if (keys.length > FOLDER_OPERATION_CAP) {
+        throw new FileOpError("FOLDER_TOO_LARGE", "That trash entry is too large to restore in one go.");
+      }
+    }
+    if (!listing.truncated) return keys;
+    if (!listing.cursor || listing.cursor === cursor) {
+      throw new FileOpError("LISTING_INCOMPLETE", "Context could not finish reading that trash entry.");
+    }
+    cursor = listing.cursor;
+  }
+  throw new FileOpError("FOLDER_TOO_LARGE", "That trash entry is too large to restore in one go.");
+}
+
+async function movePairs(
+  store: FileStore,
+  pairs: readonly { source: string; destination: string }[],
+): Promise<void> {
+  for (const pair of pairs) {
+    if ((await store.get(pair.destination)) !== null) {
+      throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
+    }
+  }
+  for (const pair of pairs) {
+    const object = await store.get(pair.source);
+    if (object === null) throw notFound();
+    await store.put(pair.destination, await object.arrayBuffer());
+    await store.delete(pair.source);
+  }
 }
 
 /** The word a caller must send to delete something permanently. */

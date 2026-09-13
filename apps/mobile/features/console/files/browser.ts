@@ -348,7 +348,7 @@ export interface FileBrowser {
   move: (path: string, destinationFolder: string) => void;
   duplicate: (path: string) => void;
   archive: (path: string) => void;
-  /** Permanent. The UI must have confirmed it in words before calling this. */
+  /** Recoverable delete: moves the entry into the archive-backed trash and offers Undo. */
   destroy: (path: string) => void;
   setVisibility: (path: string, kind: "file" | "folder", visibility: SettableVisibility) => void;
   /**

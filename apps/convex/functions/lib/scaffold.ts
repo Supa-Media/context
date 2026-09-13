@@ -68,7 +68,11 @@ import { PRIVACY_KEY, renderPrivacyRulesBlock, type Visibility } from "./privacy
  * against it.
  */
 export interface ScaffoldStore {
-  get(key: string): Promise<{ etag: string; text(): Promise<string> } | null>;
+  get(key: string): Promise<{
+    etag: string;
+    text(): Promise<string>;
+    arrayBuffer(): Promise<ArrayBuffer>;
+  } | null>;
   put(
     key: string,
     /**

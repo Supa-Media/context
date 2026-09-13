@@ -66,3 +66,56 @@ describe("providerLabel", () => {
     expect(providerLabel("wasabi-next")).toBe("wasabi-next");
   });
 });
+
+/**
+ * A managed bucket's name is not a name anybody chose.
+ *
+ * `managedBucketName()` derives it from the workspace id — immutable, unique,
+ * uncollidable, and unreadable: `ctx-j57a2m9qk4x1r8v6s3d0w7b5n2t8f4h6` — a
+ * made-up id of the right shape, because this repository is public and a real
+ * one names a real brain. That
+ * is the right bucket name and the wrong label, and it was being printed in
+ * four places (the top bar's chip, the status bar, the tree's foot, and the
+ * Connected card) because the pill had no reason to know the difference.
+ *
+ * It does now, and the location half says what is actually true of a managed
+ * binding: the person did not pick this bucket, so there is nothing to
+ * identify it *against*. The exact name is still one tap away in
+ * Settings → Storage → Bucket, where somebody diagnosing a real problem is
+ * already looking and where a 36-character id is the answer rather than noise.
+ */
+describe("storagePillLabel, managed storage", () => {
+  const MANAGED = {
+    provider: "Cloudflare R2",
+    bucket: "ctx-j57a2m9qk4x1r8v6s3d0w7b5n2t8f4h6",
+    managed: true,
+  };
+
+  test("the workspace id never reaches the label", () => {
+    expect(storagePillLabel(MANAGED)).toBe("R2 · managed");
+    expect(storagePillLabel(MANAGED)).not.toContain("ctx-");
+  });
+
+  test("the provider half survives — it is still R2, and that is still true", () => {
+    expect(storagePillLabel({ ...MANAGED, provider: "r2" })).toBe("R2 · managed");
+  });
+
+  test("a root prefix cannot put the id back", () => {
+    // Managed buckets are created empty at the root, so this shape should not
+    // occur. If a future one does, the label must still not fall through to
+    // the bucket name.
+    expect(
+      storagePillLabel({ ...MANAGED, rootPrefix: "notes/" }),
+    ).toBe("R2 · managed");
+  });
+
+  test("only `managed: true` means managed — a BYO bucket keeps its own name", () => {
+    // `managed` is optional on `ConsoleStorage`: a bundle talking to an older
+    // control plane gets `undefined`, and the honest reading of that is "this
+    // is an ordinary binding", which prints the name the person typed.
+    expect(storagePillLabel({ provider: "r2", bucket: "brain" })).toBe("R2 · brain");
+    expect(storagePillLabel({ provider: "r2", bucket: "brain", managed: false })).toBe(
+      "R2 · brain",
+    );
+  });
+});

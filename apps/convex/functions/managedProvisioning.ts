@@ -19,6 +19,7 @@ import {
   emptyAndDeleteR2Bucket,
   deriveS3SecretAccessKey,
   r2Endpoint,
+  R2_CREDENTIAL_SETTLE_MS,
   resolvePermissionGroupId,
   scopedTokenName,
   revokeApiToken,
@@ -37,7 +38,6 @@ import {
 
 const MIGRATION_PAGE_SIZE = 25;
 const MIGRATION_OBJECT_BYTE_CAP = 25 * 1024 * 1024;
-const MANAGED_STORAGE_SETUP_TIMEOUT_MS = 2 * 60 * 1000;
 const MANAGED_STORAGE_SETTLE_POLL_MS = 5 * 1000;
 
 /**
@@ -229,7 +229,7 @@ export const provisionManagedStorage = internalAction({
         internal.functions.managedProvisioning.awaitManagedTargetReady,
         {
           workspaceId: args.workspaceId,
-          retryUntil: Date.now() + MANAGED_STORAGE_SETUP_TIMEOUT_MS,
+          retryUntil: Date.now() + R2_CREDENTIAL_SETTLE_MS,
         },
       );
       return { ok: true };
@@ -527,7 +527,7 @@ export const beginManagedStorageMigration = internalMutation({
       internal.functions.managedProvisioning.awaitManagedTargetReady,
       {
         workspaceId: args.workspaceId,
-        retryUntil: now + MANAGED_STORAGE_SETUP_TIMEOUT_MS,
+        retryUntil: now + R2_CREDENTIAL_SETTLE_MS,
       },
     );
     return null;
@@ -1077,7 +1077,7 @@ export const runManagedStorageMigration = internalAction({
         untouched. The customer sees the copy still running, because it is.
       */
       const deadline =
-        args.retryUntil ?? Date.now() + MANAGED_STORAGE_SETUP_TIMEOUT_MS;
+        args.retryUntil ?? Date.now() + R2_CREDENTIAL_SETTLE_MS;
       const remaining = deadline - Date.now();
       if (!TERMINAL_MIGRATION_ERRORS.has(errorCode) && remaining > 0) {
         const delay = Math.min(MANAGED_STORAGE_SETTLE_POLL_MS, remaining);
@@ -1137,7 +1137,7 @@ export const completeManagedProvisioning = internalMutation({
         bucket: args.bucket,
         accessKeyId: args.accessKeyId,
         encryptedSecretAccessKey: args.encryptedSecretAccessKey,
-        verificationRetryUntil: Date.now() + MANAGED_STORAGE_SETUP_TIMEOUT_MS,
+        verificationRetryUntil: Date.now() + R2_CREDENTIAL_SETTLE_MS,
       });
       await recordAudit(ctx, {
         workspaceId: args.workspaceId,

@@ -119,7 +119,7 @@
  * neither of the two covers the other's route into the patch.
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -129,6 +129,7 @@ import {
   createWorkspace,
   captureError,
   errorCode,
+  seedAppSecret,
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
@@ -1325,5 +1326,124 @@ describe("opting out while provisioning is in flight", () => {
     // building for the re-enabled row.
     expect(forgotten.forgotten).toBe(false);
     expect(await bindingRow(t, workspaceId)).not.toBeNull();
+  });
+});
+
+describe("a search database this deployment just created is given time to settle", () => {
+  /*
+    THE THIRD INSTANCE OF THE UPGRADE RACE, FOUND BY LOOKING FOR IT.
+
+    `provisionIndex` creates a D1 database and applies its schema in the next
+    breath, and the `catch` around both wrote `status: "failed"` on the first
+    error of any kind. A database that is not routable for a moment after
+    creation — or one rate-limited request, or one 5xx — therefore parked fast
+    search in a failed state that nothing recovers: `sweepStalledBackfills`
+    only picks up rows that reached `backfilling`, so the sole cure was the
+    owner noticing and toggling the switch again.
+
+    Same shape as the managed copy, same fix: retry what a retry can fix, for a
+    bounded window, and keep a permanent failure for what will answer the same
+    way forever.
+  */
+  async function configured(t: TestConvex) {
+    await seedAppSecret(t, "SEARCH_D1_API_TOKEN", "d1_operator_obviously_fake");
+    await seedAppSecret(t, "SEARCH_D1_ACCOUNT_ID", "0123456789abcdef0123456789abcdef");
+  }
+
+  /** A D1 that answers `status` to everything. 404 is a database not yet routable. */
+  function stubD1(status: number) {
+    vi.stubGlobal("fetch", async () => ({
+      ok: status < 400,
+      status,
+      headers: new Headers({ "content-type": "application/json" }),
+      text: async () =>
+        JSON.stringify(
+          status < 400
+            ? { success: true, errors: [], result: { uuid: "db-uuid", name: "ctx-db" } }
+            : { success: false, errors: [{ code: 7404, message: "not found" }] },
+        ),
+    }));
+  }
+
+  async function optedIn(t: TestConvex, slug: string) {
+    const { owner, workspaceId } = await context(t, slug);
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
+    return { owner, workspaceId };
+  }
+
+  test("a database that is not routable yet is retried, not failed", async () => {
+    const t = setupTest();
+    await configured(t);
+    stubD1(404);
+    try {
+      const { workspaceId } = await optedIn(t, "d1-settling");
+
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      const row = await bindingRow(t, workspaceId);
+      // Still on its way, not broken. `failed` here is a claim we have not
+      // earned and, worse, one nothing sweeps back up.
+      expect(row?.status).not.toBe("failed");
+      const scheduled = await t.run((ctx) =>
+        ctx.db.system.query("_scheduled_functions").collect(),
+      );
+      expect(
+        scheduled.some((job) => job.name.includes("provisionIndex")),
+      ).toBe(true);
+      await t.run(async (ctx) => {
+        for (const job of scheduled) {
+          if (job.state.kind === "pending") await ctx.scheduler.cancel(job._id);
+        }
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("but one that outlasts the window is recorded as failed", async () => {
+    const t = setupTest();
+    await configured(t);
+    stubD1(404);
+    try {
+      const { workspaceId } = await optedIn(t, "d1-outlasts");
+
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+        retryUntil: Date.now() - 1,
+      });
+
+      expect((await bindingRow(t, workspaceId))?.status).toBe("failed");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a refused credential is not retried into the deadline", async () => {
+    /*
+      The operator token is not newly minted — it is standing configuration —
+      so a 403 is a deployment that is misconfigured and will answer the same
+      way in two minutes. Retrying it just delays the message a staffer needs.
+    */
+    const t = setupTest();
+    await configured(t);
+    stubD1(403);
+    try {
+      const { workspaceId } = await optedIn(t, "d1-refused");
+
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      const row = await bindingRow(t, workspaceId);
+      expect(row?.status).toBe("failed");
+      expect(row?.errorCode).toBe("UNAUTHORIZED");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

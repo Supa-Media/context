@@ -35,7 +35,7 @@ test("a chosen directory reaches the ready state and uploads", async ({
   ).toBeVisible();
 });
 
-test("replacement stays locked until the exact destructive acknowledgement", async ({
+test("replacement accepts the destructive acknowledgement regardless of casing", async ({
   page,
 }, testInfo) => {
   const vault = testInfo.outputPath("Replacement Vault");
@@ -53,9 +53,9 @@ test("replacement stays locked until the exact destructive acknowledgement", asy
   await expect(page.getByTestId("fixture-vault-choose")).toHaveCount(0);
 
   const confirmation = page.getByTestId("fixture-vault-replace-confirmation");
-  await confirmation.fill("i understand");
+  await confirmation.fill("I understand this");
   await expect(page.getByTestId("fixture-vault-choose")).toHaveCount(0);
-  await confirmation.fill("I understand");
+  await confirmation.fill("  i UnDeRsTaNd  ");
   await expect(page.getByTestId("fixture-vault-choose")).toBeVisible();
 
   const chooserPromise = page.waitForEvent("filechooser");

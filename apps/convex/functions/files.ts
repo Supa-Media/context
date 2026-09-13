@@ -69,6 +69,7 @@
 
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
+import { matchesDestructiveActionAcknowledgement } from "@context/shared";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
@@ -170,6 +171,7 @@ import {
   duplicatePath,
   listFolder,
   movePath,
+  restoreTrashedPath,
   readFile,
   maintainSearchIndex,
   notePathIndex,
@@ -177,6 +179,7 @@ import {
   type ProjectionClient,
   type ProjectionPass,
   searchNotes,
+  trashPath,
   type SearchResults,
   removeNoteEncryption as removeNoteEncryptionOp,
   resetPrivacyManifest,
@@ -895,6 +898,8 @@ const operationValidator = v.union(
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string() }),
+  v.object({ kind: v.literal("trash"), path: v.string() }),
+  v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   v.object({
     kind: v.literal("delete"),
     path: v.string(),
@@ -981,6 +986,8 @@ type FileOperation =
   | { kind: "copy"; from: string; to: string }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string }
+  | { kind: "trash"; path: string }
+  | { kind: "restoreTrash"; from: string; to: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
@@ -2848,6 +2855,18 @@ export async function executeOperation(
         const moved = await archivePath(store, { path: operation.path, scope, now });
         return { kind: "moved", ...moved };
       }
+      case "trash": {
+        const moved = await trashPath(store, { path: operation.path, scope, now });
+        return { kind: "moved", ...moved };
+      }
+      case "restoreTrash": {
+        const moved = await restoreTrashedPath(store, {
+          from: operation.from,
+          to: operation.to,
+          scope,
+        });
+        return { kind: "moved", ...moved };
+      }
       case "delete": {
         const deleted = await deletePath(store, {
           path: operation.path,
@@ -3636,10 +3655,13 @@ export const startVaultImport = mutation({
   returns: vaultImportJobStatusValidator,
   handler: async (ctx, args): Promise<VaultImportJobStatus> => {
     validateVaultImportPlan(args);
-    if (args.strategy === "replace" && args.confirmation !== "I understand") {
+    if (
+      args.strategy === "replace" &&
+      !matchesDestructiveActionAcknowledgement(args.confirmation)
+    ) {
       throw new ConvexError({
         code: "IMPORT_REPLACE_CONFIRMATION_REQUIRED",
-        message: "Type I understand exactly before replacing this bucket.",
+        message: "Type “I understand” before replacing this bucket.",
       });
     }
     const actorUserId = await callerId(ctx);
@@ -4276,6 +4298,60 @@ export const archiveEntry = action({
       action: "file.archive",
       paths: [result.from, result.to],
       details: { files: result.paths.length, recoverable: true },
+    });
+    return result;
+  },
+});
+
+/** Move an entry into hidden, recoverable trash. Requires `editor`. */
+export const trashEntry = action({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: movedValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "trash", path: args.path },
+    })) as Extract<OperationResult, { kind: "moved" }>;
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "file.archive",
+      paths: [result.from, result.to],
+      details: { files: result.paths.length, recoverable: true, trash: true },
+    });
+    return result;
+  },
+});
+
+/** Restore the exact entry returned by `trashEntry`. Requires `editor`. */
+export const restoreTrashEntry = action({
+  args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+  returns: movedValidator,
+  handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "editor",
+    });
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "restoreTrash", from: args.from, to: args.to },
+    })) as Extract<OperationResult, { kind: "moved" }>;
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "file.move",
+      paths: [result.from, result.to],
+      details: { files: result.paths.length, restoredFromTrash: true },
     });
     return result;
   },
