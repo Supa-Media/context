@@ -63,6 +63,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 interface Scenario {
@@ -1697,6 +1698,24 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     const google = calendarAndBucket({ backend });
     vi.stubGlobal("fetch", google.fetchImpl);
+    /*
+      PINNED, BECAUSE THE ASSERTIONS BELOW NAME PARTICULAR DAYS.
+
+      `lastFullSyncDate` is today in the *calendar's* zone, and this fixture's
+      calendar is `America/New_York` — so a test hardcoding `2026-09-12` only
+      passes while it is still that day in New York, and this one started
+      failing at 04:00 UTC when it stopped being. It had nothing to do with any
+      change; the suite simply rots once a day, in a way CI notices only if a
+      run happens to land after the boundary.
+
+      `shouldAdvanceTime` keeps real timers running underneath, because
+      convex-test drives scheduled functions on them and a frozen clock would
+      hang them.
+    */
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-12T18:00:00.000Z"),
+    });
 
     const result = await runPass(t, workspaceId, connectionId);
 
@@ -1707,6 +1726,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     const row = await readConnection(t, connectionId);
     expect(row.calendar?.syncToken).toBe("calendar-token-2");
+    // 14:00 on the 12th in New York, so "today" there is the 12th.
     expect(row.calendar?.lastFullSyncDate).toBe("2026-09-12");
     expect(row.calendar?.lastSyncedAt).toBeTypeOf("number");
     const view = (

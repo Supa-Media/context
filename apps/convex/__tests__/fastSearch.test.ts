@@ -1447,3 +1447,122 @@ describe("a search database this deployment just created is given time to settle
     }
   });
 });
+
+describe("a plan sync must not strand the database it is forgetting", () => {
+  /*
+    THE HANDLE ON A LIVE DATABASE IS THE ONLY THING THAT CAN DELETE IT.
+
+    `enable` gets this right: it clears `databaseId` only when the generation
+    changed, because old coordinates belong to a retired account, and it keeps
+    them otherwise so a retry reuses what it already made. The test above
+    pins that.
+
+    `syncPremiumSelection` — the same decision, reached from billing instead of
+    from the owner's switch — cleared them unconditionally. Both of the states
+    that reach its `else` branch on the CURRENT generation hold a live D1
+    database:
+
+      - a `failed` row, which records `databaseId` before applying the schema
+        precisely so a schema failure knows what it created; and
+      - a `releasing` row, which exists for no other purpose than to be deleted.
+
+    Clearing there is not a cosmetic loss. `releaseIndex` reaches a database
+    only through `binding.databaseId`, and with it gone it calls `forgetIndex`
+    and reports `released: true` having deleted nothing — so "off actually
+    deletes it", which `fastSearchProvision`'s header states as the point of
+    the release path, silently stops being true and a derived copy of somebody's
+    notes outlives the context that asked for it.
+
+    Not a race, either, for the failed row: it sits in that state until somebody
+    acts, and the trigger is any ordinary billing event — a renewal webhook, a
+    plan change, an owner re-selecting their entitlements.
+  */
+  async function payingWithDatabase(
+    t: TestConvex,
+    slug: string,
+    fields: Partial<Doc<"searchIndexes">>,
+  ) {
+    const { owner, workspaceId } = await context(t, slug);
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query("searchIndexes")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(row!._id, fields);
+    });
+    return { owner, workspaceId };
+  }
+
+  test("a failed row keeps the database it created", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await payingWithDatabase(t, "sync-keeps-failed", {
+      status: "failed",
+      databaseId: "db-live-with-notes",
+      databaseName: "context-search-live",
+      errorCode: "REFUSED",
+      error: "The schema could not be applied.",
+    });
+
+    // An ordinary billing event, not an owner action.
+    await t.mutation(internal.functions.fastSearch.syncPremiumSelection, {
+      workspaceId,
+      actorUserId: owner,
+    });
+
+    const row = await bindingRow(t, workspaceId);
+    expect(row?.databaseId).toBe("db-live-with-notes");
+    expect(row?.databaseName).toBe("context-search-live");
+    // Still retried — keeping the handle must not cost the retry.
+    expect(row?.status).toBe("provisioning");
+    expect(row?.errorCode).toBeUndefined();
+  });
+
+  test("a releasing row keeps the database it is mid-way through deleting", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await payingWithDatabase(t, "sync-keeps-releasing", {
+      status: "ready",
+      databaseId: "db-awaiting-delete",
+      databaseName: "context-search-awaiting",
+    });
+    await asUser(t, owner).mutation(api.functions.fastSearch.disable, { workspaceId });
+    expect(await bindingRow(t, workspaceId)).toMatchObject({
+      status: "releasing",
+      databaseId: "db-awaiting-delete",
+    });
+
+    await t.mutation(internal.functions.fastSearch.syncPremiumSelection, {
+      workspaceId,
+      actorUserId: owner,
+    });
+
+    // Re-opted in, so `releaseIndex` will stand down rather than delete — and
+    // the database it stands down from is the one this row still names, which
+    // `provisionIndex` then reuses instead of creating a second one.
+    expect(await bindingRow(t, workspaceId)).toMatchObject({
+      optedIn: true,
+      databaseId: "db-awaiting-delete",
+    });
+  });
+
+  test("but a legacy row still lets go, because those coordinates are another account's", async () => {
+    const t = setupTest();
+    const { owner, workspaceId } = await payingWithDatabase(t, "sync-drops-legacy", {
+      // A row written before Premium launched: the field is optional and only
+      // ever holds the current literal, so "legacy" is its absence.
+      generation: undefined,
+      status: "failed",
+      databaseId: "db-in-the-old-account",
+      databaseName: "context-search-old",
+    });
+
+    await t.mutation(internal.functions.fastSearch.syncPremiumSelection, {
+      workspaceId,
+      actorUserId: owner,
+    });
+
+    const row = await bindingRow(t, workspaceId);
+    expect(row?.generation).toBe(FAST_SEARCH_GENERATION);
+    expect(row?.databaseId).toBeUndefined();
+  });
+});

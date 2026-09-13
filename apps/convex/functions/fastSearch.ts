@@ -481,21 +481,44 @@ export const syncPremiumSelection = internalMutation({
         updatedAt: now,
       });
     } else {
-      // A legacy or failed row starts clean. Old D1 coordinates are never
-      // served and are never mistaken for a database in the new account.
+      /*
+        A LEGACY row starts clean; a failed or releasing one keeps its handle.
+
+        Letting go of `databaseId` is right for legacy coordinates — they name a
+        database in the retired account, which is never served and must never be
+        mistaken for one here. It is wrong for every row on the current
+        generation, and both of the states that reach this branch on it hold a
+        live database: a `failed` row records `databaseId` before applying the
+        schema, precisely so a schema failure knows what it created, and a
+        `releasing` row exists for no other purpose than to be deleted.
+
+        Clearing there strands them. `releaseIndex` reaches a database only
+        through `binding.databaseId`; without it, it calls `forgetIndex` and
+        reports `released: true` having deleted nothing — so "off actually
+        deletes it" quietly stops being true and a derived copy of somebody's
+        notes outlives the context that asked for it.
+
+        Which is the same condition `enable` already applies for the same
+        reason. This is that decision reached from billing instead of from the
+        owner's switch, so it had better be the same decision.
+      */
       await ctx.db.patch(existing._id, {
         generation: FAST_SEARCH_GENERATION,
         optedIn: true,
         optedInBy: args.actorUserId,
         optedInAt: now,
         status: "provisioning",
-        databaseId: undefined,
-        databaseName: undefined,
-        schemaVersion: undefined,
         errorCode: undefined,
         error: undefined,
-        notesIndexed: undefined,
-        notesPending: undefined,
+        ...(existing.generation === FAST_SEARCH_GENERATION
+          ? {}
+          : {
+              databaseId: undefined,
+              databaseName: undefined,
+              schemaVersion: undefined,
+              notesIndexed: undefined,
+              notesPending: undefined,
+            }),
         updatedAt: now,
       });
     }
