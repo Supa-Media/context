@@ -409,7 +409,7 @@ export async function runCommunicationsChecks(check) {
     });
     check(
       "shared workspaces refuse automated personal communications even for their owner",
-      sharedCommsWrite.includes("personal communications can only be synced to a personal brain") &&
+      sharedCommsWrite.includes("personal communications can only be synced to a personal workspace") &&
         !sharedBucket.objects.has("0-inbox/imessage/2026-09-07.md")
     );
     check(

@@ -5,7 +5,7 @@
 // no `workspaces/<slug>/`, no username anywhere in a key. One workspace is one
 // bucket; the note lives at `0-inbox/meetings/...`, full stop. The same bucket
 // is synced to Obsidian, so a key that carried a tenant id would be visible
-// nonsense in somebody's vault and a migration for every existing brain.
+// nonsense in somebody's vault and a migration for every existing workspace.
 //
 // The one prefix that is allowed is `root`: a fixed folder the *customer* chose
 // when they connected their bucket, applied here at the adapter boundary and

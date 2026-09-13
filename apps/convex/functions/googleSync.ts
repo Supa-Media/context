@@ -44,7 +44,7 @@
  * network on somebody else's quota.
  *
  * The **default** is fifteen minutes rather than the floor. Mail is not a
- * chat: three passes an hour keeps a brain within a quarter of an hour of the
+ * chat: three passes an hour keeps a workspace within a quarter of an hour of the
  * mailbox, at a third of the floor's cost in Convex actions and Google calls,
  * and the person who wants the floor can set it. What a person loses by
  * choosing a longer interval is written down in

@@ -250,7 +250,7 @@ function dataWith(
       connected: true,
       status: "connected",
       provider: "Cloudflare R2",
-      bucket: "brain",
+      bucket: "notes-bucket",
       endpoint: "https://example.invalid",
       region: "auto",
       accessKey: "EXAMPLEKEY",
@@ -1026,7 +1026,7 @@ describe("the top row ends in one group, and it is the note's", () => {
  *
  * This block was `the file tree ends in a vault switcher`, and it asserted
  * Obsidian's block: the context's name with a chevron and a gear, a row of five
- * icon verbs, and one muted line reading `R2 · brain · 1 note, 0 folders`. Its
+ * icon verbs, and one muted line reading `R2 · notes-bucket · 1 note, 0 folders`. Its
  * three tests opened `frame-drawer-toggle` first, because all of it lived
  * inside the file tree, and the file tree was a drawer.
  *
@@ -1091,7 +1091,7 @@ describe("the tree's foot became the context root page's foot", () => {
     // One muted line: the binding, then what has been read of the tree. No
     // index figure, because this fixture's `fastSearch.status` is `null` —
     // "not answered yet" — and an absence is never drawn as a zero.
-    expect(app.find("context-foot")!.textContent).toBe("R2 · brain · 1 note, 0 folders");
+    expect(app.find("context-foot")!.textContent).toBe("R2 · notes-bucket · 1 note, 0 folders");
   });
 
   test("a pointer layout draws no context foot", () => {

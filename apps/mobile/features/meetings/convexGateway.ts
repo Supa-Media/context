@@ -120,7 +120,7 @@ import { hasNothingCaptured } from "./session";
  *    and it is edited as a note.
  *  - **The workspace.** `resolveWorkspaceId` reads a ref that is re-assigned on
  *    every render, so a retry after the workspace list changed underneath —
- *    a membership landing, a brain claimed between a lost answer and the next
+ *    a membership landing, a workspace claimed between a lost answer and the next
  *    drain — resolves somewhere else. The retry then creates in a *different*
  *    bucket, where there is no conflict to catch it: two notes, one meeting.
  *    Bounded by `meetingWorkspaceId` being `ownPersonalContext`, which changes
@@ -291,7 +291,7 @@ export function createConvexGateway(options: ConvexGatewayOptions): MeetingsGate
         throw new MeetingGatewayError(
           ERRORS.unavailable,
           to === null
-            ? MEETING_WRITE_SENTENCES.noBrainYet
+            ? MEETING_WRITE_SENTENCES.noWorkspaceYet
             : MEETING_WRITE_SENTENCES.unknownContext,
         );
       }
@@ -476,8 +476,8 @@ export const MEETING_WRITE_SENTENCES = {
   /** The destination named a context this account cannot reach. */
   unknownContext:
     "This device has not opened the context this meeting is going to, so it is being kept here.",
-  /** There was no destination, and no brain to fall back to. */
-  noBrainYet:
+  /** There was no destination, and no workspace to fall back to. */
+  noWorkspaceYet:
     "You have not claimed your @name yet, so there is nowhere for this meeting to go. It is being kept here — claim one and it will be filed.",
   noBucket: "No bucket is connected to that context yet, so the meeting is being kept here.",
   signedOut: "This device is signing back in to your context, so the meeting is being kept here.",

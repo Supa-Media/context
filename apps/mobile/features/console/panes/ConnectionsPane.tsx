@@ -62,7 +62,7 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
     This card twice described a rule that had changed under it. It first said
     "one URL for every AI tool, across everything you can reach" while a grant
     covered exactly one context — false, and it stranded somebody invited into a
-    brain whose agents could not open it. It was then rewritten to offer one URL
+    workspace whose agents could not open it. It was then rewritten to offer one URL
     per context and say a client wanted in two takes two, which was true for
     about a day: a grant now covers every context its person is a live member
     of, and a tool call addresses one by name.
@@ -70,7 +70,7 @@ export function ConnectionsPane({ data }: { data: ConsoleData }) {
     So the bare endpoint leads again, and it is the honest headline this time
     rather than the aspirational one. The named URLs stay, demoted to what they
     genuinely still do: pick the context a client works in when a call does not
-    say. Somebody who spends their days in a brain shared with them connects
+    say. Somebody who spends their days in a workspace shared with them connects
     there and never types a context name; the bare URL starts in the one they
     approved.
   */

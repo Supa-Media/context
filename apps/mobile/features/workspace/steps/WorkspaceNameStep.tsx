@@ -123,7 +123,7 @@ export function WorkspaceNameStep({
       <Text variant="foot" style={styles.permanent}>
         Handles are one namespace with people's names, so `@acme-eng` is taken from the same
         pool as `@seyi` — and, like a person's, it cannot be renamed or released once claimed.
-        A workspace has no capture address: mail is forwarded into a personal brain, never into
+        A shared workspace has no capture address: mail is forwarded into a personal one, never into
         a shared one.
       </Text>
 

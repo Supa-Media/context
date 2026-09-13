@@ -21,8 +21,24 @@ import { Text, type TextVariant } from "./Text";
  * CTA, which shouts) nor `.mini` (a chip, which mumbles) can be used for both
  * halves of that pair without one of them winning. So: one shape, used twice,
  * with the words carrying the whole difference.
+ *
+ * `dialog` and `dialogPrimary` are the second pair, and they exist for the
+ * same class of mistake one step down. A dialog's action row is Cancel beside
+ * a confirm, and it used to be `mini` beside `white` — the hero CTA — so the
+ * confirm carried over twice the padding of Cancel in both axes and a label
+ * 3pt larger. The two are one shape here, differing only in fill: primary is a
+ * matter of weight and colour, never of size. They are a *pair*, so neither is
+ * useful alone — use `dialog` for the quiet half and `dialogPrimary` for the
+ * default action, and nothing else inside a dialog's action row.
  */
-export type ButtonVariant = "white" | "ghost" | "mini" | "danger" | "decision";
+export type ButtonVariant =
+  | "white"
+  | "ghost"
+  | "mini"
+  | "danger"
+  | "decision"
+  | "dialog"
+  | "dialogPrimary";
 
 const radiusFor: Record<ButtonVariant, number> = {
   white: radii.cta,
@@ -30,6 +46,8 @@ const radiusFor: Record<ButtonVariant, number> = {
   mini: radii.md,
   danger: radii.md,
   decision: radii.cta,
+  dialog: radii.lg,
+  dialogPrimary: radii.lg,
 };
 
 const labelVariant: Record<ButtonVariant, TextVariant> = {
@@ -38,6 +56,8 @@ const labelVariant: Record<ButtonVariant, TextVariant> = {
   mini: "mini",
   danger: "mini",
   decision: "cta",
+  dialog: "mini",
+  dialogPrimary: "mini",
 };
 
 export interface ButtonProps {
@@ -107,6 +127,7 @@ export function Button({
         style={[
           variant === "danger" && styles.dangerLabel,
           variant === "decision" && styles.decisionLabel,
+          variant === "dialogPrimary" && styles.dialogPrimaryLabel,
           variant === "ghost" && hovered && styles.ghostLabelHover,
         ]}
       >
@@ -117,6 +138,32 @@ export function Button({
     </Pressable>
   );
 }
+
+/**
+ * The one box every dialog action is drawn in, written once so the two halves
+ * of the pair cannot drift apart.
+ *
+ * Between `.mini` (6/12 — a chip in a dense toolbar, too small to be the
+ * default action of a modal a phone shows) and the hero CTA (14/27, which is
+ * what made the confirm twice the size of Cancel). The radius is the one the
+ * dialogs' own fields and wells are drawn at, so the action row belongs to the
+ * card it sits in rather than to the toolbar the `mini` chip came from.
+ *
+ * `justifyContent` is **inert today** and is stated as such rather than
+ * implied to be doing something: `base` sets `alignSelf: "flex-start"`, so
+ * these buttons hug their labels and there is no free space to centre in. It
+ * is here for the case `decision` already has — a caller that stretches one to
+ * a width, which a phone dialog eventually will — where the label should sit
+ * in the middle rather than hang off the leading edge.
+ */
+const DIALOG_ACTION = {
+  gap: 8,
+  justifyContent: "center",
+  paddingVertical: 10,
+  paddingHorizontal: 18,
+  borderRadius: radii.lg,
+  borderWidth: 1,
+} as const;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   base: {
@@ -179,7 +226,36 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.surface3,
   },
 
+  /**
+   * `dialog` — the quiet half of a dialog's action row. `.mini`'s materials,
+   * drawn at `DIALOG_ACTION`'s scale rather than a chip's.
+   */
+  dialog: {
+    ...DIALOG_ACTION,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.surface3,
+  },
+
+  /**
+   * `dialogPrimary` — the default action, same box, inverted fill.
+   *
+   * The border is drawn in the fill colour rather than dropped: a 1pt border
+   * on one half of a pair and none on the other makes the two boxes differ by
+   * 2pt in each axis, which is the defect in miniature. `dialogActionSize`
+   * measures `borderTopWidth` for exactly that reason.
+   *
+   * No `boxShadow`. The hero CTA's white glow is what makes it read as the one
+   * thing on a landing page; inside a 460pt card it reads as a button that has
+   * escaped from somewhere else.
+   */
+  dialogPrimary: {
+    ...DIALOG_ACTION,
+    borderColor: colors.white,
+    backgroundColor: colors.white,
+  },
+
   dangerLabel: { color: colors.critText },
+  dialogPrimaryLabel: { color: colors.ink },
   decisionLabel: { color: colors.text },
   ghostLabelHover: { color: colors.text },
 
@@ -200,6 +276,12 @@ const makeHoverStyles = (colors: Colors) => StyleSheet.create({
   // Identical hover for both halves of the consent pair, for the same reason
   // their resting state is identical.
   decision: { borderColor: "rgba(255,255,255,.26)" },
+  // The dialog pair hovers the way its materials do elsewhere: the bordered
+  // half brightens its edge like `.mini`, and the filled half lifts its fill
+  // slightly rather than moving — a dialog's buttons sit in a card that does
+  // not move, so the hero's `translateY` would read as a wobble.
+  dialog: { borderColor: "rgba(255,255,255,.26)" },
+  dialogPrimary: { opacity: 0.9 },
 });
 
 /**

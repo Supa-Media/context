@@ -146,13 +146,46 @@ describe("validateName (pure rules)", () => {
     ).toEqual([]);
   });
 
-  test("reserves the product vocabulary — brain, workspace, context", () => {
+  test("reserves the product vocabulary — workspace, context", () => {
     // The user-facing nouns (CLAUDE.md, "Vocabulary"). Claimed, each is an
-    // impersonation handle: `brain@context.lc` receives mail people believed
-    // was going to the product, and `@workspace/...` reads as a product path
-    // rather than a person's.
-    for (const name of ["brain", "brains", "workspace", "workspaces", "context"]) {
+    // impersonation handle: `workspace@context.lc` receives mail people
+    // believed was going to the product, and `@context/...` reads as a product
+    // path rather than a person's.
+    for (const name of ["workspace", "workspaces", "context"]) {
       expect(RESERVED_NAMES.has(name), `${name} must stay reserved`).toBe(true);
+      expect(validateName(name)).toMatchObject({ ok: false, reason: "reserved" });
+    }
+  });
+
+  /**
+   * **Retired vocabulary stays reserved, and this is the test that says so.**
+   *
+   * "Brain" was the user-facing word for a personal context until the owner
+   * retired it (2026-09-13). The obvious follow-up to retiring a word is to
+   * free the name — and that is the mistake this test exists to fail. The
+   * reservation was never vocabulary, it was ingestion: `<name>@<apex>` is a
+   * capture address, so whoever claimed `brain` would receive mail people
+   * believed was going to the product, and `@brain/...` would read as a
+   * product path rather than a person's. People say a retired word for years
+   * after the copy stops using it, which is exactly the window an
+   * impersonation handle is worth having.
+   *
+   * Asserted through `validateName` as well as the set, and case-insensitively,
+   * because a claim arrives as user input rather than as a lookup somebody
+   * wrote — `@Brain` must be refused the same way `@brain` is.
+   */
+  test("the retired 'brain' vocabulary can never be claimed", () => {
+    for (const name of ["brain", "brains"]) {
+      expect(RESERVED_NAMES.has(name), `${name} must stay reserved`).toBe(true);
+      expect(validateName(name)).toMatchObject({ ok: false, reason: "reserved" });
+      expect(validateName(name.toUpperCase())).toMatchObject({
+        ok: false,
+        reason: "reserved",
+      });
+      expect(validateName("BrAiN".slice(0, name.length))).toMatchObject({
+        ok: false,
+        reason: "reserved",
+      });
     }
   });
 

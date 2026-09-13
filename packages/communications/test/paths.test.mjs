@@ -65,8 +65,8 @@ export function runPathChecks(check) {
     "the customer's own root is the only prefix, and it is applied verbatim",
     channelDayNotePath(
       { channel: "email", account: "a-at-example-com", date: "2026-09-07" },
-      { root: "brain" }
-    ) === "brain/0-inbox/email/a-at-example-com/2026-09-07.md"
+      { root: "workspace" }
+    ) === "workspace/0-inbox/email/a-at-example-com/2026-09-07.md"
   );
   check(
     "...and a root that traverses is refused rather than normalized away",
@@ -161,7 +161,7 @@ export function runPathChecks(check) {
     "what this module writes is what it recognises",
     (() => {
       const day = { channel: "email", account: "name-at-example-com", date: "2026-09-07", part: 4 };
-      const parsed = round(day, { root: "brain/" });
+      const parsed = round(day, { root: "workspace/" });
       return (
         parsed !== null &&
         parsed.channel === "email" &&
@@ -224,8 +224,8 @@ export function runPathChecks(check) {
   }
   check(
     "...and a traversal cannot climb out of the customer's chosen root either",
-    !isChannelDayNotePath("brain/../0-inbox/imessage/2026-09-07.md", { root: "brain" }) &&
-      !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "brain" })
+    !isChannelDayNotePath("workspace/../0-inbox/imessage/2026-09-07.md", { root: "workspace" }) &&
+      !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "workspace" })
   );
   check(
     "a contact page is held to the same rule",
@@ -234,7 +234,7 @@ export function runPathChecks(check) {
 
   check(
     "a key outside the customer's chosen root is not theirs",
-    !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "brain" })
+    !isChannelDayNotePath("0-inbox/imessage/2026-09-07.md", { root: "workspace" })
   );
 
   /*
@@ -257,7 +257,7 @@ export function runPathChecks(check) {
     `support-at-example-com` and could not collide anyway, but an address with
     no `@` in it at all reaches the general rule and comes out as the bare word.
   */
-  const RESERVED = ["mcp", "meetings", "oauth", "granola-webhook", "api", "support", "0-inbox", "brain", "context", "inbox", "contacts", "sessions"];
+  const RESERVED = ["mcp", "meetings", "oauth", "granola-webhook", "api", "support", "0-inbox", "workspace", "context", "inbox", "contacts", "sessions"];
   check(
     "a reserved name is never a top-level key, whatever address produced it",
     RESERVED.every((word) => {

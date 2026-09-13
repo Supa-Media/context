@@ -80,7 +80,7 @@ export interface MeetingFlowInput {
   contexts: readonly DestinationContext[];
   /** Where they are standing, or `null` — the meetings list, or no context. */
   page: CurrentPage | null;
-  /** Where to send somebody who owns no brain. Omitted offers no button. */
+  /** Where to send somebody who owns no workspace. Omitted offers no button. */
   onClaimName?: () => void;
   /** What the meeting is called until somebody renames it on the live screen. */
   title?: string;

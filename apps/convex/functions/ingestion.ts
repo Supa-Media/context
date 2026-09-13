@@ -209,7 +209,7 @@ export const updateIngestionSettings = mutation({
       throw new ConvexError({
         code: "INGESTION_NOT_AVAILABLE",
         message:
-          "Only a brain receives email. Notes reach a workspace when someone moves them there.",
+          "Only a personal workspace receives email. Notes reach a shared one when someone moves them there.",
       });
     }
 

@@ -14,7 +14,7 @@
  *
  *  1. connecting a bucket writes **nothing**, and publishes what was found;
  *  2. the answer, when it comes, is what gets written;
- *  3. an existing brain never reaches step 2 at all — and if it somehow did,
+ *  3. an existing workspace never reaches step 2 at all — and if it somehow did,
  *     the scaffolder would still refuse.
  */
 
@@ -50,7 +50,7 @@ afterEach(() => {
 async function connected(
   options: MemoryS3Options & {
     seed?: Record<string, string>;
-    /** Defaults to a personal brain, which is what this file is mostly about. */
+    /** Defaults to a personal workspace, which is what this file is mostly about. */
     kind?: "personal" | "shared";
   } = {},
 ) {
@@ -316,7 +316,7 @@ describe("the answer is what gets written", () => {
 /**
  * THE NON-NEGOTIABLE.
  *
- * A user connecting an existing brain must see nothing change. The mutation
+ * A user connecting an existing workspace must see nothing change. The mutation
  * refuses as a courtesy — it gives them an answer instead of a silent no-op —
  * but the refusal is not the enforcement, and the last test here proves it by
  * removing the courtesy.
@@ -326,7 +326,7 @@ describe("a context that already exists is never scaffolded over", () => {
     const { t, owner, workspaceId, backend } = await connected({
       seed: {
         "privacy.md": "# hand written, do not touch\n",
-        "index.md": "# My brain\n",
+        "index.md": "# My workspace\n",
         "1-projects/ship-it.md": "# Ship it\n",
       },
     });
@@ -341,7 +341,7 @@ describe("a context that already exists is never scaffolded over", () => {
     expect(backend.snapshot()).toEqual(before);
   });
 
-  test("a live brain whose first pages are all .history is still refused", async () => {
+  test("a live workspace whose first pages are all .history is still refused", async () => {
     const seed: Record<string, string> = { "1-projects/ship-it.md": "# Ship it\n" };
     for (let index = 0; index < 1500; index += 1) {
       seed[`.history/1-projects/ship-it.${index}.md`] = "old";
@@ -372,7 +372,7 @@ describe("a context that already exists is never scaffolded over", () => {
     const { t, owner, workspaceId, backend } = await connected({
       seed: {
         "privacy.md": "# hand written, do not touch\n",
-        "index.md": "# My brain\n",
+        "index.md": "# My workspace\n",
         "1-projects/ship-it.md": "# Ship it\n",
         "0-inbox/README.md": "my own inbox readme, not yours\n",
       },
@@ -406,15 +406,15 @@ describe("a context that already exists is never scaffolded over", () => {
    * `applyStructure` decides whether a retry may skip the emptiness guard by
    * reading `scaffoldMissing` off the binding — a field only a scaffold of ours
    * can ever write. Here the row is *forged* to say so over a bucket that is
-   * somebody's live brain. The bucket must still come out byte-identical,
+   * somebody's live workspace. The bucket must still come out byte-identical,
    * because the licence the mutation hands out is not the enforcement: the
    * scaffolder checks the bucket itself, and refuses anything it did not write.
    */
-  test("even a forged resume licence cannot scaffold over a live brain", async () => {
+  test("even a forged resume licence cannot scaffold over a live workspace", async () => {
     const { t, owner, workspaceId, backend } = await connected({
       seed: {
         "privacy.md": "# hand written, do not touch\n",
-        "index.md": "# My brain\n",
+        "index.md": "# My workspace\n",
         "1-projects/ship-it.md": "# Ship it\n",
         "0-inbox/README.md": "my own inbox readme, not yours\n",
       },
@@ -726,7 +726,7 @@ describe("a scaffold that only partly lands can be finished from the console", (
     await drainScheduled(t);
     expect((await binding(t, owner, workspaceId))?.scaffoldMissing).not.toEqual([]);
 
-    // A different bucket, which happens to be somebody's live brain. Carrying
+    // A different bucket, which happens to be somebody's live workspace. Carrying
     // "we owe this bucket five READMEs" across would carry a licence to write
     // into it, earned somewhere else entirely.
     const other = memoryS3("some-other-bucket");
@@ -814,12 +814,12 @@ describe("choosing a layout never brings a credential near the caller", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Setting up a **workspace** rather than a brain, end to end through the real
+ * Setting up a **personal workspace** rather than a shared one, end to end through the real
  * mutation.
  *
  * `applyStructure` reads `kind` off the workspace row and hands it to the
  * scheduled job. That it is read there rather than taken as an argument is the
- * point: a client that could name it could scaffold somebody's personal brain
+ * point: a client that could name it could scaffold somebody's personal workspace
  * open to everyone they later invite.
  */
 describe("a shared workspace is laid down for the people in it", () => {
@@ -840,7 +840,7 @@ describe("a shared workspace is laid down for the people in it", () => {
     expect(canSee(PRIVACY_KEY, "team", rules, overrides)).toBe(false);
   });
 
-  test("a brain in the same deployment still starts all-private", async () => {
+  test("a workspace in the same deployment still starts all-private", async () => {
     const { t, owner, workspaceId, backend } = await connected();
 
     await apply(t, owner, workspaceId, { template: "para" });

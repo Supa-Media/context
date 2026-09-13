@@ -6,7 +6,7 @@
  * order here is how often a thing is actually touched, and the grouping is the
  * question a person is asking rather than the subsystem that answers it:
  *
- *  - **Integrations** — everything that fills a brain without being typed
+ *  - **Integrations** — everything that fills a workspace without being typed
  *    into it: the mailboxes and calendars we read, the chats, this Mac, and
  *    the address mail can be forwarded to. It was one section, on the argument
  *    that it is one question. It is four now, because it is four: a person
@@ -102,6 +102,8 @@ export const SETTINGS_SECTIONS = [
   },
   {
     key: "invitations",
+    // "brain" is kept in the haystack, like the one on "Sign out & delete"
+    // below: the word is retired from the copy, not from what people type.
     keywords: "invite invitation join accept pending asked workspace brain share",
     label: "Invitations",
     scope: "account",
@@ -147,10 +149,14 @@ export const SETTINGS_SECTIONS = [
       Still no "leave" or "quit": leaving a *workspace* is a different,
       non-destructive action, and it is People's, not this one's.
 
-      "brain" is here and "workspace" deliberately is not. A brain *is* deleted
-      from this screen — it is one per person and it goes with the account, the
-      sentence `deletionBlockedReason` gives for refusing it anywhere else — so
-      "delete my brain" has to land here. A workspace is deleted on its own, in
+      "brain" is in the haystack and "workspace" deliberately is not — and
+      that survives the word's retirement rather than contradicting it. A
+      *personal* workspace is deleted from this screen: it is one per person
+      and it goes with the account, the sentence `deletionBlockedReason` gives
+      for refusing it anywhere else. Somebody who types "delete my brain" has
+      to land here, and they will go on typing it for years after the copy
+      stopped saying it — a search haystack matches what people say, not what
+      the product calls things. A *shared* workspace is deleted on its own, in
       Advanced, and a haystack that answered for both would send somebody who
       wanted one workspace gone to the screen that closes their account.
     */
@@ -201,13 +207,13 @@ export const SETTINGS_SECTIONS = [
   /*
     Four sections where there was one, and the one is worth remembering.
 
-    "Mail, calendar & chats" held everything that fills a brain without being
+    "Mail, calendar & chats" held everything that fills a workspace without being
     typed into it, and what those things had in common was **our plumbing**: a
     Google *account* carries Gmail, Calendar and Chat together, so a card built
     around an account had to carry all three, and a section built around that
     card had to hold everything else nearby. Nobody opens settings asking "what
     does my Google account do". They ask "why isn't my mail here" — and that
-    question had two answers in two places, because a mailbox reaches a brain
+    question had two answers in two places, because a mailbox reaches a workspace
     either through a Google account or through the forwarding address, and
     those are two different mechanisms. The nesting was ours; the question is
     theirs.
@@ -401,7 +407,7 @@ export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
  * The sections this context actually has.
  *
  * `kind` decides nothing today and is kept because it will. Only a personal
- * brain has an address mail can be sent to — but Email, Calendar, Chats and
+ * personal workspace has an address mail can be sent to — but Email, Calendar, Chats and
  * Meetings are all *listed* for a workspace, because each carries the sentence
  * saying why it cannot do that here, and a section removed takes its
  * explanation with it. `personalOnly` is the switch for a section that would

@@ -6,13 +6,13 @@
 /**
  * The four panels that replaced one "Mail, calendar & chats" section.
  *
- * One section used to hold everything that fills a brain without being typed
+ * One section used to hold everything that fills a workspace without being typed
  * into it, and the reason it was one was our plumbing rather than anybody's
  * question: a Google *account* carries three services, so a card built around
  * an account had to carry three too. A person does not open settings asking
  * "what does my Google account do" — they ask "why isn't my mail here", and
  * that question was answered in two places at once, because a mailbox reaches
- * a brain either through a Google account or through the forwarding address,
+ * a workspace either through a Google account or through the forwarding address,
  * and those are two different mechanisms.
  *
  * What this file pins:
@@ -367,21 +367,21 @@ describe("a workspace is never told it can connect somebody's Gmail", () => {
   test("Email says the workspace has no address of its own", () => {
     const text = panel(WORKSPACE, "email");
     expect(text).toContain("This workspace does not receive email");
-    expect(text).toContain("Switch to a personal brain");
+    expect(text).toContain("Switch to a personal workspace");
   });
 
   test("Calendar and Chats each say why", () => {
-    expect(panel(WORKSPACE, "calendar")).toContain("Switch to a personal brain");
-    expect(panel(WORKSPACE, "chats")).toContain("Switch to a personal brain");
+    expect(panel(WORKSPACE, "calendar")).toContain("Switch to a personal workspace");
+    expect(panel(WORKSPACE, "chats")).toContain("Switch to a personal workspace");
   });
 
   test("Meetings is not a refusal — a meeting note can be filed anywhere", () => {
     // `features/meetings/destination.ts`: the first offer is always the
-    // person's own brain, and the context they are looking at is the second
+    // person's own workspace, and the context they are looking at is the second
     // offer with its audience named. So a workspace's Meetings panel has
     // something true to say rather than a wall.
     const text = panel(WORKSPACE, "meetings");
-    expect(text).not.toContain("Switch to a personal brain");
+    expect(text).not.toContain("Switch to a personal workspace");
     expect(text).toContain("0-inbox/meetings");
   });
 });

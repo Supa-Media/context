@@ -32,8 +32,8 @@ export function CalendarPanel({
     <>
       <PanelHead section="calendar" sectioned={sectioned}>
         {personal
-          ? "Which calendars this brain reads, and the daily note each day's events are written into."
-          : "Calendars are read into a brain, not into a workspace — a meeting invitation names the people in it, and a shared bucket is a different audience."}
+          ? "Which calendars this workspace reads, and the daily note each day's events are written into."
+          : "Calendars are read into a personal workspace, not into a shared one — a meeting invitation names the people in it, and a shared bucket is a different audience."}
       </PanelHead>
 
       {personal ? (
@@ -45,8 +45,8 @@ export function CalendarPanel({
           folders={loadedFolders(data.files.listings)}
         />
       ) : (
-        <WorkspaceRefusalCard title="A calendar belongs to a brain">
-          Switch to a personal brain to connect a Google Calendar. What lands here
+        <WorkspaceRefusalCard title="A calendar belongs to a personal workspace">
+          Switch to a personal workspace to connect a Google Calendar. What lands here
           instead is whatever somebody chooses to move.
         </WorkspaceRefusalCard>
       )}

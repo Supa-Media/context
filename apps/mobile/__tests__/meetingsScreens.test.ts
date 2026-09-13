@@ -143,7 +143,7 @@ function typeInto(field: HTMLInputElement | HTMLTextAreaElement, text: string): 
  *
  * `controller.start` leaves it `null` when nobody was asked — the meetings
  * list's one-tap record genuinely chose nothing — and a record with no context
- * cannot be turned into a console URL without guessing which brain. So a test
+ * cannot be turned into a console URL without guessing which workspace. So a test
  * about the link supplies one, and the test about the absence does not.
  */
 const RECORDED_INTO = {

@@ -5,7 +5,7 @@
  *
  * A connection reaches every context its person is a live member of, and a tool
  * call addresses one by name — so a named URL is no longer how somebody invited
- * into a brain gets at it. What it still decides is where a client *starts*:
+ * into a workspace gets at it. What it still decides is where a client *starts*:
  * the grant's own context is what an unaddressed call resolves to, and the URL
  * the client was connected at is what chose it. Somebody who works mostly in a
  * context shared with them connects at its name and never types one again.

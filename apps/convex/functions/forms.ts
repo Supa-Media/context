@@ -55,7 +55,7 @@ const resultValidator = v.object({
 /**
  * The caller's username, and their role in the workspace they are acting in.
  *
- * The username is their own brain's slug — the name in the global namespace
+ * The username is their own workspace's slug — the name in the global namespace
  * that means anything to the other people reading the response file. It is
  * read here, from their membership, and never taken from an argument: that is
  * what makes `by` a stamp rather than a claim, and it is the same rule the
@@ -86,7 +86,7 @@ export const formActor = internalQuery({
     }
     throw new ConvexError({
       code: "NO_USERNAME",
-      message: "You have no username to record a response under; create your brain first.",
+      message: "You have no username to record a response under; create your workspace first.",
     });
   },
 });

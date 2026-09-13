@@ -306,7 +306,7 @@ export interface HostBridge {
 /**
  * How many note paths are worth sending across the bridge.
  *
- * See `setLinks`. Chosen as "a large brain still fits" rather than measured:
+ * See `setLinks`. Chosen as "a large workspace still fits" rather than measured:
  * five thousand keys is a few hundred kilobytes of JSON, once per note opened,
  * and the thing it buys is bare `[[name]]` links resolving. A bucket past it
  * loses that one style rather than paying the cost on every open.

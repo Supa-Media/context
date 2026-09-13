@@ -179,7 +179,7 @@ describe("personal communications stay out of shared workspaces", () => {
     only reason it was ever asserted: **a workspace must never be told it can
     connect somebody's Gmail.**
   */
-  test("a personal brain shows every way of filling it", () => {
+  test("a personal workspace shows every way of filling it", () => {
     const text = settings(OWNED);
 
     // The sections' own words, not ours: every heading is
@@ -189,7 +189,7 @@ describe("personal communications stay out of shared workspaces", () => {
       expect(text).toContain(label);
     }
     expect(text).toContain("Google accounts");
-    expect(text).not.toContain("Switch to a personal brain");
+    expect(text).not.toContain("Switch to a personal workspace");
   });
 
   test("a shared workspace explains that email, chat and iMessage imports do not belong there", () => {
@@ -197,7 +197,7 @@ describe("personal communications stay out of shared workspaces", () => {
 
     // The exact sentence a workspace is handed, in the panels that would
     // otherwise be offering somebody else's mailbox.
-    expect(text).toContain("Switch to a personal brain");
+    expect(text).toContain("Switch to a personal workspace");
     expect(text).toContain("This workspace does not receive email");
     expect(text).not.toContain("Google accounts");
     expect(text).not.toContain("Connect Google account");

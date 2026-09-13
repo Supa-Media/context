@@ -72,7 +72,7 @@ const CONNECTED: ConsoleStorage = {
   connected: true,
   status: "connected",
   provider: "Cloudflare R2",
-  bucket: "brain",
+  bucket: "notes-bucket",
   conditionalWrite: true,
   updatedAt: 0,
 };
@@ -198,7 +198,7 @@ describe("the pill's label answers for both absences and neither is a claim", ()
   });
 
   test("a connected one does", () => {
-    expect(storagePillLabel(CONNECTED)).toBe("R2 · brain");
+    expect(storagePillLabel(CONNECTED)).toBe("R2 · notes-bucket");
   });
 });
 
@@ -236,6 +236,6 @@ describe("the phone's context foot is held to the same rule", () => {
   });
 
   test("a connected one is named rather than described", () => {
-    expect(render(dataWith(CONNECTED, { atRoot: true }))).toContain("R2 · brain");
+    expect(render(dataWith(CONNECTED, { atRoot: true }))).toContain("R2 · notes-bucket");
   });
 });

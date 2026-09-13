@@ -24,7 +24,7 @@ import {
  *
  * Because everything a person has to know before an irreversible, outward
  * step has to be on one screen, and none of it fits on a card in a list: what
- * it costs, that it covers **this brain and nothing else**, that a second
+ * it costs, that it covers **this workspace and nothing else**, that a second
  * thing is included at the same price, where they are about to go, and what
  * they will come back to. A choice card that went straight to Stripe would be
  * asking somebody to pay before they had been told the price in full.
@@ -113,7 +113,7 @@ export function ManagedConfirm({
       */}
       <Notice style={styles.gap} testID="managed-confirm-unit">
         <Text variant="rowSub">
-          This applies to {contextName} and nothing else. Every other brain or workspace
+          This applies to {contextName} and nothing else. Every other workspace
           you can reach stays exactly as it is.
         </Text>
       </Notice>

@@ -166,8 +166,9 @@ export const deleteTestWorkspace = mutation({
  *    check is here rather than in the panel — a client that skipped the field
  *    cannot skip the check. Normalized first, because somebody looking at
  *    `@acme-eng` on screen types the `@`.
- *  - **Shared only.** A brain is the one context a person has exactly one of,
- *    its slug is their username, and its capture address is live on the apex
+ *  - **Shared only.** A personal workspace is the one context a person has
+ *    exactly one of, its slug is their username, and its capture address is
+ *    live on the apex
  *    (`lib/ingestionStore.ts`). Releasing that is account deletion's business,
  *    and a settings panel is not where somebody should be able to do it by
  *    accident.
@@ -196,7 +197,7 @@ export const deleteWorkspace = mutation({
       throw new ConvexError({
         code: "PERSONAL_CONTEXT",
         message:
-          "A brain is deleted with the account it belongs to, not from here.",
+          "A personal workspace is deleted with the account it belongs to, not from here.",
       });
     }
 

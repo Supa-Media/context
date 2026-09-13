@@ -218,7 +218,7 @@ type SearchStore = Parameters<typeof searchIndexedNotes>[0];
  * Store operations one console search may spend.
  *
  * It no longer buys a backfill. A search reads a ready index — the change that
- * took a console search over a real brain from twenty-odd seconds to a
+ * took a console search over a real workspace from twenty-odd seconds to a
  * fraction of one — so what this covers is a manifest, the shards the query's
  * terms can be in, ten snippet reads, and the one listing a **miss** over a
  * converged index is allowed to buy before it says "nothing". Generous rather
@@ -236,7 +236,7 @@ const CONSOLE_SEARCH_BUDGET = 300;
  * already answered. Cloudflare's per-invocation subrequest cap is what bounds
  * the gateway's equivalent and there is no such cap here, so the number is
  * chosen against the customer's request quota instead — large enough that a
- * cold brain converges in a handful of passes rather than dozens.
+ * cold workspace converges in a handful of passes rather than dozens.
  */
 const INDEX_SYNC_BUDGET = 600;
 
@@ -2066,8 +2066,8 @@ const LINK_SCAN_CAP = 4000;
  *
  * The control plane's half of the rule the gateway states in full at
  * `apps/mcp/src/links.js`: a reference follows what it points at, by default,
- * because a brain whose links rot the first time somebody tidies a folder is a
- * brain people stop tidying. A rename made in the console and the same rename
+ * because a workspace whose links rot the first time somebody tidies a folder is a
+ * workspace people stop tidying. A rename made in the console and the same rename
  * made through an MCP client have to do the same thing, and
  * `linkParity.test.ts` is what keeps the two engines honest about that.
  *
@@ -2666,7 +2666,7 @@ export interface PrivacyResetResult {
  *
  * The scaffold writes the five PARA names because it is laying down a bucket
  * that has nothing in it. This runs against a bucket that has a life already —
- * frequently the case this whole feature is for, since a brain synced from
+ * frequently the case this whole feature is for, since a workspace synced from
  * Obsidian is exactly the kind that arrives with a hand-edited manifest — so
  * declaring `0-inbox … 4-archive` over somebody's `Journal/` and `Clients/`
  * would hand them a file with no line to edit for any folder they have. The
@@ -3402,7 +3402,7 @@ export interface SearchResults {
  * surfaces afterwards.
  *
  * **A search does not maintain the index**, and that is the change that took a
- * console search over a real brain from twenty-odd seconds to a fraction of
+ * console search over a real workspace from twenty-odd seconds to a fraction of
  * one. It reads a manifest, the shards this query's terms can be in, and the
  * notes it is quoting. `searchContext` schedules `maintainSearchIndex` behind
  * the answer when the answer says the index is behind.
@@ -3506,7 +3506,7 @@ export async function searchNotes(
      * **A fan-out across contexts passes false**, and the arithmetic is the
      * reason. The rule costs one listing per *miss*, and a blended search over
      * eight contexts misses in most of them by construction — a word that is in
-     * one brain is absent from the other seven. That is seven full bucket
+     * one workspace is absent from the other seven. That is seven full bucket
      * listings, on seven customers' request quotas, for one keystroke's worth
      * of scrolling, and it would make the fan-out's worst case its ordinary
      * case. The honesty the rule buys is not lost: a source whose index is
@@ -3681,7 +3681,7 @@ async function runIndexPass(
  * whole of the console's half of index maintenance — a full listing of the
  * bucket, an etag diff, the notes that changed re-read, the shards they belong
  * to rewritten. It used to happen in front of the person asking the question,
- * which is what made a search over a real brain take twenty seconds and
+ * which is what made a search over a real workspace take twenty seconds and
  * sometimes fail on a ten-second fetch deadline partway through.
  *
  * It is reached through the same credential barrier every other file operation

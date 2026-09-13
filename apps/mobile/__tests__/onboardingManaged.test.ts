@@ -178,7 +178,7 @@ describe("the screen before Stripe", () => {
     const words = confirming().textContent ?? "";
     expect(words).toContain("@seyi");
     expect(words).toContain("nothing else");
-    expect(words).toContain("Every other brain or workspace");
+    expect(words).toContain("Every other workspace");
   });
 
   test("and the promise that may never be conditional", () => {

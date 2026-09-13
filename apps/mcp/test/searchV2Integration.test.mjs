@@ -10,7 +10,7 @@
  * handed to the collector, and the floor language a caller actually reads.
  *
  * Why v2 at all, in one measurement: v1 is a single object that must be parsed
- * whole, so `INDEX_PARSE_BYTE_CAP` bounds it, and a brain whose capped index
+ * whole, so `INDEX_PARSE_BYTE_CAP` bounds it, and a workspace whose capped index
  * crosses that bound plateaus at partial coverage **forever** — the write is
  * refused, the last readable object survives, and no number of passes ever
  * covers the rest. That is not an abstraction: block (c) below builds a bucket
@@ -529,7 +529,7 @@ export async function runSearchV2IntegrationChecks(check) {
     // The manifest is seeded at twenty shards before anything is indexed (the
     // count is chosen once, at creation, and never changes) so the walk costs
     // twenty reads on a bucket of two dozen notes. That is the cheap way to
-    // reach the state a 6,000-note brain reaches on the free tier.
+    // reach the state a 6,000-note workspace reaches on the free tier.
     spread.seed("privacy.md", PRIVACY_MANIFEST);
     spread.seed(MANIFEST_KEY, serializeManifest(emptyManifest(20)));
     for (let n = 0; n < 24; n += 1) {
@@ -660,7 +660,7 @@ export async function runSearchV2IntegrationChecks(check) {
     //
     // The distinct vocabulary per note is what makes the index grow with the
     // corpus rather than with its filler — the contact-heavy vocabulary of the
-    // live brain that hit the real ceiling.
+    // live workspace that hit the real ceiling.
     {
       const seedNotes = (bucket) => {
         bucket.seed("privacy.md", PRIVACY_MANIFEST);
@@ -682,7 +682,7 @@ export async function runSearchV2IntegrationChecks(check) {
       const measureV2 = createBucket();
       seedNotes(measureV2);
       // Sixteen shards, chosen at creation as `chooseShardCount` would for a
-      // brain sixteen times this size. The sizing formula is not what is under
+      // workspace sixteen times this size. The sizing formula is not what is under
       // test here; what a shard costs to store is.
       measureV2.seed(MANIFEST_KEY, serializeManifest(emptyManifest(16)));
       for (let attempt = 0; attempt < 12; attempt += 1) {

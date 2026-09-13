@@ -125,7 +125,7 @@ const GROUPS = [{ name: "supa-leads", label: "leads", liveCount: 2 }];
 
 function dialog(overrides: Record<string, unknown> = {}) {
   return createElement(ShareDialog as never, {
-    path: "2-areas/apps/ai-brain/overview.md",
+    path: "2-areas/apps/ai-agents/overview.md",
     shares: [],
     origin: "https://example.invalid",
     onShare: () => {},

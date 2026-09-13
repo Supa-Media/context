@@ -521,7 +521,7 @@ describe("a context switch empties the strip", () => {
    * indefinitely.
    *
    * Two things were wrong with that. The strip displayed note names from the
-   * person's own brain while they were inside somebody else's shared workspace,
+   * person's own workspace while they were inside somebody else's shared workspace,
    * which is the failure `useDemoFileBrowser` names in its own comment and the
    * one `useFileBrowser`'s reset effect exists to prevent for the tree, the
    * selection and the editor. And clicking such a tab read context B at a path

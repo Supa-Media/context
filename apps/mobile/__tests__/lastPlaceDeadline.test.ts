@@ -14,7 +14,7 @@
  *
  * That module learned it from a sign-out button that could hang. This one
  * learned it from a phone: relaunching the app landed on a blank page with the
- * personal brain in the rail, which is this hook's `undefined` rendered.
+ * personal workspace in the rail, which is this hook's `undefined` rendered.
  *
  * Two properties, and the second is the one a lazier test would skip:
  *

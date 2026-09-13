@@ -68,7 +68,7 @@ async function shareProjects(store: FileStore): Promise<void> {
  * never inside one — and then ask.
  *
  * A search reads a ready index and builds nothing, which is what took a
- * console search over a real brain from twenty-odd seconds to a fraction of
+ * console search over a real workspace from twenty-odd seconds to a fraction of
  * one. So a fixture that wants an indexed answer has to run the pass, and
  * running it here rather than hiding it inside `searchNotes` is the honest
  * shape: `searchContext` schedules exactly this. Bounded so a genuinely stuck
@@ -442,7 +442,7 @@ describe("the console's search", () => {
 
   /**
    * The measured failure this whole direction is about, at the console's own
-   * door: a search over a real brain took twenty-odd seconds and then failed,
+   * door: a search over a real workspace took twenty-odd seconds and then failed,
    * because every search listed the customer's bucket and indexed what it
    * found stale before answering.
    */

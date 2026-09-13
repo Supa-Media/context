@@ -30,7 +30,7 @@ import { useTabs } from "../features/console/files/useTabs";
  * its rule is "a folder that IS loaded and does not hold this note", and a
  * subfolder of the context you left is never loaded in the one you arrive at.
  * So a tab at `1-projects/deals/acquisition.md` survived indefinitely, and the
- * strip showed a note name from the person's own brain while they were inside
+ * strip showed a note name from the person's own workspace while they were inside
  * somebody else's shared workspace.
  */
 

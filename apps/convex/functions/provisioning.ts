@@ -202,7 +202,7 @@ export interface StructureChoice {
   /** Validated by `applyStructure` before it gets here. Empty for `para`. */
   folders: CustomFolder[];
   /**
-   * Personal brain or shared workspace, read off the workspace row by
+   * Personal or shared, read off the workspace row by
    * `applyStructure`.
    *
    * It travels with the request for the same reason `template` does — one
@@ -218,7 +218,7 @@ export interface StructureChoice {
    * Optional, and absent means `personal`. A deployment mid-rollout can have an
    * older mutation scheduling a job this newer action runs, and the argument it
    * did not send must resolve to the conservative branch — an all-private
-   * scaffold is thin, and the alternative default would open a personal brain's
+   * scaffold is thin, and the alternative default would open a personal workspace's
    * folders to a `team` scope its owner never asked for.
    */
   kind?: "personal" | "shared";
@@ -255,7 +255,7 @@ const structureChoiceValidator = v.object({
  * Either way the no-overwrite rule is the scaffolder's, not this function's:
  * `scaffoldContext` refuses outright against a bucket that already holds a
  * context, and `get`s every key before it `put`s it. A caller that asks for a
- * layout on a live brain gets `existing-context` and an untouched bucket.
+ * layout on a live workspace gets `existing-context` and an untouched bucket.
  *
  * INTERNAL ACTION. It decrypts, so it is unreachable from any client by
  * construction. Running it twice is harmless.
@@ -444,7 +444,7 @@ export const verifyStorageBinding = internalAction({
     if (args.structure === undefined) {
       // Look, do not touch. `hasExistingContext` is the same detector the
       // scaffolder runs as its first guard, listing **with a delimiter** — a
-      // flat listing of a real brain returns `.history/…` first and comes back
+      // flat listing of a real workspace returns `.history/…` first and comes back
       // looking empty, which would tell onboarding to prompt for a layout over
       // the top of a live context.
       scaffoldReason = (await hasExistingContext(store))
@@ -478,7 +478,7 @@ export const verifyStorageBinding = internalAction({
     const outcome = await record(ctx, args, {
       // A bucket we could not lay a context into is still connected: the
       // failure is a write we did not need to make, and the owner's existing
-      // brain is exactly as it was.
+      // workspace is exactly as it was.
       verified: true,
       reachable: true,
       writable: true,
@@ -565,7 +565,7 @@ async function record(
       // Only when we actually looked. A probe that failed before it reached the
       // bucket knows nothing new about what is in it, and overwriting a
       // previous `existing-context` with `not-attempted` would turn a transient
-      // DNS blip into onboarding offering to scaffold over a live brain.
+      // DNS blip into onboarding offering to scaffold over a live workspace.
       scaffolded: outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffolded,
       scaffoldReason:
         outcome.scaffoldReason === "not-attempted" ? undefined : outcome.scaffoldReason,

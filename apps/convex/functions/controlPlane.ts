@@ -132,7 +132,7 @@ const MAX_SESSION_CONTEXTS = 50;
  * Every context this grant's person can reach right now.
  *
  * **Live membership, re-read on every request, never a list frozen at consent
- * time.** A brain shared with somebody after they connected a client is
+ * time.** A workspace shared with somebody after they connected a client is
  * reachable from that client, and one they are removed from stops being
  * reachable the moment the row goes — the same immediacy rule 5 of
  * `resolveLiveGrant` already gives the grant's own context.
@@ -192,14 +192,14 @@ async function contextsForGrant(
  * `workspaces` is every context this connection may address — each one its
  * person is a live member of, not only the one the grant was approved against.
  * That widening was the owner's instruction (2026-09-02): *"if I have access to
- * someone's brain, my MCP should be able to connect to it"*, against one
+ * someone's workspace, my MCP should be able to connect to it"*, against one
  * connection, one approval and one endpoint per context.
  *
  * **Reach is not permission, and nothing about permission moved.** The gateway
  * still clamps the grant's scopes to the caller's role in whichever context the
  * call addressed (`effectiveScopes`), and still reads the visibility tier as
  * `team` for anybody who is not that context's owner (`visibilityTierForGrant`).
- * A `member` in somebody's brain reaches it read-only and sees no private note,
+ * A `member` in somebody's workspace reaches it read-only and sees no private note,
  * from any client, however wide the grant that reached it.
  *
  * `workspaceId`/`slug`/`role` stay the grant's *own* context, which the gateway

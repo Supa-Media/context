@@ -166,7 +166,7 @@ export function noteHeading(source: string, path: string): string {
  * the title simply steps aside for the heading that is already there.
  *
  * This is also why Obsidian never looks doubled: its inline title is the
- * *filename*, so `index` sits happily above a body headed `Brain — manifest`.
+ * *filename*, so `index` sits happily above a body headed `Context — manifest`.
  * Ours collides only because a heading is one of the rungs.
  */
 export type HeadingSource = "frontmatter" | "heading" | "filename";

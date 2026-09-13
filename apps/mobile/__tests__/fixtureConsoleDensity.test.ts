@@ -68,7 +68,7 @@ afterEach(() => {
   while (mounted.length > 0) mounted.pop()!();
 });
 
-/** The fixture's three contexts — `placeholderData.ts`'s demo brains. */
+/** The fixture's three contexts — `placeholderData.ts`'s demo workspaces. */
 const CONTEXTS = ["@seyi", "@lk", "@public-worship"];
 
 function mountFixture(width: number) {

@@ -1020,7 +1020,7 @@ inbox anyway, in silence. `FinalizeBody.folder` is that answer arriving.
 field.** `MeetingDestination` in the app
 (`apps/mobile/features/meetings/destination.ts`) carries a `contextSlug`
 alongside the folder, and **the context half is the one carrying a privacy
-rule**: the first offer on the sheet is always the person's own brain, whatever
+rule**: the first offer on the sheet is always the person's own workspace, whatever
 context they happen to be standing in, because somebody reading a note in a
 shared workspace who presses record would otherwise drop a transcript of a
 conversation they have not read yet into a folder their colleagues are watching.
@@ -1411,7 +1411,7 @@ maintain; it is the same entry on the two different bars a phone and a desktop
 have.
 
 This is not the `App` group returning ([app-and-console](./app-and-console.md),
-*The rail splits on kind*). That group held Map and Connections — facts *about a
+*The rail is one list*). That group held Map and Connections — facts *about a
 context*, which is why they moved into that context's settings — and it was
 headed APP over YOURS over SHARED WITH YOU, which is what made the rail read as
 a second, unrelated left navigation. One pinned row with no heading is not a
@@ -1503,7 +1503,7 @@ Three things close it, and they are not three versions of one fix. The first two
 were both needed, and the third is the one the person actually reached for.
 
 **The way to the list is a row on the destination sheet**, beside the heading
-and above the fork, offered whether or not the viewer owns a brain to record
+and above the fork, offered whether or not the viewer owns a workspace to record
 into. The alternatives were weighed and each cost something this one does not:
 an eighth key does not fit (`bottomBarGeometry`, seven targets at 45.29pt
 against a 44pt floor, verified to 309pt), and a menu on the pinned account mark
@@ -1546,7 +1546,7 @@ and neither fades — a failure that cleared itself after a second and a half
 would be the silence this whole seam is about.
 
 The checks are `a phone can reach its meetings from the key it records with`,
-`and can reach them without owning a brain to record into`,
+`and can reach them without owning a workspace to record into`,
 `pressing End lands on the meeting that just ended`,
 `and does not push a second copy of a screen you are already on`,
 `and that meeting says plainly it has not reached the bucket`,
@@ -1960,7 +1960,7 @@ The checks are `a meeting whose timestamp will not parse is shown without a day,
 not dropped`, `and it goes last, so it never displaces a day that is real`, and
 `a meeting with no readable date is on the list, not silently missing`.
 
-### A meeting nobody addressed goes to the recorder's own brain
+### A meeting nobody addressed goes to the recorder's own workspace
 
 The one-tap Record on `/meetings` asks nobody anything, so the meeting it starts
 carries no destination — and something has to answer *where does this go?* The
@@ -1969,14 +1969,14 @@ nothing else, over a list sorted oldest-first.
 
 That is the failure this feature's own destination module exists to prevent,
 arriving through the one path that never opens the sheet. Somebody who owns a
-shared workspace older than their brain had a transcript written into a bucket
+shared workspace older than their own had a transcript written into a bucket
 their colleagues watch, at whatever visibility that folder carries, with nothing
 on screen having named the audience. Somebody who owns no context at all but is
 an `editor` somewhere fell through to `contexts[0]` — another person's context.
 
 **The rule is `ownPersonalContext`: `kind === "personal"` and `role === "owner"`,
 which is the rule the sheet's first offer already uses**, because it is the same
-question. *The default is the person's own brain, whatever context they are in*
+question. *The default is the person's own workspace, whatever context they are in*
 is a privacy rule rather than a convenience, and a capture nobody filed is
 exactly what it is about. `defaultContext` decides which screen somebody lands
 on and nothing about a bucket.
@@ -1985,11 +1985,11 @@ The alternative considered was to refuse a destination-less meeting and make
 one-tap Record raise the sheet. It was rejected: it reverses a stated decision
 with its own argument — *"you open the app and hit record"*, no dialog between
 somebody and a meeting that has already started — and it buys nothing this does
-not. The sheet exists to let somebody choose *away* from their own brain and to
+not. The sheet exists to let somebody choose *away* from their own workspace and to
 put the audience in front of them when they do; a meeting that lands in their
 own inbox needs neither.
 
-Owning no brain answers `null` and the meeting stays on the device, retried
+Owning no workspace answers `null` and the meeting stays on the device, retried
 rather than parked, so claiming an @name lands it on the next drain. Every other
 fallback available at that point is somebody else's bucket.
 
@@ -2001,13 +2001,13 @@ own header argued against the line eighty lines below it.
 
 `gateway.ts` documented `null` as "the connection's own default context", which
 is true on the HTTP path — the grant names one context, so the connection's
-default and the person's brain are the same bucket — and was silently redefined
+default and the person's workspace are the same bucket — and was silently redefined
 by the Convex path, whose control-plane session reaches every context the person
 is a member of. Both now say what each does.
 
-The checks are `a meeting nobody addressed goes to the recorder's own brain`,
+The checks are `a meeting nobody addressed goes to the recorder's own workspace`,
 `and never to a shared workspace, however old it is`, `somebody who owns no
-brain has nowhere for it to go, and is told so`, and `a context this account
+workspace has nowhere for it to go, and is told so`, and `a context this account
 cannot reach is null, not a fallback`.
 
 ### A refusal is a sentence this app wrote, and it maps the codes the server sends
@@ -3170,7 +3170,7 @@ The panel's own docstring defended that absence, and the argument it used was
 right about something else: the destination is **asked for every time, before
 the microphone opens, precisely so that no remembered setting can answer it
 silently**. That is a rule about *which context* a meeting lands in, and it is
-untouched — the first offer is still always the person's own brain, the page
+untouched — the first offer is still always the person's own workspace, the page
 they are standing on is still offered second with its audience named, and the
 sheet still opens. What was neither asked nor settable is *which folder the
 first offer points at*. Two decisions; conflating them is why the setting did
@@ -3213,7 +3213,7 @@ colleagues are watching, which is the one thing this whole seam was built to
 stop.
 
 **The tests that fail if any of it is reversed**: `where the first offer points
-is the brain's own setting` in `apps/mobile/__tests__/meetingsDestination.test.ts`
+is the workspace's own setting` in `apps/mobile/__tests__/meetingsDestination.test.ts`
 (seven checks, including every folder the real `normalizeMeetingFolder`
 refuses), `apps/convex/__tests__/meetingsFolder.test.ts`, and
 `apps/mobile/__tests__/meetingsFolderPanel.test.ts` for the panel's own gating.

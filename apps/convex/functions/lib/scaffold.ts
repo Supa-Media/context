@@ -14,7 +14,7 @@
  * ## What this is NOT allowed to do
  *
  * **Overwrite anything.** The primary case for connecting a bucket is not a
- * fresh one — it is an existing brain that has been running for months and
+ * fresh one — it is an existing workspace that has been running for months and
  * must come across with zero migration and zero visible change. Scaffolding
  * such a bucket would, at best, replace a hand-curated `index.md`; at worst it
  * would replace `privacy.md` and silently reset every folder's visibility.
@@ -30,7 +30,7 @@
  *     all.
  *
  * Guard 1 has one narrowing, for the case where the thing in the bucket is our
- * own half-written scaffold rather than somebody's brain: see `resume` on
+ * own half-written scaffold rather than somebody's workspace: see `resume` on
  * `scaffoldContext` and `hasForeignContent`. Guard 2 does not move.
  *
  * The residual race — an object created between the `get` and the `put` — is
@@ -358,7 +358,8 @@ export function validateCustomFolders(
  * byte-identical in everything but the rules — no spurious whole-file diff
  * appearing in the customer's Obsidian vault the first time they share a
  * folder. The markers moved there with it; they are on-bucket format, so the
- * legacy "BRAIN" wording stays even though the product noun is "context".
+ * legacy "BRAIN" wording stays even though the word is retired from the
+ * product's copy (2026-09-13). Changing it is a storage-layout migration.
  */
 function renderStartingRulesBlock(
   folderDefaults: readonly string[],
@@ -403,9 +404,9 @@ function renderStartingRulesBlock(
  *
  * ## Personal contexts get nothing here, deliberately
  *
- * A brain's `index.md` is its owner's own manifest and may describe anything;
+ * A workspace's `index.md` is its owner's own manifest and may describe anything;
  * publishing it to everyone they later share a folder with is not ours to
- * decide. A brain stays all-private at the root as well as in its folders, and
+ * decide. A workspace stays all-private at the root as well as in its folders, and
  * `renderPrivacyManifestForFolders`' `personal` default keeps the repair path
  * out of this too.
  */
@@ -419,10 +420,10 @@ function startingOverrides(kind: ContextKind): Map<string, Visibility> {
  * What a fresh context's folders default to, which depends on what kind of
  * context it is.
  *
- * ## A personal brain starts `private`, and that is the sensible default
+ * ## A personal workspace starts `private`, and that is the sensible default
  *
  * `team` does not mean public — it means named people the owner has granted
- * access to — but a brain that has just been created has granted nobody
+ * access to — but a workspace that has just been created has granted nobody
  * anything, so there is no correct set of folders to open up.
  *
  * ## A shared workspace starts `team`, and all-private would have been a bug
@@ -727,7 +728,7 @@ export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
  *
  * `defaultSessionFolder` in the gateway returns `4-archive/chat-history` when
  * the manifest declares a `4-archive` rule and `0-inbox/sessions` otherwise, so
- * every brain whose owner has run the hook once has one of these. That makes
+ * every workspace whose owner has run the hook once has one of these. That makes
  * them two guesses per handle on names nobody chose — the same shape as the
  * five PARA folders, and they get the same answer.
  *
@@ -796,7 +797,7 @@ export const CAPTURE_SOURCE_FOLDERS = [
  *
  * `2-areas/calendar/next-14-days.md` is hardcoded in the gateway and gated on
  * `CALENDAR_ICS_URL`, so it exists only where that is configured — which is
- * the original brain, the one deployment whose owner is publicly known. The
+ * the original workspace, the one deployment whose owner is publicly known. The
  * name requires no knowledge of them.
  */
 export const CALENDAR_PATHS = ["2-areas/calendar", "2-areas/calendar/next-14-days.md"] as const;
@@ -830,7 +831,7 @@ const PRESET_FOLDERS = [
 ] as const;
 
 /**
- * A path this product itself puts into every brain, and therefore one anybody
+ * A path this product itself puts into every workspace, and therefore one anybody
  * can guess without knowing a thing about the owner.
  *
  * Used by `previewForNote` to decide what an unauthenticated crawler may be
@@ -846,7 +847,7 @@ const PRESET_FOLDERS = [
  * product* wrote is five guesses, which is the whole risk. Notes are a bigger
  * list than "index.md":
  * `scaffoldFiles` also lays a `README.md` into every PARA folder, so a fresh
- * brain arrives with six guessable note names before its owner writes anything.
+ * workspace arrives with six guessable note names before its owner writes anything.
  *
  * The test for this drives `scaffoldFiles` rather than restating its output, so
  * an eighth scaffolded file cannot quietly become an eighth guess.
@@ -870,7 +871,7 @@ export const PRODUCT_MANDATED_PATHS: readonly string[] = [
   PRIVACY_KEY,
   ...GENERIC_ROOT_KEYS,
   // The five PARA folders themselves. `applyStructure` writes exactly these
-  // into every `para` brain, so they are five guesses per handle — the
+  // into every `para` workspace, so they are five guesses per handle — the
   // narrowest name space in the product and the reason the preview refused
   // folders wholesale before this list learned to name them.
   ...PARA_FOLDERS,
@@ -971,7 +972,7 @@ export const DETECT_PAGE_SIZE = 1000;
  * Does this bucket already hold a context?
  *
  * Listed **with a delimiter**, which is the part that matters. A flat listing
- * of a real brain returns `.history/…` objects first — `.` sorts before every
+ * of a real workspace returns `.history/…` objects first — `.` sorts before every
  * digit and letter — and there can be tens of thousands of them, so a
  * first-page flat listing of the founder's live bucket would come back looking
  * completely empty and we would scaffold straight over the top of it. With a
@@ -1176,7 +1177,7 @@ export interface ScaffoldResult {
  * one this control plane already began.
  *
  * Idempotent: running it twice writes nothing the second time, and running it
- * against somebody's existing brain writes nothing at all.
+ * against somebody's existing workspace writes nothing at all.
  *
  * ## Best effort, except where it is not
  *
@@ -1214,7 +1215,7 @@ export async function scaffoldContext(
      */
     resume?: boolean;
     /**
-     * Personal brain or shared workspace. Decides what `privacy.md` says the
+     * Personal or shared. Decides what `privacy.md` says the
      * folders default to, and nothing else — see `startingVisibility`.
      *
      * Defaults to `personal`, which is the conservative branch: a caller that

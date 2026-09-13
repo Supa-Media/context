@@ -50,7 +50,7 @@ const LIST_PAGE_LIMIT = 1000;
  * sync builds past it is not written at all. Those are two halves of one rule
  * — **never store an object this same function will refuse to read** — and
  * splitting them is not a smaller version of the cap, it is a loop: the write
- * had no check for a while, so a growing brain stored an index it already knew
+ * had no check for a while, so a growing workspace stored an index it already knew
  * it would reject, rebuilt from empty on the next pass, regrew, and refused
  * again. Measured at 2,000 notes the coverage cycled `594 -> 1188 -> 1782 ->
  * 594` forever, and at 900 larger-vocabulary notes a *converged* index
@@ -58,7 +58,7 @@ const LIST_PAGE_LIMIT = 1000;
  *
  * The Worker's 128MB memory limit is the one ceiling no plan raises, and
  * `JSON.parse` of a large index inflates it several-fold in the heap. Measured
- * live: a brain whose full-text chat archives had been indexed whole grew an
+ * live: a workspace whose full-text chat archives had been indexed whole grew an
  * index big enough that parsing it killed every invocation — uncatchably, past
  * the top-level catch — so search was down *because of* its own accelerator,
  * and no pass survived long enough to shrink the object. Refusing to parse is
@@ -67,7 +67,7 @@ const LIST_PAGE_LIMIT = 1000;
  * *if the rebuild fits*, which since the write side exists is a condition
  * rather than a promise.
  *
- * This is a ceiling, not a cure. A brain whose *capped* index still exceeds
+ * This is a ceiling, not a cure. A workspace whose *capped* index still exceeds
  * this size (roughly 10k+ notes) plateaus: the last object small enough to
  * read survives, each pass rebuilds a fuller index in memory, answers the
  * query it was called for, and declines to persist it. Partial and stable
@@ -126,16 +126,16 @@ const INDEX_PARSE_BYTE_CAP = 12_000_000;
  * before tokenization, so `len` and tf stay consistent with what was actually
  * indexed.
  *
- * 2KB, down from 8KB. What is measured is that **8KB failed**: a live brain in
+ * 2KB, down from 8KB. What is measured is that **8KB failed**: a live workspace in
  * the mid-thousands of notes built a capped index that still crossed
  * `INDEX_PARSE_BYTE_CAP`, so every pass refused it, rebuilt the same first
  * budget's worth of notes, and coverage never accumulated — the churn the cap's
  * comment predicted before the write side existed, arriving well before the
  * 10k-note guess. (That churn is now a plateau; what 8KB proved is that a
- * mid-thousands brain crosses the parse cap, which is why this number moved.)
+ * mid-thousands workspace crosses the parse cap, which is why this number moved.)
  * 2KB is a four-fold extrapolation from that measurement rather than a second
  * measurement, and it should be read as one: it holds a few-thousand-note
- * brain under the parse cap by arithmetic, not by observation. The durable fix
+ * workspace under the parse cap by arithmetic, not by observation. The durable fix
  * at the next order of magnitude is sharding, not a smaller number here — and
  * a smaller number is now visibly expensive, because it costs recall on
  * ordinary notes rather than on 64KB logs.

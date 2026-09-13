@@ -161,7 +161,7 @@ describe("a phone reaches the settings, not just a menu", () => {
   test("overview answers which context this is before anything else", () => {
     const text = overlay("overview").textContent ?? "";
     expect(text).toContain("Overview");
-    expect(text).toContain("Personal brain");
+    expect(text).toContain("Personal workspace");
   });
 
   test("people is in the context's own settings, not an app-level pane", () => {
@@ -264,7 +264,7 @@ describe("the search box", () => {
     });
     const text = host.textContent ?? "";
     // Email is where Gmail lives, and it is not the only row it could have
-    // been: a mailbox reaches a brain through a Google account *or* through
+    // been: a mailbox reaches a workspace through a Google account *or* through
     // the forwarding address, which is why those are one section rather than
     // two. What the box has to do is land on it from the word people type.
     expect(text).toContain("Email");
@@ -532,7 +532,7 @@ describe("Overview answers rather than listing properties", () => {
     const identity = host.querySelector('[data-testid="overview-identity"]');
     expect(identity).not.toBeNull();
     const text = identity!.textContent ?? "";
-    expect(text).toContain("Personal brain");
+    expect(text).toContain("Personal workspace");
     expect(text).toContain("you're the owner");
     // `owner`, printed straight off the wire, is what this replaced.
     expect(text).not.toMatch(/\bowner\b(?!s)(?<!the owner)/);

@@ -362,7 +362,7 @@ export function describeInvitesSent(count: number): string | null {
  * The privacy default, stated rather than offered — the workspace's version of
  * `../onboarding/structure`'s `PRIVACY_DEFAULT_NOTE`.
  *
- * The two say opposite things and both are right. A personal brain starts
+ * The two say opposite things and both are right. A personal workspace starts
  * all-private because a `team` default would grant nothing today and then
  * quietly open a folder the first time somebody was invited. A workspace starts
  * team-visible because it is *made* to be read by the people in it, and a
@@ -421,7 +421,7 @@ export const WORKSPACE_LAYOUT_NOTE =
  */
 export function storageLede(slug: string): string {
   return (
-    `@${slug} is claimed. It needs a bucket of its own — not the one behind your brain. ` +
+    `@${slug} is claimed. It needs a bucket of its own — not the one behind your personal workspace. ` +
     "A workspace's storage binding, credential and audit trail are its own, so revoking " +
     "one never touches the other, and handing the workspace over does not hand over " +
     "anything personal."

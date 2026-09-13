@@ -196,10 +196,19 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "root",
   "security",
   "system",
-  // Product vocabulary (see CLAUDE.md, "Vocabulary"): a person's personal
-  // context is a "brain", a shared one is a "workspace" (already reserved
-  // above). Claimable, `brain@context.lc` would receive mail people believed
-  // was going to the product, and `@brain/...` would read as a product path.
+  // **Retired product vocabulary, permanently reserved.** "Brain" was the
+  // user-facing word for a personal context until the owner retired it
+  // (2026-09-13, docs/decisions/vocabulary-and-workspaces.md); every context
+  // is a workspace now, and "workspace" is reserved above.
+  //
+  // Retiring the word makes these *more* important to hold, not less. The
+  // reservation was never about vocabulary: ingestion is on the apex, so a
+  // claimable `brain@context.lc` would receive mail people believed was going
+  // to the product, and `@brain/...` would read as a product path rather than
+  // a person's. People go on saying a retired word for years after the copy
+  // stops — an address does not stop being believable because a heading
+  // changed. Freeing these would hand an impersonation handle to whoever
+  // claimed it first. They stay, and `names.test.ts` holds them.
   "brain",
   "brains",
   // On-bucket layout words, so a name can never be confused for a folder.

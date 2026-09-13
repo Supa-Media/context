@@ -67,7 +67,7 @@ async function scenario(t: TestConvex): Promise<{
   const lkId = await createUser(t, "lk@example.invalid");
   const mailOnlyId = await createUser(t, "mail-only@example.invalid");
 
-  const workspaceId = await createWorkspace(t, ownerId, "owner-brain");
+  const workspaceId = await createWorkspace(t, ownerId, "owner-workspace");
   await addMember(t, workspaceId, memberId, "member");
 
   // `@lk` resolves through the personal context that owns the slug.

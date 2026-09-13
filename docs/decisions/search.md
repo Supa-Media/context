@@ -36,7 +36,7 @@ here is what a tidy-up would break:
   console share `searchIndexedNotes` the way the first two shared the scan
   before it; a second path is a second place for a visibility bug.
 - **The index is sharded (v2) because the single object hit a real ceiling.**
-  A brain in the mid-thousands of notes built a capped index that could never
+  A workspace in the mid-thousands of notes built a capped index that could never
   be parsed within the Worker's 128MB, so coverage plateaued forever —
   measured live. `.index/v2/` holds a manifest plus fnv1a32-sharded objects,
   each under its own parse cap; the query streams shards one at a time and
@@ -46,7 +46,7 @@ here is what a tidy-up would break:
   **Shard postings are interned — `[docIndex, tf]` against the shard's own
   docs array, never `[path, tf]`** — because path-keyed postings repeat every
   doc's path once per unique term, which crossed the shard byte cap at about
-  half the 300-doc target and plateaued the live brain permanently: each pass
+  half the 300-doc target and plateaued the live workspace permanently: each pass
   rebuilt the same oversized shard and had its write (correctly) refused.
   Un-interning is the tidy-up that re-breaks this; readers still accept the
   old path-keyed dialect so a working index is not rebuilt for no gain.
@@ -87,7 +87,7 @@ So the two are separated, and the separation is the rule rather than a tuning:
   quoted.
 - **Maintenance runs behind the response.** `ctx.waitUntil` in the gateway; a
   scheduled `maintainIndex` operation in the control plane, which chains itself
-  while it is making progress so a cold brain converges without anybody
+  while it is making progress so a cold workspace converges without anybody
   searching eight times to finish their own backfill. A host with no `waitUntil`
   runs the pass **inline and awaited**, capped — deferral is an accelerator, and
   a promise left running on a host with nothing keeping the invocation alive is
@@ -461,7 +461,7 @@ Expo Router's shared tree and therefore the same control on a phone and in a
 browser rather than two that can drift.
 
 Per context and not per account, for the reason the whole settings pane is per
-context: two brains can be answered from two different places, and a switch
+context: two workspaces can be answered from two different places, and a switch
 above the context picker would claim there is one setting for all of them.
 
 Three rules the console follows and does not re-derive:
@@ -624,7 +624,7 @@ link is a full bucket listing billed to the customer. Four things end it, and
 each has a test:
 
 - a pass that **moved nothing** — where "moved" includes a pass that only
-  advanced the R2 index, because a cold brain's first link may have no budget
+  advanced the R2 index, because a cold workspace's first link may have no budget
   left to copy with and stopping there would reintroduce the whole bug one
   layer up;
 - a row that is **no longer `backfilling`**, `ready` included.
@@ -915,7 +915,7 @@ apart.
 ### A blended search over several contexts fuses ranks, and the control plane is where it happens
 
 "Making wikis: people's own personal Google for their organization's workspaces
-or their own brain." A new teammate types *review cycle* and reconstructs the
+or their own workspace." A new teammate types *review cycle* and reconstructs the
 concept out of four notes in three contexts, none of which is a canonical page.
 That is a different question from the one `search_notes` and the console's
 palette answer, and it is the only question in this system that spans more than
@@ -942,7 +942,7 @@ per page, whatever the scope.
 scored against a corpus, and `N`, `df` and `avglen` are properties of the
 context a note lives in and the *tier* the caller reads it at. A twelve-point
 hit in a four-note workspace and a twelve-point hit in a four-thousand-note
-brain are not the same quantity; min-maxing them into a shared 0..1 invents a
+workspace are not the same quantity; min-maxing them into a shared 0..1 invents a
 comparison and hides that it was invented, and the failure it produces is the
 obvious one — the biggest context sweeps every page, because a big corpus
 produces a big spread. So each source contributes `1 / (60 + rank)` in its own
@@ -1027,7 +1027,7 @@ answer over a converged index may pay for one bucket listing and ask again — i
 right for a single context and wrong multiplied. A fan-out misses in most of its
 scope by construction, so the rule would spend a full listing per context per
 keystroke, on each of those customers' request quotas, to rediscover that a word
-is not in seven of eight brains. `searchNotes` takes `refreshOnMiss` and the
+is not in seven of eight workspaces. `searchNotes` takes `refreshOnMiss` and the
 fan-out passes false. Nothing is lost from the honesty the rule bought: a source
 whose index is behind still reports itself `indexing` per source, and the page
 draws that beside the results rather than folding it into "no matches".
@@ -1204,7 +1204,7 @@ Three parts, and each answers something the one before it cannot:
 - **The count may grow after the manifest is created**, which it never could
   before. Growth is in place and moves nothing: the sync already routes a doc
   to the shard the manifest *claims* for it before consulting the hash, so a
-  brain converged for a year that then connects a mailbox goes from one shard
+  workspace converged for a year that then connects a mailbox goes from one shard
   to fifty without re-fetching a note and without its search going dark. Down
   is still "delete the manifest", for the reason it always was — down is the
   direction that re-routes docs already placed.

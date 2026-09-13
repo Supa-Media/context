@@ -12,7 +12,7 @@ an API change fails in CI before it reaches checkout.
 `workspacePlans` hangs off a `workspaceId`, exactly as a storage binding does
 and for the same reason (`CLAUDE.md`, "The workspace model"): **you are
 upgrading a bucket, not a person.** A work workspace can be paid for on a work
-card while the same person's brain stays personal and free, and one person
+card while the same person's workspace stays personal and free, and one person
 paying for four contexts is four rows and four cards rather than one
 subscription somebody has to divide up afterwards.
 
@@ -311,7 +311,7 @@ action for an unshared context created by this identity, so one CUJ can be torn
 down without touching any other test context. Ordinary account deletion
 continues to leave customer-owned storage untouched.
 
-## Storage we run is offered wherever a context is made, brain or workspace
+## Storage we run is offered wherever a context is made, workspace
 
 The managed card was drawn on first run's storage step and not on the bucket
 step of a new workspace. Nothing enforced that — it was a prop the workspace

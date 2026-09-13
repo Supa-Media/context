@@ -22,7 +22,7 @@
  *   It is never inlined as a literal — `formatPrice(status)` renders it from
  *   the same config the checkout uses, so a price change cannot leave copy
  *   behind. `{price}` below is that substitution.
- * - The billable unit is **this brain or this workspace**, and the sentence
+ * - The billable unit is **this one workspace**, and the sentence
  *   that says so appears wherever somebody could believe they are upgrading
  *   their account.
  * - **No provider name a customer did not choose.** "R2", "S3", "bucket",
@@ -60,10 +60,10 @@ export const pricing = {
     "Taking everything with you, whenever you want.",
   ],
   premiumTitle: "Premium",
-  premiumPrice: `${PRICE}, for one brain or one workspace`,
+  premiumPrice: `${PRICE}, for one workspace`,
   premiumLede:
     "Pick either of these, or both. The price is the same either way, and it " +
-    "covers the one brain or workspace you choose it for — not your account, " +
+    "covers the one workspace you choose it for — not your account, " +
     "and not every context you can reach.",
   cta: "Start with a free context",
   ctaSub: "You can turn Premium on later, on whichever context needs it.",
@@ -124,7 +124,7 @@ export const firstRunB = {
   haveTitle: "I already have somewhere",
   haveSub: "An S3 bucket — R2, S3, B2 — or a Dropbox account. Both are free to use with Context.",
   needTitle: "I don't, and I'd rather not set one up",
-  needSub: `Context keeps them for you, ${PRICE} for this brain. Yours to take away at any time.`,
+  needSub: `Context keeps them for you, ${PRICE} for this workspace. Yours to take away at any time.`,
   later: "I'll do this later",
 } as const;
 
@@ -142,7 +142,7 @@ export const confirm = {
   lede:
     "You are subscribing to the services we run for this context. You are not " +
     "buying your files — those are yours either way, and always leave with you.",
-  unit: "This applies to {context} and nothing else. Every other brain or workspace you can reach stays exactly as it is.",
+  unit: "This applies to {context} and nothing else. Every other workspace you can reach stays exactly as it is.",
   includesLabel: "What Premium includes",
   renewalNote: "Billed monthly. Cancel any time from this context's settings; cancelling never deletes a note.",
   cta: "Continue to Stripe",

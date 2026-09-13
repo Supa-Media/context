@@ -42,7 +42,7 @@ const NOTE = "1-projects/transition/chapter-transition.md";
 async function scenario(t: TestConvex) {
   const ownerId = await createUser(t, "owner@example.invalid");
   const lkId = await createUser(t, "lk@example.invalid");
-  const workspaceId = await createWorkspace(t, ownerId, "owner-brain");
+  const workspaceId = await createWorkspace(t, ownerId, "owner-workspace");
   await createWorkspace(t, lkId, "lk");
   return { ownerId, lkId, workspaceId };
 }

@@ -54,7 +54,7 @@ async function scenario(t: TestConvex) {
   const editorId = await createUser(t, "editor@example.invalid");
   const strangerId = await createUser(t, "stranger@example.invalid");
 
-  const workspaceId = await createWorkspace(t, ownerId, "owner-brain");
+  const workspaceId = await createWorkspace(t, ownerId, "owner-workspace");
   await addMember(t, workspaceId, memberId, "member");
   await addMember(t, workspaceId, editorId, "editor");
   await createWorkspace(t, strangerId, "elsewhere");
@@ -366,7 +366,7 @@ describe("the readable link's preview", () => {
     const { ownerId, workspaceId } = await scenario(t);
     const { token } = await teamLink(t, ownerId, workspaceId);
 
-    expect(await preview(t, "owner-brain", NOTE)).toEqual({
+    expect(await preview(t, "owner-workspace", NOTE)).toEqual({
       title: "Overview",
       children: [],
       cardToken: token,
@@ -378,8 +378,8 @@ describe("the readable link's preview", () => {
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId);
 
-    expect(await preview(t, "@owner-brain", NOTE)).toEqual(
-      await preview(t, "owner-brain", NOTE),
+    expect(await preview(t, "@owner-workspace", NOTE)).toEqual(
+      await preview(t, "owner-workspace", NOTE),
     );
   });
 
@@ -392,8 +392,8 @@ describe("the readable link's preview", () => {
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId);
 
-    expect(await preview(t, "owner-brain", "1-projects/never-linked.md")).toEqual(NOTHING);
-    expect(await preview(t, "owner-brain", "1-projects/does-not-exist.md")).toEqual(
+    expect(await preview(t, "owner-workspace", "1-projects/never-linked.md")).toEqual(NOTHING);
+    expect(await preview(t, "owner-workspace", "1-projects/does-not-exist.md")).toEqual(
       NOTHING,
     );
   });
@@ -418,7 +418,7 @@ describe("the readable link's preview", () => {
       titleInPreview: false,
     });
 
-    expect(await preview(t, "owner-brain", NOTE)).toEqual(NOTHING);
+    expect(await preview(t, "owner-workspace", NOTE)).toEqual(NOTHING);
   });
 
   test("revoking makes it indistinguishable from never linked", async () => {
@@ -432,7 +432,7 @@ describe("the readable link's preview", () => {
       shareId: listed[0].shareId,
     });
 
-    expect(await preview(t, "owner-brain", NOTE)).toEqual(NOTHING);
+    expect(await preview(t, "owner-workspace", NOTE)).toEqual(NOTHING);
   });
 
   /**
@@ -451,7 +451,7 @@ describe("the readable link's preview", () => {
       { workspaceId, path: NOTE, recipient: "@lk" },
     );
 
-    const answer = await preview(t, "owner-brain", NOTE);
+    const answer = await preview(t, "owner-workspace", NOTE);
     expect(answer).toEqual(NOTHING);
     expect(JSON.stringify(answer)).not.toContain(token);
   });
@@ -461,8 +461,8 @@ describe("the readable link's preview", () => {
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId);
 
-    expect(await preview(t, "owner-brain", "privacy.md")).toEqual(NOTHING);
-    expect(await preview(t, "owner-brain", ".history/1-projects/a.md")).toEqual(NOTHING);
+    expect(await preview(t, "owner-workspace", "privacy.md")).toEqual(NOTHING);
+    expect(await preview(t, "owner-workspace", ".history/1-projects/a.md")).toEqual(NOTHING);
   });
 
   test("a traversing path is refused rather than resolved", async () => {
@@ -470,7 +470,7 @@ describe("the readable link's preview", () => {
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId);
 
-    expect(await preview(t, "owner-brain", "1-projects/../../privacy.md")).toEqual(
+    expect(await preview(t, "owner-workspace", "1-projects/../../privacy.md")).toEqual(
       NOTHING,
     );
   });
@@ -491,7 +491,7 @@ describe("the readable link's preview", () => {
     const { ownerId, workspaceId } = await scenario(t);
     await teamLink(t, ownerId, workspaceId);
 
-    const answer = await preview(t, "owner-brain", NOTE);
+    const answer = await preview(t, "owner-workspace", NOTE);
     expect(Object.keys(answer).sort()).toEqual(["cardToken", "children", "title"]);
     // A note has no children, and nothing had to read a bucket to say so.
     expect(answer.children).toEqual([]);
@@ -524,7 +524,7 @@ describe("a folder gets a link too", () => {
    * sound about the wrong thing. `previewForNote` is unauthenticated, so what
    * licenses it answering at all is that the address is not guessable — and
    * `scaffold.ts` writes `0-inbox`, `1-projects`, `2-areas`, `3-resources` and
-   * `4-archive` into every brain this product creates. Five guesses per handle
+   * `4-archive` into every workspace this product creates. Five guesses per handle
    * were enough to learn which of those their owner had team-linked, so folders
    * were refused wholesale.
    *
@@ -544,7 +544,7 @@ describe("a folder gets a link too", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: FOLDER,
       }),
     ).toMatchObject({ title: "Transition" });
@@ -558,7 +558,7 @@ describe("a folder gets a link too", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: FOLDER,
       }),
     ).toMatchObject({ cardToken: token });
@@ -578,7 +578,7 @@ describe("a folder gets a link too", () => {
       await teamLink(t, ownerId, workspaceId, path);
 
       expect(
-        await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+        await t.query(api.functions.shares.previewForNote, { slug: "owner-workspace", path }),
       ).toEqual({ title: null, cardToken: null, children: [] });
     },
   );
@@ -587,7 +587,7 @@ describe("a folder gets a link too", () => {
    * The guard's SHAPE, which the two cases above do not pin between them:
    * `isProductMandatedPath` matches a scaffolded name **exactly**, and relaxing
    * that to `startsWith` — the obvious way to write "and everything under it" —
-   * would silently freeze every note in the brain, since every one of them is
+   * would silently freeze every note in the workspace, since every one of them is
    * under a PARA folder. Both fixtures below are owner-chosen names that a
    * prefix match would swallow.
    */
@@ -600,7 +600,7 @@ describe("a folder gets a link too", () => {
     await teamLink(t, ownerId, workspaceId, path);
 
     const answer = await t.query(api.functions.shares.previewForNote, {
-      slug: "owner-brain",
+      slug: "owner-workspace",
       path,
     });
     expect(answer.title).not.toBeNull();
@@ -623,7 +623,7 @@ describe("a folder gets a link too", () => {
     await teamLink(t, ownerId, workspaceId, path);
 
     expect(
-      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-workspace", path }),
     ).toMatchObject({ title });
   });
 
@@ -631,7 +631,7 @@ describe("a folder gets a link too", () => {
    * The note-only rule's own premise, which the cases above assume rather than
    * check: that a note FILENAME is not guessable.
    *
-   * For a fresh brain that is false, and by more than one file. `scaffoldFiles`
+   * For a fresh workspace that is false, and by more than one file. `scaffoldFiles`
    * writes `privacy.md`, `index.md`, and a `README.md` into every one of the
    * five PARA folders — six guessable note names before the owner has written
    * anything — and the connected-client house rules put a `todo.md` at the
@@ -657,7 +657,7 @@ describe("a folder gets a link too", () => {
     await teamLink(t, ownerId, workspaceId, path);
 
     expect(
-      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-workspace", path }),
     ).toEqual({ title: null, cardToken: null, children: [] });
   });
 
@@ -673,7 +673,7 @@ describe("a folder gets a link too", () => {
    *
    * `defaultSessionFolder` in `apps/mcp/src/index.js` returns
    * `4-archive/chat-history` when the manifest has a `4-archive` rule and
-   * `0-inbox/sessions` otherwise, so every brain whose owner has ever run
+   * `0-inbox/sessions` otherwise, so every workspace whose owner has ever run
    * `save_context` has one of them. Two guesses per handle, on names nobody
    * chose, which is the same shape as the five PARA folders and gets the same
    * answer.
@@ -691,7 +691,7 @@ describe("a folder gets a link too", () => {
     await teamLink(t, ownerId, workspaceId, path);
 
     expect(
-      await t.query(api.functions.shares.previewForNote, { slug: "owner-brain", path }),
+      await t.query(api.functions.shares.previewForNote, { slug: "owner-workspace", path }),
     ).toEqual({ title: null, cardToken: null, children: [] });
   });
 
@@ -882,7 +882,7 @@ describe("a folder gets a link too", () => {
 
     expect(
       await t.query(api.functions.shares.previewForNote, {
-        slug: "owner-brain",
+        slug: "owner-workspace",
         path: "1-projects/acme-migration.md",
       }),
       // "Acme migration": `titleFromPath` uppercases the first character and
@@ -904,7 +904,7 @@ describe("a folder gets a link too", () => {
     await teamLink(t, ownerId, workspaceId, PARA_FOLDERS[1]);
 
     const folder = await t.query(api.functions.shares.previewForNote, {
-      slug: "owner-brain",
+      slug: "owner-workspace",
       path: PARA_FOLDERS[1],
     });
     const stranger = await t.query(api.functions.shares.previewForNote, {

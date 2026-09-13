@@ -42,7 +42,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The signature is the whole security of the webhook
 - The API version pins outbound calls and nothing else
 - A third route factory, and why it is enumerated separately
-- Storage we run is offered wherever a context is made, brain or workspace
+- Storage we run is offered wherever a context is made, personal or shared
 - What is deliberately not built
 
 ## [Identity, grants, invitations, and ingestion](./identity-and-access.md)
@@ -165,11 +165,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
 - Making a workspace is its own flow, not onboarding with a flag
-- Two name fields for a workspace, one for a brain
+- Two name fields for a shared workspace, one for a personal one
 - The layout presets are company-shaped, and PARA is not the default
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
-- The rail splits on kind, and ownership is a mark on one row
+- The rail is one list, with the personal workspace pinned to the top
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
@@ -304,6 +304,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
 - Vocabulary
+- "Brain" is retired, and stays reserved
 - The workspace model (build this now, it's cheap)
 - Deliberately not yet
 

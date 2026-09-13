@@ -110,7 +110,7 @@ function listing(path: string, folderDefault: Visibility, entries: FileEntry[]):
   return { path, folderDefault, entries, truncated: false, manifestUsable: true };
 }
 
-/** An owner's brain: one shared folder, one private one, one exception inside. */
+/** An owner's workspace: one shared folder, one private one, one exception inside. */
 const OWNER_LISTINGS: Record<string, FolderListing> = {
   "": listing("", "private", [
     folder("1-projects", "team"),
@@ -233,14 +233,14 @@ describe("what a reader is told", () => {
     expect(text).not.toContain("No note in here is shared by name");
   });
 
-  test("a workspace is told what private means there, which is not what it means in a brain", () => {
+  test("a shared workspace is told what private means there, which is not what it means in a personal one", () => {
     const shared = panel({ role: "owner", kind: "shared" }).textContent ?? "";
     // Naming the roles it excludes, not merely "owners only" — see the same
     // check in `privacyMap.test.ts` for the mutation that got past the
     // weaker version of this.
     expect(shared).toContain("Not the members, not the editors");
-    const brain = panel({ role: "owner", kind: "personal" }).textContent ?? "";
-    expect(brain).toContain("Yours alone");
+    const workspace = panel({ role: "owner", kind: "personal" }).textContent ?? "";
+    expect(workspace).toContain("Yours alone");
   });
 
   test("opening a folder lists the notes its rules name by hand", () => {
@@ -355,7 +355,7 @@ describe("a filtered view says so and does not fill in the gap", () => {
     expect(text).toContain("Anything the owner held back from you is missing here");
   });
 
-  test("a member of somebody else's brain is not told the notes are theirs", () => {
+  test("a member of somebody else's workspace is not told the notes are theirs", () => {
     // The panel picks the voice from `capabilitiesForRole(role).isOwner`, so a
     // role that has not loaded gets the non-owner sentence: the wrong
     // direction for a copy default is claiming somebody's notes are yours

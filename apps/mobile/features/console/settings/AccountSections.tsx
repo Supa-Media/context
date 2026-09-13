@@ -47,7 +47,7 @@ export function AccountSection({
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
-    Whether this person has a brain of their own. An invited-only viewer is a
+    Whether this person has a workspace of their own. An invited-only viewer is a
     first-class state — `identity.ts` exists partly to handle it — and for one,
     `viewer.name` is their sign-in email rather than a username.
   */
@@ -62,8 +62,8 @@ export function AccountSection({
           {settingsSectionLabel("apps")}
         </Text>
         <Text variant="paneSub" style={styles.sub}>
-          One address, added once per app. A connection reaches every brain and
-          workspace you are a live member of, and each app can be cut off on its own
+          One address, added once per app. A connection reaches every workspace
+          you are a live member of, and each app can be cut off on its own
           without touching the others.
         </Text>
 
@@ -125,7 +125,7 @@ export function AccountSection({
         <Text variant="paneSub" style={styles.sub}>
           {owned
             ? "Your username comes from one global namespace shared with workspace names — unique, stable, and reserved against interception, which is why it cannot be changed yet."
-            : "You are signed in, and you have not made a brain of your own yet. Until you do, this is the address you signed in with rather than a username."}
+            : "You are signed in, and you have not made a workspace of your own yet. Until you do, this is the address you signed in with rather than a username."}
         </Text>
         <Card>
           <Row>
@@ -135,7 +135,7 @@ export function AccountSection({
             <Text variant="mono">{data.viewer.name}</Text>
           </Row>
           {/*
-            Only where it is the address this person's own brain was issued.
+            Only where it is the address this person's own workspace was issued.
             `viewerIdentity` substitutes a derived one when the open context is
             somebody else's, and a guess presented as a fact under the heading
             "Profile" is a stronger claim than the rail's account block has
@@ -151,7 +151,7 @@ export function AccountSection({
           ) : null}
         </Card>
         <Text variant="foot" style={styles.foot}>
-          Only a personal brain has an address mail can be sent to. A workspace has
+          Only a personal workspace has an address mail can be sent to. A shared one has
           none at all.
         </Text>
       </View>

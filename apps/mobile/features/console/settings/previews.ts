@@ -101,7 +101,7 @@ export function settingsPreview(
       /*
         And no "Not connected" from here, however tempting.
 
-        Mail reaches a brain by two mechanisms and this row can only see one
+        Mail reaches a workspace by two mechanisms and this row can only see one
         and a half of them. `useLiveConsoleData` builds `googleConnections`
         through `usable()`, which returns `undefined` for a query in flight
         **and** for one that came back an error — so an empty list is three

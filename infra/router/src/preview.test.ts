@@ -722,7 +722,7 @@ describe("a readable team link", () => {
 
   /** ...and the five it did not. */
   it.each(["0-inbox", "1-projects", "2-areas", "3-resources", "4-archive"])(
-    "does not route %s, which every brain has",
+    "does not route %s, which every workspace has",
     (path) => {
       expect(
         consoleNoteFrom(new URL(`https://context.lc/console/@seyi?note=${path}`)),
@@ -733,7 +733,7 @@ describe("a readable team link", () => {
   /**
    * The shape of that refusal: **exact**, not `startsWith`. Writing it as a
    * prefix — the obvious way to say "and everything under it" — would refuse
-   * every note in the brain, since all of them live under a PARA folder, and
+   * every note in the workspace, since all of them live under a PARA folder, and
    * the frozen card would be back for everything without a test noticing.
    */
   it.each([

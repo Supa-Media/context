@@ -268,7 +268,7 @@ export function searchProjectionState(
  * itself forever on somebody else's request quota.
  *
  * Larger than the R2 index's twelve because a link copies at most a window's
- * worth of notes and a real brain is thousands of them, and because what the
+ * worth of notes and a real workspace is thousands of them, and because what the
  * bound cuts short is picked up by the sweep rather than lost.
  *
  * Here rather than in `functions/files.ts` so the two schedulers and the pass

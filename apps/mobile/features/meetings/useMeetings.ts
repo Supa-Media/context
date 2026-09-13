@@ -126,7 +126,7 @@ export function useTranscriptionClient(): void {
  * filters on `role === "owner"` and nothing else, while the sheet's own "your
  * context" is `ownPersonalContext` — `kind === "personal"` **and**
  * `role === "owner"`. Two notions of the same phrase, and one of them is wrong
- * about a bucket: somebody who owns a shared workspace older than their brain
+ * about a bucket: somebody who owns a shared workspace older than their own
  * has a `defaultContext` that is shared, so a meeting filed by it lands in a
  * shared bucket at whatever visibility that folder carries, under a row that
  * said "Only you" — or, for somebody who owns nothing at all, in `contexts[0]`,

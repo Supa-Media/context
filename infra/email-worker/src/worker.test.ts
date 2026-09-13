@@ -468,7 +468,7 @@ describe("a message that should be captured is", () => {
 
   it("not namespaced by tenant", async () => {
     // Tenancy is bucket-level. A `tenants/<id>/` or `workspaces/<slug>/` prefix
-    // here would break an existing brain connecting with zero migration.
+    // here would break an existing workspace connecting with zero migration.
     const { bucket } = await run(rawMessage());
     for (const key of bucket.objects.keys()) {
       expect(key.startsWith("0-inbox/") || key.startsWith(".context/audit/")).toBe(true);

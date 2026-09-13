@@ -40,6 +40,7 @@ import { forcePathStyleToAddressing } from "../storage/connect";
 import { describeStorageFailure } from "../storage/errors";
 import { useReverify } from "../storage/useReverify";
 import type { ReverifyState } from "../storage/reverify";
+import { StorageMigrationCard } from "../storage/StorageMigration";
 import { useManagedOffer } from "../../onboarding/useManagedOffer";
 import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
 
@@ -51,7 +52,7 @@ import { ManagedConfirm } from "../../onboarding/steps/ManagedConfirm";
  * binding hangs off a `workspaceId`, never a `userId`, so two contexts can and
  * do point at two different buckets. A pane at app level was quietly claiming
  * there is one. It is reached now from the gear beside the storage chip in
- * Browse, which is where somebody looking at `R2 · brain` is already looking.
+ * Browse, which is where somebody looking at `R2 · notes-bucket` is already looking.
  *
  * The components below are the Storage pane's, moved rather than rewritten:
  * the same binding card, the same connect form, the same re-verify state
@@ -123,7 +124,7 @@ export function SettingsPane({
       {section !== undefined ? null : (
       <PaneHead
         title={`${atName(current?.slug ?? "this context")} settings`}
-        description="Storage and ingestion rules. They belong here, not to your account — every other brain or workspace can point somewhere else entirely."
+        description="Storage and ingestion rules. They belong here, not to your account — every other workspace can point somewhere else entirely."
         trailing={
           <View style={styles.headActions}>
             {/*
@@ -247,6 +248,29 @@ export function SettingsPane({
         <SettingsVaultImport workspaceId={actions.workspaceId} />
       ) : null}
 
+      {/*
+        The one-time storage-layout update, in the section about where this
+        context's files are kept — which is the only place somebody would
+        think to look for it.
+
+        Gated on nothing but the action's presence, which is the guard it has
+        always had: `useFileBrowser` hands `updateStorageLayout` to an owner
+        and to nobody else, so an absent function is an absent row.
+
+        The console's *notice* takes one further condition — a connected
+        binding, `storageMigrationWorthOffering` — and this row deliberately
+        does not. The asymmetry is the difference between the two surfaces
+        rather than an oversight in one of them: an offer that appears in
+        front of somebody has to earn the interruption, while a row they went
+        looking for should still be here when a probe is mid-flight. Neither
+        condition decides who may run it.
+      */}
+      {data.files.updateStorageLayout !== undefined ? (
+        <View style={styles.migration}>
+          <StorageMigrationCard run={data.files.updateStorageLayout} />
+        </View>
+      ) : null}
+
       </>
       ) : null}
 
@@ -254,11 +278,11 @@ export function SettingsPane({
       <>
       <PanelHead section="overview" sectioned={section !== undefined}>
         {current?.kind === "shared"
-          ? "A workspace several people share. It has no address of its own — only a personal brain can be sent mail."
+          ? "A workspace several people share. It has no address of its own — only a personal one can be sent mail."
           : "One bucket, one set of privacy rules, one history."}
       </PanelHead>
       {/*
-        The second half of that sentence used to be "— and every other brain
+        The second half of that sentence used to be "— and every other workspace
         or workspace can point somewhere else entirely", which explains the
         tenancy model to somebody who is already inside one context looking at
         their own bucket, and cost three lines at the top of the section
@@ -366,7 +390,7 @@ export function SettingsPane({
       {/*
         Under the same gear as storage and ingestion, and here rather than at
         app level for the same reason this whole pane moved: what it switches
-        is per context. Two brains can be answered from two different places,
+        is per context. Two workspaces can be answered from two different places,
         and a switch above the context picker would claim there is one setting
         for all of them.
       */}
@@ -864,6 +888,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   failure: { marginTop: 15 },
   notice: { marginTop: 15 },
+  /** The same 24pt gap the vault importer above it takes from the card. */
+  migration: { marginTop: 24 },
   noticeBody: { flex: 1, minWidth: 0 },
   okText: { color: colors.okText },
   warnText: { color: colors.warnText },

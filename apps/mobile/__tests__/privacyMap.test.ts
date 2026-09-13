@@ -328,7 +328,7 @@ describe("the words", () => {
       of this check missed.** Deleting the whole `shared` branch fell through
       to the kind-unknown sentence — "Owners only. No role and no invitation
       reaches it" — which is still true, still matches /owner/i, and still
-      differs from a brain's, so the mutation passed all 68 checks. What it
+      differs from a workspace's, so the mutation passed all 68 checks. What it
       lost is the sentence a *member* needs: that being an editor here does
       not carry it. That is the thing this line exists to say, so it is the
       thing to assert.
@@ -341,14 +341,14 @@ describe("the words", () => {
     expect(privateMeans("shared", false)).toBe(privateMeans("shared", true));
   });
 
-  test("a brain read by somebody else is never called theirs", () => {
+  test("a workspace read by somebody else is never called theirs", () => {
     /*
-      Found by rendering `@lk` — the demo's *other* person's brain, read at
+      Found by rendering `@lk` — the demo's *other* person's workspace, read at
       `member`. "Yours alone. …no AI client of anybody else's reaches it — the
       only way to hand a private note over is to mark it team" is the owner's
       sentence, and every clause of it is false for the reader: the notes are
       not theirs, the AI client that cannot reach them is theirs, and the
-      marking is not theirs to do. A brain has exactly one owner, so the
+      marking is not theirs to do. A workspace has exactly one owner, so the
       reader's own membership is the whole difference.
     */
     expect(privateMeans("personal", true)).toMatch(/^Yours alone/);

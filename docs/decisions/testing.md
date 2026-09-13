@@ -272,7 +272,7 @@ centring of a column, and horizontal centring the moment the row grew a dot
 and a trailing label — which centred every label in the phone's settings list;
 a temporal dead zone that crashed the whole overlay behind an error boundary
 with typecheck clean; a panel that was a heading over an empty page; and copy
-telling a member "yours alone" about somebody else's brain. Every agent since
+telling a member "yours alone" about somebody else's workspace. Every agent since
 wrote the same disposable route and deleted it before committing, which is the
 hand-scan this file already refuses to accept as a fix.
 

@@ -454,7 +454,7 @@ describe("what gets written", () => {
 
   it("never namespaces the key by tenant", async () => {
     // Tenancy is bucket-level. Sabotage: prefix with a context id and this
-    // fails — as does an existing brain connecting with zero migration.
+    // fails — as does an existing workspace connecting with zero migration.
     const decision = await decide(rawMessage());
     if (decision.kind !== "capture") return;
     expect(decision.key.startsWith("0-inbox/")).toBe(true);

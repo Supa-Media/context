@@ -29,7 +29,7 @@ import type { SettingsSectionKey } from "../features/console/settings/sections";
  * else. Which makes its absences the load-bearing part, because each of them
  * is a case where following the signpost would lead somewhere blank or wrong:
  *
- *  - a **brain**, whose slug is the person's username — Advanced refuses it and
+ *  - a **workspace**, whose slug is the person's username — Advanced refuses it and
  *    says deletion is the account's business;
  *  - a workspace somebody **does not own** — `useAdvanced` withholds the whole
  *    `deletion` object from a non-owner, so there would be no card to reach;
@@ -155,7 +155,7 @@ describe("the way out is offered", () => {
 
 describe("the way out is absent", () => {
   const ABSENT: Array<[string, "personal" | "shared", "owner" | "editor" | "member"]> = [
-    ["a brain, which goes with its account instead", "personal", "owner"],
+    ["a workspace, which goes with its account instead", "personal", "owner"],
     ["a workspace an editor cannot delete", "shared", "editor"],
     ["a workspace a member cannot delete", "shared", "member"],
   ];

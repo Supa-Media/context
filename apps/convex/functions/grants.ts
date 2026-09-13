@@ -90,12 +90,12 @@ const grantSummary = v.object({
  * them from a `member`, and it is no less true a rung up. Reading was the sole
  * authority an editor had here, over rows they could never act on.
  *
- * It said `editor` and above until somebody invited into a personal brain
+ * It said `editor` and above until somebody invited into a personal workspace
  * opened Settings and found nine of the owner's clients sitting there: every
  * AI tool that person uses, how much of the context each can read, and when it
  * last read it. The old line was argued for a *shared* context, where "which
  * robots can read our notes" is a question the people responsible for the
- * place need answered. A personal brain has exactly one such person, and being
+ * place need answered. A personal workspace has exactly one such person, and being
  * invited to write notes in somebody's context is not an appointment to
  * administer their clients.
  *

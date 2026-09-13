@@ -272,7 +272,7 @@ describe("a projection pass the control plane runs itself", () => {
 
   test("a pass that only moved the R2 index is still progress", async () => {
     /*
-     * The link a cold brain lives on. A bucket wide enough that the listing,
+     * The link a cold workspace lives on. A bucket wide enough that the listing,
      * the diff and the note re-reads spend the whole budget leaves the copy
      * nothing to do that pass — and if that counts as "moved nothing", the
      * chain stops on link one and the projection never starts. Which is the
@@ -619,7 +619,7 @@ describe("the trigger", () => {
       workspaceId: w2,
       scope: "private" as const,
       // A cap of zero notes: the R2 index advances, the copy does not, which
-      // is the cold-brain link.
+      // is the cold-workspace link.
       operation: { kind: "projectIndex" as const, passes: 4 },
     });
     expect((await queued(t2, "runFileOperation")).length).toBeLessThanOrEqual(1);

@@ -290,7 +290,7 @@ considered and each breaks something the product promises:
 - A **suffix** changes the key, which breaks every wikilink pointing at the
   note, every exact-note override in `privacy.md`, every link somebody has in a
   message, and the Obsidian vault the customer syncs. Non-negotiable 2 says a
-  brain connects and works unchanged; renaming a file on encryption is a
+  workspace connects and works unchanged; renaming a file on encryption is a
   migration.
 - A **sidecar** (`foo.md` plus `.keys/foo.json`) splits one note into two
   objects that can be moved, copied, restored, or version-rolled apart, and the
@@ -699,7 +699,7 @@ which is which is a decision.**
 
   **The per-call budget counts object reads, not notes re-wrapped.** Counting
   what a call *moves* lets it read whatever it passes over for free, and a
-  bucket whose notes are mostly not encrypted — a brain with encryption on for
+  bucket whose notes are mostly not encrypted — a workspace with encryption on for
   one folder, which is the ordinary shape, not a corner case — is exactly that
   bucket. Measured on the first version of this change: 4,002 reads in a
   single call over a 4,000-note bucket with 200 encrypted notes, and 10,002
@@ -1508,7 +1508,7 @@ wiring is.
 
 **A persisted rotation-walk cursor was added after this shipped, once a
 measured ceiling made the trade this section originally accepted the wrong
-one for a workspace larger than a personal brain.** The walk's own progress —
+one for a workspace larger than one person's own.** The walk's own progress —
 a cursor, a small stuck-note list, nothing that opens a note — now lives at
 `.context/rotation-progress.json` in the customer's own bucket, bounding
 every call, including the one that completes the rotation, to about the batch

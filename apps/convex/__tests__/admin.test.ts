@@ -388,7 +388,7 @@ describe("a secret goes in and does not come back", () => {
     const result = await as.action(api.functions.admin.setSecret, {
       name: "SEARCH_D1_API_TOKEN",
       value,
-      description: "Provisions per-brain D1 search databases",
+      description: "Provisions per-workspace D1 search databases",
     });
     expect(result.fingerprint).toBe(await fingerprintSecret(value));
 

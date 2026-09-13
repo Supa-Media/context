@@ -96,9 +96,9 @@ interface Fixture {
 
 /**
  * A shared workspace with an owner, an editor, a read-only member and an
- * outsider — and a personal brain for each of the four.
+ * outsider — and a personal workspace for each of the four.
  *
- * The brains are not decoration. A response is recorded under its author's
+ * The workspaces are not decoration. A response is recorded under its author's
  * **username**, which `formActor` reads from their own personal workspace's
  * slug, so a fixture without them would prove nothing about `by` and every
  * submission would refuse with `NO_USERNAME`.
@@ -112,7 +112,7 @@ async function fixture(options: MemoryS3Options & { conditionalWrite?: boolean }
   const other = await createUser(t, "other@example.invalid");
   const stranger = await createUser(t, "stranger@example.invalid");
 
-  // Each person's own brain, which is where their username lives.
+  // Each person's own workspace, which is where their username lives.
   await createWorkspace(t, owner, "ada");
   await createWorkspace(t, editor, "grace");
   await createWorkspace(t, member, "alan");
@@ -295,16 +295,16 @@ describe("who a response belongs to", () => {
     expect(rows.map((row) => row.by)).toEqual(["@alan", "@grace"]);
   });
 
-  test("a person with no brain of their own is refused rather than recorded anonymously", async () => {
+  test("a person with no workspace of their own is refused rather than recorded anonymously", async () => {
     const f = await fixture();
     // Their personal workspace is removed, which is the state a stale
     // membership or a self-hosted deployment can produce.
     await f.t.run(async (ctx) => {
-      const brains = await ctx.db
+      const workspaces = await ctx.db
         .query("workspaces")
         .filter((q) => q.eq(q.field("slug"), "alan"))
         .collect();
-      for (const brain of brains) await ctx.db.delete(brain._id);
+      for (const workspace of workspaces) await ctx.db.delete(workspace._id);
     });
 
     const error = await captureError(() => submit(f, f.member, { summary: "Anonymous" }));
