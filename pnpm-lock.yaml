@@ -150,6 +150,9 @@ importers:
       '@context/meetings':
         specifier: workspace:*
         version: link:../../packages/meetings
+      '@context/obsidian-runtime':
+        specifier: workspace:*
+        version: link:../../packages/obsidian-runtime
       '@context/shared':
         specifier: workspace:*
         version: link:../../packages/shared

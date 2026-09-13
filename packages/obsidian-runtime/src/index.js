@@ -1,4 +1,5 @@
 export {
+  PLUGIN_CAPABILITIES,
   PLUGIN_RPC_VERSION,
   authorizePluginRpcRequest,
   capabilityForOperation,

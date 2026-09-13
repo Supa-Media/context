@@ -453,6 +453,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       right stub.
     */
     plugins: { state: "idle" },
+    pluginGrants: { grants: [], loading: false },
     loading: false,
     failure: null,
   } as never;
