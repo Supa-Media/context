@@ -149,7 +149,7 @@ async function twoConnectedTenants() {
   const alice = await createUser(t, "alice@example.invalid");
   const bob = await createUser(t, "bob@example.invalid");
 
-  const aliceWs = await createWorkspace(t, alice, "alpha", {
+  const aliceWs = await createWorkspace(t, alice, "alfa", {
     displayName: "Alice's Context",
   });
   const bobWs = await createWorkspace(t, bob, "alphabet", {
@@ -303,7 +303,7 @@ describe("the gateway secret is necessary", () => {
     );
     const text = await response.text();
     expect(text).not.toContain(TEST_GATEWAY_SECRET);
-    expect(text).not.toContain("alpha");
+    expect(text).not.toContain("alfa");
     expect(text).not.toContain("tenant-a");
     expect(JSON.parse(text)).toEqual({ error: "unauthorized" });
   });
@@ -394,7 +394,7 @@ describe("/gateway/session", () => {
     expect(typeof session.expiresAt).toBe("number");
     expect(session.defaultWorkspaceId).toBe(aliceWs);
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alpha", role: "owner", kind: "personal" },
+      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal" },
     ]);
   });
 
@@ -435,7 +435,7 @@ describe("/gateway/session", () => {
 
     // No re-approval, no new grant: the membership row is the whole of it.
     expect(session.workspaces).toEqual([
-      { workspaceId: aliceWs, slug: "alpha", role: "owner", kind: "personal" },
+      { workspaceId: aliceWs, slug: "alfa", role: "owner", kind: "personal" },
       { workspaceId: bobWs, slug: "alphabet", role: "member", kind: "personal" },
     ]);
     // And the context she approved is still the one an unaddressed call means.
@@ -2665,7 +2665,7 @@ async function startAuthorization(
     codeChallengeMethod: "S256",
     scope: "context:read context:write",
     resource: "https://mcp.context.test/mcp",
-    requestedWorkspaceSlug: "alpha",
+    requestedWorkspaceSlug: "alfa",
     ...overrides,
   });
 }
@@ -2813,7 +2813,7 @@ describe("consent belongs to the person, not to the gateway", () => {
       clientName: `Client ${CLIENT_A}`,
       redirectUri: REDIRECT_URI,
       scope: "context:read context:write",
-      requestedWorkspaceSlug: "alpha",
+      requestedWorkspaceSlug: "alfa",
     });
   });
 

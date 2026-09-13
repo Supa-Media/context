@@ -81,7 +81,7 @@ async function twoPeople() {
   const alice = await createUser(t, "alice@example.invalid");
   const bob = await createUser(t, "bob@example.invalid");
 
-  const aliceWs = await createWorkspace(t, alice, "alpha", {
+  const aliceWs = await createWorkspace(t, alice, "alfa", {
     displayName: "Alice's Context",
   });
   const bobWs = await createWorkspace(t, bob, "alphabet", {
@@ -116,7 +116,7 @@ async function park(
     codeChallengeMethod: "S256",
     scope: SCOPE,
     resource: "https://mcp.context.test/mcp",
-    requestedWorkspaceSlug: "alpha",
+    requestedWorkspaceSlug: "alfa",
     ...overrides,
   });
   const body = await bodyOf(response);
@@ -210,9 +210,9 @@ describe("the consent screen tells the right person the right thing", () => {
       redirectUri: REDIRECT_URI,
       scope: SCOPE,
       scopes: ["context:read", "context:write"],
-      requestedWorkspaceSlug: "alpha",
+      requestedWorkspaceSlug: "alfa",
       workspaceId: aliceWs,
-      workspaceSlug: "alpha",
+      workspaceSlug: "alfa",
       workspaceName: "Alice's Context",
       // Alice owns this context, so her screen may offer private-tier. The
       // screen derives that from the role rather than being handed a list, so
@@ -270,7 +270,7 @@ describe("the consent screen tells the right person the right thing", () => {
   test("a slug the caller does not belong to is not echoed back", async () => {
     const { t, bob, bobWs } = await twoPeople();
     // The client asked for Alice's context. Bob is looking at the screen.
-    const requestId = await park(t, { requestedWorkspaceSlug: "alpha" });
+    const requestId = await park(t, { requestedWorkspaceSlug: "alfa" });
 
     const seen = await read(t, bob, requestId);
     expect(seen?.requestedWorkspaceSlug).toBeNull();
@@ -429,7 +429,7 @@ describe("approval requires membership of the context being granted", () => {
   test("approving without naming a workspace grants exactly what the screen showed", async () => {
     const { t, alice, bob, aliceWs, bobWs } = await twoPeople();
     // The client asked for Alice's context; Bob is the one approving.
-    const requestId = await park(t, { requestedWorkspaceSlug: "alpha" });
+    const requestId = await park(t, { requestedWorkspaceSlug: "alfa" });
 
     const shown = await read(t, bob, requestId);
     expect(shown?.workspaceId).toBe(bobWs);
@@ -548,7 +548,7 @@ describe("a person can say no, and no means no", () => {
     expect(url.searchParams.get("state")).toBe("xyz");
     expect(url.searchParams.get("code")).toBeNull();
     // A refusal says nothing about the person or their contexts.
-    expect(redirectTo).not.toContain("alpha");
+    expect(redirectTo).not.toContain("alfa");
   });
 
   test("refusing consumes the request, so the same screen cannot be answered twice", async () => {
@@ -978,7 +978,7 @@ describe("nobody can grant more than their own role could", () => {
     // `owner` he is in a context that is not this one.
     expect(await read(t, bob, requestId)).toMatchObject({
       workspaceRole: "member",
-      workspaceSlug: "alpha",
+      workspaceSlug: "alfa",
     });
   });
 });

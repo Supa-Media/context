@@ -372,7 +372,7 @@ describe("what a member may see, and what only an owner may", () => {
 describe("asking for a checkout URL", () => {
   test("the mutation hands back a row, and the URL never comes from the client", async () => {
     const t = setupTest();
-    const { owner, workspaceId } = await context(t, "checkout");
+    const { owner, workspaceId } = await context(t, "tollgate");
     await chooseBoth(t, owner, workspaceId);
     const { sessionId } = await asUser(t, owner).mutation(
       api.functions.billing.startCheckout,
@@ -700,7 +700,7 @@ describe("the webhook", () => {
     const t = setupTest();
     vi.stubEnv("STRIPE_WEBHOOK_SECRET", SIGNING_SECRET);
     try {
-      const { owner, workspaceId } = await context(t, "upgrade");
+      const { owner, workspaceId } = await context(t, "quay");
       await chooseBoth(t, owner, workspaceId);
       const { sessionId } = await asUser(t, owner).mutation(
         api.functions.billing.startCheckout,
