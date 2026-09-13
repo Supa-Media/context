@@ -84,7 +84,7 @@ check("...and there are no duplicates in the list", new Set(FRONTMATTER_KEYS).si
   The non-negotiable, asserted against the source rather than against a run:
   tenancy is bucket-level, never prefix-level. A key built from a workspace id,
   a user id or an account id is the one change to this package that could not
-  be undone for an existing brain, so it is checked the way the meetings
+  be undone for an existing workspace, so it is checked the way the meetings
   package checks its own — by reading the files.
 
   Comments are stripped first, because every file here *discusses* tenancy at

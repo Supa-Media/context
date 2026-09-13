@@ -733,7 +733,7 @@ describe("a readable team link", () => {
   /**
    * The shape of that refusal: **exact**, not `startsWith`. Writing it as a
    * prefix — the obvious way to say "and everything under it" — would refuse
-   * every note in the brain, since all of them live under a PARA folder, and
+   * every note in the workspace, since all of them live under a PARA folder, and
    * the frozen card would be back for everything without a test noticing.
    */
   it.each([

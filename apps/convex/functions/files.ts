@@ -216,7 +216,7 @@ const MAX_PLUGIN_BUNDLE_BYTES = 10 * 1024 * 1024;
 /**
  * Maintenance passes that may chain behind one search's worth of work.
  *
- * A brain of a few thousand notes does not index in one pass, and the
+ * A workspace of a few thousand notes does not index in one pass, and the
  * alternative to chaining is what the project note calls out as still open:
  * "the complete backfill finishes without requiring repeated user searches".
  * Making somebody search eight times to finish their own index is making them
@@ -808,7 +808,7 @@ const operationValidator = v.union(
    * — there is no public action that reaches this variant.
    *
    * `passes` is how many *more* passes may be chained behind this one when it
-   * makes progress and does not finish. A cold brain needs several, and
+   * makes progress and does not finish. A cold workspace needs several, and
    * requiring a person to search repeatedly to finish their own backfill is
    * the acceptance criterion this closes; the bound is what stops a bucket
    * that never converges from scheduling itself forever.
@@ -3321,7 +3321,7 @@ export const searchContext = action({
 
     // The index this answer read is the index some earlier pass built, and a
     // search does no maintenance of its own — that is what took a console
-    // search over a real brain from twenty-odd seconds to a fraction of one.
+    // search over a real workspace from twenty-odd seconds to a fraction of one.
     // So the answer's own report of how far behind the index is decides
     // whether a pass runs behind it.
     //

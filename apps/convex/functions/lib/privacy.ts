@@ -44,7 +44,9 @@
  * On-bucket format, not vocabulary: they already sit inside every live
  * `privacy.md`, and the gateway locates its rules by string-searching for
  * them. Renaming them breaks existing buckets, so the legacy "BRAIN" wording
- * stays even though the product noun is "context".
+ * stays even though the word is retired from the product's copy (2026-09-13,
+ * docs/decisions/vocabulary-and-workspaces.md). Changing it is a storage-layout
+ * migration with dual reads, not a copy edit.
  */
 export const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 export const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";

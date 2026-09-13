@@ -5,8 +5,8 @@
  *
  * **A reference follows what it points at.** Renaming or moving a note rewrites
  * every link to it, everywhere the caller can see, by default and without being
- * asked. A brain whose links rot the first time somebody tidies a folder is a
- * brain people stop tidying; every note in it is also an Obsidian note, where
+ * asked. A workspace whose links rot the first time somebody tidies a folder is a
+ * workspace people stop tidying; every note in it is also an Obsidian note, where
  * this is the behaviour people already have.
  *
  * Nothing here talks to a store. It is text in, text out, so the interesting

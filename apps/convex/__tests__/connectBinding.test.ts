@@ -349,7 +349,7 @@ describe("the attack, run against every flow there is", () => {
    * **THE ATTACK, as it was constructed against `main` — where all four of
    * these passed.**
    *
-   *  1. the attacker owns their own brain and starts a connect for it: every
+   *  1. the attacker owns their own workspace and starts a connect for it: every
    *     check in the start action passes, because they really are the owner,
    *     and the redirect really is ours;
    *  2. they send the resulting authorize URL to somebody else;

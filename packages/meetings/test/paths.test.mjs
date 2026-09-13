@@ -7,7 +7,7 @@
  * workspace, a username, an account or a tenant may appear in a key, because
  * the same bucket is synced to somebody's Obsidian vault and a `tenants/<id>/`
  * prefix would be both visible nonsense and a migration for every existing
- * brain.
+ * workspace.
  *
  * So the tests below do two things a shape assertion alone would not:
  *

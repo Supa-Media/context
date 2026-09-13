@@ -666,7 +666,7 @@ const schema = defineSchema({
    *
    * `rootPrefix` is optional and is applied at the storage-adapter boundary
    * only. It is NOT tenancy: we never namespace keys inside a customer bucket,
-   * so a bucket that already looks like a Context brain connects unchanged.
+   * so a bucket that already looks like a Context workspace connects unchanged.
    *
    * `encryptedSecretAccessKey` is an opaque envelope produced by
    * `functions/lib/crypto.ts` (`v2:<key-id>:<iv-b64>:<ciphertext-b64>`). The
@@ -2271,7 +2271,7 @@ const schema = defineSchema({
    * a database *we* own holding a disposable derivative, and holds no customer
    * credential at all. Deleting every row here costs a rebuild and loses
    * nothing (CLAUDE.md, "Plain files stay canonical"). Deleting a storage
-   * binding disconnects somebody's brain.
+   * binding disconnects somebody's workspace.
    *
    * The reasoning for the two-condition gate is in `functions/lib/fastSearch.ts`.
    */
@@ -2528,7 +2528,7 @@ const schema = defineSchema({
    * **Keyed by `workspaceId`, never by `userId`**, exactly as a storage
    * binding is and for the same reason (`CLAUDE.md`, "The workspace model"):
    * you are upgrading a bucket, not a person. One person may hold a free
-   * personal brain and a paid work workspace on a work card, and each is one
+   * personal workspace and a paid work workspace on a work card, and each is one
    * row and one subscription. A `userId` here would make the second of those
    * impossible to express and the first impossible to keep free.
    *

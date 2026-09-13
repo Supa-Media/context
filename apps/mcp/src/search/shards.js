@@ -5,7 +5,7 @@
  * closer to the bucket on each pass.
  *
  * v1 is one object that must be parsed whole, so `INDEX_PARSE_BYTE_CAP` bounds
- * it and a brain whose *capped* index crosses that bound plateaus at partial
+ * it and a workspace whose *capped* index crosses that bound plateaus at partial
  * coverage forever — measured live at roughly a thousand docs of contact-heavy
  * vocabulary. v2 removes the whole-object parse: many small shards, each always
  * under its own cap, so peak memory is one shard rather than the corpus.
@@ -21,7 +21,7 @@
  *   not audited, never the only copy of anything, and never gating correctness:
  *   whatever a pass could not finish comes back as `pending` /
  *   `listingTruncated` / `manifestOverflow` rather than being papered over.
- *   Re-sharding a brain that outgrew its `shardCount` is deleting the manifest.
+ *   Re-sharding a workspace that outgrew its `shardCount` is deleting the manifest.
  * - **Nothing here filters by visibility, because nothing here returns anything
  *   to a caller.** The shards hold text drawn from private notes — acceptable
  *   inside the customer's own bucket, beside those notes — and `canSee` is
@@ -242,7 +242,7 @@ export const SHARD_READ_CONCURRENCY = 6;
  * it is measured rather than derived: on a two-root fixture at the default
  * budget of 40, the last shard count that audits is **9** (~2,700 notes), where
  * the same fixture reached **14** (~4,200 notes) before the walk's reserve
- * existed. Not "rarely": never, above it. Those brains keep the blind spot
+ * existed. Not "rarely": never, above it. Those workspaces keep the blind spot
  * exactly as it was, and they are the population it costs most.
  *
  * **The line moved deliberately, and the direction is the right one.** What
@@ -366,7 +366,7 @@ export function shardOf(path, shardCount) {
  * index sized by **what it has to hold** rather than by how many objects the
  * listing found.
  *
- * The note term is CONTRACT.md's original formula, unchanged: a one-note brain
+ * The note term is CONTRACT.md's original formula, unchanged: a one-note workspace
  * gets one shard, so a small context pays v1's costs plus one manifest read.
  * The volume term is the fix for the defect this whole rule exists to answer —
  * a channel-day note is one listed object contributing hundreds of documents,
@@ -409,7 +409,7 @@ export function chooseShardCount(noteCount, volume = 0, volumePerShard = INDEX_V
  * records keeps the shard it is in — the sync routes a doc to its *claimed*
  * shard before it consults `shardOf` (see `claimedShard`), and that claim is
  * what makes a shard count that changes over the life of an index affordable
- * at all. So a brain that has been converged for a year and then connects a
+ * at all. So a workspace that has been converged for a year and then connects a
  * mailbox grows from one shard to fifty without re-fetching a single one of
  * its existing notes, and without its search going dark while it does: the
  * shards it already had are still the shards its answers come from.
@@ -964,13 +964,13 @@ export function parseManifest(text, byteCap = MANIFEST_PARSE_BYTE_CAP) {
  *
  * **The interning is what keeps a full shard under `SHARD_PARSE_BYTE_CAP`, and
  * un-interning it back to `[path, tf]` postings is the tidy-up that re-breaks
- * the live brain.** Version 2 stored the full path string once per unique term
+ * the live workspace.** Version 2 stored the full path string once per unique term
  * per doc — roughly 150-250 terms for a 2,048-char note against paths that run
  * 50-80 bytes — so a shard's serialized form crossed the 2MB cap at about half
  * of `NOTES_PER_SHARD`, the write was (correctly) refused, and the backfill
  * plateaued forever: every pass re-fetched the same stale notes, rebuilt the
  * same oversized shard, and refused it again, spending the whole budget to
- * land nothing. Measured on the live brain — dozens of passes, `pending` never
+ * land nothing. Measured on the live workspace — dozens of passes, `pending` never
  * reaching zero, whole folders (`3-resources/books/`) unsearchable while their
  * alphabetical neighbours were fine. With postings carrying a small integer
  * instead, the path is stored once and the same shard serializes ~5x smaller.
@@ -1963,7 +1963,7 @@ export async function syncShardedIndex(
   // The listing comes before a fresh manifest is minted, because `shardCount`
   // is a function of how many notes there are. On a truncated first listing
   // that count is a floor and the shard count is therefore low — the honest
-  // failure, since the alternative is refusing to index the largest brains at
+  // failure, since the alternative is refusing to index the largest workspaces at
   // all, and re-sharding is deleting the manifest.
   const { entries, regionComplete, truncated } = await listNoteObjects(
     store,

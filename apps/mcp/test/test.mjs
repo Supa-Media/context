@@ -2387,7 +2387,7 @@ check("private rejection preserves no destination note", !rejectReview.isError &
 // -- privacy-aware chat history archives
 const privateChatArchive = await call("priv-token", "save_context", {
   platform: "codex",
-  history: "## User\nBuild the Brain.\n\n## Assistant\nDone.",
+  history: "## User\nBuild the Workspace.\n\n## Assistant\nDone.",
   completeness: "full-visible-transcript",
   title: "Private Codex transcript",
   session_id: "thread-private-1",
@@ -3142,7 +3142,7 @@ globalThis.fetch = async (url, options) => {
       owner: { name: "Seyi", email: "seyi@example.com" },
       attendees: [{ name: "Raisin Patel", email: "raisin@example.com" }],
       calendar_event: { event_title: "Yoghurt review" },
-      folder_membership: [{ id: "fol_123", name: "AI Brain Inbox" }],
+      folder_membership: [{ id: "fol_123", name: "AI Workspace Inbox" }],
       summary_markdown: "## Decision\n\nBuy more yoghurt.",
     });
   }
@@ -3160,7 +3160,7 @@ check(
   granolaWebhook.status === 202 &&
     nativeGranolaText.includes("Buy more yoghurt") &&
     nativeGranolaText.includes("Raisin Patel <raisin@example.com>") &&
-    nativeGranolaText.includes("AI Brain Inbox")
+    nativeGranolaText.includes("AI Workspace Inbox")
 );
 check(
   "Granola note fetch still carries its API credential",

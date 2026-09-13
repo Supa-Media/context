@@ -201,11 +201,11 @@ describe("a person's own approved machines", () => {
     const t: TestConvex = setupTest();
     const alice = await createUser(t, "alice@example.invalid");
     await createWorkspace(t, alice, "alpha");
-    await createWorkspace(t, alice, "second-brain");
+    await createWorkspace(t, alice, "second-workspace");
     await registerMac(t, "mcp_client_laptop", "Context on laptop");
     await approveMachine(t, alice, "mcp_client_laptop", "alpha");
     await registerMac(t, "mcp_client_desktop", "Context on desktop");
-    await approveMachine(t, alice, "mcp_client_desktop", "second-brain");
+    await approveMachine(t, alice, "mcp_client_desktop", "second-workspace");
 
     const machines = await listMachines(t, alice);
     expect(machines.map((m) => m.name)).toEqual(["Context on desktop", "Context on laptop"]);
@@ -267,7 +267,7 @@ describe("one tenant cannot enumerate, read, or infer another's machines", () =>
     const alice = await createUser(t, "alice@example.invalid");
     const bob = await createUser(t, "bob@example.invalid");
     await createWorkspace(t, alice, "alpha");
-    await createWorkspace(t, bob, "bobs-brain");
+    await createWorkspace(t, bob, "bobs-workspace");
     await registerMac(t, "mcp_client_alices_mac", "Context on alices-mac");
     await approveMachine(t, alice, "mcp_client_alices_mac", "alpha");
 
@@ -280,14 +280,14 @@ describe("one tenant cannot enumerate, read, or infer another's machines", () =>
     const alice = await createUser(t, "alice@example.invalid");
     const bob = await createUser(t, "bob@example.invalid");
     await createWorkspace(t, alice, "alpha");
-    await createWorkspace(t, bob, "bobs-brain");
+    await createWorkspace(t, bob, "bobs-workspace");
 
     await registerMac(t, "mcp_client_alice_1", "Context on alice-laptop");
     await approveMachine(t, alice, "mcp_client_alice_1", "alpha");
     await registerMac(t, "mcp_client_alice_2", "Context on alice-desktop");
     await approveMachine(t, alice, "mcp_client_alice_2", "alpha");
     await registerMac(t, "mcp_client_bob_1", "Context on bobs-laptop");
-    await approveMachine(t, bob, "mcp_client_bob_1", "bobs-brain");
+    await approveMachine(t, bob, "mcp_client_bob_1", "bobs-workspace");
 
     const aliceMachines = (await listMachines(t, alice)).map((m) => m.name).sort();
     const bobMachines = (await listMachines(t, bob)).map((m) => m.name).sort();

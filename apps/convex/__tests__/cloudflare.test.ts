@@ -437,7 +437,7 @@ describe("the pieces of the Cloudflare API this flow needs", () => {
   });
 
   test("a suggested bucket name is always a legal one", () => {
-    for (const slug of ["atlas", "ab", "a", "Seyi's Brain", "--", "x".repeat(80)]) {
+    for (const slug of ["atlas", "ab", "a", "Seyi's Workspace", "--", "x".repeat(80)]) {
       expect(bucketNameProblem(suggestBucketName(slug))).toBeNull();
     }
     expect(suggestBucketName("atlas")).toBe("atlas");

@@ -441,7 +441,7 @@ export async function runSearchFilterChecks(check) {
   // Every index in production is one. A manifest whose filters are all `null`
   // must route to everything and then be filled in by ordinary passes, because
   // the alternative — treating "no filter" as "no terms" — is every search on
-  // every existing brain answering nothing.
+  // every existing workspace answering nothing.
   {
     const bucket = createBucket();
     for (let i = 0; i < 400; i += 1) {

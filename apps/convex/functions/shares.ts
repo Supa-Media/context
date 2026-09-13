@@ -1841,7 +1841,7 @@ export const previewForNote = query({
     //
     // Folders were refused wholesale for a real reason: `applyStructure` writes
     // `0-inbox`, `1-projects`, `2-areas`, `3-resources` and `4-archive` into
-    // every brain this product creates, so five guesses per handle were enough
+    // every workspace this product creates, so five guesses per handle were enough
     // to learn which of them their owner had team-linked, and to be handed its
     // title and a live token, unauthenticated.
     //
@@ -1856,14 +1856,14 @@ export const previewForNote = query({
     // Stated precisely, because an earlier version of this comment overstated
     // the leak: a live `noteShares` row is still required below, so this was
     // never a bare handle-existence oracle. What it published was which of a
-    // brain's scaffolded paths its owner had team-linked.
+    // workspace's scaffolded paths its owner had team-linked.
     const path = normalizePath(args.path);
     if (path === null || isPlumbing(path)) return nothing;
 
     // **One list, and it is the whole rule now.**
     //
     // `isProductMandatedPath` names every path this product writes, which is
-    // more than what a fresh brain arrives with: the five PARA folders,
+    // more than what a fresh workspace arrives with: the five PARA folders,
     // `index.md`, `privacy.md`, a `README.md` in each folder and `todo.md` at
     // the root — plus the folders the gateway creates LATER, where
     // `save_context` files a session and where a capture lands under its

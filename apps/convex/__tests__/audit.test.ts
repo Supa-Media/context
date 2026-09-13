@@ -132,7 +132,7 @@ describe("listEvents.limit", () => {
  * The audit row was not part of that. `listEvents` gates on membership, and
  * `ingestion.settings.updated` carries `allowedSendersBefore/After`,
  * `allowedDomainsBefore/After`, `allowAnySenderBefore/After`, the attachment
- * policy and the target folder. So anyone the owner invited into their brain
+ * policy and the target folder. So anyone the owner invited into their workspace
  * could read the list's cardinality, whether it is open to any sender, and
  * where captures land -- and from `ingestion.captured` rows, the timing and
  * byte size of every message the owner receives.
@@ -146,7 +146,7 @@ describe("listEvents.limit", () => {
  * who" is what the trail exists to answer, and hiding the row would hide that.
  */
 describe("an ingestion row's details are the owner's", () => {
-  async function sharedBrainWithIngestionEvent() {
+  async function sharedWorkspaceWithIngestionEvent() {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const member = await createUser(t, "member@example.invalid");
@@ -176,7 +176,7 @@ describe("an ingestion row's details are the owner's", () => {
   }
 
   test("the owner still sees what changed", async () => {
-    const { t, owner, workspaceId } = await sharedBrainWithIngestionEvent();
+    const { t, owner, workspaceId } = await sharedWorkspaceWithIngestionEvent();
     const rows = await asUser(t, owner).query(api.functions.audit.listEvents, {
       workspaceId,
       limit: 10,
@@ -186,7 +186,7 @@ describe("an ingestion row's details are the owner's", () => {
   });
 
   test("a member sees that it happened and not what it said", async () => {
-    const { t, member, workspaceId } = await sharedBrainWithIngestionEvent();
+    const { t, member, workspaceId } = await sharedWorkspaceWithIngestionEvent();
     const rows = await asUser(t, member).query(api.functions.audit.listEvents, {
       workspaceId,
       limit: 10,
@@ -221,7 +221,7 @@ describe("an ingestion row's details are the owner's", () => {
  * has never heard of -- is the owner's.
  */
 describe("audit details are allow-listed, not deny-listed", () => {
-  async function sharedBrainWithRows() {
+  async function sharedWorkspaceWithRows() {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const member = await createUser(t, "member@example.invalid");
@@ -280,7 +280,7 @@ describe("audit details are allow-listed, not deny-listed", () => {
   }
 
   test("the owner reads every detail", async () => {
-    const { t, owner, workspaceId } = await sharedBrainWithRows();
+    const { t, owner, workspaceId } = await sharedWorkspaceWithRows();
     const rows = await rowsFor(t, owner, workspaceId);
     expect(rows.get("share.created")?.details?.recipient).toBe(
       "outsider@example.invalid"
@@ -300,7 +300,7 @@ describe("audit details are allow-listed, not deny-listed", () => {
    * that the event happened and who did it, which is what the trail is for.
    */
   test("a member reads that a share happened, and neither its note nor its recipient", async () => {
-    const { t, member, workspaceId } = await sharedBrainWithRows();
+    const { t, member, workspaceId } = await sharedWorkspaceWithRows();
     const rows = await rowsFor(t, member, workspaceId);
     const share = rows.get("share.created");
     expect(share, "the event itself is not hidden").toBeDefined();
@@ -311,7 +311,7 @@ describe("audit details are allow-listed, not deny-listed", () => {
   });
 
   test("a member reads neither an invitee nor an action nobody classified", async () => {
-    const { t, member, workspaceId } = await sharedBrainWithRows();
+    const { t, member, workspaceId } = await sharedWorkspaceWithRows();
     const rows = await rowsFor(t, member, workspaceId);
     expect(rows.get("member.invited")?.details).toBeUndefined();
     expect(
@@ -321,7 +321,7 @@ describe("audit details are allow-listed, not deny-listed", () => {
   });
 
   test("an ordinary file row keeps its details for a member", async () => {
-    const { t, member, workspaceId } = await sharedBrainWithRows();
+    const { t, member, workspaceId } = await sharedWorkspaceWithRows();
     const rows = await rowsFor(t, member, workspaceId);
     expect(
       rows.get("file.write")?.details?.conflictCheck,
@@ -468,7 +468,7 @@ describe("the allow-list's own criteria are applied to the allow-list", () => {
  * real privacy engine. These are the control-plane edges around it.
  */
 describe("a row's paths are the reader's clearance or the reader's own hands", () => {
-  async function sharedBrain() {
+  async function sharedWorkspace() {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
     const editor = await createUser(t, "editor@example.invalid");
@@ -527,7 +527,7 @@ describe("a row's paths are the reader's clearance or the reader's own hands", (
   }
 
   test("the owner reads every path", async () => {
-    const { t, owner, workspaceId } = await sharedBrain();
+    const { t, owner, workspaceId } = await sharedWorkspace();
     expect(await pathsSeenBy(t, owner, workspaceId)).toEqual([
       "1-projects/the-member-wrote-this.md",
       "0-inbox/2026-09-09-from-a-stranger.md",
@@ -536,7 +536,7 @@ describe("a row's paths are the reader's clearance or the reader's own hands", (
   });
 
   test("a member reads their own row's paths and nobody else's", async () => {
-    const { t, member, workspaceId } = await sharedBrain();
+    const { t, member, workspaceId } = await sharedWorkspace();
     expect(await pathsSeenBy(t, member, workspaceId)).toEqual([
       "1-projects/the-member-wrote-this.md",
     ]);
@@ -551,7 +551,7 @@ describe("a row's paths are the reader's clearance or the reader's own hands", (
    * "what can they see" would hand every editor the whole trail.
    */
   test("an editor is a team-scoped reader here, exactly like a member", async () => {
-    const { t, editor, workspaceId } = await sharedBrain();
+    const { t, editor, workspaceId } = await sharedWorkspace();
     expect(await pathsSeenBy(t, editor, workspaceId)).toEqual([]);
   });
 
@@ -580,7 +580,7 @@ describe("a row's paths are the reader's clearance or the reader's own hands", (
    * the revisit its old entry asked for.
    */
   test("a scaffold's folder count came off the allow-list with the paths it counted", async () => {
-    const { t, member, owner, workspaceId } = await sharedBrain();
+    const { t, member, owner, workspaceId } = await sharedWorkspace();
     await t.run(async (ctx) => {
       await ctx.db.insert("auditEvents", {
         workspaceId,

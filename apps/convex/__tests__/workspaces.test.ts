@@ -89,10 +89,10 @@ describe("createWorkspace", () => {
     const t = setupTest();
     const user = await createUser(t, "alice@example.invalid");
     const workspaceId = await createWorkspace(t, user, "atlas", {
-      displayName: "  Alice's Second Brain  ",
+      displayName: "  Alice's Second Workspace  ",
     });
     expect((await t.run((ctx) => ctx.db.get(workspaceId)))?.displayName).toBe(
-      "Alice's Second Brain",
+      "Alice's Second Workspace",
     );
   });
 

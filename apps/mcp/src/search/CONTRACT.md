@@ -192,7 +192,7 @@ it degrades instead of throwing `Too many subrequests`.
 # The sharded index — format contract (v2)
 
 v1's single object has a hard ceiling: it must be parsed whole, so
-`INDEX_PARSE_BYTE_CAP` bounds it, and a brain whose capped index exceeds that
+`INDEX_PARSE_BYTE_CAP` bounds it, and a workspace whose capped index exceeds that
 bound plateaus at partial coverage forever — measured live at roughly a
 thousand docs of contact-heavy vocabulary. v2 removes the whole-object parse:
 many small shards, each always under its own cap, streamed at query time so
@@ -239,7 +239,7 @@ peak memory is one shard.
   The interning is load-bearing, not cosmetic: path-keyed postings repeat every
   doc's path once per unique term (~150-250 terms against 50-80-byte paths),
   which crossed `SHARD_PARSE_BYTE_CAP` at about half of the 300-doc target and
-  plateaued the live brain's backfill permanently — every pass rebuilt the same
+  plateaued the live workspace's backfill permanently — every pass rebuilt the same
   oversized shard and had its write refused. Readers also accept the earlier
   `{version: 2, docs, terms}` dialect (postings keyed by path string), because
   refusing it would rebuild every under-cap shard a working index already
@@ -271,7 +271,7 @@ is re-sharded by this — while a bundled note can, which is the point.
 
 The count **may grow on a later pass**, in place, when the volume or the
 placement asks for it; it never shrinks, and shrinking is still "delete the
-manifest" (everything here is disposable). A one-note brain gets one shard, so
+manifest" (everything here is disposable). A one-note workspace gets one shard, so
 small contexts pay v1's costs plus one manifest read.
 
 ## Caps
@@ -556,7 +556,7 @@ derivative, is free to take. `src/search/commsIndex.js` owns the split:
 one sub-document (the note's own path, whole-file-capped, exactly as before)
 for anything that is not a channel-day note, and one sub-document per message
 for one that is. **A note that is not a channel-day note is indexed exactly as
-it is today** — nothing about this reaches a brain with no mailbox connected.
+it is today** — nothing about this reaches a workspace with no mailbox connected.
 
 ## Placement, shape and the fields added to a doc entry
 

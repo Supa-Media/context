@@ -408,7 +408,7 @@ export function consoleNoteFrom(url: URL): { slug: string; path: string } | null
 }
 
 /**
- * Every note path this product writes into a brain before its owner does.
+ * Every note path this product writes into a workspace before its owner does.
  *
  * `apps/convex/functions/lib/scaffold.ts` is the source of truth, and exports
  * the list itself as `PRODUCT_MANDATED_PATHS` — `INDEX_KEY`, `PRIVACY_KEY`,

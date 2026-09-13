@@ -515,7 +515,7 @@ export async function runFormChecks(check) {
       },
       { kind: "shared" }
     );
-    // Personal brains, so every caller has a username to be recorded under.
+    // Personal workspaces, so every caller has a username to be recorded under.
     for (const [id, slug] of [
       ["ws_seyi", "seyi"],
       ["ws_ed", "ed"],
@@ -636,10 +636,10 @@ export async function runFormChecks(check) {
     check("a member is offered submit_form", names.has("submit_form"));
     check("...and vote_form", names.has("vote_form"));
     // `write_note` is listed too, and that is correct rather than a hole: this
-    // connection covers its person's own brain, which they own and may write.
+    // connection covers its person's own workspace, which they own and may write.
     // The listing has never been the control — the per-call gate below is, and
     // it reads the role in the context the call was routed to.
-    check("...alongside write_note, which they may use in their own brain", names.has("write_note"));
+    check("...alongside write_note, which they may use in their own workspace", names.has("write_note"));
 
     const readonlyTools = (await rpc(env, READONLY_TOKEN, "tools/list", {})).result?.tools || [];
     check(

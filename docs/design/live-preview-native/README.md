@@ -16,7 +16,7 @@ the note itself said had probably not been revoked yet.
 `06` went the same way, and it is the more instructive one. Its subject is the
 sidebar, so the note is four fifths hidden behind the drawer — but the
 uncovered strip still carried legible fragments of the same file, the selected
-row reads `todo`, and the footer names the live brain rather than a throwaway
+row reads `todo`, and the footer names the live workspace rather than a throwaway
 one. **An earlier version of this file listed it as clean.** A screenshot does
 not stop being a photograph of somebody's notes because the notes are not what
 it is a photograph *of*, and a README written to stop this recurring is the
@@ -41,7 +41,7 @@ screenshot properly before committing one.
 ## What a shot may show
 
 Use a context whose notes are scaffolded or written for the purpose — the
-`index.md` a new brain arrives with is ideal, and `01`–`05b` are that. Check
+`index.md` a new workspace arrives with is ideal, and `01`–`05b` are that. Check
 the whole frame, not the subject: a drawer, a sheet or a keyboard covering a
 note does not make the note safe, and the strip left showing is the part
 nobody looks at twice. A shot

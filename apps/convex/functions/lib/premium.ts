@@ -11,7 +11,7 @@
  * The row is keyed by `workspaceId` for the same reason a storage binding is
  * (`CLAUDE.md`, "The workspace model"): you are upgrading a bucket, not a
  * person. A work workspace can be paid for on a work card while the same
- * person's brain stays personal and free, and one person paying for four
+ * person's workspace stays personal and free, and one person paying for four
  * contexts is four rows and four cards rather than one subscription somebody
  * has to divide up afterwards.
  *

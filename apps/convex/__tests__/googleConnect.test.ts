@@ -224,7 +224,7 @@ describe("only a personal context may connect a Google account", () => {
    * nothing did: the check above passes with the role comparison gone,
    * because a stranger has no membership row to relax the comparison on.
    * Measured, that sabotage failed **zero** checks. Somebody the owner
-   * granted read or write access to their brain is a real, common shape —
+   * granted read or write access to their workspace is a real, common shape —
    * and attaching a Google account to a context is not a permission that
    * comes with editing notes in it.
    */

@@ -970,7 +970,7 @@ export async function runSearchIntegrationChecks(check) {
     //
     // The cap above was read-side only and the write had none, so the loop
     // stored objects it already knew it would reject: grow, refuse, rebuild
-    // from empty, grow again, forever. A brain whose capped index crosses the
+    // from empty, grow again, forever. A workspace whose capped index crosses the
     // ceiling never converges, and — worse — a *converged* index (`pending: 0`)
     // is reachable, written, and thrown away on the next pass. Refusing the
     // write instead makes coverage plateau: the last object small enough to
@@ -1289,7 +1289,7 @@ export async function runSearchIntegrationChecks(check) {
     // -- the budget is a deployment setting, bounded ------------------------
     //
     // The default assumes the free tier's 50-subrequest ceiling; a paid-plan
-    // worker gets 1000, and holding it to 40 there stretches a real brain's
+    // worker gets 1000, and holding it to 40 there stretches a real workspace's
     // first index across dozens of searches. `SEARCH_SUBREQUEST_BUDGET` in the
     // environment raises it; garbage must fall back to the default rather than
     // take search down.

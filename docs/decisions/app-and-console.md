@@ -1003,7 +1003,7 @@ Three consequences that are decisions rather than placement:
   Three consequences. The strip has no lit pill and nothing on it is
   `aria-selected`, because every pill goes somewhere you are not. `stripEntries`
   draws the row at one entry rather than two, since none of them is a label any
-  more — and somebody with one brain and no workspaces now gets **no** strip and
+  more — and somebody with one workspace and no others now gets **no** strip and
   their name at the head of the path, which is the better trade. And the
   long-press menu moved with the pill: context Settings is reached on a phone
   through that menu and nowhere else, so leaving it behind would have taken
@@ -1053,7 +1053,7 @@ whole of that decision and amends its own paragraphs in place.
 
 What that removal cost is one line, and it is worth naming because deleting it
 with the panel would have been silent. The tree's footer read
-`R2 · brain · 62% indexed · 12 notes, 8 folders` — the storage binding, how much
+`R2 · workspace · 62% indexed · 12 notes, 8 folders` — the storage binding, how much
 of the context is in the hosted index, and how much of the tree has actually
 been read — and its own comment recorded *why it was on a phone at all*: at
 `compact` the frame draws a bottom toolbar and **no status strip**, so without
@@ -1329,7 +1329,7 @@ What is genuinely shared is imported, not copied: `validateName` (through
 already states — a drifted copy of a validation rule shows a green tick in front
 of a refusal.
 
-### Two name fields for a workspace, one for a brain
+### Two name fields for a shared workspace, one for a personal one
 
 A person's handle and a person's label are usually the same word, so onboarding
 asks once and uses the answer for both. An organisation's are not: "Acme
@@ -1346,7 +1346,7 @@ is fed through `nameStatus` like any typed string; it is never assumed valid.
 ### The layout presets are company-shaped, and PARA is not the default
 
 PARA sorts one person's work by how permanent it is. That is the right question
-for a brain and the wrong one for a company, whose context is sorted by who owns
+for a workspace and the wrong one for a company, whose context is sorted by who owns
 a thing and which outside party it concerns — a team handed `1-projects` /
 `2-areas` / `3-resources` files nothing into them. So `/workspace/new` defaults
 to a **Company** preset (inbox, projects, teams, handbook, customers, archive),
@@ -1413,55 +1413,73 @@ second copy in the rail would be the copy that is wrong after a deploy — hidin
 the entry from somebody under the limit, or showing a screen that refuses. The
 refusal is rendered on the step where the person can act on it.
 
-### The rail splits on kind, and ownership is a mark on one row
+### The rail is one list, with the personal workspace pinned to the top
 
-The switcher grouped on **ownership** — "Yours" over everything where your role
-was `owner`, "Shared with you" over the rest — and the reason it gave was sound:
-one flat list made a context you own and a context you were invited into
-indistinguishable, and *whose notes am I about to open?* is the question the rail
-exists to answer at a glance.
+Two groupings preceded this one, and both were answering *whose notes am I about
+to open?* with structure. The first grouped on **ownership** — "Yours" over
+everything where your role was `owner`, "Shared with you" over the rest. The
+second grouped on **kind**, heading the groups with the product's two nouns of
+the time, **Workspaces** and **Workspaces**.
 
-It was answering it in the wrong place, and two things showed that:
+The second grouping died with the noun. The owner retired "brain" (2026-09-13,
+[vocabulary-and-workspaces](./vocabulary-and-workspaces.md)): a brain is a
+workspace one person owns, so both groups are workspaces and a heading over each
+is a division with nothing left to divide — two words for one noun, drawn as
+structure, at exactly the moment somebody is learning what the product calls
+things.
 
-- **It named neither of the product's nouns.** The vocabulary decision gives the
-  two kinds two words — a **brain** is one person's context, a **workspace** is
-  a shared one — and the rail is the one surface where a person meets both.
-  Heading it "Yours" and "Shared with you" made the switcher the only place in
-  the product that talks about contexts without using either word for them, at
-  exactly the moment somebody is learning that the two kinds are different.
-- **For a brain, the row already answered it.** `@sayo` is Sayo's brain; nobody
-  reads that row and wonders whose notes are behind it. The section boundary was
-  spending the rail's strongest structural device on a fact the handle carries
-  for free — and paying for it by scattering the workspaces, where whose-is-it
-  *is* genuinely ambiguous, across both sections according to something the rail
-  never showed.
+So: **one group, headed Workspaces**, and everything the split was carrying
+carried by cheaper devices that were already there.
 
-So the groups are **Brains** and **Workspaces**, and ownership moved to a mark
-on one row: `isOwnBrain` requires a personal context you own, that context is
-pinned first in its group, and it is labelled `yours`. Exactly one row can ever
-carry it — `createWorkspace` writes one personal context per person and there is
-no transfer path — which is what makes a marker the right shape and a section
-the wrong one. It is a quiet label rather than a badge, because the row it marks
-is the one the person recognises fastest anyway: it only has to settle the
-question, not raise it.
+- **The pin.** `isOwnWorkspace` requires a personal context you own, and that
+  row leads the list — always, ahead of any order the control plane sent.
+  Exactly one row can ever satisfy it, because `createWorkspace` writes one
+  personal context per person and there is no transfer path, which is what makes
+  a pin the right shape and a section the wrong one.
+- **The mark.** That row keeps its quiet `yours` label and its selected
+  treatment. It is a label rather than a badge because the row it marks is the
+  one the person recognises fastest anyway: it only has to settle the question,
+  not raise it.
+- **The handle.** `@sayo` already says whose the other personal contexts are.
+  That was true under both groupings and is the reason neither ever needed a
+  heading to say it.
 
-Ownership of a *workspace* is deliberately unmarked. A workspace is shared by
-construction; what differs is your role in it, which is three states shown on
-the members card rather than one bit in a switcher.
+Ownership of a *shared* workspace stays unmarked. It is shared by construction;
+what differs is your role in it, which is three states on the members card
+rather than one bit in a switcher.
 
-**The pin is a pin, not a sort.** Everything after the own brain keeps the order
-the control plane sent. Re-ordering somebody's list on their behalf is a
+**The pin is a pin, not a sort.** Everything after the pinned row keeps the
+order the control plane sent. Re-ordering somebody's list on their behalf is a
 decision the rail is not making, and a stable list is what makes muscle memory
 work.
 
-Each of the two entries moved to the group that raises the question it answers,
-and they stay two flags rather than one. "Claim your @name" lives last in
-**Brains** — a person looking at a list of brains, none of which is theirs, is
-being shown the gap — drawn accented, gone forever once used. "New workspace"
-lives last in **Workspaces**, drawn quietly because it is a permanent verb and
-an accent on it would be an advertisement on every screen of every session. It
-is also the *whole* group for somebody in no workspaces yet, which is how a
-person who has only ever had a brain finds out workspaces exist.
+**The claim entry takes the pinned slot, and the create entry the foot.** They
+stay two flags rather than one because they are true at different times and are
+drawn differently. "Claim your @name" is the *gap where the pinned row would
+be* — it is exactly the placeholder for it — drawn accented because the person
+it is for arrived through somebody else's invitation and has no reason to
+suspect the product does anything else, and gone forever the moment it is used.
+`railGroup` refuses to offer it beside the row it stands in for, so the two can
+never be drawn together even if the gate that offers it changes. "New workspace"
+goes last, drawn quietly because it is a permanent verb and an accent on it
+would be an advertisement on every screen of every session; it is also the only
+offer for somebody in no shared workspace yet, which is how a person who has
+only ever had their own finds out shared ones exist.
+
+**The group is unconditional**, where each of the two used to survive an empty
+list only while it still had something to offer. With one group there is nothing
+its absence could say, and it is where "Nothing here yet" lands for an account
+with nothing at all.
+
+*What a "simplification" costs:* sorting the list without the pin, or folding
+the claim entry into the ordinary run, puts somebody's own workspace wherever
+its slug falls in the alphabet and puts the one accented offer in the middle of
+a scroll. *The tests that fail if it is reversed:* `railGroup.test.ts` —
+`pins your own personal workspace to the top, whatever order it arrived in`,
+`never coexists with the workspace it stands in for`, and `says nothing about
+workspaces` — and, on the rendered glass, `consoleIdentityChrome.test.ts` —
+`the viewer's own workspace is drawn first, whatever order it arrived in` and
+`an invited-only account sees the claim entry in the pinned top slot`.
 
 **The one thing this regrouping made easy to get wrong, and the rename that
 stops it.** `ContextRowMenu` took a `shared` prop, filled in from whether the
@@ -1685,7 +1703,7 @@ moved or renamed."
 
 Neither half existed. Moving or renaming a note left every link to it pointing
 at a path that no longer resolved, silently — so the person who tidied a folder
-was the one who broke their own brain — and `[[../../2-products/x/overview]]`
+was the one who broke their own workspace — and `[[../../2-products/x/overview]]`
 rendered as that exact string, in an app whose notes are mostly links to each
 other.
 
@@ -1828,7 +1846,7 @@ release.
 **And an exemption is stated in the route's own file as well as on the list.**
 `/admin` is deliberately URL-only — it is platform-wide rather than about any
 one context, so a strip pill or a rail row would say it belongs to whichever
-brain is selected — and it is the precedent for the exception list rather than
+workspace is selected — and it is the precedent for the exception list rather than
 an invention of one. A reason that lived only in the registry is a reason the
 next person editing that route never reads.
 

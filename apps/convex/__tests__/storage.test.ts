@@ -189,12 +189,12 @@ describe("bindStorage", () => {
     const owner = await createUser(t, "owner@example.invalid");
     const workspaceId = await createWorkspace(t, owner, "atlas");
 
-    await bindFakeStorage(t, owner, workspaceId, { rootPrefix: "/notes/brain/" });
+    await bindFakeStorage(t, owner, workspaceId, { rootPrefix: "/notes/workspace/" });
     const binding = await asUser(t, owner).query(
       api.functions.storage.getStorageBinding,
       { workspaceId },
     );
-    expect(binding?.rootPrefix).toBe("notes/brain/");
+    expect(binding?.rootPrefix).toBe("notes/workspace/");
 
     expect(
       errorCode(

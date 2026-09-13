@@ -354,13 +354,13 @@ export async function resolveSession(token, slug, controlPlane) {
  * **This is the whole of cross-context reach, and it is one function on
  * purpose.** A grant now covers every context its person is a live member of
  * (see `resolveGrantByAccessToken`), so a client connected once can act in a
- * brain shared with its owner — which is what was asked for. What must not
+ * workspace shared with its owner — which is what was asked for. What must not
  * follow is authority travelling with it, so every clamp `resolveSession`
  * applies to the default context is applied here to the addressed one, from the
  * grant's own scopes and the *target's* role:
  *
  *  - `effectiveScopes` intersects the grant with what that role can back up, so
- *    a `member` reaches somebody's brain read-only however wide the grant;
+ *    a `member` reaches somebody's workspace read-only however wide the grant;
  *  - `visibilityTierForGrant` reads the tier off the clamped set, so anybody
  *    who is not that context's owner sees `team` and no private note.
  *
@@ -535,7 +535,7 @@ export function hasScope(session, scope) {
  *
  * `tools/list` is a courtesy and `callToolForSession`'s gate is the control, so
  * this may only ever be too generous — and being too *mean* is the failure that
- * actually turns up. Somebody whose client is connected to a brain they are
+ * actually turns up. Somebody whose client is connected to a workspace they are
  * only a `member` of would otherwise be shown no write tools at all, in a
  * session where they own another context and can write there; an agent cannot
  * ask for a tool it was never told about, so a listing filtered by the current

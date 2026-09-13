@@ -1570,12 +1570,12 @@ async function runShardSizingChecks(check) {
     fresh.manifest.shardCount === built.manifest.shardCount && docsOf(fresh) === docsOf(built)
   );
 
-  /* -- 5. growth: a converged brain that later connects a mailbox -------- */
+  /* -- 5. growth: a converged workspace that later connects a mailbox -------- */
 
   const grown = createBucket();
   for (const note of plainNotes(20)) grown.seed(note.path, note.text);
   const before = await converge(grown, 2000, { shardByteCap: cap });
-  check("a brain of ordinary notes sizes itself at one shard", before.manifest.shardCount === 1);
+  check("a workspace of ordinary notes sizes itself at one shard", before.manifest.shardCount === 1);
   const wasFindable = await search(grown, "ordinary-note-word");
   check("...and answers", wasFindable.indexed === true && wasFindable.matchCount === 20);
 

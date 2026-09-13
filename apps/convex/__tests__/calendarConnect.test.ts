@@ -595,13 +595,13 @@ describe("attacker and victim in the same database", () => {
   async function twoTenants() {
     const t = setupTest();
     const victim = await createUser(t, "victim@example.invalid");
-    const victimWorkspace = await createWorkspace(t, victim, "victim-brain");
+    const victimWorkspace = await createWorkspace(t, victim, "victim-workspace");
     const attacker = await createUser(t, "attacker@example.invalid");
-    const attackerWorkspace = await createWorkspace(t, attacker, "attacker-brain");
+    const attackerWorkspace = await createWorkspace(t, attacker, "attacker-workspace");
     return { t, victim, victimWorkspace, attacker, attackerWorkspace };
   }
 
-  test("a stranger cannot start a Calendar connect against somebody else's brain", async () => {
+  test("a stranger cannot start a Calendar connect against somebody else's workspace", async () => {
     enableCalendarConnect();
     const { t, attacker, victimWorkspace } = await twoTenants();
 

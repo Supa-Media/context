@@ -189,7 +189,8 @@ import {
 const PRIVACY_KEY = "privacy.md";
 const LEGACY_SCOPES_KEY = "scopes.yml";
 // These two markers are on-bucket format, not vocabulary. They already sit
-// inside every live privacy.md, so renaming them would break existing buckets.
+// inside every live privacy.md, so renaming them would break existing buckets —
+// which is why they keep a word the product's copy retired in 2026-09.
 const PRIVACY_RULES_BEGIN = "<!-- BEGIN BRAIN PRIVACY RULES -->";
 const PRIVACY_RULES_END = "<!-- END BRAIN PRIVACY RULES -->";
 const GRANOLA_PENDING_PREFIX = `${GRANOLA_EVENTS_PREFIX}pending/`;
@@ -209,7 +210,7 @@ const PROPOSAL_REVIEWED_PREFIX = `${PROPOSAL_PREFIX}reviewed/`;
  * Bounds for the `SEARCH_SUBREQUEST_BUDGET` deployment override.
  *
  * The default above assumes the free tier's 50. A paid-plan deployment gets
- * 1000 per invocation, and holding it to 40 there makes a real brain's first
+ * 1000 per invocation, and holding it to 40 there makes a real workspace's first
  * index dozens of searches long: measured live, a bucket in the low thousands
  * of notes backfills ~26 per pass, so a person's search for a name their notes
  * definitely contain answers "(no matches)" for days of ordinary use. The floor
@@ -832,7 +833,7 @@ async function route(request, env, ctx) {
       // exists and before any lookup — so the refusal is decided without
       // reading anything and therefore discloses nothing about what this
       // context holds. `hasScope` reads the already-clamped set, so a `member`
-      // of somebody else's brain is refused by their role and not only by the
+      // of somebody else's workspace is refused by their role and not only by the
       // grant.
       const needed = meetingRoute
         ? scopeForMeetingRequest(request.method)
@@ -966,7 +967,7 @@ async function route(request, env, ctx) {
       // Meetings are anchored to the context the request addressed, for the
       // reason capture is: the store is built without an opener, so a recorder
       // left running on a laptop reaches exactly one context and a meeting
-      // cannot be filed into a brain the URL did not name. The acting identity
+      // cannot be filed into a workspace the URL did not name. The acting identity
       // rides on the store so the audit line for a written meeting says who,
       // and not merely at what tier.
       if (meetingRoute) {
@@ -1768,7 +1769,7 @@ function visiblePrivateOverrides(rules) {
  *
  * One function rather than two literals, because a cross-context call builds a
  * second store and the audit line on it must name the context it was written
- * in. Two copies of this object is how a note filed into somebody's brain ends
+ * in. Two copies of this object is how a note filed into somebody's workspace ends
  * up stamped with the workspace the client happened to connect to.
  */
 function actorFor(session) {
@@ -1789,7 +1790,7 @@ function actorFor(session) {
 }
 
 /**
- * The caller's username — their own brain's slug, with the `@`.
+ * The caller's username — their own workspace's slug, with the `@`.
  *
  * A response says who wrote it, and the only name that means anything across
  * contexts is the one in the global username namespace. It is read off the
@@ -2089,7 +2090,7 @@ const EXISTENCE_MASKED_TOOLS = new Set([
  *
  * It exempts the *call*, never the listing. `toolsForSession` needs no branch
  * for it: a connection that can take part in a form is, by construction, one
- * whose person owns their own brain — that is where the username a response is
+ * whose person owns their own workspace — that is where the username a response is
  * recorded under comes from — so `writesAnywhere` is already true of it and the
  * full list is already offered. A listing branch would only ever have fired for
  * a connection whose submissions `mutateFormResponses` then refuses for want of
@@ -2186,7 +2187,7 @@ async function callToolForSession(params, store, session) {
    * **Everything below this point runs against the addressed context, and
    * nothing above it decided anything.** That is why the routing is here: this
    * function and `toolsForSession` are the only two places authority is
-   * decided, and a call into somebody else's brain has to be clamped by *their*
+   * decided, and a call into somebody else's workspace has to be clamped by *their*
    * membership rather than by the one the client happens to be connected to.
    * Resolving a context anywhere else — in a tool, in a path parser — is a
    * second authority decision, and the second one is the one that drifts.
@@ -2204,7 +2205,7 @@ async function callToolForSession(params, store, session) {
     Present but unusable is a refusal, never a fall-through to the default.
     A `context` of `123`, of `""`, or of an object is a client that meant to
     address somewhere else and failed to say where — and quietly serving the
-    context it did not ask for is how a note gets written into the wrong brain.
+    context it did not ask for is how a note gets written into the wrong workspace.
     Absent is the only thing that means "here".
   */
   if (requested !== undefined && requested !== null && !isUsableContextName(requested)) {
@@ -2214,7 +2215,7 @@ async function callToolForSession(params, store, session) {
     // A deployment that never installed the opener — a self-host shim, a test
     // harness — refuses rather than silently serving the default context. The
     // failure a person can act on is "that did not happen"; the one they cannot
-    // is a note filed in the wrong brain.
+    // is a note filed in the wrong workspace.
     if (typeof store.openContext !== "function") {
       return toolError("this connection cannot address another context");
     }
@@ -2342,7 +2343,7 @@ async function callToolForSession(params, store, session) {
   //
   // Read off `target`, never `session`: the grant's write scope survives only
   // where the caller's role in *that* context can back it up, so a `member` in
-  // somebody's brain is refused here even holding a full-access grant.
+  // somebody's workspace is refused here even holding a full-access grant.
   if (
     toolIsWriting(params?.name) &&
     !hasScope(target, SCOPE_WRITE) &&
@@ -2389,7 +2390,7 @@ async function callToolForSession(params, store, session) {
 
   const result = await callTool(params?.name, args, targetStore, target.scope);
   // Counted after the call, against the context the call was *routed to* —
-  // `target`, never `session`. A cross-context call is activity in the brain it
+  // `target`, never `session`. A cross-context call is activity in the workspace it
   // reached, and attributing it to the connection's default context would
   // quietly make one tenant's figures include another's work.
   reportToolUsage(store, params?.name, target.workspaceId);
@@ -2422,7 +2423,7 @@ const USAGE_METRICS_BY_TOOL = new Map([
  *
  * Not a count of *people*, and the dashboard says so: a client that
  * reconnects on every call reports every time. The distinct-contexts figure
- * (`usageActiveDaily`) is the one that answers "how many brains are in use",
+ * (`usageActiveDaily`) is the one that answers "how many workspaces are in use",
  * and this one answers "how much connecting is going on", which is a different
  * and also useful question.
  */
@@ -2548,8 +2549,8 @@ async function handleRpc(msg, store, session) {
 const CONTEXT_ARGUMENT = {
   type: "string",
   description:
-    'Optional. Another context to act in, as "@name" — a brain someone shared with you, or a ' +
-    "workspace you belong to. Omit it to act in your own. Call orient with the same argument " +
+    'Optional. Another context to act in, as "@name" — a workspace someone shared with you, or ' +
+    "one you belong to. Omit it to act in your own. Call orient with the same argument " +
     "first: every folder map, search and listing is per context.",
 };
 
@@ -5100,7 +5101,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   if (typeof content !== "string") return toolError("content must be a string");
   if (isPlumbing(path)) return toolError("that path is reserved");
   if (isPersonalCommunicationsPath(path) && store.actor?.workspaceKind === "shared") {
-    return toolError("personal communications can only be synced to a personal brain");
+    return toolError("personal communications can only be synced to a personal workspace");
   }
   /*
    * A FORM BLOCK THAT DOES NOT PARSE IS REFUSED AT THE WRITE, NOT AT THE READ.
@@ -5422,7 +5423,7 @@ async function mutateFormResponses(store, scope, rules, overrides, args, action,
   const actor = formActor(store);
   if (!actor.name) {
     return toolError(
-      "this connection has no username to record a response under; create your brain first."
+      "this connection has no username to record a response under; create your workspace first."
     );
   }
   const form = await resolveForm(store, scope, rules, overrides, args);
@@ -6457,7 +6458,7 @@ async function toolRotateEncryptionKeys(store, scope) {
     whatever that read turns out to say. Counting only the notes actually
     MOVED lets a call read the whole bucket for free whenever most of what it
     passes over comes back "clean" — a bucket where encryption is on for a
-    subset of the notes, which is the ordinary shape of a brain, not a corner
+    subset of the notes, which is the ordinary shape of a workspace, not a corner
     case. Measured on this branch before this line changed: a 10,000-note
     bucket with 200 encrypted notes issued 10,002 reads in a single call, the
     exact ceiling the persisted cursor exists to remove. The cap has to count
@@ -7881,14 +7882,14 @@ async function projectAfterSync(store, budget, synced, visibilityOf, options) {
    *
    * The alternative is arithmetic nobody would sign off on: one slice per
    * search, and a context that has just opted in copies twenty notes and then
-   * waits for somebody to search again. A brain in the thousands is then days
+   * waits for somebody to search again. A workspace in the thousands is then days
    * of ordinary use away from a working fast search, which is indistinguishable
    * — to its owner, watching a counter — from the "nothing is happening" state
    * this whole change exists to end.
    *
    * The same shape the control plane's scheduled `maintainIndex` already uses
    * for the R2 index ("chains itself while it is making progress so a cold
-   * brain converges without anybody searching eight times"), with the two
+   * workspace converges without anybody searching eight times"), with the two
    * bounds that make a chain terminate rather than wedge:
    *
    *  - **Every iteration spends at least one op** (it re-reads the cursor), and

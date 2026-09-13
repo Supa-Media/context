@@ -373,7 +373,7 @@ aimed at, that account is the wall.
 
 1. **One workspace, one bucket. Never a prefix.** This is the second
    non-negotiable, and managed storage changes what it is _for_: it used to be
-   about connecting an existing brain without migration, and it is now also
+   about connecting an existing workspace without migration, and it is now also
    the thing that makes handing a bucket over possible at all. A bucket
    holding one customer's notes can be given to them; a shared bucket with a
    prefix per customer can only ever be exported _from_. `managedBucketName()`
