@@ -82,6 +82,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
+import { inventoryPlugins } from "../../mcp/src/plugins/inventory.js";
 // The gateway's D1 wire, imported rather than ported, for the same reason
 // `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
 // which is Convex's runtime too. It holds the write token for the life of one
@@ -301,6 +302,94 @@ const imageValidator = v.object({
   kind: v.literal("image"),
   bytes: v.bytes(),
 });
+
+const pluginVerdictValidator = v.union(
+  v.literal("runs"),
+  v.literal("needs-approval"),
+  v.literal("files-only"),
+  v.literal("wont-run"),
+  v.literal("unknown"),
+);
+
+const pluginEvidenceValidator = v.object({
+  id: v.string(),
+  kind: v.union(
+    v.literal("module"),
+    v.literal("member"),
+    v.literal("network"),
+    v.literal("dynamic"),
+    v.literal("scan"),
+  ),
+  reason: v.string(),
+});
+
+const pluginValidator = v.object({
+  folder: v.string(),
+  id: v.string(),
+  name: v.string(),
+  version: v.string(),
+  author: v.string(),
+  description: v.string(),
+  isDesktopOnly: v.boolean(),
+  manifestError: v.union(v.string(), v.null()),
+  verdict: pluginVerdictValidator,
+  evidence: v.array(pluginEvidenceValidator),
+  notes: v.array(v.string()),
+  limitations: v.array(v.string()),
+  hosts: v.array(v.string()),
+  reason: v.string(),
+  supported: v.array(v.string()),
+});
+
+const pluginInventoryValidator = v.object({
+  kind: v.literal("pluginInventory"),
+  available: v.boolean(),
+  reason: v.union(v.string(), v.null()),
+  plugins: v.array(pluginValidator),
+  counts: v.object({
+    runs: v.number(),
+    "needs-approval": v.number(),
+    "files-only": v.number(),
+    "wont-run": v.number(),
+    unknown: v.number(),
+  }),
+  found: v.number(),
+  scanned: v.number(),
+  truncated: v.boolean(),
+  checkedAt: v.string(),
+});
+
+type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
+type PluginInventory = {
+  available: boolean;
+  reason: string | null;
+  plugins: Array<{
+    folder: string;
+    id: string;
+    name: string;
+    version: string;
+    author: string;
+    description: string;
+    isDesktopOnly: boolean;
+    manifestError: string | null;
+    verdict: PluginVerdict;
+    evidence: Array<{
+      id: string;
+      kind: "module" | "member" | "network" | "dynamic" | "scan";
+      reason: string;
+    }>;
+    notes: string[];
+    limitations: string[];
+    hosts: string[];
+    reason: string;
+    supported: string[];
+  }>;
+  counts: Record<PluginVerdict, number>;
+  found: number;
+  scanned: number;
+  truncated: boolean;
+  checkedAt: string;
+};
 
 const vaultImportResultValidator = v.object({
   kind: v.literal("vaultImported"),
@@ -625,6 +714,7 @@ const operationResultValidator = v.union(
   privacyResetValidator,
   imageWrittenValidator,
   imageValidator,
+  pluginInventoryValidator,
   vaultImportResultValidator,
   vaultClearResultValidator,
   searchResultsValidator,
@@ -730,6 +820,7 @@ const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
+  v.object({ kind: v.literal("pluginInventory") }),
   v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
@@ -826,6 +917,7 @@ type FileOperation =
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
+  | { kind: "pluginInventory" }
   | {
       kind: "form";
       path: string;
@@ -849,6 +941,7 @@ type FileOperation =
 type OperationResult =
   | ({ kind: "formApplied" } & FormResult)
   | ({ kind: "searchResults" } & SearchResults)
+  | ({ kind: "pluginInventory" } & PluginInventory)
   | { kind: "notePaths"; paths: string[] | null }
   | {
       kind: "indexMaintained";
@@ -2225,6 +2318,10 @@ export async function executeOperation(
 ): Promise<OperationResult> {
   try {
     switch (operation.kind) {
+      case "pluginInventory": {
+        const inventory = await inventoryPlugins(store) as PluginInventory;
+        return { kind: "pluginInventory", ...inventory };
+      }
       case "list": {
         const listing = await listFolder(store, { path: operation.path, scope });
         return { kind: "listing", ...listing };
@@ -2625,6 +2722,37 @@ export const listFiles = action({
       operation: { kind: "list", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "listing" }>;
+  },
+});
+
+/**
+ * Structured Obsidian plugin compatibility for the first-party console.
+ *
+ * Owner-only because `.obsidian/` is outside the privacy manifest: a member
+ * may read the notes their scope permits, but that says nothing about whether
+ * they may inventory another person's installed software or its settings.
+ * The credential barrier returns only manifest metadata and scan findings;
+ * bundle text and `data.json` never leave it.
+ */
+export const listObsidianPlugins = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: pluginInventoryValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "pluginInventory" },
+    });
+    return result as Extract<OperationResult, { kind: "pluginInventory" }>;
   },
 });
 

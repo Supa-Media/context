@@ -248,6 +248,73 @@ describe("an owner can edit their context", () => {
   });
 });
 
+describe("Obsidian plugin inventory", () => {
+  test("returns structured compatibility data to an owner without changing the bucket", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        version: "1.2.2",
+        author: "Example Author",
+        minAppVersion: "1.0.0",
+        description: "Highlight text",
+      }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const before = f.backend.snapshot();
+
+    const result = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+
+    expect(result).toMatchObject({
+      available: true,
+      found: 1,
+      scanned: 1,
+      truncated: false,
+      counts: { runs: 1 },
+      plugins: [{
+        folder: "highlightr-plugin",
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        version: "1.2.2",
+        verdict: "runs",
+        reason: "no-calls-outside-the-sandbox-found",
+      }],
+    });
+    expect(result.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(f.backend.snapshot()).toEqual(before);
+  });
+
+  test("is owner-only and keeps a non-member indistinguishable from a missing workspace", async () => {
+    const f = await fixture();
+    const editorError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    expect(errorCode(editorError)).toBe("INSUFFICIENT_ROLE");
+
+    const missingId = await danglingWorkspaceId(f.t);
+    const stranger = asUser(f.t, f.stranger);
+    const existingError = await captureError(() => stranger.action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    const missingError = await captureError(() => stranger.action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: missingId },
+    ));
+    expect(errorShape(existingError)).toBe(errorShape(missingError));
+    expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+  });
+});
+
 describe("Obsidian vault import", () => {
   test("requires the exact destructive acknowledgement before a replacement job exists", async () => {
     const f = await fixture();
@@ -1261,6 +1328,10 @@ describe("a stranger cannot reach another workspace's files", () => {
 
     const calls: Array<(workspaceId: Id<"workspaces">) => Promise<unknown>> = [
       (workspaceId) => as.action(api.functions.files.listFiles, { workspaceId, path: "" }),
+      // `.obsidian/` is outside the privacy manifest entirely, so the plugin
+      // inventory must establish ownership before its fixed read path opens.
+      (workspaceId) =>
+        as.action(api.functions.files.listObsidianPlugins, { workspaceId }),
       (workspaceId) =>
         as.action(api.functions.files.readNote, { workspaceId, path: "1-projects/shared.md" }),
       (workspaceId) =>
