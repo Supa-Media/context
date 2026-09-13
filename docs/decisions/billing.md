@@ -311,7 +311,7 @@ action for an unshared context created by this identity, so one CUJ can be torn
 down without touching any other test context. Ordinary account deletion
 continues to leave customer-owned storage untouched.
 
-## Storage we run is offered wherever a context is made, workspace
+## Storage we run is offered wherever a context is made, personal or shared
 
 The managed card was drawn on first run's storage step and not on the bucket
 step of a new workspace. Nothing enforced that — it was a prop the workspace
