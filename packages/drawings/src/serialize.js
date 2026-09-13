@@ -45,7 +45,7 @@
  */
 
 import { compressToBase64, decompressFromBase64 } from "./lzstring.js";
-import { parseDrawing } from "./excalidraw.js";
+import { parseDrawing, payloadFence, textElementsSpan } from "./excalidraw.js";
 
 /**
  * How the plugin wraps a long base64 payload.
@@ -121,10 +121,14 @@ export function canSerializeDrawing(original) {
  * front of every caller that only wants to read.
  */
 function findPayloadSpan(text) {
-  const fence = /^[ \t]*```(compressed-json|json)[ \t]*$/gm;
-  const opener = fence.exec(text);
+  // `payloadFence` rather than a second regex: the reader and the writer have
+  // to agree about which fence is the payload, and when this file kept its own
+  // copy they did not — a fence inside a text label was the payload to both,
+  // so an edit was spliced into somebody's label while their real drawing kept
+  // its old contents. One locator, one answer.
+  const opener = payloadFence(text);
   if (!opener) return null;
-  const start = opener.index + opener[0].length + 1;
+  const start = opener.start;
   const close = text.indexOf("\n```", start - 1);
   /*
     An unterminated fence, and an honestly-labelled backstop: with this line
@@ -137,7 +141,7 @@ function findPayloadSpan(text) {
     line, with the same admission.)
   */
   if (close === -1) return null;
-  return { compressed: opener[1] === "compressed-json", start, end: close + 1 };
+  return { compressed: opener.compressed, start, end: close + 1 };
 }
 
 /**
@@ -160,23 +164,6 @@ function readScene(text, payload) {
   } catch {
     return null;
   }
-}
-
-/**
- * Where the `Text Elements` block's content sits.
- *
- * From the end of the heading line to the start of the next heading (or the
- * `%%` that opens the payload comment), so replacing it never touches the
- * heading itself and never runs into the section after it.
- */
-function textElementsSpan(text) {
-  const heading = /^#{1,6}[ \t]+Text Elements[ \t]*$/im.exec(text);
-  if (!heading) return null;
-  const start = heading.index + heading[0].length + 1;
-
-  const rest = text.slice(start);
-  const next = /^(?:#{1,6}[ \t]+\S|%%[ \t]*$)/m.exec(rest);
-  return { start, end: next ? start + next.index : text.length };
 }
 
 /**

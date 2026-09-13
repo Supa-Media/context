@@ -307,6 +307,52 @@ function sceneShell(drawing) {
   };
 }
 
+/* -- (6) a fence in a text label is not the span we splice ----------------- */
+
+{
+  /*
+   * The write half of `test.mjs`'s "a fence inside a text label is not the
+   * payload", and the half with teeth: `findPayloadSpan` located the fence the
+   * same way the reader did, so a decoy above the real payload was where the
+   * edit went. The customer draws, Context saves, and their actual drawing —
+   * still sitting further down the file — keeps its old contents.
+   *
+   * The decoy is carried by a real text element rather than hand-inserted into
+   * the Markdown, because that is both the honest vector and the only one that
+   * survives a save: `renderTextElements` rebuilds the block from the elements,
+   * so anything not backed by an element is legitimately swept away and the
+   * check would pass without proving anything.
+   */
+  const decoy = compressToBase64(
+    JSON.stringify({ type: "excalidraw", version: 2, files: {}, appState: {},
+      elements: [{ id: "decoy", type: "text", x: 0, y: 0, text: "not yours" }] })
+  );
+  const label = {
+    id: "quoted", type: "text", x: 0, y: 0, width: 10, height: 10,
+    text: `see the format:\n\`\`\`compressed-json\n${decoy}\n\`\`\``,
+  };
+
+  const before = serializeDrawing(drawingFile(ELEMENTS), [...ELEMENTS, label]);
+  check("a drawing whose label quotes a fence serializes", before !== null);
+  check(
+    "and the label really did put a second fence in the file",
+    before !== null && before.indexOf("```compressed-json") < before.lastIndexOf("```compressed-json")
+  );
+
+  const after = serializeDrawing(before, [
+    { id: "new", type: "rectangle", x: 1, y: 1, width: 2, height: 2 },
+  ]);
+  check("the next save still lands", after !== null);
+  check(
+    "the real payload is the one that changed",
+    after !== null && parseDrawing(after).elements?.[0]?.id === "new"
+  );
+  check(
+    "and reading it back does not find the decoy's scene",
+    after !== null && parseDrawing(after).elements?.every((one) => one.id !== "decoy")
+  );
+}
+
 if (failures.length > 0) {
   console.error(`\n${failures.length} failed, ${passed} passed`);
   process.exit(1);

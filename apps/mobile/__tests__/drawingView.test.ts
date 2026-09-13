@@ -139,7 +139,17 @@ describe("DrawingView", () => {
   });
 
   test("a drawing it cannot decode still shows its labels, not an error", () => {
-    const broken = ["## Text Elements", "Cassowary ^labelA", "", "```compressed-json", "!!!!", "```"].join("\n");
+    /*
+      The `%%` matters: without it the `Text Elements` block runs to the end of
+      the file and swallows the fence, and a fence inside a text label is not a
+      payload — it is somebody's typing (`payloadFence`). This fixture is about
+      an undecodable *payload*, so the payload has to be where the plugin puts
+      one.
+    */
+    const broken = [
+      "## Text Elements", "Cassowary ^labelA", "",
+      "%%", "## Drawing", "```compressed-json", "!!!!", "```", "%%",
+    ].join("\n");
     const container = mount({ path: "1-projects/plan.excalidraw.md", source: broken });
 
     expect(container.querySelector("svg")).toBeNull();
