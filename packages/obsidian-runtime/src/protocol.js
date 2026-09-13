@@ -47,6 +47,30 @@ export function capabilityForOperation(operation) {
 }
 
 /**
+ * Apply the persisted grant after parsing and before dispatching an operation.
+ * The trusted host chooses the grant; neither workspace nor plugin identity is
+ * accepted from the sandbox message itself.
+ *
+ * @param {PluginRpcRequest} request
+ * @param {{capabilities: readonly PluginCapability[], networkHosts: readonly string[]}} grant
+ * @returns {{ok: true, capability: PluginCapability} | {ok: false, error: ProtocolError}}
+ */
+export function authorizePluginRpcRequest(request, grant) {
+  const operation = /** @type {{kind: OperationKind, url?: string}} */ (request.operation);
+  const capability = capabilityForOperation(operation);
+  if (!grant.capabilities.includes(capability)) {
+    return failure("CAPABILITY_DENIED", `Plugin was not granted ${capability}`);
+  }
+  if (operation.kind === "network.request") {
+    const hostname = new URL(/** @type {string} */ (operation.url)).hostname.toLowerCase();
+    if (!grant.networkHosts.includes(hostname)) {
+      return failure("NETWORK_HOST_DENIED", "Plugin was not granted this exact network host");
+    }
+  }
+  return { ok: true, capability };
+}
+
+/**
  * Validate untrusted messages crossing the plugin sandbox boundary. Workspace and
  * plugin identity are deliberately absent: the trusted host supplies both from
  * the sandbox instance instead of accepting caller-provided authority.

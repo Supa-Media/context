@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   PLUGIN_RPC_VERSION,
+  authorizePluginRpcRequest,
   capabilityForOperation,
   parsePluginRpcRequest,
 } from "../src/protocol.js";
@@ -51,5 +52,30 @@ refused({ version: 1, requestId: "request_1", operation: { kind: "network.reques
 refused({ version: 1, requestId: "request_1", operation: { kind: "network.request", url: "https://user:pass@example.test", method: "GET", headers: [] } }, "INVALID_URL");
 refused({ version: 1, requestId: "request_1", operation: { kind: "network.request", url: "https://api.example.test", method: "TRACE", headers: [] } }, "INVALID_METHOD");
 refused({ version: 1, requestId: "request_1", operation: { kind: "vault.read", path: "note.md", scope: "private" } }, "INVALID_OPERATION");
+
+const readRequest = accepted({ kind: "vault.read", path: "note.md" });
+assert.equal(authorizePluginRpcRequest(readRequest, {
+  capabilities: ["vault:read"],
+  networkHosts: [],
+}).ok, true);
+assert.equal(authorizePluginRpcRequest(readRequest, {
+  capabilities: ["metadata:read"],
+  networkHosts: [],
+}).error.code, "CAPABILITY_DENIED");
+
+const networkRequest = accepted({
+  kind: "network.request",
+  url: "https://api.example.test/v1/items",
+  method: "GET",
+  headers: [],
+});
+assert.equal(authorizePluginRpcRequest(networkRequest, {
+  capabilities: ["network:request"],
+  networkHosts: ["api.example.test"],
+}).ok, true);
+assert.equal(authorizePluginRpcRequest(networkRequest, {
+  capabilities: ["network:request"],
+  networkHosts: ["example.test"],
+}).error.code, "NETWORK_HOST_DENIED");
 
 console.log("obsidian runtime protocol: ok");
