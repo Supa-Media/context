@@ -141,11 +141,11 @@ schema is empty rather than optional.
 The scan is the foundation, not the feature. Three things it stops short of, and
 what each would take:
 
-- **Running plugins.** An `obsidian` API shim over the storage adapter, plugin
-  bundles in a sandboxed worker in the console. The editor half is unusually
-  cheap because Context's editor is already CodeMirror 6, the same as Obsidian's
-  — `SUPPORTED_MEMBERS` is written against what that shim would answer, so the
-  table is the shim's specification as much as the scan's input.
+- **Running plugins (built in the first client runtime below).** This required
+  an `obsidian` API shim over the storage adapter and one browser-process
+  sandbox per bundle. `SUPPORTED_MEMBERS` became the shim's initial
+  specification; frontend rendering of the registrations it emits remains
+  follow-up work.
 - **The grant model for `needs-approval`.** A plugin that reaches a host should
   be a grant like any other: scoped to declared folders and hosts, approved by
   the owner, recorded in the audit trail under its own name, revocable in one
@@ -246,6 +246,35 @@ approximate half.**
   purpose, and rasterising needs a renderer the Worker cannot host. An agent
   gets the description, which is the form it can actually use.
 
+### The browser is the process boundary, and the runtime token never crosses it
+
+The first client runtime uses one sandboxed iframe on web and one WebView on
+native per loaded bundle. The web frame has `allow-scripts` and deliberately no
+`allow-same-origin`; both hosts load a fixed document with a deny-by-default CSP
+that blocks direct network, workers, child frames, forms, objects and external
+assets. A real Chromium and WebKit check proves that plugin code cannot touch the
+parent document or fetch directly.
+
+The opaque runtime token stays in the trusted React host. The frame receives an
+Obsidian shim and can send only a versioned operation with a request id. The host
+adds no identity from that message: it calls `executePluginRequest` with the
+token it retained, and the server resolves the workspace, plugin, reviewed
+fingerprint and grant. RPC replies omit the host's sandbox nonce because plugin
+code can observe events in its own realm; revealing the nonce would let it forge
+the load-health messages the host records.
+
+Start and Stop are separate from approve and revoke. Approval grants authority
+to an exact bundle; Start loads it. Stop removes the frame and deletes every
+bearer session without withdrawing the approval, while revoke still removes the
+authority itself. A previous `loaded` state is resumed when an owner reopens the
+console, tokens rotate before expiry, and three failed loads become
+`crash-looped` rather than retrying forever.
+
+The first shim covers conflict-safe vault reads and mutations, metadata, the
+plugin's own settings, notices, command registration and lifecycle cleanup.
+Rendering plugin-provided editor extensions, settings controls, ribbon actions
+and views remains a frontend integration step; the sandbox is now the place
+  those registrations come from rather than a reason they cannot be built.
 ## The drawing editor is a page, because a dynamic import is not a lazy chunk
 
 Drawings became editable by embedding the real Excalidraw — the only way to be

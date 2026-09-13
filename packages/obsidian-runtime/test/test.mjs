@@ -5,6 +5,10 @@ import {
   capabilityForOperation,
   parsePluginRpcRequest,
 } from "../src/protocol.js";
+import {
+  parsePluginSandboxMessage,
+  pluginSandboxDocument,
+} from "../src/sandbox.js";
 
 function accepted(operation) {
   const parsed = parsePluginRpcRequest({
@@ -79,5 +83,40 @@ assert.equal(authorizePluginRpcRequest(networkRequest, {
   capabilities: ["network:request"],
   networkHosts: ["example.test"],
 }).error.code, "NETWORK_HOST_DENIED");
+
+const sandbox = pluginSandboxDocument();
+assert.match(sandbox, /sandboxed|context-plugin-sandbox/);
+assert.match(sandbox, /connect-src 'none'/);
+assert.doesNotMatch(sandbox, /allow-same-origin/);
+assert.doesNotMatch(sandbox, /runtimeToken|workspaceId/);
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "ready",
+}, "secret"), { type: "ready" });
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "loaded",
+}, "secret"), null);
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "rpc",
+  request: {
+    version: 1,
+    requestId: "one",
+    operation: { kind: "vault.read", path: "a.md" },
+  },
+}, "secret"), {
+  type: "rpc",
+  request: {
+    version: 1,
+    requestId: "one",
+    operation: { kind: "vault.read", path: "a.md" },
+  },
+});
 
 console.log("obsidian runtime protocol: ok");

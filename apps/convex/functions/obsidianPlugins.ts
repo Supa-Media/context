@@ -1196,6 +1196,78 @@ export const revokePlugin = mutation({
   },
 });
 
+/**
+ * Stop one running bundle without revoking the authority its owner reviewed.
+ *
+ * The runtime session is the bearer capability, so stopping deletes it before
+ * reporting the owner-facing state. A frame that races one last request after
+ * this mutation therefore meets `PLUGIN_SESSION_INVALID`, not a still-live
+ * grant. Re-enable is a fresh `loadPluginBundle` call and a fresh token.
+ */
+export const stopPlugin = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    pluginId: v.string(),
+    bundleFingerprint: v.string(),
+  },
+  returns: runtimeStatusValidator,
+  handler: async (ctx, args) => {
+    const actorUserId = await callerId(ctx);
+    await requireOwner(ctx, args.workspaceId, actorUserId);
+    const grant = await ctx.db
+      .query("obsidianPluginGrants")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    if (!grant || grant.status !== "active" || grant.bundleFingerprint !== args.bundleFingerprint) {
+      throw pluginError("PLUGIN_NOT_GRANTED", "Stop must match an active reviewed bundle");
+    }
+    const sessions = await ctx.db
+      .query("obsidianPluginRuntimeSessions")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .collect();
+    await deleteRuntimeSessions(ctx, sessions);
+    const existing = await ctx.db
+      .query("obsidianPluginRuntimeStates")
+      .withIndex("by_workspace_plugin", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("pluginId", args.pluginId)
+      )
+      .unique();
+    const now = Date.now();
+    const fields = {
+      workspaceId: args.workspaceId,
+      pluginId: args.pluginId,
+      bundleFingerprint: args.bundleFingerprint,
+      status: "blocked" as const,
+      attempts: existing?.attempts ?? 0,
+      errorCode: "OWNER_DISABLED",
+      errorMessage: "You stopped this plugin",
+      reportedBy: actorUserId,
+      updatedAt: now,
+    };
+    if (existing) await ctx.db.patch(existing._id, fields);
+    else await ctx.db.insert("obsidianPluginRuntimeStates", fields);
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "plugin.stopped",
+      details: { pluginId: args.pluginId, bundleFingerprint: args.bundleFingerprint },
+    });
+    return {
+      pluginId: fields.pluginId,
+      bundleFingerprint: fields.bundleFingerprint,
+      status: fields.status,
+      attempts: fields.attempts,
+      errorCode: fields.errorCode,
+      errorMessage: fields.errorMessage,
+      updatedAt: fields.updatedAt,
+    };
+  },
+});
+
 /** Runtime lookup: no exact fingerprint match means no authority. */
 export const resolveActiveGrant = internalQuery({
   args: {

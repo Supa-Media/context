@@ -2,6 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 
 import {
   REVOKED_NOTE,
+  isOwnerStop,
   isRevocation,
   rollbackTarget,
   runtimeDetail,
@@ -144,6 +145,14 @@ describe("a revoked grant is not a malfunction", () => {
   test("its note says how to undo it rather than describing a fault", () => {
     expect(REVOKED_NOTE).toContain("Approve it again");
     expect(REVOKED_NOTE).not.toMatch(/error|failed|crash/i);
+  });
+});
+
+describe("stopping is not revoking", () => {
+  test("the owner's stop has its own state and keeps approval reversible", () => {
+    const stopped = state({ status: "blocked", errorCode: "OWNER_DISABLED" });
+    expect(isOwnerStop(stopped)).toBe(true);
+    expect(isRevocation(stopped)).toBe(false);
   });
 });
 
