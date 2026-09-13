@@ -32,6 +32,7 @@
     "@context/communications": "workspace:*",
     "@context/convex": "workspace:*",
     "@context/desktop-bridge": "workspace:*",
+    "@context/drawings": "workspace:*",
     "@context/meetings": "workspace:*",
     "@context/obsidian-runtime": "workspace:*",
     "@context/shared": "workspace:*",

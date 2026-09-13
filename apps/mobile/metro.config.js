@@ -2,7 +2,7 @@ const { createMetroConfig } = require("@supa-media/metro");
 
 const config = createMetroConfig({
   projectRoot: __dirname,
-  sharedPackages: ["@context/shared"],
+  sharedPackages: ["@context/shared", "@context/drawings"],
   // Use Sentry's serializer so native and OTA bundles carry debug IDs that
   // match the source maps uploaded during the build.
   withSentry: true,

@@ -147,6 +147,9 @@ importers:
       '@context/desktop-bridge':
         specifier: workspace:*
         version: link:../../packages/desktop-bridge
+      '@context/drawings':
+        specifier: workspace:*
+        version: link:../../packages/drawings
       '@context/meetings':
         specifier: workspace:*
         version: link:../../packages/meetings
@@ -457,6 +460,8 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+
+  packages/drawings: {}
 
   packages/encryption-decryptor: {}
 
