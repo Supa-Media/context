@@ -212,6 +212,8 @@ const ROUTES: Record<string, Coverage> = {
     paints nothing; that half is `authRedirect.test.ts`'s.
   */
   "index.tsx": { kind: "screen", mount: () => createElement(requireRoute("index.tsx")) },
+  "privacy.tsx": { kind: "screen", mount: () => createElement(requireRoute("privacy.tsx")) },
+  "terms.tsx": { kind: "screen", mount: () => createElement(requireRoute("terms.tsx")) },
   "authorize.tsx": { kind: "screen", mount: () => createElement(ConsentScreen) },
   "(auth)/login.tsx": { kind: "screen", mount: () => createElement(LoginScreen) },
   /*

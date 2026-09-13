@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View, useWindowDimensions } from "react-native";
-import { useRouter } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { Button, PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
@@ -248,6 +248,12 @@ export function Landing() {
             <Text variant="foot">Demo — sign in for your own brain</Text>
             <Text variant="foot">Dropbox in one click · or bring your own bucket</Text>
             <Text variant="foot">MIT · self-hostable</Text>
+            <Link href="/privacy" style={styles.legalLink}>
+              Privacy
+            </Link>
+            <Link href="/terms" style={styles.legalLink}>
+              Terms
+            </Link>
           </View>
         </View>
       </View>
@@ -445,5 +451,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexWrap: "wrap",
     justifyContent: "center",
     gap: 20,
+  },
+  legalLink: {
+    fontFamily: fonts.body,
+    fontSize: 12.5,
+    lineHeight: leading(12.5, 1.55),
+    color: colors.text2,
+    textDecorationLine: "none",
   },
 });
