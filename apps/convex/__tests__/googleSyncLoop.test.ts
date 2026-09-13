@@ -60,6 +60,7 @@ function enableMailSync() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
@@ -1682,6 +1683,10 @@ describe("one pass, end to end, through the credential barrier", () => {
   });
 
   test("a Calendar cursor advances only after its shared day is written", async () => {
+    // Keep this fixture's event inside the full-sync horizon regardless of
+    // the wall-clock date on which the suite runs.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T16:00:00.000Z"));
     const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
     await patchConnection(t, connectionId, {
       products: ["calendar"],

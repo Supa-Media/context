@@ -356,13 +356,9 @@ const pluginInventoryValidator = v.object({
   available: v.boolean(),
   reason: v.union(v.string(), v.null()),
   plugins: v.array(pluginValidator),
-  counts: v.object({
-    runs: v.number(),
-    "needs-approval": v.number(),
-    "files-only": v.number(),
-    "wont-run": v.number(),
-    unknown: v.number(),
-  }),
+  // Convex object-validator fields are identifiers, so verdicts containing
+  // hyphens must be represented as record keys instead of object fields.
+  counts: v.record(pluginVerdictValidator, v.number()),
   found: v.number(),
   scanned: v.number(),
   truncated: v.boolean(),
