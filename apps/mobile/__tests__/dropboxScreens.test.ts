@@ -454,6 +454,7 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     */
     plugins: { state: "idle" },
     pluginGrants: { grants: [], loading: false },
+    pluginBrowse: { query: "", searching: false, failure: null },
     loading: false,
     failure: null,
   } as never;

@@ -381,7 +381,7 @@ export function SettingsPane({
         here. Context reads <Text variant="mono">.obsidian/</Text> and never writes to it —
         nothing on this screen changes your vault.
       </PanelHead>
-      <PluginsPanel view={data.plugins} grants={data.pluginGrants} />
+      <PluginsPanel view={data.plugins} grants={data.pluginGrants} browse={data.pluginBrowse} />
       </>
       ) : null}
 

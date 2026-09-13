@@ -1,6 +1,7 @@
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { GrantsView } from "./plugins/grants";
+import type { BrowseView } from "./plugins/lifecycle";
 import type { ConsoleFailure } from "./failure";
 import type { NoteWriter } from "./encryption/passphraseOps";
 import type { FileBrowser } from "./files/browser";
@@ -369,6 +370,14 @@ export interface ConsoleData {
    * them into one view would drag the expensive half along on every revoke.
    */
   pluginGrants: GrantsView;
+  /**
+   * The official registry, and the controls that change what Context manages.
+   *
+   * Separate from `plugins` and `pluginGrants` for the same reason those two are
+   * separate from each other: this one reaches a third party's list over the
+   * network, so nothing about it may ride along with a read of the bucket.
+   */
+  pluginBrowse: BrowseView;
   /** True while the first Convex round-trip is outstanding. */
   loading: boolean;
   /**

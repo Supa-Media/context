@@ -32,6 +32,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
 import type { GrantsView } from "../features/console/plugins/grants";
+import type { BrowseView } from "../features/console/plugins/lifecycle";
 import {
   SCOPE_NOTE,
   type ConsolePlugin,
@@ -50,7 +51,11 @@ afterEach(() => {
   grant view carrying controls would put an Approve button into every assertion
   about wording. `pluginGrants.test.ts` drives the other half.
 */
-function panel(view: PluginsView, grants: GrantsView = { grants: [], loading: false }): HTMLElement {
+function panel(
+  view: PluginsView,
+  grants: GrantsView = { grants: [], loading: false },
+  browse: BrowseView = { query: "", searching: false, failure: null },
+): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -59,7 +64,7 @@ function panel(view: PluginsView, grants: GrantsView = { grants: [], loading: fa
     container.remove();
   });
   act(() => {
-    root.render(createElement(PluginsPanel, { view, grants }));
+    root.render(createElement(PluginsPanel, { view, grants, browse }));
   });
   return container;
 }

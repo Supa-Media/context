@@ -512,6 +512,8 @@ export function useDemoConsoleData(): ConsoleData {
       having granted something.
     */
     pluginGrants: { grants: [], loading: false },
+    // No `actions`, the same rule: the landing page has no bucket to install into.
+    pluginBrowse: { query: "", searching: false, failure: null },
     loading: false,
     // Nothing here is fetched, so nothing here can fail: the landing page's
     // console is data, not a subscription.
