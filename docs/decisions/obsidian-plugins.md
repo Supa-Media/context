@@ -405,3 +405,113 @@ occurrence: `100%% off ^id` is somebody's label.
 two drift again; dropping it from `splitSections` restores the phantom label.
 `packages/drawings/test/test.mjs` group (10) fails — three checks, plus one that
 pins that `%%` inside a label is still text.
+
+## A file that does not exist yet is scaffolded, once, and edited ever after
+
+`serialize.js` refuses to build a drawing from a template, and its header is
+right about why: it rewrites bytes somebody's bucket holds, and a regenerating
+serializer drops the frontmatter, the plugin's warning line, `Element Links`,
+`Embedded Files`, a heading somebody added, the trailing newline, even CRLF.
+
+That header carried a second sentence which went further than the argument
+supported: that a new drawing is created by the editor that owns the format,
+and this package only edits what comes back. Nobody had priced it. It meant the
+console could offer **no** New drawing at all, so starting a diagram required
+installing Obsidian and its Excalidraw plugin, in a product that renders and
+edits drawings natively on the web and on a phone. The feature read as "we
+support Obsidian's format" when the true statement is that we support drawings
+and keep Obsidian's format so files move both ways.
+
+So the rule is narrowed rather than dropped. **An existing file is edited, never
+regenerated. A file that does not exist yet is scaffolded once, in
+`scaffold.js`, and every change after that goes back through
+`serializeDrawing`.**
+
+The risk the old rule guarded against was two producers of one format that
+disagree. That is answered by writing what the plugin writes rather than by
+writing nothing: the frontmatter key, the `# Excalidraw Data` container, the
+`## Text Elements` section and the `%%` wrapper are the plugin's, and the
+warning line is copied character for character from a real file rather than
+composed. If the plugin later reworded it, a file we scaffolded keeps the old
+wording until Obsidian next saves it, which rewrites the line itself. That is
+the whole of the drift and it is cosmetic.
+
+The payload is `compressed-json` because that is the plugin's default, so a
+drawing this product created is indistinguishable from one Obsidian created,
+sitting in the same folder. An empty scene would read better as plain `json`
+and that is the wrong reason to choose it.
+
+**The seed is chosen by the path, not by which control was pressed.**
+`createNote` writes `# name` for a note and a scaffold for a `.excalidraw.md`
+name, so the toolbar, the phone's `+`, and a folder row's menu all reach the
+same file. Before this, typing `plan.excalidraw` into New note produced a note
+the gateway then refused, because `toolWriteNote` requires a write to a drawing
+path to carry a payload. The dead end and the missing feature were one bug.
+
+New drawing is a row in the create chooser and an item in the folder menu, and
+deliberately **not** a fifth button in the explorer's toolbar. That toolbar's own
+comment refuses permanent chrome for anything short of the controls somebody
+uses every day, and the icon set holds only marks that have a caller.
+
+**What a simplification costs.** Deleting `scaffold.js` puts drawing creation
+back inside Obsidian. Moving it into `serialize.js` puts a template next to the
+splice and invites the next person to reach for it when editing.
+`packages/drawings/test/test.mjs` group (11) and three checks in
+`apps/mobile/__tests__/fileBrowserGuards.test.ts` fail.
+
+## The editor is cached by a worker scoped to its own directory
+
+Shipping the drawing editor as a page rather than as part of the console was
+measured and is not in question: importing it took the console's web JavaScript
+from 5.7MB to 14.6MB **on every page load**, for a feature most sessions never
+open. The cost stated at the time was that editing a drawing needed a network.
+A drawing still rendered offline, because `DrawingView` draws from the file the
+console already holds, so losing connectivity cost the editor rather than the
+content.
+
+The obvious answer to that is to bundle it after all, on the grounds that 8MB
+is not much. It is not 8MB idle: it is 14.6MB of blocking script on every page
+load, for everybody, including the people who never open a drawing. Caching the
+page that already exists gets the same outcome and changes the console's
+page-load size by nothing.
+
+**Scope is the whole design.** A worker's scope is the directory it is served
+from, so this one is emitted beside the editor at
+`/drawing-assets/editor/sw.js` and controls that directory and nothing else. A
+worker at the origin root would sit in front of every console request, and a
+bug in it would serve a stale app shell to people who never open a drawing.
+Confined, the worst it can do is serve a stale editor. It is registered from
+`DrawingEditor.web.tsx` rather than at app start, so the load that pays for the
+2.4MB is the load that caches it.
+
+**Stale while revalidate, because the filenames are not hashed.** `editor.js`
+and `editor.css` keep their names across deploys, so cache-first with no
+refresh would pin somebody to the version they first opened. Every response is
+served from the cache and refetched behind it. The one-version lag is safe here
+and would not be in the console: the page and its bundle always deploy
+together, and what crosses between them is a versioned protocol
+(`context.drawing.v1`), so a console that has moved on can tell rather than
+guess.
+
+**No precache manifest.** The build emits a page, a bundle, a stylesheet and a
+directory of fonts whose names change when the font list does. A manifest is a
+second list to keep in step, which is the failure `bundle.generated.ts` needs a
+whole CI job to prevent. Caching what was actually fetched needs no list.
+
+**Native is deliberately not done this way, and is not done yet.** A phone has
+no service worker, and the `WebView`'s HTTP cache is off on purpose:
+`DrawingEditor.tsx` passes `incognito`, so nothing the page touches outlives
+the view in a shared web store. Under `incognito`, `cacheEnabled` and Android's
+`cacheMode` do nothing, and removing `incognito` to get caching would also
+start persisting cookies, `localStorage` and IndexedDB for that origin. That is
+a privacy trade for a two-line win. The native answer is to download the
+editor's files to app storage and load a `file://` copy, which keeps
+`incognito`; it needs a manifest, a place to put it and a refresh rule, and it
+is not built.
+
+**What a simplification costs.** Registering the worker at the origin root, or
+widening `cacheable`, puts every console request behind it. Dropping the
+revalidation pins a device to one build for ever. Caching a response regardless
+of `response.ok` serves a bad deploy's 404 offline permanently.
+`apps/mobile/__tests__/drawingServiceWorker.test.ts` holds each, and its
+sabotage record names the one that started at zero.

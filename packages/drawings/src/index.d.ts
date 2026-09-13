@@ -168,6 +168,14 @@ export declare function serializeDrawing(
 ): string | null;
 
 /** Whether `serializeDrawing` would produce a file for this original. */
+/**
+ * An empty drawing, as a complete `.excalidraw.md` file body.
+ *
+ * The one file this package invents rather than edits. See `scaffold.js` for
+ * why that is narrowed to a file that does not exist yet.
+ */
+export declare function newDrawing(): string;
+
 export declare function canSerializeDrawing(original: unknown): boolean;
 
 export declare function compressToBase64(input: string | null | undefined): string;

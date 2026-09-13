@@ -79,6 +79,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     paste: noop,
     copyTo: noop,
     createNote: noop,
+    createDrawing: noop,
     createFolder: noop,
     rename: noop,
     move: noop,
