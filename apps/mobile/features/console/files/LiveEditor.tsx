@@ -107,6 +107,8 @@ export function LiveEditor({
   onSubmitForm,
   onReadFormResponses,
   onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -167,6 +169,8 @@ export function LiveEditor({
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
+    onUpdateFormResponse,
+    onRetractFormResponse,
   });
   handlers.current = {
     onChange,
@@ -180,6 +184,8 @@ export function LiveEditor({
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
+    onUpdateFormResponse,
+    onRetractFormResponse,
   };
 
   /**
@@ -284,6 +290,12 @@ export function LiveEditor({
           onVoteForm: (vote) =>
             handlers.current.onVoteForm?.(vote) ??
             Promise.resolve({ ok: false, message: "Voting is unavailable here." }),
+          onUpdateFormResponse: (change) =>
+            handlers.current.onUpdateFormResponse?.(change) ??
+            Promise.resolve({ ok: false, message: "Editing is unavailable here." }),
+          onRetractFormResponse: (change) =>
+            handlers.current.onRetractFormResponse?.(change) ??
+            Promise.resolve({ ok: false, message: "Deleting is unavailable here." }),
         },
       ),
     [keepCaretClear],

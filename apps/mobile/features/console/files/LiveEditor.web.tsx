@@ -54,6 +54,8 @@ import type {
   FormOutcome,
   FormHostRef,
   FormResponsesOutcome,
+  FormResponseRetract,
+  FormResponseUpdate,
   FormSubmission,
   FormVote,
 } from "./formBlock";
@@ -169,6 +171,8 @@ export interface LiveEditorProps {
   onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
   onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
   onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
+  onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
 }
 
 /**
@@ -287,6 +291,8 @@ export function LiveEditor({
   onSubmitForm,
   onReadFormResponses,
   onVoteForm,
+  onUpdateFormResponse,
+  onRetractFormResponse,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -332,6 +338,12 @@ export function LiveEditor({
             ? {}
             : { readResponses: (path: string) => onReadFormResponses(path) }),
           ...(onVoteForm === undefined ? {} : { vote: (next: FormVote) => onVoteForm(next) }),
+          ...(onUpdateFormResponse === undefined
+            ? {}
+            : { update: (change: FormResponseUpdate) => onUpdateFormResponse(change) }),
+          ...(onRetractFormResponse === undefined
+            ? {}
+            : { retract: (change: FormResponseRetract) => onRetractFormResponse(change) }),
         };
 
   /**

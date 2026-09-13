@@ -74,6 +74,7 @@ export interface FormConfig {
   readonly layout: "table" | "sections";
   readonly submit: "member" | "editor" | "owner";
   readonly edit_own: boolean;
+  readonly show_responses: boolean;
   readonly votes: "named" | "off";
   readonly fields: readonly FormField[];
 }
@@ -144,6 +145,17 @@ export interface FormVote {
   readonly vote: "up" | "none";
 }
 
+export interface FormResponseUpdate {
+  readonly formId: string;
+  readonly responseId: string;
+  readonly values: ReadonlyArray<{ field: string; value: string }>;
+}
+
+export interface FormResponseRetract {
+  readonly formId: string;
+  readonly responseId: string;
+}
+
 /**
  * The host's half: how a submission leaves this editor.
  *
@@ -161,6 +173,10 @@ export interface FormHostContext {
   readResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
   /** Add or remove the signed-in person's named vote. */
   vote?: (vote: FormVote) => Promise<FormOutcome>;
+  /** Replace the answers on a response, subject to the server's ownership check. */
+  update?: (change: FormResponseUpdate) => Promise<FormOutcome>;
+  /** Delete a response, subject to the server's ownership check. */
+  retract?: (change: FormResponseRetract) => Promise<FormOutcome>;
 }
 
 export interface FormHostRef {
@@ -389,21 +405,41 @@ export class FormWidget extends WidgetType {
     foot.append(button, status);
     wrap.append(foot);
 
-    const reloadResponses = this.drawResponses(wrap, config);
-
-    if (this.host === null) {
-      button.disabled = true;
-      status.textContent = "This preview can’t send responses.";
-      status.classList.add("cm-lp-form-status-quiet");
-      return wrap;
-    }
-
     const say = (message: string, kind: "ok" | "bad" | "quiet"): void => {
       status.textContent = message;
       status.classList.toggle("cm-lp-form-status-ok", kind === "ok");
       status.classList.toggle("cm-lp-form-status-bad", kind === "bad");
       status.classList.toggle("cm-lp-form-status-quiet", kind === "quiet");
     };
+
+    let editingId: string | null = null;
+    const edit = (response: ParsedResponse): void => {
+      editingId = response.id;
+      for (const field of config.fields) {
+        const input = inputs.get(field.name);
+        if (input === undefined) continue;
+        const value = response.values[field.name] ?? "";
+        if (input instanceof HTMLInputElement && input.type === "checkbox") {
+          input.checked = value === "true";
+        } else {
+          input.value = value;
+          input.dispatchEvent(new Event("input"));
+        }
+        input.disabled = false;
+      }
+      button.disabled = false;
+      button.textContent = "Save changes";
+      say("Editing your response.", "quiet");
+      inputs.values().next().value?.focus();
+    };
+
+    const reloadResponses = this.drawResponses(wrap, config, edit);
+
+    if (this.host === null) {
+      button.disabled = true;
+      say("This preview can’t send responses.", "quiet");
+      return wrap;
+    }
 
     button.addEventListener("click", () => {
       const host = this.host?.current ?? null;
@@ -429,16 +465,23 @@ export class FormWidget extends WidgetType {
         return;
       }
 
+      const responseId = editingId;
+      const operation =
+        responseId === null
+          ? host.submit({ formId: config.id, values })
+          : host.update?.({ formId: config.id, responseId, values }) ??
+            Promise.resolve({ ok: false, message: "Editing is unavailable here." });
       button.disabled = true;
-      say("Sending…", "quiet");
-      host
-        .submit({ formId: config.id, values })
+      say(responseId === null ? "Sending…" : "Saving…", "quiet");
+      operation
         .then((outcome) => {
           say(outcome.message, outcome.ok ? "ok" : "bad");
           if (!outcome.ok) {
             button.disabled = false;
             return;
           }
+          editingId = null;
+          button.textContent = "Submit";
           /*
             The boxes are cleared and the button stays off after a success. A
             form that comes back ready to send again invites the double-press
@@ -476,7 +519,9 @@ export class FormWidget extends WidgetType {
   private drawResponses(
     wrap: HTMLElement,
     config: FormConfig,
+    edit: (response: ParsedResponse) => void,
   ): () => Promise<void> {
+    if (!config.show_responses) return async () => {};
     const section = el("div", "cm-lp-form-responses");
     const host = this.host;
     let generation = 0;
@@ -518,7 +563,7 @@ export class FormWidget extends WidgetType {
         section.append(el("div", "cm-lp-form-responses-status", "No responses yet."));
         return;
       }
-      section.append(this.responsesTable(config, parsed.responses, read));
+      section.append(this.responsesTable(config, parsed.responses, read, edit));
     };
 
     if (host?.current?.readResponses !== undefined) {
@@ -533,6 +578,7 @@ export class FormWidget extends WidgetType {
     config: FormConfig,
     responses: readonly ParsedResponse[],
     reload: () => Promise<void>,
+    edit: (response: ParsedResponse) => void,
   ): HTMLDivElement {
     const scroll = el("div", "cm-lp-form-responses-scroll");
     const table = document.createElement("table");
@@ -547,6 +593,7 @@ export class FormWidget extends WidgetType {
       headings.append(el("th", "", label));
     }
     if (config.votes === "named") headings.append(el("th", "", "Votes"));
+    if (config.edit_own) headings.append(el("th", "", "Actions"));
     head.append(headings);
     table.append(head);
 
@@ -593,6 +640,50 @@ export class FormWidget extends WidgetType {
           controls.append(add, remove);
           cell.append(controls);
         }
+        row.append(cell);
+      }
+      if (config.edit_own) {
+        const cell = document.createElement("td");
+        const controls = el("div", "cm-lp-form-response-controls");
+        if (this.host?.current?.update !== undefined) {
+          const change = el("button", "cm-lp-form-response-action cm-lp-form-edit", "Edit");
+          change.type = "button";
+          change.addEventListener("click", () => edit(response));
+          controls.append(change);
+        }
+        const retract = this.host?.current?.retract;
+        if (retract !== undefined) {
+          const remove = el(
+            "button",
+            "cm-lp-form-response-action cm-lp-form-delete",
+            "Delete",
+          );
+          remove.type = "button";
+          let confirmed = false;
+          remove.addEventListener("click", () => {
+            if (!confirmed) {
+              confirmed = true;
+              remove.textContent = "Confirm delete";
+              return;
+            }
+            remove.disabled = true;
+            void retract({ formId: config.id, responseId: response.id })
+              .then((outcome) => {
+                if (outcome.ok) void reload();
+                else {
+                  remove.disabled = false;
+                  remove.textContent = outcome.message;
+                }
+              })
+              .catch((error: unknown) => {
+                remove.disabled = false;
+                remove.textContent =
+                  error instanceof Error ? error.message : "That response wasn’t deleted.";
+              });
+          });
+          controls.append(remove);
+        }
+        cell.append(controls);
         row.append(cell);
       }
       body.append(row);

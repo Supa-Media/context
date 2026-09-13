@@ -120,6 +120,7 @@ const REQUESTS_NOTE = [
   "layout: table",
   "submit: member",
   "edit_own: false",
+  "show_responses: true",
   "votes: named",
   "fields:",
   "  - { name: title, type: line, max: 120, required: true }",
@@ -240,9 +241,11 @@ export async function runFormChecks(check) {
     check("a well-formed form block parses to one config", blocks.length === 1 && !!blocks[0].config);
     check("...and keeps its declared layout rather than inferring one", blocks[0].config.layout === "sections");
     check("...and defaults edit_own to true", blocks[0].config.edit_own === true);
+    check("...and hides responses unless opted in", blocks[0].config.show_responses === false);
 
     const noVotes = parseFormBlocks(STAFF_NOTE)[0].config;
     check("votes defaults are read, not guessed", noVotes.votes === "off" && noVotes.submit === "editor");
+    check("response display can be opted into", parseFormBlocks(REQUESTS_NOTE)[0].config.show_responses === true);
   }
 
   {
