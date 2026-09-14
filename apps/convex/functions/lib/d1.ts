@@ -304,12 +304,44 @@ export interface D1Database {
   name: string;
 }
 
+/** Cloudflare's cap on a D1 database name. */
+const D1_DATABASE_NAME_MAX = 63;
+
 /** A name a person can recognize in the Cloudflare dashboard. */
 export function databaseNameFor(workspaceId: string): string {
   // The workspace id, not the slug: a slug can be renamed and a database name
   // cannot, so a slug-derived name goes stale and stops matching the context
   // it belongs to. Ids are opaque and carry no customer content.
-  return `context-search-${workspaceId}`.slice(0, 63);
+  //
+  // **THE NAME IS AN IDENTITY, SO IT MAY NOT BE LOSSY.** `ensureDatabase`
+  // adopts a database that already carries this name, and the argument for why
+  // that is safe — "the name is a prefix plus an immutable, unguessable id, so
+  // a database of that name IS this workspace's" — holds only while two
+  // workspaces cannot produce one name. This used to end `.slice(0, 63)`,
+  // which is precisely the operation that breaks that: two ids agreeing on
+  // their first 48 characters become one name, and the second context adopts
+  // the first one's database, resets it and projects its own notes in.
+  //
+  // Unreachable today, and that is why it is worth refusing rather than
+  // capping: a Convex id is 32 characters against 48 available, so the only
+  // way to reach it is an id format change — a change nobody would think to
+  // review as a tenancy change, arriving long after the adoption logic that
+  // gives it teeth. When the honest answer will not fit, there is no second
+  // answer to fall back to, which is the same choice `readSearchIndexBinding`
+  // makes about a half-formed descriptor and `selectWorkspace` about a default
+  // outside the covered set.
+  if (!workspaceId) {
+    throw new Error("a search database needs a workspace id to be named after");
+  }
+  const name = `context-search-${workspaceId}`;
+  if (name.length > D1_DATABASE_NAME_MAX) {
+    throw new Error(
+      `a search database name may be at most ${D1_DATABASE_NAME_MAX} characters; ` +
+        "this workspace id does not fit, and truncating one would let two contexts " +
+        "share a database",
+    );
+  }
+  return name;
 }
 
 export async function createDatabase(
