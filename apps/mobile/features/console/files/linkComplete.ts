@@ -204,11 +204,23 @@ export function noteLinkSource(ref: NoteLinkRef): CompletionSource {
  * The form source is first because the two can never both answer: one fires
  * only inside a `form` fence and the other only inside a `[[`, and a `[[` in a
  * form block is a field value rather than a link.
+ *
+ * A running plugin's suggester is the third, and it arrives here for exactly
+ * the reason above rather than installing its own `autocompletion()`. It did
+ * install its own once, and the combined facet threw `Config merge conflict for
+ * field override` at state construction — so a note would not open at all for
+ * anybody with a plugin running. It is last because it is the only one that
+ * leaves this process: the other two answer from the document, and a round trip
+ * to a sandbox should not sit in front of them.
  */
-export function editorCompletion(ref: NoteLinkRef | null): Extension {
+export function editorCompletion(ref: NoteLinkRef | null, plugin?: CompletionSource): Extension {
   return [
     autocompletion({
-      override: [formCompletionSource(), ...(ref === null ? [] : [noteLinkSource(ref)])],
+      override: [
+        formCompletionSource(),
+        ...(ref === null ? [] : [noteLinkSource(ref)]),
+        ...(plugin === undefined ? [] : [plugin]),
+      ],
       // The list is rebuilt from the note paths on every keystroke, so there is
       // nothing to keep open across one.
       closeOnBlur: true,

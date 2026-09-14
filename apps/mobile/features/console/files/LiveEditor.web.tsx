@@ -39,7 +39,7 @@
 
 import { useEffect, useRef } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
-import { pluginSuggestions } from "./pluginSuggest";
+import { pluginSuggestSource } from "./pluginSuggest";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
 import { findInNote } from "./findInNote";
@@ -543,6 +543,20 @@ export function LiveEditor({
           links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
           forms,
           /*
+            A plugin's in-editor suggestions, and only where a plugin can run.
+            An option on the shared list rather than an extension appended after
+            it: `editorExtensions` already configures CodeMirror's one
+            completion, and a second `autocompletion()` beside it throws
+            `Config merge conflict for field override` at state construction —
+            which is what it did, in production, for every note opened with a
+            plugin running. The native guest passes nothing here and keeps the
+            editor it had.
+          */
+          pluginSuggest:
+            onSuggest !== undefined && onPickSuggestion !== undefined
+              ? pluginSuggestSource({ ask: onSuggest, pick: onPickSuggestion })
+              : undefined,
+          /*
             No `insetBottom`. A mobile browser shrinks the layout viewport when
             the keyboard opens rather than drawing over the page, so the
             scroller is already the size of what can be seen and a margin here
@@ -551,15 +565,6 @@ export function LiveEditor({
             see `coveredBottom`.
           */
         }),
-        /*
-          A plugin's in-editor suggestions, and only where a plugin can run.
-          Installed as its own extension rather than folded into
-          `editorExtensions` because that list is shared with the native
-          webview guest, which has no sandbox on the other side of it yet.
-        */
-        ...(onSuggest !== undefined && onPickSuggestion !== undefined
-          ? [pluginSuggestions({ ask: onSuggest, pick: onPickSuggestion })]
-          : []),
         findInNote(),
       ],
     });

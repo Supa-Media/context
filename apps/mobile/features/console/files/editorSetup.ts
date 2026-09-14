@@ -28,7 +28,7 @@ import {
 } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentLess, indentMore, redo, undo } from "@codemirror/commands";
-import { startCompletion } from "@codemirror/autocomplete";
+import { startCompletion, type CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
@@ -414,8 +414,22 @@ export function editorExtensions(options: {
    * reported, never faked."
    */
   forms?: FormHostRef;
+  /**
+   * A running plugin's in-editor suggestions, as a completion source.
+   *
+   * A source rather than an extension, and passed through here rather than
+   * added beside `editorExtensions(...)` by the host: `override` is one list on
+   * one facet, and a second `autocompletion()` throws at state construction
+   * instead of composing. See `editorCompletion`.
+   *
+   * Absent on every surface with no sandbox behind it — the native editor's
+   * `WebView` guest and the landing page's demo console — and the editor then
+   * offers its own two sources, which is what it did before plugins existed.
+   */
+  pluginSuggest?: CompletionSource;
 }): Extension[] {
-  const { editable, editableCompartment, handlers, insetBottom, links, forms } = options;
+  const { editable, editableCompartment, handlers, insetBottom, links, forms, pluginSuggest } =
+    options;
   return [
     markdownLanguage(),
     livePreview(),
@@ -435,7 +449,7 @@ export function editorExtensions(options: {
       the form vocabulary, which is the half a person writing one by hand cannot
       do without.
     */
-    editorCompletion(links ?? null),
+    editorCompletion(links ?? null, pluginSuggest),
     /*
       A facet rather than an argument to `livePreview()`, so the decorations
       stay a pure function of the state and the widget can still reach its host

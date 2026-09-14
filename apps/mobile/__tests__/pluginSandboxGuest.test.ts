@@ -718,6 +718,28 @@ describe("a plugin can suggest into the editor", () => {
     ]);
   });
 
+  /*
+    THE LETTER S.
+
+    `sandbox.js` is one template literal, and inside one `\s` is not an escape
+    — it is the letter `s`. So the whitespace flattener shipped as
+    `replace(/s+/g, ' ')` and quietly deleted every `s` from every suggestion it
+    reported: `Psalms 23:1` arrived as `P alm 23:1`.
+
+    Nothing caught it because the fixture above renders `John 3:16 (NIV)`,
+    which has no lowercase `s` in it. The status bar's copy of the same line
+    two hundred lines up was written `\\s` and is correct, which is what made
+    this readable rather than only findable by running it.
+  */
+  test("a suggestion keeps its own letters, and only its whitespace is flattened", async () => {
+    const guest = await suggester();
+    const results = await guest.ask("see @ Psalms  23:1", 18);
+    expect(results?.items.map((one) => one.text)).toEqual([
+      "Psalms 23:1 (NIV)",
+      "Psalms 23:1 (ESV)",
+    ]);
+  });
+
   test("a line with no trigger returns nothing rather than everything", async () => {
     const guest = await suggester();
     const results = await guest.ask("ordinary prose", 14);
