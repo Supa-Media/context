@@ -237,7 +237,12 @@ export async function runContextPluginChecks(check) {
   // strip the plugin inventory already applies to a folder name.
   check(
     "an id carrying a bidi control is refused",
-    parseEnablement(JSON.stringify({ version: 1, disabled: ["context-‮forms"] })).decisions === null
+    // Escaped rather than pasted, which is `check-no-identifiers.mjs`'s rule and
+    // is the same argument this check is about: a literal U+202E in source
+    // reverses the line for the reviewer reading it, so the file would be doing
+    // to a human exactly what the parser refuses to let a bucket do to a report.
+    parseEnablement(JSON.stringify({ version: 1, disabled: ["context-\u202eforms"] }))
+      .decisions === null
   );
   check(
     "an id carrying a path separator is refused",
