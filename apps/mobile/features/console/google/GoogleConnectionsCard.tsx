@@ -372,15 +372,16 @@ function GoogleConnectControls({
   });
   const google = useGoogleStart(actions.workspaceId);
   /*
-    A narrowed panel asks Google for its own scope and nothing else. The
-    toggles are the *whole* card's control — three services chosen at once —
-    and reproducing them under a heading that says "Calendar" would offer
-    somebody a Gmail scope they did not come here for.
+    Google's verification is project-wide: every active OAuth request has to
+    match the scopes submitted in Cloud Console. The split settings panels are
+    still the right UI for explaining Email, Calendar and Chat separately, but
+    the OAuth grant is one Google account grant, so a narrowed panel requests
+    the full communications set instead of a partial scope set.
   */
   const requested: GoogleSyncServices =
     service === undefined
       ? services
-      : { gmail: service === "gmail", calendar: service === "calendar", chat: service === "chat" };
+      : { gmail: true, calendar: true, chat: true };
   const selected = Object.values(requested).some(Boolean);
   const starting = google.state.kind === "starting";
 
@@ -414,8 +415,8 @@ function GoogleConnectControls({
       />
       {service === undefined ? null : (
         <Text variant="foot" style={styles.note}>
-          Google asks for this one thing. Connecting the same account under another
-          heading adds that service to it rather than starting again.
+          Google asks once for Email, Calendar and Chat so this account has one
+          grant that matches the verified app.
         </Text>
       )}
       {google.redirectUri === null ? (
