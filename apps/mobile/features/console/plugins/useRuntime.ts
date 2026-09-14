@@ -6,6 +6,7 @@ import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
 import type { ActiveFileRef, SandboxEvent, VaultEventMessage } from "./sandboxTypes";
+import type { CommandOutcome, InvokeRequest } from "./runtime";
 import type { PluginGrant } from "./grants";
 import { vaultEventForOperation } from "./runtime";
 import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
@@ -63,6 +64,17 @@ export function useRuntime(options: {
     does not. Every path that removes a sandbox clears its entry.
   */
   const [registrations, setRegistrations] = useState<Record<string, PluginRegistration[]>>({});
+  /*
+    The command the owner last pressed, and how the last one turned out.
+
+    One slot each rather than a queue, matching `vaultEvent`: a person presses
+    one command at a time, and a second press replaces the first rather than
+    stacking behind it. `seq` is what makes a repeat of the same command a
+    second message instead of no message at all.
+  */
+  const [invoke, setInvoke] = useState<InvokeRequest | undefined>(undefined);
+  const [outcomes, setOutcomes] = useState<Record<string, CommandOutcome>>({});
+  const presses = useRef(0);
 
   /*
     REGISTRATIONS FOLLOW THE FRAMES, RATHER THAN EACH PATH REMEMBERING TO CLEAR.
@@ -81,13 +93,20 @@ export function useRuntime(options: {
     removes one next.
   */
   useEffect(() => {
-    setRegistrations((was) => {
-      const live = new Set(sandboxes.map((one) => one.bundle.pluginId));
+    const live = new Set(sandboxes.map((one) => one.bundle.pluginId));
+    const prune = <T,>(was: Record<string, T>): Record<string, T> => {
       const keys = Object.keys(was);
       const keep = keys.filter((pluginId) => live.has(pluginId));
       if (keep.length === keys.length) return was;
       return Object.fromEntries(keep.map((pluginId) => [pluginId, was[pluginId]!]));
-    });
+    };
+    setRegistrations(prune);
+    /*
+      An outcome outlives its frame no more than a registration does: "Ran"
+      beside a command belonging to a plugin that has since stopped is the same
+      false claim, one step further on.
+    */
+    setOutcomes(prune);
   }, [sandboxes]);
   const resumed = useRef(new Set<string>());
   /*
@@ -197,6 +216,35 @@ export function useRuntime(options: {
     await stopPlugin({ workspaceId, pluginId, bundleFingerprint });
   }, [isOwner, stopPlugin, workspaceId]);
 
+  /*
+    Ask a running plugin to run one of its commands.
+
+    Synchronous and fire-and-forget: this only moves a slot, and the frame posts
+    the message from an effect. The answer comes back as `command-result` and
+    lands in `outcomes`, so a caller awaits nothing — there is no promise here
+    that could resolve, because the guest may simply never answer and a hung
+    command must not look like a pending one for ever.
+  */
+  const run = useCallback((pluginId: string, id: string) => {
+    if (!isOwner) return;
+    /*
+      Addressed to the frame that is running right now. A press for a plugin
+      with no live frame is dropped here rather than sitting in the slot waiting
+      for one to appear — see `invokeFor` for why a later frame must not inherit
+      it.
+    */
+    const frame = sandboxes.find((one) => one.bundle.pluginId === pluginId);
+    if (frame === undefined) return;
+    presses.current += 1;
+    setInvoke({ seq: presses.current, pluginId, nonce: frame.nonce, id });
+    setOutcomes((was) => {
+      if (!(pluginId in was)) return was;
+      const next = { ...was };
+      delete next[pluginId];
+      return next;
+    });
+  }, [isOwner, sandboxes]);
+
   const onEvent = useCallback((sandbox: ActiveSandbox, event: SandboxEvent) => {
     if (workspaceId === null) return;
     const { pluginId, bundleFingerprint, runtimeToken } = sandbox.bundle;
@@ -211,6 +259,13 @@ export function useRuntime(options: {
         const without = mine.filter((one) => one.id !== event.id);
         return { ...was, [pluginId]: [...without, { kind: event.kind, id: event.id, name: event.name }] };
       });
+      return;
+    }
+    if (event.type === "command-result") {
+      setOutcomes((was) => ({
+        ...was,
+        [pluginId]: { id: event.id, ok: event.ok, error: event.error },
+      }));
       return;
     }
     if (event.type === "unloaded") {
@@ -328,9 +383,10 @@ export function useRuntime(options: {
     states,
     loading: isOwner && workspaceId !== null && raw === undefined,
     host: isOwner
-      ? createElement(PluginSandboxFarm, { sandboxes, onEvent, activeFile, vaultEvent, grants })
+      ? createElement(PluginSandboxFarm, { sandboxes, onEvent, activeFile, vaultEvent, invoke, grants })
       : undefined,
     registrations,
-    actions: isOwner && workspaceId !== null ? { start, stop } : undefined,
+    outcomes,
+    actions: isOwner && workspaceId !== null ? { start, stop, run } : undefined,
   };
 }

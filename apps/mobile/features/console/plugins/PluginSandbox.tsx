@@ -18,6 +18,7 @@ export function PluginSandbox({
   onEvent,
   activeFile = null,
   vaultEvent,
+  invoke,
 }: PluginSandboxProps) {
   const frame = useRef<WebView | null>(null);
   // See the web host: host-to-guest state only lands once the bundle is
@@ -102,6 +103,14 @@ export function PluginSandbox({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, post, vaultEvent?.seq]);
+
+  useEffect(() => {
+    if (!loaded || invoke === undefined) return;
+    // Keyed on `seq` — see the web host. Two presses must be two messages, and
+    // whether this frame is the one the press was aimed at is `invokeFor`'s.
+    post({ type: "command", id: invoke.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, invoke?.seq]);
 
   return (
     <WebView

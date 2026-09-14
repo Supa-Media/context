@@ -13,6 +13,7 @@ export function PluginSandbox({
   onEvent,
   activeFile = null,
   vaultEvent,
+  invoke,
 }: PluginSandboxProps) {
   const frame = useRef<HTMLIFrameElement | null>(null);
   /*
@@ -122,6 +123,25 @@ export function PluginSandbox({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, post, vaultEvent?.seq]);
+
+  /*
+    Run a command the owner pressed.
+
+    Keyed on `seq` for the same reason as `vault-event`, and here the reason is
+    not an optimisation: pressing the same command twice must send it twice, and
+    an effect depending on the object would fire on every unrelated render
+    instead.
+
+    This posts whatever it is handed. Whether the press was aimed at *this*
+    frame is not knowable here — a restart mounts a new sandbox that also goes
+    from not-loaded to loaded — so the address is checked in `invokeFor`, where
+    the frames are known. Do not add a guard here that pretends otherwise.
+  */
+  useEffect(() => {
+    if (!loaded || invoke === undefined) return;
+    post({ type: "command", id: invoke.id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, invoke?.seq]);
 
   return (
     <iframe

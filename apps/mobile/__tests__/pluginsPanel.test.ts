@@ -253,7 +253,7 @@ describe("the ready list", () => {
         }],
       },
       { query: "", limit: 20, searching: false, failure: null },
-      { states: [], loading: false, actions: { start, stop: async () => {} } },
+      { states: [], loading: false, actions: { start, stop: async () => {}, run: () => {} } },
     );
     const button = [...container.querySelectorAll("[role='button'], button")]
       .find((one) => one.textContent === "Start") as HTMLElement;
@@ -290,7 +290,7 @@ describe("the ready list", () => {
           updatedAt: 1,
         }],
         loading: false,
-        actions: { start: async () => {}, stop },
+        actions: { start: async () => {}, stop, run: () => {} },
       },
     );
     const button = [...container.querySelectorAll("[role='button'], button")]

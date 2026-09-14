@@ -396,6 +396,25 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       return typeof row.message === "string"
         ? { type: "notice", message: row.message.slice(0, 500) }
         : null;
+    /*
+      The guest's answer to a host `command`.
+
+      Nonce-checked above with everything else observable, and for the same
+      reason: a forged result would report a command as run that never was, or
+      report success for one that threw. `ok` is required to be a boolean
+      rather than coerced — a message that simply omits it is malformed, and
+      treating a missing field as failure would invent an outcome the guest
+      never claimed.
+    */
+    case "command-result":
+      return typeof row.id === "string" && typeof row.ok === "boolean"
+        ? {
+            type: "command-result",
+            id: row.id.slice(0, 100),
+            ok: row.ok,
+            error: typeof row.error === "string" ? row.error.slice(0, 500) : null,
+          }
+        : null;
     case "registration":
       return (row.kind === "command" || row.kind === "ribbon") &&
         typeof row.id === "string" &&

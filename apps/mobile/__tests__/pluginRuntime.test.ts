@@ -5,6 +5,8 @@ import {
   REVOKED_NOTE,
   describeRegistrations,
   registrationsFor,
+  commandOutcomeFor,
+  invokeFor,
   isOwnerStop,
   isRevocation,
   rollbackTarget,
@@ -375,8 +377,112 @@ describe("what a running plugin added", () => {
     );
   });
 
-  test("the note says why the names are not pressable", () => {
-    expect(REGISTRATION_NOTE).toContain("cannot run it from here yet");
-    expect(REGISTRATION_NOTE).not.toMatch(/error|broken|failed/i);
+  /*
+    The note now renders only where there are no controls — the demo console —
+    so it has to say *that*, not that Context cannot run commands. It could,
+    and one screen over it does.
+  */
+  test("the note explains the preview rather than claiming a missing feature", () => {
+    expect(REGISTRATION_NOTE).toMatch(/preview/i);
+    expect(REGISTRATION_NOTE).not.toMatch(/error|broken|failed|cannot run/i);
+  });
+});
+
+/**
+ * Which frame a pressed command is sent to.
+ *
+ * The active note and vault events are **broadcast** — every guest allowed to
+ * see paths gets them. A command is the opposite: it must reach exactly the
+ * plugin whose button was pressed, because delivering it to the others would
+ * run whatever *they* registered under that id. The guest's own ignore-unknown-
+ * id rule is a second line, not the first: two plugins can register the same
+ * obvious id (`toggle`, `refresh`) without either being at fault.
+ *
+ * So this is routing, and it is tested as routing.
+ */
+describe("a pressed command reaches one frame and no other", () => {
+  const frame = (pluginId: string, nonce: string) => ({ bundle: { pluginId }, nonce });
+  const request = { seq: 3, pluginId: "highlightr", nonce: "nonce-1", id: "toggle" };
+
+  test("the frame it was aimed at receives it", () => {
+    expect(invokeFor(frame("highlightr", "nonce-1"), request)).toEqual({ seq: 3, id: "toggle" });
+  });
+
+  /*
+    The failure this exists to prevent: a plugin that registered its own
+    `toggle` running because somebody pressed a different plugin's.
+  */
+  test("a plugin sharing the command id does not receive it", () => {
+    expect(invokeFor(frame("virtual-linker", "nonce-1"), request)).toBeUndefined();
+  });
+
+  /*
+    THE RESTART CASE, and the reason a plugin id alone is not an address.
+
+    A restart mounts a new sandbox, whose effect fires on `loaded` with the
+    previous press still in the slot — so the replacement would run a command
+    nobody pressed. The guest cannot refuse it: a restarted plugin registers the
+    same ids it registered before, so `toggle` resolves and runs.
+  */
+  test("the frame that replaced it does not inherit the press", () => {
+    expect(invokeFor(frame("highlightr", "nonce-2"), request)).toBeUndefined();
+  });
+
+  test("nothing pressed sends nothing", () => {
+    expect(invokeFor(frame("highlightr", "nonce-1"), undefined)).toBeUndefined();
+  });
+
+  /*
+    The counter has to survive routing, or a second press of the same command
+    is indistinguishable from the first and the host posts nothing.
+  */
+  test("the sequence number is carried through so a repeat press is a repeat", () => {
+    const one = frame("highlightr", "nonce-1");
+    const first = invokeFor(one, { seq: 1, pluginId: "highlightr", nonce: "nonce-1", id: "toggle" });
+    const again = invokeFor(one, { seq: 2, pluginId: "highlightr", nonce: "nonce-1", id: "toggle" });
+    expect(first).not.toEqual(again);
+    expect(again!.seq).toBe(2);
+  });
+});
+
+/**
+ * Pairing a command's outcome with the name it was pressed under.
+ *
+ * The interesting case is not the happy one. A bundle can register a different
+ * set of commands across two loads, so an outcome can outlive the command it
+ * describes — and attaching a failure to whichever command now sits in that
+ * position is worse than showing nothing.
+ */
+describe("an outcome is shown against a command that still exists", () => {
+  const registered = [
+    { kind: "command" as const, id: "toggle", name: "Toggle highlight" },
+    { kind: "ribbon" as const, id: "ribbon-0", name: "Highlight" },
+  ];
+
+  test("the name is resolved, because an id means nothing to a reader", () => {
+    expect(commandOutcomeFor(registered, { id: "toggle", ok: true, error: null }))
+      .toEqual({ name: "Toggle highlight", ok: true, error: null });
+  });
+
+  test("a failure carries its message through", () => {
+    expect(commandOutcomeFor(registered, { id: "ribbon-0", ok: false, error: "boom" }))
+      .toEqual({ name: "Highlight", ok: false, error: "boom" });
+  });
+
+  test("no outcome is no outcome", () => {
+    expect(commandOutcomeFor(registered, undefined)).toBeNull();
+  });
+
+  /*
+    The regression this exists for: a result from the previous load rendered
+    against this load's commands.
+  */
+  test("an outcome for a command this load did not register is dropped", () => {
+    expect(commandOutcomeFor(registered, { id: "from-last-time", ok: false, error: "boom" }))
+      .toBeNull();
+  });
+
+  test("a plugin listing nothing shows no outcome at all", () => {
+    expect(commandOutcomeFor([], { id: "toggle", ok: true, error: null })).toBeNull();
   });
 });
