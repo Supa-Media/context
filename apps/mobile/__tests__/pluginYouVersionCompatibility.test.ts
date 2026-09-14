@@ -193,6 +193,49 @@ describe("YouVersion Linker compatibility", () => {
     expect(posted.filter((one) => one.request?.operation.kind === "vault.modify")).toHaveLength(1);
   });
 
+  /*
+   * The guest accepts a host message on `message.source === "context-plugin-host"`
+   * — a string in the payload, which anyone who can post into this frame can
+   * write. The sandbox comment argues that is safe because "once loaded,
+   * host-to-guest messages omit the nonce. They can only ask the plugin to act
+   * inside its own realm, so accepting a forged one grants no authority."
+   *
+   * That premise stopped being true when the command path grew a read and a
+   * write of its own: a `command` message now makes the guest issue
+   * `vault.read` on the open note and `vault.modify` back onto it, around
+   * whatever the plugin does in between. A forged one is therefore an
+   * unauthorized write to a customer's note, timed by whoever forged it.
+   *
+   * Nonce-ing this direction is not the fix and the comment says why — the
+   * plugin shares the realm and would read the value out of the event. What a
+   * plugin cannot forge is `event.source`, which the UA sets.
+   */
+  test("a command from a window that is not the host neither reads nor writes", async () => {
+    toGuest({ type: "active-file", path: "proof.md", etag: "etag-1" });
+    const outsider = document.createElement("iframe");
+    document.body.appendChild(outsider);
+    const mark = posted.length;
+
+    window.dispatchEvent(new MessageEvent("message", {
+      data: { source: "context-plugin-host", version: 1, type: "command", id: "generate-links" },
+      source: outsider.contentWindow,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(posted.slice(mark).filter((one) => one.type === "rpc")).toHaveLength(0);
+    expect(posted.slice(mark).filter((one) => one.type === "command-result")).toHaveLength(0);
+    outsider.remove();
+  });
+
+  test("...while the host's own command, which carries no source, still runs", async () => {
+    toGuest({ type: "active-file", path: "proof.md", etag: "etag-1" });
+    const mark = posted.length;
+    toGuest({ type: "command", id: "generate-links" });
+
+    const read = await nextRpc(mark);
+    expect(read.operation).toEqual({ kind: "vault.read", path: "proof.md" });
+  });
+
   test("an editor command without an active note fails without reading or writing", async () => {
     const mark = posted.length;
     toGuest({ type: "command", id: "generate-links" });
