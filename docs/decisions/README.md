@@ -186,6 +186,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
 - The note is a measured column, and the demo note stopped faking one
+- The staff console is shaped for ten customers, and its figures count rows
 
 ## [Meetings](./meetings.md)
 
