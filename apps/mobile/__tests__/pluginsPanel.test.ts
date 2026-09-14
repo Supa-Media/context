@@ -54,7 +54,7 @@ afterEach(() => {
 */
 function panel(
   view: PluginsView,
-  grants: GrantsView = { grants: [], loading: false },
+  grants: GrantsView = { grants: [], loading: false, egress: false },
   browse: BrowseView = { query: "", limit: 20, searching: false, failure: null },
   runtime: RuntimeView = { states: [], loading: false },
 ): HTMLElement {
@@ -241,6 +241,7 @@ describe("the ready list", () => {
       READY,
       {
         loading: false,
+        egress: false,
         grants: [{
           pluginId: "highlightr-plugin",
           bundleFingerprint: "fp-highlightr-plugin",
@@ -268,6 +269,7 @@ describe("the ready list", () => {
       READY,
       {
         loading: false,
+        egress: false,
         grants: [{
           pluginId: "highlightr-plugin",
           bundleFingerprint: "fp-highlightr-plugin",

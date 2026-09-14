@@ -185,7 +185,10 @@ module.exports = [
       The drawing editor's own source. It is a browser ES module bundled by
       esbuild rather than by Metro — a page of its own, for the reasons
       `drawingBridge.ts` records — so it is the one thing here that is neither
-      React Native nor CommonJS, and needs `window` and `document` to exist.
+      React Native nor CommonJS, and needs `window`, `document` and `URL` to
+      exist. `URL` earns its place rather than being convenience: `assetPath.js`
+      builds the font base from `document.baseURI` with it, because the relative
+      string it replaced was silently resolved against the origin instead.
     */
     files: ["drawing-editor/**/*.{js,jsx}"],
     languageOptions: {
@@ -196,6 +199,7 @@ module.exports = [
         window: "readonly",
         document: "readonly",
         console: "readonly",
+        URL: "readonly",
       },
     },
   },

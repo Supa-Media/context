@@ -50,6 +50,9 @@ const PLUGIN: ConsolePlugin = {
 
 const GRANTS: GrantsView = {
   loading: false,
+  // Irrelevant here and deliberately the conservative value: nothing in this
+  // file asks for the network, and running a command needs no egress.
+  egress: false,
   grants: [{
     pluginId: "highlightr-plugin",
     bundleFingerprint: "fp-1",

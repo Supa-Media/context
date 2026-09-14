@@ -512,7 +512,7 @@ export function useDemoConsoleData(): ConsoleData {
       account behind it, so an Approve there would be a button that lies about
       having granted something.
     */
-    pluginGrants: { grants: [], loading: false },
+    pluginGrants: { grants: [], loading: false, egress: false },
     // No `actions`, the same rule: the landing page has no bucket to install into.
     pluginBrowse: { query: "", limit: REGISTRY_PAGE, searching: false, failure: null },
     /*

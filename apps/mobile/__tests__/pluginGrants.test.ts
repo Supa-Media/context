@@ -4,7 +4,8 @@ import { PLUGIN_CAPABILITIES } from "@context/obsidian-runtime";
 import {
   ALL_CAPABILITIES,
   DEFAULT_CAPABILITIES,
-  GRANTABLE_CAPABILITIES,
+  grantableCapabilities,
+  networkNote,
   STALE_NOTE,
   approvalOffer,
   capabilityDetail,
@@ -158,8 +159,8 @@ describe("the capability list is the enforcer's list", () => {
 
 describe("the form offers only what can be granted today", () => {
   test("network is excluded, and everything else is offered", () => {
-    expect([...GRANTABLE_CAPABILITIES]).not.toContain("network:request");
-    expect(GRANTABLE_CAPABILITIES).toHaveLength(ALL_CAPABILITIES.length - 1);
+    expect([...grantableCapabilities(false)]).not.toContain("network:request");
+    expect(grantableCapabilities(false)).toHaveLength(ALL_CAPABILITIES.length - 1);
   });
 
   /*
@@ -169,7 +170,7 @@ describe("the form offers only what can be granted today", () => {
   test("it tracks the enforcer's list rather than keeping its own", () => {
     for (const capability of ALL_CAPABILITIES) {
       if (capability === "network:request") continue;
-      expect(GRANTABLE_CAPABILITIES).toContain(capability);
+      expect(grantableCapabilities(false)).toContain(capability);
     }
   });
 });
@@ -233,5 +234,93 @@ describe("the capability type is the package's, not a copy", () => {
     // @ts-expect-error "vault:everything" is not a capability the runtime enforces
     const fake: PluginCapability = "vault:everything";
     expect(fake).toBe("vault:everything");
+  });
+});
+
+/*
+  Slice 3, in the pure module: what the deployment can enforce decides what the
+  form may offer, and the order the offer is decided in became load-bearing the
+  moment egress became possible.
+*/
+describe("what a deployment with egress may offer", () => {
+  const networked = {
+    verdict: "needs-approval" as const,
+    hosts: ["www.bible.com"],
+    bundleFingerprint: "fp-1",
+  };
+
+  test("the network capability is grantable only where it can be enforced", () => {
+    expect([...grantableCapabilities(true)]).toContain("network:request");
+    expect([...grantableCapabilities(false)]).not.toContain("network:request");
+    expect(grantableCapabilities(true)).toHaveLength(ALL_CAPABILITIES.length);
+  });
+
+  test("without egress a networked plugin is still unapprovable, with its hosts named", () => {
+    expect(approvalOffer(networked)).toEqual({
+      kind: "network-unavailable",
+      hosts: ["www.bible.com"],
+    });
+  });
+
+  test("with egress it becomes approvable, carrying the exact hosts", () => {
+    expect(approvalOffer(networked, true)).toEqual({
+      kind: "available",
+      hosts: ["www.bible.com"],
+    });
+  });
+
+  /*
+    THE ORDERING GUARD.
+
+    `needs-approval` used to short-circuit before the fingerprint check, and
+    while every networked plugin was unapprovable that was harmless. With egress
+    configured it decides a real question: an unidentified bundle would be
+    offered approval, and a grant is bound to an exact bundle — there would be
+    nothing to bind it to.
+  */
+  test("an unidentified bundle is never approvable, egress or not", () => {
+    const unidentified = { ...networked, bundleFingerprint: null };
+    expect(approvalOffer(unidentified, true)).toEqual({ kind: "unidentified" });
+    expect(approvalOffer(unidentified, false)).toEqual({ kind: "unidentified" });
+  });
+
+  test("a plugin that reaches nothing is available with no hosts", () => {
+    expect(
+      approvalOffer({ verdict: "runs", hosts: [], bundleFingerprint: "fp-1" }, true),
+    ).toEqual({ kind: "available", hosts: [] });
+  });
+
+  test("a verdict that cannot run is still nothing to approve", () => {
+    expect(
+      approvalOffer({ verdict: "wont-run", hosts: [], bundleFingerprint: "fp-1" }, true),
+    ).toEqual({ kind: "not-runnable" });
+  });
+});
+
+describe("what a networked plugin is told beside its hosts", () => {
+  test("a named host says the list is the whole of it, and that calls are audited", () => {
+    const note = networkNote({ kind: "available", hosts: ["www.bible.com"] }, "needs-approval");
+    expect(note).toContain("Only the hosts listed here");
+    expect(note).toContain("audit trail");
+  });
+
+  /*
+    The half-installed state, said out loud. A plugin that builds its URL as it
+    runs can be approved for everything except the network, and its calls out
+    will be refused — which is honest only if somebody is told before pressing.
+  */
+  test("no readable host says so, and says what still works", () => {
+    const note = networkNote({ kind: "available", hosts: [] }, "needs-approval");
+    expect(note).toContain("builds the address as it runs");
+    expect(note).toContain("Obsidian");
+  });
+
+  test("a plugin that reaches nothing is told nothing about hosts", () => {
+    expect(networkNote({ kind: "available", hosts: [] }, "runs")).toBeNull();
+  });
+
+  test("an offer that is not available carries no host sentence", () => {
+    expect(networkNote({ kind: "network-unavailable", hosts: ["a"] }, "needs-approval")).toBeNull();
+    expect(networkNote({ kind: "unidentified" }, "needs-approval")).toBeNull();
   });
 });

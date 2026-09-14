@@ -117,6 +117,11 @@ jobs:
           # silently transcribing nothing.
           TRANSCRIBE_WORKER_URL: ${{ secrets.TRANSCRIBE_WORKER_URL }}
           TRANSCRIBE_WORKER_SECRET: ${{ secrets.TRANSCRIBE_WORKER_SECRET }}
+          # The public-only socket service for approved plugin requests. It
+          # receives no workspace, user, plugin, or storage identity; both
+          # values are required before the server reports egress available.
+          PLUGIN_EGRESS_URL: ${{ secrets.PLUGIN_EGRESS_URL }}
+          PLUGIN_EGRESS_SECRET: ${{ secrets.PLUGIN_EGRESS_SECRET }}
           # The Cloudflare account that holds managed customer buckets, and
           # nothing else of ours. An account identifier rather than a
           # credential — the provisioning token lives in `appSecrets`, set in
@@ -151,6 +156,7 @@ jobs:
                      GOOGLE_OAUTH_CLIENT_ID GOOGLE_OAUTH_CLIENT_SECRET \
                      MAIL_CONNECT_ENABLED CALENDAR_CONNECT_ENABLED \
                      TRANSCRIBE_WORKER_URL TRANSCRIBE_WORKER_SECRET \
+                     PLUGIN_EGRESS_URL PLUGIN_EGRESS_SECRET \
                      MANAGED_R2_ACCOUNT_ID \
                      STRIPE_PRICE_ID STRIPE_WEBHOOK_SECRET; do
             value="${!var:-}"
