@@ -105,13 +105,20 @@ export interface PluginPreviewRef {
   /** What came back, keyed by href. Written by the extension, read on hover. */
   previews: Map<string, string>;
   /**
-   * Bumped by the host when the open note changes.
+   * Which note is open, as the host last said.
    *
-   * The editor is reused across notes, so without this a preview fetched for
-   * one note would be shown over an identical link in the next — the same href,
-   * a different page, and no way to tell from inside here.
+   * **One editor serves many notes.** `LiveEditor.web.tsx` builds its state
+   * once and swaps the document in, so "the note changed" is not a remount and
+   * cannot be noticed from in here. The first version of this carried a
+   * generation counter the host bumped instead, and self-review found that it
+   * was bumped only on mount — a guard nothing exercised, which is no guard.
+   *
+   * The path is better than a counter for the same reason a ref is better than
+   * a callback: the host assigns what is true on every render instead of
+   * remembering to signal a change. An answer that lands after the reader has
+   * moved on is dropped by comparing this with the note it was asked for.
    */
-  generation: number;
+  note: string | null;
 }
 
 /**
@@ -212,11 +219,10 @@ const asked = new WeakMap<PluginPreviewRef, string>();
 /**
  * Ask about this note's links, once it has stopped moving.
  *
- * The request is keyed on the links themselves plus the host's generation, so a
- * note that is being edited anywhere other than its links is not re-fetched,
- * and the same note reopened is. `previews` is cleared when the generation
- * moves rather than when the answer lands: a stale preview is worse than none,
- * because it is drawn under a link the reader is looking at now.
+ * The request is keyed on the note plus its links, so a note being edited
+ * anywhere other than its links is not re-fetched and another note is. The map
+ * is cleared before the ask rather than when the answer lands: a stale preview
+ * is worse than none, because it is drawn under a link somebody is reading now.
  */
 function schedule(ref: PluginPreviewRef, view: EditorView): void {
   const existing = timers.get(ref);
@@ -228,19 +234,19 @@ function schedule(ref: PluginPreviewRef, view: EditorView): void {
       if (ref.ask === undefined) return;
       const links = externalLinksIn(view.state.doc.toString())
         .map((span) => ({ href: span.href, text: span.text }));
-      const key = `${ref.generation}\n${links.map((one) => one.href).join("\n")}`;
+      const mine = ref.note;
+      const key = `${mine ?? ""}\n${links.map((one) => one.href).join("\n")}`;
       if (asked.get(ref) === key) return;
       asked.set(ref, key);
       ref.previews.clear();
       if (links.length === 0) return;
-      const mine = ref.generation;
       void ref.ask(links).then((previews) => {
         /*
-          The note may have been closed or replaced while the verses were in
-          flight. Answering into `previews` then would hang a preview computed
-          for one note over an identical-looking link in another.
+          The reader may have opened another note while the verses were in
+          flight. Answering into the map then would hang a preview computed for
+          one note over an identical-looking link in another.
         */
-        if (ref.generation !== mine) return;
+        if (ref.note !== mine) return;
         for (const one of previews) ref.previews.set(one.href, one.text);
       });
     }, PREVIEW_SETTLE_MS),

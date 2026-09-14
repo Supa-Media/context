@@ -376,6 +376,35 @@ describe("what a preview may be, and what it may not", () => {
     ]);
   });
 
+  /*
+    The tree the guest walks is the plugin's own, so its depth is the plugin's
+    choice. A plain recursion is therefore a stack a plugin controls, and a
+    guest that overflows mid-answer sends no result at all and takes every
+    other preview in that note with it. Past the limit the subtree is read flat
+    — the line breaks are lost, nothing else is.
+  */
+  test("a preview nested past any sane depth is read, not a stack overflow", async () => {
+    const DEEP = `
+      const { Plugin } = require('obsidian');
+      module.exports = class extends Plugin {
+        async onload() {
+          this.registerMarkdownPostProcessor((element) => {
+            for (const link of Array.from(element.getElementsByTagName('a'))) {
+              let node = createDiv({});
+              const root = node;
+              for (let depth = 0; depth < 400; depth += 1) node = node.createDiv({});
+              node.setText('still here');
+              link._tippy = { props: { content: root } };
+            }
+          });
+        }
+      };
+    `;
+    const one = await guest(DEEP);
+    const results = await one.ask([{ href: "https://example.test/a", text: "a" }]);
+    expect(results?.previews).toEqual([{ href: "https://example.test/a", text: "still here" }]);
+  });
+
   test("a plugin with no processor at all answers, rather than hanging", async () => {
     const NONE = `
       const { Plugin } = require('obsidian');

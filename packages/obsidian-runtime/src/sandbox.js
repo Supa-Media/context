@@ -479,7 +479,7 @@ export function pluginSandboxDocument() {
     const tip = anchor._tippy;
     const content = tip && tip.props ? tip.props.content : null;
     if (typeof content === 'string') return content;
-    return textOfNode(content);
+    return textOfNode(content, 0);
   }
 
   /*
@@ -489,13 +489,19 @@ export function pluginSandboxDocument() {
     is the plugin's own and keeping it costs nothing; inventing a separator
     where the plugin put none would be the host deciding how a plugin reads.
   */
-  function textOfNode(node) {
+  function textOfNode(node, depth) {
     if (!node || typeof node.textContent !== 'string') return '';
-    const children = node.children ? Array.prototype.slice.call(node.children) : [];
+    // The plugin built this tree, so its depth is the plugin's choice and a
+    // plain recursion is a stack it controls. Past the limit the subtree is
+    // read flat rather than walked, which loses the line breaks and nothing
+    // else — and never takes the guest down mid-answer.
+    const children = node.children && (depth || 0) < 8
+      ? Array.prototype.slice.call(node.children)
+      : [];
     if (children.length === 0) return node.textContent;
     const parts = [];
     for (const child of children) {
-      const text = textOfNode(child);
+      const text = textOfNode(child, (depth || 0) + 1);
       if (text.trim() !== '') parts.push(text);
     }
     return parts.join('\\n');

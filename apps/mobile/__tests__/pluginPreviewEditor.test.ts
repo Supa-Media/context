@@ -71,7 +71,7 @@ function editor(doc: string, ref: PluginPreviewRef): EditorView {
 function refWith(
   ask: (links: { href: string; text: string }[]) => Promise<{ href: string; text: string }[]>,
 ): PluginPreviewRef {
-  return { ask, previews: new Map(), generation: 0 };
+  return { ask, previews: new Map(), note: "1-projects/john-3.md" };
 }
 
 describe("the note's links are asked about without anybody hovering", () => {
@@ -105,7 +105,7 @@ describe("the note's links are asked about without anybody hovering", () => {
     throwing when there is nobody to ask.
   */
   test("with nobody to ask, the editor still opens and nothing happens", async () => {
-    const ref: PluginPreviewRef = { previews: new Map(), generation: 0 };
+    const ref: PluginPreviewRef = { previews: new Map(), note: "1-projects/john-3.md" };
     const view = editor(`see [John 3:16](${JOHN})`, ref);
     await settled();
     expect(view.state.doc.toString()).toBe(`see [John 3:16](${JOHN})`);
@@ -119,7 +119,7 @@ describe("the note's links are asked about without anybody hovering", () => {
     one it was built with.
   */
   test("a plugin enabled after the note was open is asked on the next edit", async () => {
-    const ref: PluginPreviewRef = { previews: new Map(), generation: 0 };
+    const ref: PluginPreviewRef = { previews: new Map(), note: "1-projects/john-3.md" };
     const view = editor(`see [John 3:16](${JOHN})`, ref);
     await settled();
     expect(ref.previews.size).toBe(0);
@@ -135,15 +135,37 @@ describe("the note's links are asked about without anybody hovering", () => {
     survives long enough for an answer to land after the generation moved, and
     an identical link in the next note would then wear the last note's verse.
   */
-  test("an answer that lands after the note changed is thrown away", async () => {
+  test("an answer that lands after the reader opened another note is thrown away", async () => {
     let release: (value: { href: string; text: string }[]) => void = () => {};
     const ref = refWith(() => new Promise((resolve) => { release = resolve; }));
     editor(`see [John 3:16](${JOHN})`, ref);
     await new Promise((resolve) => setTimeout(resolve, PREVIEW_SETTLE_MS + 60));
-    ref.generation += 1;
+    // What `LiveEditor.web.tsx` assigns on the render that swaps the document.
+    ref.note = "1-projects/romans-8.md";
     release([{ href: JOHN, text: VERSE }]);
     for (let turn = 0; turn < 6; turn += 1) await Promise.resolve();
     expect(ref.previews.size).toBe(0);
+  });
+
+  /*
+    And the other half of the same fact, which is the one the counter version
+    could not have: opening a different note re-asks even when its links are
+    identical, because the answer is about that note's links in that note.
+  */
+  test("another note with the same link is asked about again", async () => {
+    const asked: string[] = [];
+    const ref = refWith(async () => {
+      asked.push(ref.note ?? "");
+      return [{ href: JOHN, text: VERSE }];
+    });
+    const view = editor(`see [John 3:16](${JOHN})`, ref);
+    await settled();
+    expect(asked).toEqual(["1-projects/john-3.md"]);
+
+    ref.note = "1-projects/romans-8.md";
+    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: `also [John 3:16](${JOHN})` } });
+    await settled();
+    expect(asked).toEqual(["1-projects/john-3.md", "1-projects/romans-8.md"]);
   });
 });
 

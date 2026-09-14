@@ -459,8 +459,15 @@ export function LiveEditor({
     every render, so what is configured has to be an object the host writes
     into rather than the callback itself.
   */
-  const previews = useRef<PluginPreviewRef>({ previews: new Map(), generation: 0 });
+  const previews = useRef<PluginPreviewRef>({ previews: new Map(), note: null });
   previews.current.ask = onPreviewLinks;
+  /*
+    Assigned rather than signalled, every render. This editor is built once and
+    has notes swapped through it, so the extension cannot see a note change on
+    its own — and a counter the host bumps is a counter somebody forgets, which
+    is what the first draft of this did (bumped on mount only).
+  */
+  previews.current.note = notePath ?? null;
   /*
     And the same for suggestions, which is the fix for the second production
     report on that feature: the state below is built in an effect with an empty
@@ -638,13 +645,6 @@ export function LiveEditor({
     view.current = created;
     latestValue.current = value;
     forms.generation = (forms.generation ?? 0) + 1;
-    /*
-      A new editor is a new note, and a preview fetched for the last one must
-      not be drawn over an identical link in this one — the same href, another
-      page, and nothing inside the extension can tell them apart.
-    */
-    previews.current.generation += 1;
-    previews.current.previews.clear();
 
     /*
       The imperative handle, built against `created` rather than `view.current`
