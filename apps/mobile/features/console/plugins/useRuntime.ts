@@ -6,7 +6,7 @@ import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
 import type { SandboxEvent } from "./sandboxTypes";
-import type { ActiveSandbox, RuntimeState, RuntimeView } from "./runtime";
+import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
 
 /**
  * What the sandbox host says each plugin is doing.
@@ -34,6 +34,41 @@ export function useRuntime(options: {
   const reportStatus = useMutation(api.functions.obsidianPlugins.reportRuntimeStatus);
   const stopPlugin = useMutation(api.functions.obsidianPlugins.stopPlugin);
   const [sandboxes, setSandboxes] = useState<ActiveSandbox[]>([]);
+  /*
+    What each running plugin told the shim it registered.
+
+    Local to this tab and to this load, because that is exactly what it
+    describes: a command exists while the frame that registered it is alive,
+    and a list surviving the frame would claim the console has something it
+    does not. Every path that removes a sandbox clears its entry.
+  */
+  const [registrations, setRegistrations] = useState<Record<string, PluginRegistration[]>>({});
+
+  /*
+    REGISTRATIONS FOLLOW THE FRAMES, RATHER THAN EACH PATH REMEMBERING TO CLEAR.
+
+    A command exists while the frame that registered it is alive, and there are
+    five ways a frame goes: Stop, a crash past its retries, a disowned document,
+    a restart that replaces it, and the effect below that drops a sandbox whose
+    server-side session was revoked from another device. Clearing at each of
+    those is five things to remember and, as a self-review of the first draft
+    found, two of them had already been missed — a restart kept the previous
+    load's commands, and a revoke from another device left them on screen for a
+    plugin that was no longer running.
+
+    Deriving from `sandboxes` instead makes that structural: a plugin with no
+    frame has no registrations, whatever removed the frame, including whatever
+    removes one next.
+  */
+  useEffect(() => {
+    setRegistrations((was) => {
+      const live = new Set(sandboxes.map((one) => one.bundle.pluginId));
+      const keys = Object.keys(was);
+      const keep = keys.filter((pluginId) => live.has(pluginId));
+      if (keep.length === keys.length) return was;
+      return Object.fromEntries(keep.map((pluginId) => [pluginId, was[pluginId]!]));
+    });
+  }, [sandboxes]);
   const resumed = useRef(new Set<string>());
 
   const spec = useMemo<RequestForQueries>(() => {
@@ -105,6 +140,32 @@ export function useRuntime(options: {
   const onEvent = useCallback((sandbox: ActiveSandbox, event: SandboxEvent) => {
     if (workspaceId === null) return;
     const { pluginId, bundleFingerprint, runtimeToken } = sandbox.bundle;
+    if (event.type === "registration") {
+      /*
+        Appended rather than replaced, because a bundle registers each command
+        in its own message as it loads. Keyed by `id` so a plugin that
+        re-registers one does not list it twice.
+      */
+      setRegistrations((was) => {
+        const mine = was[pluginId] ?? [];
+        const without = mine.filter((one) => one.id !== event.id);
+        return { ...was, [pluginId]: [...without, { kind: event.kind, id: event.id, name: event.name }] };
+      });
+      return;
+    }
+    if (event.type === "unloaded") {
+      /*
+        The frame is still mounted and has torn its plugin down, so the effect
+        above does not fire — this is the one clear that is not derived.
+      */
+      setRegistrations((was) => {
+        if (!(pluginId in was)) return was;
+        const next = { ...was };
+        delete next[pluginId];
+        return next;
+      });
+      return;
+    }
     if (event.type === "loaded") {
       void reportStatus({
         workspaceId, pluginId, bundleFingerprint,
@@ -200,6 +261,7 @@ export function useRuntime(options: {
     states,
     loading: isOwner && workspaceId !== null && raw === undefined,
     host: isOwner ? createElement(PluginSandboxFarm, { sandboxes, onEvent }) : undefined,
+    registrations,
     actions: isOwner && workspaceId !== null ? { start, stop } : undefined,
   };
 }
