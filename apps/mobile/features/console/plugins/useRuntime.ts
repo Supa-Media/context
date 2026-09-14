@@ -5,7 +5,7 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
-import type { ActiveFileRef, SandboxEvent, VaultEventMessage } from "./sandboxTypes";
+import type { ActiveFileRef, SandboxEvent, StatusItem, VaultEventMessage } from "./sandboxTypes";
 import type { CommandOutcome, InvokeRequest } from "./runtime";
 import type { PluginGrant } from "./grants";
 import { vaultEventForOperation } from "./runtime";
@@ -74,6 +74,14 @@ export function useRuntime(options: {
   */
   const [invoke, setInvoke] = useState<InvokeRequest | undefined>(undefined);
   const [outcomes, setOutcomes] = useState<Record<string, CommandOutcome>>({});
+  /*
+    What each running plugin has in its status bar.
+
+    The guest reports the whole list every time it changes, so this replaces
+    rather than merges — there is no removal message to lose, and a plugin that
+    empties its status bar sends an empty list rather than nothing at all.
+  */
+  const [statusItems, setStatusItems] = useState<Record<string, StatusItem[]>>({});
   const presses = useRef(0);
 
   /*
@@ -101,6 +109,12 @@ export function useRuntime(options: {
       return Object.fromEntries(keep.map((pluginId) => [pluginId, was[pluginId]!]));
     };
     setRegistrations(prune);
+    /*
+      And the status bar with them. A reading is worse than a name to leave
+      behind: "412 words" beside a plugin whose frame is gone is not out of
+      date, it is being produced by nothing.
+    */
+    setStatusItems(prune);
     /*
       An outcome outlives its frame no more than a registration does: "Ran"
       beside a command belonging to a plugin that has since stopped is the same
@@ -261,6 +275,15 @@ export function useRuntime(options: {
       });
       return;
     }
+    if (event.type === "status-bar") {
+      /*
+        Replaced, not merged, which is the whole reason the guest sends a list.
+        An empty one is a plugin that cleared its status bar and must clear the
+        card with it.
+      */
+      setStatusItems((was) => ({ ...was, [pluginId]: event.items }));
+      return;
+    }
     if (event.type === "command-result") {
       setOutcomes((was) => ({
         ...was,
@@ -273,12 +296,14 @@ export function useRuntime(options: {
         The frame is still mounted and has torn its plugin down, so the effect
         above does not fire — this is the one clear that is not derived.
       */
-      setRegistrations((was) => {
+      const forget = <T,>(was: Record<string, T>): Record<string, T> => {
         if (!(pluginId in was)) return was;
         const next = { ...was };
         delete next[pluginId];
         return next;
-      });
+      };
+      setRegistrations(forget);
+      setStatusItems(forget);
       return;
     }
     if (event.type === "loaded") {
@@ -387,6 +412,7 @@ export function useRuntime(options: {
       : undefined,
     registrations,
     outcomes,
+    statusItems,
     actions: isOwner && workspaceId !== null ? { start, stop, run } : undefined,
   };
 }

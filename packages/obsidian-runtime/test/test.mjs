@@ -170,6 +170,75 @@ assert.equal(parsePluginSandboxMessage({
   assert.equal(long.error.length, 500);
 }
 
+/*
+  `status-bar` — everything the plugin has put in the status bar, each time it
+  changes.
+
+  A whole list rather than an add/remove protocol, and that is the design
+  decision worth the comment: the console replaces what it holds with what
+  arrives, so a plugin that empties an item, removes one, or is torn down
+  mid-render cannot leave a line behind that no longer exists. There is no
+  removal message to lose.
+
+  Every string is the plugin's, so every string is bounded, and the list itself
+  is truncated rather than rejected — nine items is a plugin being greedy, not a
+  forged message, and refusing the message outright would drop the eight
+  legitimate ones with it. A malformed *entry* is different and rejects the
+  whole message: it means the sender is not the shim we wrote.
+*/
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: [{ id: "status-1", text: "412 words" }],
+}, "secret"), { type: "status-bar", items: [{ id: "status-1", text: "412 words" }] });
+// An empty list is a real value: the plugin cleared its status bar, and the
+// console has to be able to tell that from never having been told.
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: [],
+}, "secret"), { type: "status-bar", items: [] });
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "status-bar",
+  items: [{ id: "status-1", text: "412 words" }],
+}, "secret"), null, "a forged status bar must not parse");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: "412 words",
+}, "secret"), null, "items must be a list");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: [{ id: "status-1" }],
+}, "secret"), null, "an entry with no text must not parse");
+{
+  const many = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "status-bar",
+    items: Array.from({ length: 40 }, (_, index) => ({
+      id: "i".repeat(200) + index,
+      text: "t".repeat(900),
+    })),
+  }, "secret");
+  assert.equal(many.items.length, 8, "the list is truncated, not rejected");
+  assert.equal(many.items[0].id.length, 60);
+  assert.equal(many.items[0].text.length, 120);
+}
+
 assert.deepEqual(parsePluginSandboxMessage({
   source: "context-plugin-sandbox",
   version: 1,

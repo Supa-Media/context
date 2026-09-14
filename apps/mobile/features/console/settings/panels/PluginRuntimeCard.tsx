@@ -9,6 +9,7 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
   REGISTRATION_NOTE,
   REVOKED_NOTE,
+  STATUS_BAR_NOTE,
   commandOutcomeFor,
   describeRegistrations,
   isOwnerStop,
@@ -19,6 +20,7 @@ import {
   runtimeFor,
   runtimeNote,
   runtimePill,
+  statusItemsFor,
   type RuntimeView,
 } from "../../plugins/runtime";
 import { standingFor, type GrantsView } from "../../plugins/grants";
@@ -100,6 +102,12 @@ export function PluginRuntimeCard({
     exactly what it did before invoke existed — names, and the note saying so.
   */
   const run = view.actions?.run;
+  /*
+    The plugin's own words, under the same only-while-loaded rule. A reading is
+    the worst thing in this card to leave behind: "412 words" beside a stopped
+    plugin is not out of date, it is produced by nothing.
+  */
+  const status = statusItemsFor(state, view.statusItems);
   const outcome = commandOutcomeFor(registered, view.outcomes?.[plugin.id]);
 
   return (
@@ -132,6 +140,17 @@ export function PluginRuntimeCard({
         <Text variant="rowSub">
           {`A version Context can go back to is on record (${rollback.slice(0, 12)}…). Install it again to return to it.`}
         </Text>
+      ) : null}
+
+      {status.length > 0 ? (
+        <View style={styles.status} testID={`plugin-status-bar-${plugin.id}`}>
+          <Text variant="rowSub" style={styles.statusNote}>{STATUS_BAR_NOTE}</Text>
+          {status.map((one) => (
+            <Text key={one.id} variant="rowSub">
+              {one.text}
+            </Text>
+          ))}
+        </View>
       ) : null}
 
       {registeredNote ? (
@@ -188,6 +207,8 @@ export function PluginRuntimeCard({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   registrations: { gap: 3, marginTop: 2 },
+  status: { gap: 2, marginTop: 2 },
+  statusNote: { color: colors.muted },
   registration: { color: colors.muted },
   wrap: { marginTop: 8, gap: 6 },
   head: { alignItems: "flex-start", gap: 12 },
