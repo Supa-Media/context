@@ -236,6 +236,58 @@ describe("YouVersion Linker compatibility", () => {
     expect(read.operation).toEqual({ kind: "vault.read", path: "proof.md" });
   });
 
+  /*
+   * The same forging position, one branch earlier.
+   *
+   * `rpc-result` is handled above the source check and deliberately carries no
+   * nonce -- the plugin shares this realm and would read it out of the event.
+   * That left the correlation id as the only thing standing between a pending
+   * request and a forged answer, and it is
+   * "p_" + Date.now().toString(36) + "_" + (++counter).toString(36):
+   * a clock and a counter, with nothing unguessable in it.
+   *
+   * So a window that can post into this frame can answer a request it did not
+   * receive. Answering the read of the open note is the sharp one: the guest
+   * hands the plugin whatever text comes back, and writes the transform of it
+   * to the real note under the real etag -- because the forged reply can simply
+   * omit `etag`, leaving the host-supplied one in place. First reply wins
+   * (`pending.delete`), so the genuine answer is discarded afterwards.
+   */
+  test("a forged rpc answer from another window is not delivered to the plugin", async () => {
+    toGuest({ type: "active-file", path: "proof.md", etag: "etag-1" });
+    const outsider = document.createElement("iframe");
+    document.body.appendChild(outsider);
+    const mark = posted.length;
+    toGuest({ type: "command", id: "generate-links" });
+
+    const read = await nextRpc(mark);
+    expect(read.operation).toEqual({ kind: "vault.read", path: "proof.md" });
+
+    // The id is guessable; the test does not need to guess it to show the
+    // boundary is missing. What is being asserted is that knowing it is not
+    // enough -- the answer has to come from the host.
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        source: "context-plugin-host",
+        version: 1,
+        type: "rpc-result",
+        response: { requestId: read.requestId, ok: true, result: { path: "proof.md", text: "ATTACKER CONTENT" } },
+      },
+      source: outsider.contentWindow,
+    }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(posted.filter((one) => one.request?.operation.kind === "vault.modify")).toHaveLength(0);
+    expect(JSON.stringify(posted)).not.toContain("ATTACKER CONTENT");
+
+    // ...and the genuine answer still lands, so the refusal is not "drop
+    // every reply": the real host's read is answered and the flow continues.
+    answer(read.requestId, { path: "proof.md", text: "John 3:16", etag: "etag-1" });
+    const network = await nextRpc(posted.findIndex((one) => one.request?.requestId === read.requestId) + 1);
+    expect(network.operation).toMatchObject({ kind: "network.request" });
+    outsider.remove();
+  });
+
   test("an editor command without an active note fails without reading or writing", async () => {
     const mark = posted.length;
     toGuest({ type: "command", id: "generate-links" });
