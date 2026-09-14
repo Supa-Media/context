@@ -255,7 +255,7 @@ describe("each panel narrows the Google card rather than repeating it", () => {
     expect(text).toContain("0 connected");
   });
 
-  test("connecting from a narrowed card asks Google for that service alone", async () => {
+  test("connecting from a narrowed card asks Google for the verified communications scope set", async () => {
     mockStartCalls.length = 0;
     mockNavigations.length = 0;
     const container = mount(() =>
@@ -279,7 +279,7 @@ describe("each panel narrows the Google card rather than repeating it", () => {
       {
         workspaceId: "ws_1",
         redirectUri: "https://context.lc/connect/google",
-        syncServices: { gmail: false, calendar: true, chat: false },
+        syncServices: { gmail: true, calendar: true, chat: true },
       },
     ]);
   });
