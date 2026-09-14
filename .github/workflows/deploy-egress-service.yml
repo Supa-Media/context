@@ -72,6 +72,23 @@ jobs:
           grep -qE '"new_sqlite_classes"\s*:\s*\["EgressContainer"\]' "$config"
           test -f infra/egress-service/Dockerfile
 
+      # Wrangler uploads the Worker before it configures the container image.
+      # Prove the token can reach Containers first, so a missing permission
+      # fails before production is left with a new script and no backing image.
+      - name: Verify Cloudflare Containers permission
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          if ! curl -fsS --max-time 30 \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/containers/me" \
+            -o /dev/null; then
+            echo "ERROR: CLOUDFLARE_API_TOKEN needs Account > Containers > Edit for this account."
+            exit 1
+          fi
+
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
