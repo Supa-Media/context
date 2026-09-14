@@ -8,9 +8,12 @@ import {
   runtimeDetail,
   runtimeFor,
   runtimeNote,
+  maySeePaths,
   runtimePill,
+  vaultEventForOperation,
   type RuntimeState,
 } from "../features/console/plugins/runtime";
+import type { PluginGrant } from "../features/console/plugins/grants";
 
 /**
  * The first module in this section allowed to say a plugin is running, and
@@ -167,5 +170,141 @@ describe("rollback is offered only where there is something to roll back to", ()
 
   test("a crash loop is not a rollback situation", () => {
     expect(rollbackTarget(state({ status: "crash-looped", rollbackFingerprint: "fp-0" }))).toBeNull();
+  });
+});
+
+/*
+  A plugin's own write is a change to this context exactly as a save in the
+  console is, so the plugins listening have to hear about it.
+
+  What this pins is the refusal half. Every operation this does not recognise
+  has to produce nothing: a write reported as a `modify` with no version is
+  worse than one not reported, because a plugin acts on it — and the next
+  operation kind somebody adds arrives here as precisely that.
+*/
+describe("a plugin's write becomes the event the other plugins see", () => {
+  const ok = (result?: Record<string, unknown>) => ({ ok: true, result: result ?? {} });
+
+  test("a create and a modify carry the path and the new version", () => {
+    expect(vaultEventForOperation({ kind: "vault.create", path: "a.md" }, ok({ etag: "e1" })))
+      .toEqual({ kind: "create", path: "a.md", etag: "e1" });
+    expect(vaultEventForOperation({ kind: "vault.modify", path: "a.md" }, ok({ etag: "e2" })))
+      .toEqual({ kind: "modify", path: "a.md", etag: "e2" });
+  });
+
+  /*
+    A delete with an etag beside it is an invitation to write over whatever
+    replaced the file, so the version is dropped rather than carried.
+  */
+  test("a delete carries no version", () => {
+    expect(vaultEventForOperation({ kind: "vault.delete", path: "a.md" }, ok({ etag: "e1" })))
+      .toEqual({ kind: "delete", path: "a.md", etag: null });
+  });
+
+  test("a rename reports the new path, with the old one beside it", () => {
+    expect(
+      vaultEventForOperation(
+        { kind: "vault.rename", from: "a.md", to: "b.md" },
+        ok({ etag: "e3" }),
+      ),
+    ).toEqual({ kind: "rename", path: "b.md", from: "a.md", etag: "e3" });
+  });
+
+  test("a read is not a change", () => {
+    expect(vaultEventForOperation({ kind: "vault.read", path: "a.md" }, ok())).toBeNull();
+    expect(vaultEventForOperation({ kind: "metadata.get", path: "a.md" }, ok())).toBeNull();
+    expect(vaultEventForOperation({ kind: "settings.save", path: "a.md" }, ok())).toBeNull();
+  });
+
+  test("a write the server refused changed nothing, so it reports nothing", () => {
+    expect(
+      vaultEventForOperation(
+        { kind: "vault.modify", path: "a.md" },
+        { ok: false, error: { code: "ETAG_CONFLICT", message: "someone else wrote it" } },
+      ),
+    ).toBeNull();
+  });
+
+  test("an unrecognised operation is silent rather than guessed at", () => {
+    expect(vaultEventForOperation({ kind: "vault.obliterate", path: "a.md" }, ok())).toBeNull();
+    expect(vaultEventForOperation(undefined, ok())).toBeNull();
+    expect(vaultEventForOperation({ path: "a.md" }, ok())).toBeNull();
+  });
+
+  test("a write with no path, and a rename with no destination, report nothing", () => {
+    expect(vaultEventForOperation({ kind: "vault.modify" }, ok({ etag: "e" }))).toBeNull();
+    expect(vaultEventForOperation({ kind: "vault.rename", from: "a.md" }, ok({ etag: "e" }))).toBeNull();
+  });
+
+  test("a missing etag is null rather than undefined, so the shape never varies", () => {
+    expect(vaultEventForOperation({ kind: "vault.modify", path: "a.md" }, ok()))
+      .toEqual({ kind: "modify", path: "a.md", etag: null });
+  });
+});
+
+/*
+  Found reviewing the diff that added the active file, not by a failing test.
+
+  The host was handing the open note's path, and the path of every write, to
+  every loaded guest alike — including one approved for nothing but its own
+  settings. A path is note data: that is a read the consent screen never offered
+  and the RPC itself would refuse, arriving through state the host pushes rather
+  than state a plugin asks for.
+*/
+describe("a path only reaches a plugin allowed to read notes", () => {
+  const sandbox = { pluginId: "highlightr-plugin", bundleFingerprint: "fp-1" };
+  const grant = (over: Partial<PluginGrant> = {}): PluginGrant => ({
+    pluginId: "highlightr-plugin",
+    bundleFingerprint: "fp-1",
+    capabilities: ["vault:read"],
+    networkHosts: [],
+    status: "active",
+    grantedAt: 1,
+    updatedAt: 1,
+    ...over,
+  });
+
+  test("reading notes is enough", () => {
+    expect(maySeePaths(sandbox, [grant()])).toBe(true);
+  });
+
+  test("reading metadata is enough too, because that is the same files", () => {
+    expect(maySeePaths(sandbox, [grant({ capabilities: ["metadata:read"] })])).toBe(true);
+  });
+
+  test("a plugin approved for its own settings alone is told nothing", () => {
+    expect(
+      maySeePaths(sandbox, [grant({ capabilities: ["settings:read", "settings:write"] })]),
+    ).toBe(false);
+  });
+
+  test("writing without reading does not buy the path either", () => {
+    expect(maySeePaths(sandbox, [grant({ capabilities: ["vault:write"] })])).toBe(false);
+  });
+
+  test("a revoked grant is not a grant", () => {
+    expect(maySeePaths(sandbox, [grant({ status: "revoked" })])).toBe(false);
+  });
+
+  /*
+    The same rule `runtimeFor` keeps: a grant for a bundle that is not the one
+    running is somebody's answer about different code.
+  */
+  test("a grant for another bundle of the same plugin does not carry over", () => {
+    expect(maySeePaths(sandbox, [grant({ bundleFingerprint: "fp-2" })])).toBe(false);
+  });
+
+  test("another plugin's grant is not this plugin's", () => {
+    expect(maySeePaths(sandbox, [grant({ pluginId: "obsidian-git" })])).toBe(false);
+  });
+
+  /*
+    Fail closed while the owner-only query is in flight. The alternative —
+    treating "not loaded yet" as "no restriction" — leaks for exactly as long as
+    the subscription takes, on every console open.
+  */
+  test("an unanswered grants query means nobody, not everybody", () => {
+    expect(maySeePaths(sandbox, undefined)).toBe(false);
+    expect(maySeePaths(sandbox, [])).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import { useArming } from "../../useArming";
 import {
   DEFAULT_CAPABILITIES,
+  EVENTS_NOTE,
   GRANTABLE_CAPABILITIES,
   STALE_NOTE,
   approvalOffer,
@@ -201,6 +202,12 @@ export function PluginGrantCard({
               );
             },
           )}
+
+          <Hint style={styles.hint}>
+            <Text variant="hint" testID={`plugin-events-note-${plugin.id}`}>
+              {EVENTS_NOTE}
+            </Text>
+          </Hint>
 
           <Hint style={styles.hint}>
             <Text variant="hint">

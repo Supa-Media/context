@@ -5,7 +5,9 @@ import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
-import type { SandboxEvent } from "./sandboxTypes";
+import type { ActiveFileRef, SandboxEvent, VaultEventMessage } from "./sandboxTypes";
+import type { PluginGrant } from "./grants";
+import { vaultEventForOperation } from "./runtime";
 import type { ActiveSandbox, RuntimeState, RuntimeView } from "./runtime";
 
 /**
@@ -26,8 +28,26 @@ import type { ActiveSandbox, RuntimeState, RuntimeView } from "./runtime";
 export function useRuntime(options: {
   workspaceId: Id<"workspaces"> | null;
   role: string | undefined;
+  /**
+   * The note the console has open, or `null`.
+   *
+   * Passed down to every loaded sandbox so `workspace.getActiveFile()` answers
+   * and `file-open` fires. Path and etag only — a plugin that wants the body
+   * reads it through the audited RPC like any other file.
+   */
+  activeFile?: ActiveFileRef | null;
+  /**
+   * What each plugin was approved for.
+   *
+   * Required for the host to know who may be told a note's path at all — see
+   * `maySeePaths`. Absent (the query has not answered) means nobody is told
+   * anything, which is the right way round: a plugin that hears about a change
+   * a moment late is a plugin working; one told a path it was never granted is
+   * a read nobody approved.
+   */
+  grants?: readonly PluginGrant[];
 }): RuntimeView {
-  const { workspaceId, role } = options;
+  const { workspaceId, role, activeFile = null, grants } = options;
   const isOwner = role === "owner";
   const loadBundle = useAction(api.functions.obsidianPlugins.loadPluginBundle);
   const executeRequest = useAction(api.functions.obsidianPlugins.executePluginRequest);
@@ -35,6 +55,46 @@ export function useRuntime(options: {
   const stopPlugin = useMutation(api.functions.obsidianPlugins.stopPlugin);
   const [sandboxes, setSandboxes] = useState<ActiveSandbox[]>([]);
   const resumed = useRef(new Set<string>());
+  /*
+    The last change Context made, handed to every loaded guest.
+
+    **Only what Context did.** A write from Obsidian or rclone never passes
+    through this console, so it is not here and no plugin is told about it — the
+    limit the product took on 2026-09-14, and the reason the consent screen says
+    so out loud rather than leaving somebody to find out from a stale panel.
+
+    One slot rather than a queue: a guest is sent the message as soon as the
+    number changes, and two writes in the same frame are two renders.
+  */
+  const [vaultEvent, setVaultEvent] = useState<VaultEventMessage | undefined>(undefined);
+  const seq = useRef(0);
+  const publish = useCallback((event: Omit<VaultEventMessage, "seq">) => {
+    seq.current += 1;
+    setVaultEvent({ ...event, seq: seq.current });
+  }, []);
+
+  /*
+    A save in the console's own editor, derived rather than reported.
+
+    `useFileBrowser` does not call anybody back on save, and threading a
+    callback through it to reach here would be a large change to the editor for
+    a small one here. It does not need to: a save is exactly "the same path came
+    back with a different etag", which is visible from the two fields already
+    handed down. A path *change* is somebody opening another note and is not a
+    write.
+  */
+  const lastSeen = useRef<{ path: string; etag: string | null } | null>(null);
+  useEffect(() => {
+    const previous = lastSeen.current;
+    lastSeen.current = activeFile === null
+      ? null
+      : { path: activeFile.path, etag: activeFile.etag };
+    if (activeFile === null || previous === null) return;
+    if (previous.path !== activeFile.path) return;
+    if (previous.etag === activeFile.etag) return;
+    if (previous.etag === null) return;
+    publish({ kind: "modify", path: activeFile.path, etag: activeFile.etag });
+  }, [activeFile, publish]);
 
   const spec = useMemo<RequestForQueries>(() => {
     if (workspaceId === null || !isOwner) return EMPTY_QUERY_SPEC;
@@ -116,7 +176,14 @@ export function useRuntime(options: {
       const requestId = typeof (event.request as { requestId?: unknown }).requestId === "string"
         ? (event.request as { requestId: string }).requestId
         : "invalid";
-      void executeRequest({ runtimeToken, request: event.request }).then(event.respond).catch(() => {
+      const operation = (event.request as {
+        operation?: { kind?: unknown; path?: unknown; from?: unknown; to?: unknown };
+      }).operation;
+      void executeRequest({ runtimeToken, request: event.request }).then((response) => {
+        event.respond(response);
+        const change = vaultEventForOperation(operation, response);
+        if (change !== null) publish(change);
+      }).catch(() => {
         event.respond({
           version: 1,
           requestId,
@@ -158,7 +225,7 @@ export function useRuntime(options: {
         void reportCrash(pluginId, bundleFingerprint, sandbox.attempts, new Error(event.message));
       }
     }
-  }, [executeRequest, loadBundle, reportCrash, reportStatus, workspaceId]);
+  }, [executeRequest, loadBundle, publish, reportCrash, reportStatus, workspaceId]);
 
   useEffect(() => {
     if (!states || workspaceId === null || !isOwner) return;
@@ -199,7 +266,9 @@ export function useRuntime(options: {
   return {
     states,
     loading: isOwner && workspaceId !== null && raw === undefined,
-    host: isOwner ? createElement(PluginSandboxFarm, { sandboxes, onEvent }) : undefined,
+    host: isOwner
+      ? createElement(PluginSandboxFarm, { sandboxes, onEvent, activeFile, vaultEvent, grants })
+      : undefined,
     actions: isOwner && workspaceId !== null ? { start, stop } : undefined,
   };
 }
