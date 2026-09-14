@@ -423,6 +423,36 @@ describe("adding a plugin does not depend on the vault scan", () => {
   });
 
   /*
+    The card moved, and what it knows had to move with it.
+
+    A registry row says what installing it would mean *for this bucket* — a
+    plugin already in the vault says so rather than offering a second, managed
+    copy. That depends on the card being handed the inventory, which it used to
+    read from the branch it was rendered inside. Nothing else here would notice
+    if the refactor had quietly started passing an empty list to a scan that has
+    one.
+  */
+  test("a plugin already in the vault is still known to be there", () => {
+    const container = panel(READY, undefined, {
+      ...BROWSABLE,
+      results: [{
+        id: "highlightr-plugin",
+        name: "Highlightr",
+        author: "chetachi",
+        description: "Highlight text in colour.",
+      }],
+      query: "highlightr",
+    });
+    act(() => {
+      const browseButton = [...container.querySelectorAll("[role='button']")]
+        .find((one) => (one.textContent ?? "").includes("Browse")
+          || (one.textContent ?? "").startsWith("Search for"));
+      browseButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("In your vault");
+  });
+
+  /*
     The one state that shows nothing, and it is `actions` that decides rather
     than the state. A non-owner cannot install, so `useLifecycle` hands them no
     actions and `PluginBrowse` draws nothing of its own accord — which is why
