@@ -63,6 +63,7 @@ export const SUPPORTED_MEMBERS = Object.freeze([
   // Plugin lifecycle, registration and its own settings file.
   "addCommand",
   "addRibbonIcon",
+  "addStatusBarItem",
   "registerEvent",
   "registerInterval",
   "registerDomEvent",
@@ -104,7 +105,6 @@ export const PLANNED_MEMBERS = Object.freeze({
   resolvedLinks: "the link graph is not exposed to plugins yet",
   unresolvedLinks: "the link graph is not exposed to plugins yet",
   fileToLinktext: "the link graph is not exposed to plugins yet",
-  addStatusBarItem: "the console has no status bar for a plugin to add to yet",
   addSettingTab: "a plugin's own settings pane is accepted and not drawn yet",
   registerMarkdownPostProcessor: "rendering a plugin's markdown output is accepted and not drawn yet",
   registerMarkdownCodeBlockProcessor: "plugin-rendered code blocks are not drawn yet",

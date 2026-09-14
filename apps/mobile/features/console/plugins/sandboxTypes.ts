@@ -35,7 +35,29 @@ export type SandboxEvent =
    * either way, because a host that never hears back cannot tell a command that
    * broke from one still running.
    */
-  | { type: "command-result"; id: string; ok: boolean; error: string | null };
+  | { type: "command-result"; id: string; ok: boolean; error: string | null }
+  /**
+   * Everything the plugin currently has in its status bar.
+   *
+   * The whole list every time, so the console replaces rather than reconciles —
+   * there is no removal message that could be lost, and a guest torn down
+   * mid-render cannot leave a reading on the screen that nothing is producing
+   * any more.
+   */
+  | { type: "status-bar"; items: StatusItem[] };
+
+/**
+ * One line a plugin put in its status bar.
+ *
+ * **The plugin's words, not Context's**, which is what makes the id worth
+ * carrying: the console keys on it so a changing reading updates in place
+ * rather than reordering the row under somebody's eyes. Both strings are
+ * bounded by the parser before they reach here — a plugin controls both.
+ */
+export interface StatusItem {
+  id: string;
+  text: string;
+}
 
 export type ParsedSandboxEvent =
   | { type: "ready" }

@@ -1,5 +1,5 @@
 import type { PluginGrant } from "./grants";
-import type { VaultEventMessage } from "./sandboxTypes";
+import type { StatusItem, VaultEventMessage } from "./sandboxTypes";
 /**
  * Whether a plugin is actually running, and what stopped it if not.
  *
@@ -71,6 +71,13 @@ export interface RuntimeView {
    * `registrations`.
    */
   outcomes?: Record<string, CommandOutcome>;
+  /**
+   * What each running plugin has in its status bar, keyed by plugin id.
+   *
+   * Held beside `registrations` and with the same lifetime: this is something a
+   * frame in this browser tab said, and it goes when the frame does.
+   */
+  statusItems?: Record<string, StatusItem[]>;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
 }
@@ -252,6 +259,39 @@ export function registrationsFor(
   if (state.status !== "loaded") return [];
   return registrations?.[state.pluginId] ?? [];
 }
+
+/**
+ * A plugin's status bar items, and only while it is running.
+ *
+ * The same rule `registrationsFor` keeps, and the reason is stronger here. A
+ * registration left behind claims the console has a command it does not; a
+ * status bar item left behind is a *reading* — "412 words", "syncing", "3 tasks
+ * due" — and nothing has produced it since the frame went. Stale is the
+ * generous word for it.
+ */
+export function statusItemsFor(
+  state: RuntimeState,
+  statusItems: Record<string, StatusItem[]> | undefined,
+): StatusItem[] {
+  if (state.status !== "loaded") return [];
+  return statusItems?.[state.pluginId] ?? [];
+}
+
+/**
+ * Said beside a plugin's status bar, every time one is drawn.
+ *
+ * The first third-party text the console displays. Everywhere else in this
+ * section the words are Context's and the discipline was to claim nothing the
+ * server had not said; here the words are the plugin's, and the equivalent
+ * discipline is to say so. A reader who takes "412 words" for something Context
+ * measured has been misled by the frame it was put in rather than by the text.
+ *
+ * It is also why the element itself never crosses. The console draws this with
+ * its own components in its own theme, so a plugin cannot style, size or
+ * position anything outside its sandbox — the same boundary the view conditions
+ * draw, reached from the other side.
+ */
+export const STATUS_BAR_NOTE = "The plugin's own status bar, updated while it runs.";
 
 /**
  * Why the names are listed and nothing is pressable **here**.
