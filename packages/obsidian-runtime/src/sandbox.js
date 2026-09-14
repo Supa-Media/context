@@ -25,6 +25,29 @@ export function pluginSandboxDocument() {
   const pending = new Map();
   const disposers = [];
   const commands = new Map();
+  // The note the console has open, as last told by the host. Path and etag
+  // only: no content crosses this boundary, and a plugin that wants the body
+  // asks for it through the same audited read as any other file.
+  let activeFile = null;
+  // name -> Set(callback). One registry for vault, metadata and workspace
+  // events, keyed by the name Obsidian uses, so on() can return a real
+  // reference with a working off() instead of the dead handle it used to.
+  const listeners = new Map();
+  function subscribe(name, callback) {
+    if (typeof callback !== 'function') return { off() {} };
+    if (!listeners.has(name)) listeners.set(name, new Set());
+    listeners.get(name).add(callback);
+    return { off() { const set = listeners.get(name); if (set) set.delete(callback); } };
+  }
+  function emit(name, ...args) {
+    const set = listeners.get(name);
+    if (!set) return;
+    // A copy, because a handler that calls off() during dispatch would
+    // otherwise mutate the set being iterated.
+    for (const callback of [...set]) {
+      try { callback(...args); } catch (_) {}
+    }
+  }
   const post = payload => {
     if (window.ReactNativeWebView && typeof window.ReactNativeWebView.postMessage === 'function') {
       window.ReactNativeWebView.postMessage(JSON.stringify(payload));
@@ -115,20 +138,20 @@ export function pluginSandboxDocument() {
       if (!target || typeof target.etag !== 'string') throw new Error('Context requires the current file version before a plugin may delete it');
       await request({ kind: 'vault.delete', path: target.path, expectedEtag: target.etag });
     },
-    on() { return { off() {} }; },
-    off() {},
+    on(name, callback) { return subscribe('vault:' + name, callback); },
+    off(name, callback) { const set = listeners.get('vault:' + name); if (set) set.delete(callback); },
   };
 
   const metadataCache = {
     async getFileCache(target) { return request({ kind: 'metadata.get', path: target.path }); },
-    on() { return { off() {} }; },
-    off() {},
+    on(name, callback) { return subscribe('metadata:' + name, callback); },
+    off(name, callback) { const set = listeners.get('metadata:' + name); if (set) set.delete(callback); },
   };
 
   const workspace = {
-    on() { return { off() {} }; },
-    off() {},
-    getActiveFile() { return null; },
+    on(name, callback) { return subscribe('workspace:' + name, callback); },
+    off(name, callback) { const set = listeners.get('workspace:' + name); if (set) set.delete(callback); },
+    getActiveFile() { return activeFile; },
     getActiveViewOfType() { return null; },
     getLeavesOfType() { return []; },
   };
@@ -199,6 +222,8 @@ export function pluginSandboxDocument() {
     while (disposers.length) { try { disposers.pop()(); } catch (_) {} }
     instance = null;
     commands.clear();
+    listeners.clear();
+    activeFile = null;
   }
 
   const receiveHostMessage = async event => {
@@ -233,6 +258,36 @@ export function pluginSandboxDocument() {
       } catch (error) {
         send('command-result', { id: message.id, ok: false, error: String(error && error.message || error).slice(0, 500) });
       }
+      return;
+    }
+    // An unloaded plugin is inert, and that has to include the state it is
+    // handed: a guest that went on tracking the open note after unload would
+    // hold a file the reader has closed, and hand it to whatever loaded next.
+    if ((message.type === 'active-file' || message.type === 'vault-event') && instance === null) return;
+    if (message.type === 'active-file') {
+      // null is a real value here: nothing is open, and a plugin asking then
+      // must get null rather than the last note somebody looked at.
+      if (typeof message.path === 'string' && message.path !== '') {
+        activeFile = file(message.path, typeof message.etag === 'string' ? { etag: message.etag } : null);
+      } else {
+        activeFile = null;
+      }
+      emit('workspace:file-open', activeFile);
+      return;
+    }
+    if (message.type === 'vault-event') {
+      // Only what Context itself changed — see the host. A rename carries both
+      // paths because Obsidian's own handler signature takes the old one.
+      const target = typeof message.path === 'string'
+        ? file(message.path, typeof message.etag === 'string' ? { etag: message.etag } : null)
+        : null;
+      if (target === null) return;
+      if (message.kind === 'rename') emit('vault:rename', target, String(message.from || ''));
+      else if (message.kind === 'create') emit('vault:create', target);
+      else if (message.kind === 'delete') emit('vault:delete', target);
+      else if (message.kind === 'modify') emit('vault:modify', target);
+      else return;
+      if (message.kind !== 'delete') emit('metadata:changed', target);
       return;
     }
     if (message.type === 'unload') {

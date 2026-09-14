@@ -5,6 +5,7 @@ import { viewerIdentity } from "./identity";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
 import type { ConsoleInvitation, ConsoleMember } from "./members/members";
 import type { ConsoleAuditEvent } from "./advanced/advanced";
+import { REGISTRY_PAGE } from "./plugins/lifecycle";
 import type { ConsolePlugin } from "./plugins/plugins";
 import type { ConsoleShare } from "./shares/shares";
 import type {
@@ -513,7 +514,7 @@ export function useDemoConsoleData(): ConsoleData {
     */
     pluginGrants: { grants: [], loading: false },
     // No `actions`, the same rule: the landing page has no bucket to install into.
-    pluginBrowse: { query: "", searching: false, failure: null },
+    pluginBrowse: { query: "", limit: REGISTRY_PAGE, searching: false, failure: null },
     /*
       Nothing is running on the landing page, and that is reported as an empty
       list rather than as absent: the demo genuinely knows there is no runtime,

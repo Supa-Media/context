@@ -55,7 +55,7 @@ afterEach(() => {
 function panel(
   view: PluginsView,
   grants: GrantsView = { grants: [], loading: false },
-  browse: BrowseView = { query: "", searching: false, failure: null },
+  browse: BrowseView = { query: "", limit: 20, searching: false, failure: null },
   runtime: RuntimeView = { states: [], loading: false },
 ): HTMLElement {
   const container = document.createElement("div");
@@ -251,7 +251,7 @@ describe("the ready list", () => {
           updatedAt: 1,
         }],
       },
-      { query: "", searching: false, failure: null },
+      { query: "", limit: 20, searching: false, failure: null },
       { states: [], loading: false, actions: { start, stop: async () => {} } },
     );
     const button = [...container.querySelectorAll("[role='button'], button")]
@@ -278,7 +278,7 @@ describe("the ready list", () => {
           updatedAt: 1,
         }],
       },
-      { query: "", searching: false, failure: null },
+      { query: "", limit: 20, searching: false, failure: null },
       {
         states: [{
           pluginId: "highlightr-plugin",

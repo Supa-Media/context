@@ -2,7 +2,12 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
-import { RECOVER_CONFIRMATION, type BrowseView, type CommunityPlugin } from "./lifecycle";
+import {
+  RECOVER_CONFIRMATION,
+  REGISTRY_PAGE,
+  type BrowseView,
+  type CommunityPlugin,
+} from "./lifecycle";
 
 /**
  * Browsing the official registry, and installing or removing what Context
@@ -14,6 +19,11 @@ import { RECOVER_CONFIRMATION, type BrowseView, type CommunityPlugin } from "./l
  * runs on mount — a settings pane that fetched a third-party registry every time
  * it opened would be making a request on somebody's behalf that they did not
  * ask for, on a screen they came to read.
+ *
+ * Opening the browser *is* that ask, and since 2026-09-14 it runs an empty-query
+ * search so the list arrives populated. The rule that moved is "on mount", not
+ * "without being asked": the card is still closed on arrival and still fetches
+ * nothing until somebody presses Browse.
  *
  * Owner-only, decided from `role` before any call, like `usePlugins` and
  * `useGrants` beside it.
@@ -45,6 +55,13 @@ export function useLifecycle(options: {
 
   const [results, setResults] = useState<CommunityPlugin[] | undefined>(undefined);
   const [query, setQuery] = useState("");
+  /*
+    The count the rows on screen were asked for, kept beside them rather than
+    derived from their length. `results.length === limit` is the only way to
+    tell a page that filled from one that ran out, and a `limit` recomputed from
+    the results would make that comparison answer itself.
+  */
+  const [limit, setLimit] = useState(REGISTRY_PAGE);
   const [searching, setSearching] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [failureCode, setFailureCode] = useState<string | undefined>(undefined);
@@ -66,18 +83,20 @@ export function useLifecycle(options: {
     ticket.current += 1;
     setResults(undefined);
     setQuery("");
+    setLimit(REGISTRY_PAGE);
     clearFailure();
   }, [clearFailure, workspaceId, isOwner]);
 
   const search = useCallback(
-    async (next: string) => {
+    async (next: string, nextLimit: number = REGISTRY_PAGE) => {
       if (workspaceId === null || !isOwner) return;
       const mine = ticket.current;
       setQuery(next);
+      setLimit(nextLimit);
       setSearching(true);
       clearFailure();
       try {
-        const rows = await searchAction({ workspaceId, query: next });
+        const rows = await searchAction({ workspaceId, query: next, limit: nextLimit });
         if (mine !== ticket.current) return;
         setResults(rows);
       } catch (error) {
@@ -152,6 +171,7 @@ export function useLifecycle(options: {
   return {
     results,
     query,
+    limit,
     searching,
     failure,
     failureCode,
