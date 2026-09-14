@@ -118,6 +118,7 @@ export function NoteEditor({
   notePaths,
   onSuggest,
   onPickSuggestion,
+  onPreviewLinks,
   onSubmitForm,
   onReadFormResponses,
   onVoteForm,
@@ -151,6 +152,9 @@ export function NoteEditor({
   /** Plugin completions, absent where no plugin can run. See `LiveEditorProps`. */
   onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
   onPickSuggestion?: (index: number) => Promise<string | null>;
+  /** Ask the running plugins to preview this note's external links. */
+  onPreviewLinks?: (links: { href: string; text: string }[]) =>
+    Promise<{ href: string; text: string }[]>;
   onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
   /** Read a form's response note through the same access check as opening it. */
   onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
@@ -624,6 +628,7 @@ export function NoteEditor({
             onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
             onSuggest={onSuggest}
             onPickSuggestion={onPickSuggestion}
+            onPreviewLinks={onPreviewLinks}
             onSubmitForm={onSubmitForm}
             onReadFormResponses={onReadFormResponses}
             onVoteForm={onVoteForm}

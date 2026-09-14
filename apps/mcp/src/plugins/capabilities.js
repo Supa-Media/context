@@ -36,6 +36,7 @@
  * module, and because a scanner that quietly kept its own copy is the bug.
  */
 export {
+  PARTIAL_MEMBERS,
   PLANNED_MEMBERS,
   SUPPORTED_MEMBERS,
 } from "../../../../packages/obsidian-runtime/src/surface.js";

@@ -7,9 +7,11 @@ export {
 } from "./protocol.js";
 
 export {
+  PREVIEW_LINKS_MAX,
+  PREVIEW_TEXT_MAX,
   parsePluginSandboxMessage,
   pluginSandboxDocument,
   sandboxFrameIsOurs,
 } from "./sandbox.js";
 
-export { PLANNED_MEMBERS, SUPPORTED_MEMBERS } from "./surface.js";
+export { PARTIAL_MEMBERS, PLANNED_MEMBERS, SUPPORTED_MEMBERS } from "./surface.js";

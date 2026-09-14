@@ -5,11 +5,12 @@ import type { PluginGrant } from "./grants";
 import type {
   ActiveFileRef,
   InvokeMessage,
+  PreviewMessage,
   SandboxEvent,
   VaultEventMessage,
 } from "./sandboxTypes";
-import { invokeFor, maySeeContent, maySeePaths, suggestFor } from "./runtime";
-import type { ActiveSandbox, InvokeRequest, SuggestRequest } from "./runtime";
+import { invokeFor, maySeeContent, maySeePaths, previewFor, suggestFor } from "./runtime";
+import type { ActiveSandbox, InvokeRequest, PreviewRequest, SuggestRequest } from "./runtime";
 
 /** Trusted host for every active plugin; tokens remain in these closures. */
 export function PluginSandboxFarm({
@@ -20,6 +21,7 @@ export function PluginSandboxFarm({
   invoke,
   suggest,
   suggestApply,
+  preview,
   grants,
 }: {
   sandboxes: ActiveSandbox[];
@@ -41,6 +43,14 @@ export function PluginSandboxFarm({
   suggest?: SuggestRequest;
   /** The pick, routed back to the frame that offered it. */
   suggestApply?: { seq: number; pluginId: string; nonce: string; index: number };
+  /**
+   * The open note's links, aimed at one frame, for its markdown post-processor.
+   *
+   * Under the same gate as `suggest` and for the same reason: a link is the
+   * address somebody wrote down and the words they wrote around it, which is
+   * note content rather than metadata about a note.
+   */
+  preview?: PreviewRequest;
   /** What each plugin was approved for. Absent means nobody is told anything. */
   grants?: readonly PluginGrant[];
 }) {
@@ -77,6 +87,8 @@ export function PluginSandboxFarm({
               to the frame it was aimed at, like a command.
             */
             suggest={maySeeContent(sandbox.bundle, grants) ? suggestFor(sandbox, suggest) : undefined}
+            /* The third instruction, gated and routed exactly like the first. */
+            preview={maySeeContent(sandbox.bundle, grants) ? previewFor(sandbox, preview) : undefined}
             suggestApply={
               suggestApply !== undefined &&
               suggestApply.pluginId === sandbox.bundle.pluginId &&
@@ -99,6 +111,7 @@ function SandboxSlot({
   invoke,
   suggest,
   suggestApply,
+  preview,
 }: {
   sandbox: ActiveSandbox;
   onEvent: (sandbox: ActiveSandbox, event: SandboxEvent) => void;
@@ -107,6 +120,7 @@ function SandboxSlot({
   invoke?: InvokeMessage;
   suggest?: { seq: number; line: string; ch: number };
   suggestApply?: { seq: number; index: number };
+  preview?: PreviewMessage;
 }) {
   const receive = useCallback(
     (event: SandboxEvent) => onEvent(sandbox, event),
@@ -122,6 +136,7 @@ function SandboxSlot({
       invoke={invoke}
       suggest={suggest}
       suggestApply={suggestApply}
+      preview={preview}
     />
   );
 }

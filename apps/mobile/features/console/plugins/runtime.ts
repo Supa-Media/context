@@ -1,5 +1,5 @@
 import type { PluginGrant } from "./grants";
-import type { StatusItem, VaultEventMessage } from "./sandboxTypes";
+import type { LinkPreview, StatusItem, VaultEventMessage } from "./sandboxTypes";
 /**
  * Whether a plugin is actually running, and what stopped it if not.
  *
@@ -136,6 +136,15 @@ export interface RuntimeActions {
   askSuggestions?: (line: string, ch: number) => Promise<{ text: string }[]>;
   /** Take the pick; resolves to the rewritten line, or null if nothing answers. */
   applySuggestion?: (index: number) => Promise<string | null>;
+  /**
+   * Ask the running plugins to preview these links; resolves to what they gave.
+   *
+   * One call for the whole note rather than one per link, because that is what
+   * a markdown post-processor is: Obsidian hands it a rendered document, not a
+   * link at a time, and a plugin that caches per render — YouVersion does —
+   * would be defeated by a call per link.
+   */
+  askPreviews?: (links: LinkPreview[]) => Promise<LinkPreview[]>;
 }
 
 /**
@@ -666,6 +675,67 @@ export function freshSuggestions(
 export function currentWalk(mine: number, latest: number): boolean {
   return mine === latest;
 }
+
+/**
+ * A request to preview the open note's links, aimed at one frame.
+ *
+ * The links are the note's own — the addresses somebody wrote down and the
+ * words they wrote around them — so this carries note content and is gated
+ * exactly as a suggestion query is.
+ */
+export interface PreviewRequest {
+  seq: number;
+  pluginId: string;
+  /** The frame this was aimed at. A replacement frame has a different one. */
+  nonce: string;
+  links: LinkPreview[];
+}
+
+/**
+ * The preview query to hand this frame, or nothing.
+ *
+ * The rule #533 set for commands, applied to the third instruction in this
+ * protocol: a restart mounts a new frame, and a query aimed at the frame before
+ * it is not owed to its successor. The successor has its own settings, its own
+ * cache and possibly its own version of the plugin.
+ */
+export function previewFor(
+  sandbox: { bundle: { pluginId: string }; nonce: string },
+  request: PreviewRequest | undefined,
+): { seq: number; links: LinkPreview[] } | undefined {
+  if (request === undefined) return undefined;
+  if (request.pluginId !== sandbox.bundle.pluginId) return undefined;
+  if (request.nonce !== sandbox.nonce) return undefined;
+  return { seq: request.seq, links: request.links };
+}
+
+/**
+ * The previews to keep, or null when the answer is stale.
+ *
+ * A verse takes a round trip through the broker and a third-party site, which
+ * is long enough for somebody to close the note or rewrite the paragraph. An
+ * answer to a question about links that are no longer there would draw a
+ * tooltip over whatever is at that href now.
+ */
+export function freshPreviews(
+  answer: { seq: number; previews: LinkPreview[] },
+  asked: number | null,
+): LinkPreview[] | null {
+  if (asked === null) return null;
+  return answer.seq === asked ? answer.previews : null;
+}
+
+/**
+ * How long the editor waits for a plugin to preview a note's links.
+ *
+ * Far longer than `SUGGEST_TIMEOUT_MS`, and the difference is the whole point:
+ * a suggestion is entered on a keystroke and a person is waiting on it, while a
+ * preview is asked once when a note opens and read only if somebody hovers a
+ * link. A verse crosses the brokered egress path — a Worker, a container and a
+ * third-party site — and giving up at 1.2 seconds would report "no preview" for
+ * a plugin that works.
+ */
+export const PREVIEW_TIMEOUT_MS = 8000;
 
 /**
  * Which loaded plugins may be shown a line of somebody's note.

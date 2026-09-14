@@ -16,6 +16,7 @@ export function PluginSandbox({
   invoke,
   suggest,
   suggestApply,
+  preview,
 }: PluginSandboxProps) {
   const frame = useRef<HTMLIFrameElement | null>(null);
   /*
@@ -158,6 +159,17 @@ export function PluginSandbox({
     post({ type: "suggest-apply", seq: suggestApply.seq, index: suggestApply.index });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, post, suggestApply?.seq]);
+
+  /*
+    And the note's links, for whatever markdown post-processor the plugin
+    registered. Keyed on `seq` for the same reason, gated in the farm for the
+    same reason, and posted here without interpretation for the same reason.
+  */
+  useEffect(() => {
+    if (!loaded || preview === undefined) return;
+    post({ type: "preview-query", seq: preview.seq, links: preview.links });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, preview?.seq]);
 
   useEffect(() => {
     if (!loaded || invoke === undefined) return;

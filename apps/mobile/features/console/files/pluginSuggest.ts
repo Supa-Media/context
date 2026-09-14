@@ -45,17 +45,41 @@ import type { EditorView } from "@codemirror/view";
  * `linkComplete.ts` and `formComplete.ts` both say so in their own headers, and
  * `editorCompletion` exists to be the one place that builds the list. This is a
  * source for it, like the other two.
+ *
+ * ## A ref, never the callbacks themselves
+ *
+ * The second production report on this feature: YouVersion showed **Running**
+ * and typing `@John 3:16` still produced nothing. Not the guest, not the gate —
+ * the editor builds its `EditorState` in an effect with an empty dependency
+ * array, so whatever it was handed at **mount** is what the source calls for
+ * the life of that editor. Open a note, then start a plugin, and the source is
+ * still holding a callback whose `sandboxes` list was empty; if no plugin could
+ * run at mount at all, there was no source installed to hold anything.
+ *
+ * So this takes the same mutable ref `FormHostRef` and `PluginPreviewRef` take,
+ * and for the reason `FormHostRef`'s header already gives: a widget built once
+ * must read its host at the moment it is used, not at the moment it was built.
+ * An absent `ask` means no plugin can be asked *right now* — the source answers
+ * nothing and is still there when one can.
  */
-export function pluginSuggestSource(options: {
-  /** Ask the running plugins; resolves empty when none offers anything. */
-  ask: (line: string, ch: number) => Promise<{ text: string }[]>;
+export interface PluginSuggestRef {
+  /** Ask the running plugins; absent while none can be. */
+  ask?: (line: string, ch: number) => Promise<{ text: string }[]>;
   /** Take the pick; resolves to the rewritten line, or null if nothing answers. */
-  pick: (index: number) => Promise<string | null>;
-}): CompletionSource {
+  pick?: (index: number) => Promise<string | null>;
+}
+
+export function pluginSuggestSource(ref: PluginSuggestRef): CompletionSource {
   return async (context) => {
+    /*
+      Read off the ref every time. A plugin started after this note was opened
+      is exactly the case the whole indirection exists for.
+    */
+    const ask = ref.ask;
+    if (ask === undefined) return null;
     const line = context.state.doc.lineAt(context.pos);
     const ch = context.pos - line.from;
-    const items = await options.ask(line.text.slice(0, ch), ch);
+    const items = await ask(line.text.slice(0, ch), ch);
     if (items.length === 0) return null;
     const asked = line.text;
     const lineNumber = line.number;
@@ -72,7 +96,9 @@ export function pluginSuggestSource(options: {
       options: items.map((item, index) => ({
         label: item.text,
         apply: (view: EditorView) => {
-          void options.pick(index).then((next) => {
+          const pick = ref.pick;
+          if (pick === undefined) return;
+          void pick(index).then((next) => {
             if (next === null) return;
             /*
               Re-resolved, then compared. The round trip to the sandbox is long

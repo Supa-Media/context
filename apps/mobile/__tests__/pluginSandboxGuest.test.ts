@@ -380,6 +380,17 @@ describe("the scanner's claim about this shim is true", () => {
             walk = Object.getPrototypeOf(walk);
           }
         }
+        /*
+          Obsidian defines these three as globals as well as methods, and a
+          plugin uses the global form to build a detached element — YouVersion's
+          read preview opens with createDiv({ cls }). Named explicitly rather
+          than by walking globalThis, which in jsdom would mark hundreds of
+          browser names "reachable on the shim" and make this guard useless.
+          A supported global missing from this list fails closed.
+        */
+        for (const name of ['createEl', 'createDiv', 'createSpan']) {
+          if (typeof globalThis[name] === 'function') names.add(name);
+        }
         globalThis.__reach = [...names];
       }
     };

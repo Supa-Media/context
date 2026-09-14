@@ -61,7 +61,46 @@ export type SandboxEvent =
    * The trusted editor makes this edit through its own editing path, which is
    * why a suggester needs no write grant: it is the person typing.
    */
-  | { type: "suggest-applied"; seq: number; line: string };
+  | { type: "suggest-applied"; seq: number; line: string }
+  /**
+   * What the plugin's markdown post-processor attached to each link.
+   *
+   * Text keyed to an href, and nothing else. The processor ran against a
+   * document the *guest* built from the links the host named, inside the
+   * sandbox, and what crosses is what it left on each anchor — never the
+   * element, never its markup, never a handler.
+   *
+   * A link the plugin ignored is simply absent, so an empty list and a plugin
+   * with no processor are the same answer, which is correct: neither has
+   * anything to draw.
+   */
+  | { type: "preview-results"; seq: number; previews: LinkPreview[] };
+
+/**
+ * One link's preview, as the plugin left it.
+ *
+ * `text` may carry newlines: the guest reports one line per element the plugin
+ * built, because a popup of two sibling spans reads as one glued sentence
+ * otherwise. Both fields are bounded by the parser before they reach here —
+ * `href` came from the note, but `text` is entirely the plugin's.
+ */
+export interface LinkPreview {
+  href: string;
+  text: string;
+}
+
+/**
+ * The links of the open note, on their way to one frame.
+ *
+ * Note *content* — these are the addresses somebody wrote down and the words
+ * they wrote around them — so this is gated on `maySeeContent` exactly as a
+ * suggestion query is, and for the same reason: a plugin approved to read tags
+ * and links in the *metadata* sense was not approved to read the note.
+ */
+export interface PreviewMessage {
+  seq: number;
+  links: LinkPreview[];
+}
 
 /**
  * A suggestion query on its way to one frame.
@@ -167,4 +206,11 @@ export interface PluginSandboxProps {
   suggest?: SuggestMessage;
   /** The suggestion the person picked, routed back to the frame that offered it. */
   suggestApply?: SuggestApplyMessage;
+  /**
+   * The links to preview.
+   *
+   * Note content like `suggest`, gated the same way, and `undefined` for a
+   * plugin that may not be asked.
+   */
+  preview?: PreviewMessage;
 }
