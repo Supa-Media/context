@@ -38,6 +38,7 @@ import {
   CURATED_PLUGINS,
   DYNAMIC_CODE_PATTERNS,
   NETWORK_MEMBERS,
+  PARTIAL_MEMBERS,
   PLANNED_MEMBERS,
   SUPPORTED_MEMBERS,
 } from "./capabilities.js";
@@ -247,6 +248,13 @@ export function scanBundle(source) {
   const presentPlanned = namesPresent(source, PLANNED_MATCHER);
   const planned = Object.keys(PLANNED_MEMBERS).filter((name) => presentPlanned.has(name));
 
+  // Answered, and bounded. Separate from `planned` because the sentence a
+  // reader needs is a different one: "this works here, within this" rather than
+  // "this does not work here yet". Collapsing the two would either hide a
+  // working feature behind a "not yet" or drop the bound entirely.
+  const presentPartial = namesPresent(source, PARTIAL_MATCHER);
+  const partial = Object.keys(PARTIAL_MEMBERS).filter((name) => presentPartial.has(name));
+
   return {
     unreadable: null,
     dynamic,
@@ -254,6 +262,7 @@ export function scanBundle(source) {
     network,
     supported,
     planned,
+    partial,
     hosts: network.length ? literalHosts(source) : [],
   };
 }
@@ -300,6 +309,7 @@ function alternation(names) {
 
 const SUPPORTED_MATCHER = alternation(SUPPORTED_MEMBERS);
 const PLANNED_MATCHER = alternation(Object.keys(PLANNED_MEMBERS));
+const PARTIAL_MATCHER = alternation(Object.keys(PARTIAL_MEMBERS));
 const BLOCKED_MEMBER_MATCHER = alternation(Object.keys(BLOCKED_MEMBERS));
 const NETWORK_MATCHER = alternation(Object.keys(NETWORK_MEMBERS));
 
@@ -322,8 +332,19 @@ export function verdictFor({ manifest, scan }) {
     reason rather than one per member, so a plugin naming all four link-graph
     members says the link graph is not exposed, once.
   */
-  const limitations = [...new Set((scan.planned || []).map((name) => PLANNED_MEMBERS[name]))]
-    .map((reason) => `Not yet, so that part will not work: ${reason}.`);
+  const limitations = [
+    ...[...new Set((scan.planned || []).map((name) => PLANNED_MEMBERS[name]))]
+      .map((reason) => `Not yet, so that part will not work: ${reason}.`),
+    /*
+      And the other kind, which arrived with the read preview: a member that is
+      answered within a bound. "Not yet" would be false about it and silence
+      would be an overclaim, so it gets its own sentence in the same list —
+      a reader wants both facts in one place, and only the wording separates
+      "missing" from "bounded".
+    */
+    ...[...new Set((scan.partial || []).map((name) => PARTIAL_MEMBERS[name]))]
+      .map((reason) => `Works here, within a limit: ${reason}.`),
+  ];
   const notes = curated.note ? [curated.note] : [];
 
   if (!manifest) {

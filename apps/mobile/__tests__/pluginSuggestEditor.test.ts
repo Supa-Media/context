@@ -32,7 +32,10 @@ import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { currentCompletions, startCompletion } from "@codemirror/autocomplete";
 import { editorExtensions } from "../features/console/files/editorSetup";
-import { pluginSuggestSource } from "../features/console/files/pluginSuggest";
+import {
+  pluginSuggestSource,
+  type PluginSuggestRef,
+} from "../features/console/files/pluginSuggest";
 
 const views: EditorView[] = [];
 afterEach(() => {
@@ -52,12 +55,35 @@ const tick = async () => {
   }
 };
 
+/**
+ * The ref the editor under test is holding, so a test can change what the
+ * console would answer *after* the editor has been built — which is the whole
+ * subject of the last describe block in this file.
+ */
+function refFor(options: {
+  ask?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  pick?: (index: number) => Promise<string | null>;
+  asked?: { line: string; ch: number }[];
+}): PluginSuggestRef {
+  const ref: PluginSuggestRef = {};
+  if (options.ask !== undefined || options.asked !== undefined) {
+    ref.ask = async (line, ch) => {
+      options.asked?.push({ line, ch });
+      return options.ask ? options.ask(line, ch) : [];
+    };
+  }
+  ref.pick = async (index) => (options.pick ? options.pick(index) : null);
+  return ref;
+}
+
 function editor(options: {
   doc: string;
   cursor: number;
   ask?: (line: string, ch: number) => Promise<{ text: string }[]>;
   pick?: (index: number) => Promise<string | null>;
   asked?: { line: string; ch: number }[];
+  /** Pass one in to keep a handle on it and change it mid-test. */
+  ref?: PluginSuggestRef;
 }) {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
@@ -75,13 +101,7 @@ function editor(options: {
         editable: true,
         editableCompartment: new Compartment(),
         handlers: { current: { onChange: () => {}, onSave: () => {} } },
-        pluginSuggest: pluginSuggestSource({
-          ask: async (line, ch) => {
-            options.asked?.push({ line, ch });
-            return options.ask ? options.ask(line, ch) : [];
-          },
-          pick: async (index) => (options.pick ? options.pick(index) : null),
-        }),
+        pluginSuggest: pluginSuggestSource(options.ref ?? refFor(options)),
       }),
     }),
   });
@@ -314,5 +334,138 @@ describe("it composes with the completion this editor already has", () => {
     startCompletion(view);
     await tick();
     expect(currentCompletions(view.state).length).toBeGreaterThan(0);
+  });
+});
+
+/*
+  STARTING A PLUGIN AFTER THE NOTE IS ALREADY OPEN.
+
+  The second production report on this feature, and it looked identical to the
+  first from outside: YouVersion shows **Running**, typing `@John 3:16`
+  produces nothing.
+
+  It is not the guest and not the gate. `LiveEditor.web.tsx` builds its
+  `EditorState` in an effect with an empty dependency array — once per editor —
+  and `useRuntime` rebuilds `askSuggestions` every time the running frames
+  change. A source handed the callback itself therefore keeps calling the one
+  from **mount**, whose `sandboxes` list was empty; and where no plugin could
+  run at mount at all, there was no source installed to keep.
+
+  Both are the same mistake and both are fixed the same way: the source holds a
+  ref and reads it at every keystroke. These tests change the ref after the
+  editor exists, which is exactly what pressing Enable does.
+*/
+describe("a plugin started after the editor was built", () => {
+  function type(view: EditorView, text: string) {
+    for (const character of text) {
+      const at = view.state.selection.main.head;
+      view.dispatch({
+        changes: { from: at, insert: character },
+        selection: { anchor: at + character.length },
+        userEvent: "input.type",
+      });
+    }
+  }
+
+  test("the editor mounted with nothing to ask, and asks once there is", async () => {
+    const ref: PluginSuggestRef = {};
+    const view = editor({ doc: "", cursor: 0, ref });
+    // Nothing installed to ask yet: this is the console before Enable.
+    type(view, "@John");
+    await tick();
+    expect(currentCompletions(view.state)).toEqual([]);
+
+    // Enable pressed. `useRuntime` hands down a new `askSuggestions`.
+    const asked: { line: string; ch: number }[] = [];
+    ref.ask = async (line, ch) => {
+      asked.push({ line, ch });
+      return [{ text: "John 3:16 (NIV)" }];
+    };
+    type(view, " 3:16");
+    await tick();
+    expect(asked.length).toBeGreaterThan(0);
+    expect(currentCompletions(view.state).map((one) => one.label)).toEqual(["John 3:16 (NIV)"]);
+  });
+
+  /*
+    The stale-closure half, stated separately because it fails differently: here
+    a source *was* installed and *was* being called, and it was calling a
+    function that answers from an empty list of frames. A fix that only handled
+    "absent at mount" would leave this one broken and the symptom identical.
+  */
+  test("a replacement callback is the one that gets called, not the first", async () => {
+    const calls: string[] = [];
+    const ref: PluginSuggestRef = {
+      ask: async () => {
+        calls.push("stale");
+        return [];
+      },
+    };
+    const view = editor({ doc: "", cursor: 0, ref });
+    ref.ask = async () => {
+      calls.push("live");
+      return [{ text: "John 3:16 (NIV)" }];
+    };
+    type(view, "@John 3:16");
+    await tick();
+    expect(calls).not.toContain("stale");
+    expect(currentCompletions(view.state).map((one) => one.label)).toEqual(["John 3:16 (NIV)"]);
+  });
+
+  /*
+    And Stop, which is the same fact in the other direction. A menu that went on
+    offering a stopped plugin's suggestions would be offering text nothing is
+    producing any more — the status bar's rule, one surface over.
+  */
+  test("stopping the plugin stops the suggestions, without rebuilding the editor", async () => {
+    const ref: PluginSuggestRef = { ask: async () => [{ text: "John 3:16 (NIV)" }] };
+    const view = editor({ doc: "", cursor: 0, ref });
+    type(view, "@John 3:16");
+    await tick();
+    expect(currentCompletions(view.state).length).toBe(1);
+
+    delete ref.ask;
+    type(view, " more");
+    await tick();
+    expect(currentCompletions(view.state)).toEqual([]);
+  });
+
+  test("and restarting it brings them back, in the same editor", async () => {
+    const ref: PluginSuggestRef = {};
+    const view = editor({ doc: "", cursor: 0, ref });
+    ref.ask = async () => [{ text: "John 3:16 (NIV)" }];
+    type(view, "@John");
+    await tick();
+    expect(currentCompletions(view.state).length).toBe(1);
+
+    delete ref.ask;
+    type(view, " 3");
+    await tick();
+    expect(currentCompletions(view.state)).toEqual([]);
+
+    // Restarted: a new frame, a new nonce, and a new callback down the tree.
+    ref.ask = async () => [{ text: "John 3:16 (ESV)" }];
+    type(view, ":16");
+    await tick();
+    expect(currentCompletions(view.state).map((one) => one.label)).toEqual(["John 3:16 (ESV)"]);
+  });
+
+  /*
+    A pick taken while the plugin is being stopped must not throw into the
+    editor. It resolves to nothing and the line is left as the person typed it.
+  */
+  test("a pick with nothing left to ask leaves the line alone", async () => {
+    const ref: PluginSuggestRef = {
+      ask: async () => [{ text: "John 3:16 (NIV)" }],
+      pick: async () => "see [John 3:16](https://example.test/v)",
+    };
+    const view = editor({ doc: "see @ John 3:16", cursor: 15, ref });
+    startCompletion(view);
+    await tick();
+    const completion = currentCompletions(view.state)[0]!;
+    delete ref.pick;
+    expect(() => (completion.apply as (view: EditorView) => void)(view)).not.toThrow();
+    await tick();
+    expect(view.state.doc.toString()).toBe("see @ John 3:16");
   });
 });

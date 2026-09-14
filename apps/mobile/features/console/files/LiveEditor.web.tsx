@@ -39,7 +39,8 @@
 
 import { useEffect, useRef } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
-import { pluginSuggestSource } from "./pluginSuggest";
+import { pluginSuggestSource, type PluginSuggestRef } from "./pluginSuggest";
+import { pluginLinkPreview, pluginPreviewTheme, type PluginPreviewRef } from "./pluginPreview";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
 import { findInNote } from "./findInNote";
@@ -184,6 +185,16 @@ export interface LiveEditorProps {
    */
   onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
   onPickSuggestion?: (index: number) => Promise<string | null>;
+  /**
+   * Ask the running plugins to preview this note's external links.
+   *
+   * The read half of the same boundary `onSuggest` is the write half of: a
+   * plugin's markdown post-processor runs inside the sandbox and reports text
+   * per link, and `pluginPreview.ts` draws that in a tooltip of Context's own.
+   * Absent where no plugin can run, and the extension is then not installed.
+   */
+  onPreviewLinks?: (links: { href: string; text: string }[]) =>
+    Promise<{ href: string; text: string }[]>;
 }
 
 /**
@@ -405,6 +416,7 @@ export function LiveEditor({
   onRetractFormResponse,
   onSuggest,
   onPickSuggestion,
+  onPreviewLinks,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -441,6 +453,33 @@ export function LiveEditor({
     front of you.
   */
   const forms = useRef<FormHostRef>({ current: null, generation: 0 }).current;
+  /*
+    And the same arrangement for link previews, for the same reason: the
+    extension is built once per editor and the host's callback arrives new on
+    every render, so what is configured has to be an object the host writes
+    into rather than the callback itself.
+  */
+  const previews = useRef<PluginPreviewRef>({ previews: new Map(), note: null });
+  previews.current.ask = onPreviewLinks;
+  /*
+    Assigned rather than signalled, every render. This editor is built once and
+    has notes swapped through it, so the extension cannot see a note change on
+    its own — and a counter the host bumps is a counter somebody forgets, which
+    is what the first draft of this did (bumped on mount only).
+  */
+  previews.current.note = notePath ?? null;
+  /*
+    And the same for suggestions, which is the fix for the second production
+    report on that feature: the state below is built in an effect with an empty
+    dependency array, so a source handed `onSuggest` directly would call the
+    *first* one forever. `useRuntime` rebuilds `askSuggestions` whenever the
+    running frames change, so "open the note, then start the plugin" left the
+    editor calling a closure whose sandbox list was empty — a plugin that says
+    Running and suggests nothing, which is what Seyi saw twice.
+  */
+  const suggesters = useRef<PluginSuggestRef>({});
+  suggesters.current.ask = onSuggest;
+  suggesters.current.pick = onPickSuggestion;
   forms.current =
     onSubmitForm === undefined
       ? null
@@ -543,7 +582,8 @@ export function LiveEditor({
           links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
           forms,
           /*
-            A plugin's in-editor suggestions, and only where a plugin can run.
+            A plugin's in-editor suggestions.
+
             An option on the shared list rather than an extension appended after
             it: `editorExtensions` already configures CodeMirror's one
             completion, and a second `autocompletion()` beside it throws
@@ -551,11 +591,16 @@ export function LiveEditor({
             which is what it did, in production, for every note opened with a
             plugin running. The native guest passes nothing here and keeps the
             editor it had.
+
+            Installed unconditionally on this surface rather than only where a
+            plugin is already running, which is the other half of that report's
+            fix. "Can a plugin run here?" is not answerable at mount: the owner
+            check is still resolving, and a plugin may be started a minute
+            later. The source reads `suggesters.current` and answers nothing
+            until there is something to ask — so the question is asked at every
+            keystroke instead of once, and the answer is allowed to change.
           */
-          pluginSuggest:
-            onSuggest !== undefined && onPickSuggestion !== undefined
-              ? pluginSuggestSource({ ask: onSuggest, pick: onPickSuggestion })
-              : undefined,
+          pluginSuggest: pluginSuggestSource(suggesters.current),
           /*
             No `insetBottom`. A mobile browser shrinks the layout viewport when
             the keyboard opens rather than drawing over the page, so the
@@ -565,6 +610,14 @@ export function LiveEditor({
             see `coveredBottom`.
           */
         }),
+        /*
+          A plugin's read preview, on the same condition as its suggestions and
+          for the same reason: a surface with no sandbox behind it gets no
+          extension rather than one wired to a source that never answers.
+        */
+        ...(onPreviewLinks === undefined
+          ? []
+          : [pluginLinkPreview(previews.current), pluginPreviewTheme]),
         findInNote(),
       ],
     });

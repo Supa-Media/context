@@ -6,12 +6,22 @@ import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
 import type { ActiveFileRef, SandboxEvent, StatusItem, VaultEventMessage } from "./sandboxTypes";
-import type { AppliedPluginNoteWrite, CommandOutcome, InvokeRequest, SuggestRequest } from "./runtime";
+import type {
+  AppliedPluginNoteWrite,
+  CommandOutcome,
+  InvokeRequest,
+  PreviewRequest,
+  SuggestRequest,
+} from "./runtime";
+import { PREVIEW_LINKS_MAX } from "@context/obsidian-runtime";
+import type { LinkPreview } from "./sandboxTypes";
 import type { PluginGrant } from "./grants";
 import {
+  PREVIEW_TIMEOUT_MS,
   SUGGEST_TIMEOUT_MS,
   appliedPluginNoteWrite,
   currentWalk,
+  freshPreviews,
   freshSuggestions,
   maySeeContent,
   vaultEventForOperation,
@@ -126,6 +136,24 @@ export function useRuntime(options: {
   const walk = useRef(0);
   const offeredBy = useRef<{ pluginId: string; nonce: string } | null>(null);
 
+  /*
+    AND THE SAME THREE THINGS FOR THE READ PREVIEW.
+
+    A separate slot, sequence and pending map rather than a shared one, because
+    the two questions have different clocks and different answers: a suggestion
+    is a keystroke waiting 1.2 seconds for one plugin's list, and a preview is a
+    note opening and waiting eight for every plugin's text. Sharing `suggestSeq`
+    would let a preview's slow answer be mistaken for a keystroke's stale one.
+  */
+  const [preview, setPreview] = useState<PreviewRequest | undefined>(undefined);
+  const previewSeq = useRef(0);
+  const previewing = useRef(new Map<number, {
+    resolve: (previews: LinkPreview[]) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>());
+  const lastPreviewAsked = useRef<number | null>(null);
+  const previewWalk = useRef(0);
+
 
   /*
     REGISTRATIONS FOLLOW THE FRAMES, RATHER THAN EACH PATH REMEMBERING TO CLEAR.
@@ -161,6 +189,8 @@ export function useRuntime(options: {
       waiting.current.clear();
       for (const [, pending] of applying.current) { clearTimeout(pending.timer); pending.resolve(null); }
       applying.current.clear();
+      for (const [, pending] of previewing.current) { clearTimeout(pending.timer); pending.resolve([]); }
+      previewing.current.clear();
       offeredBy.current = null;
     }
     setRegistrations(prune);
@@ -352,6 +382,58 @@ export function useRuntime(options: {
   }, [grants, isOwner, sandboxes]);
 
   /**
+   * Ask the plugins to preview the open note's links.
+   *
+   * **Every frame is asked, and the answers are merged** — which is the one
+   * place this deliberately differs from `askSuggestions`. A completion menu
+   * has to belong to one plugin, because a pick has to be routed back to
+   * whoever computed it; a preview is a finished string per link, so two
+   * plugins previewing different links in the same note is a note where both
+   * work rather than a conflict.
+   *
+   * Where two do claim the same link the first frame wins, for the same reason
+   * the first suggester does: the order is the order they were started in, and
+   * silently showing the second plugin's words under the first plugin's link
+   * would be a worse answer than a stable one.
+   *
+   * Only frames that pass `maySeeContent` are asked. A link is note content —
+   * the address somebody wrote down and the words they wrote around it.
+   */
+  const askPreviews = useCallback(async (links: LinkPreview[]) => {
+    if (!isOwner || links.length === 0) return [];
+    previewWalk.current += 1;
+    const mine = previewWalk.current;
+    const byHref = new Map<string, string>();
+    for (const frame of sandboxes) {
+      if (!currentWalk(mine, previewWalk.current)) return [];
+      if (!maySeeContent(frame.bundle, grants)) continue;
+      previewSeq.current += 1;
+      const seq = previewSeq.current;
+      lastPreviewAsked.current = seq;
+      const answer = new Promise<LinkPreview[]>((resolve) => {
+        const timer = setTimeout(() => {
+          previewing.current.delete(seq);
+          resolve([]);
+        }, PREVIEW_TIMEOUT_MS);
+        previewing.current.set(seq, { resolve, timer });
+      });
+      setPreview({
+        seq,
+        pluginId: frame.bundle.pluginId,
+        nonce: frame.nonce,
+        links: links.slice(0, PREVIEW_LINKS_MAX),
+      });
+      const previews = await answer;
+      if (!currentWalk(mine, previewWalk.current)) return [];
+      for (const one of previews) {
+        if (one.text === "" || byHref.has(one.href)) continue;
+        byHref.set(one.href, one.text);
+      }
+    }
+    return [...byHref].map(([href, text]) => ({ href, text }));
+  }, [grants, isOwner, sandboxes]);
+
+  /**
    * Take the suggestion somebody picked, and return the line it produced.
    *
    * Routed to the frame that offered the menu rather than to the plugin, for
@@ -421,6 +503,15 @@ export function useRuntime(options: {
         offeredBy.current = { pluginId, nonce: sandbox.nonce };
       }
       pending.resolve(items ?? []);
+      return;
+    }
+    if (event.type === "preview-results") {
+      const pending = previewing.current.get(event.seq);
+      if (pending === undefined) return;
+      const previews = freshPreviews(event, lastPreviewAsked.current);
+      previewing.current.delete(event.seq);
+      clearTimeout(pending.timer);
+      pending.resolve(previews ?? []);
       return;
     }
     if (event.type === "suggest-applied") {
@@ -565,7 +656,7 @@ export function useRuntime(options: {
     loading: isOwner && workspaceId !== null && raw === undefined,
     host: isOwner
       ? createElement(PluginSandboxFarm, {
-          sandboxes, onEvent, activeFile, vaultEvent, invoke, suggest, suggestApply, grants,
+          sandboxes, onEvent, activeFile, vaultEvent, invoke, suggest, suggestApply, preview, grants,
         })
       : undefined,
     registrations,
@@ -578,7 +669,7 @@ export function useRuntime(options: {
     */
     openNote: activeFile?.path ?? null,
     actions: isOwner && workspaceId !== null
-      ? { start, stop, run, askSuggestions, applySuggestion }
+      ? { start, stop, run, askSuggestions, applySuggestion, askPreviews }
       : undefined,
   };
 }

@@ -752,6 +752,7 @@ export function BrowsePane({
         */
         onSuggest={data.pluginRuntime?.actions?.askSuggestions}
         onPickSuggestion={data.pluginRuntime?.actions?.applySuggestion}
+        onPreviewLinks={data.pluginRuntime?.actions?.askPreviews}
         onSubmitForm={files.submitForm}
         onReadFormResponses={files.readFormResponses}
         onVoteForm={files.voteForm}

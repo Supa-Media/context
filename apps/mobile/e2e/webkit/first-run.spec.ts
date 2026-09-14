@@ -59,6 +59,23 @@ test("the paid card does not draw over the rest of the step", async ({ page }) =
   await page.goto(STORAGE);
   const managed = page.getByTestId("choose-managed");
   await managed.waitFor();
+  /*
+    WAIT FOR THE FONTS, NOT JUST FOR THE ELEMENT.
+
+    This assertion has failed four times in WebKit CI on diffs that do not
+    touch onboarding, always by the same 26pt, and passed on a re-run of the
+    same commit each time. `waitFor()` resolves when the card is attached and
+    visible, which is before the webfont it is laid out with has loaded — and
+    a card measured in the fallback face is a different height. Chromium
+    measured the skip button 16pt *below*; WebKit reported a 26pt overlap. A
+    ~42pt swing is about two text lines, which is what a font swap moves.
+
+    So the measurement waits for layout to be final rather than merely
+    present. The assertion itself is unchanged: it still fails if the card
+    really does draw over the way out of this step, which is the defect the
+    test exists for and which nothing here makes harder to catch.
+  */
+  await page.waitForFunction(() => document.fonts.status === "loaded");
   const card = await managed.boundingBox();
   const skip = await page.getByTestId("welcome-storage-skip").boundingBox();
   expect(card).not.toBeNull();

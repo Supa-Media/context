@@ -65,6 +65,7 @@ export const SUPPORTED_MEMBERS = Object.freeze([
   "addRibbonIcon",
   "addStatusBarItem",
   "registerEditorSuggest",
+  "registerMarkdownPostProcessor",
   "registerEvent",
   "registerInterval",
   "registerDomEvent",
@@ -76,7 +77,41 @@ export const SUPPORTED_MEMBERS = Object.freeze([
 
   // Helpers the shim exports from the `obsidian` module.
   "normalizePath",
+
+  // Globals rather than module exports, and Obsidian defines them as both. A
+  // plugin builds a detached element with the global form — YouVersion's read
+  // preview opens with `createDiv({ cls: … })` — so their absence is not a
+  // missing convenience, it is a ReferenceError inside a callback nobody awaits.
+  "createEl",
+  "createDiv",
+  "createSpan",
 ]);
+
+/**
+ * Members the shim answers, with a bound worth saying out loud.
+ *
+ * ## Why a third list rather than a flag on the other two
+ *
+ * `SUPPORTED_MEMBERS` and `PLANNED_MEMBERS` split "answers" from "does not",
+ * and that split is what stopped a roadmap being read out as a capability. It
+ * has no room for the third thing, which arrived with the read preview:
+ * `registerMarkdownPostProcessor` genuinely runs a plugin's processor and
+ * genuinely shows what it produces — against a document Context builds, which
+ * carries the note's links and not its prose.
+ *
+ * Putting that in `PLANNED_MEMBERS` would say the feature does not work, which
+ * is false and would hide a working preview behind a "not yet". Leaving it out
+ * of both would say it works exactly as Obsidian does, which is the overclaim
+ * this file exists to prevent. So a partial member is **in `SUPPORTED_MEMBERS`
+ * as well as here**: it is answered, and the answer has a shape worth knowing.
+ *
+ * The scanner turns each into its own kind of limitation — "works here, with a
+ * limit" rather than "not yet, so that part will not work".
+ */
+export const PARTIAL_MEMBERS = Object.freeze({
+  registerMarkdownPostProcessor:
+    "a processor runs against the note's links rather than its whole rendered text, so one that decorates headings, code or embeds finds nothing to work on",
+});
 
 /**
  * Members the shim is committed to and does not answer yet.
@@ -91,11 +126,15 @@ export const SUPPORTED_MEMBERS = Object.freeze([
  * - **Absent.** `resolvedLinks`, `registerView`, `MarkdownRenderer` — a plugin
  *   calling one gets a `TypeError` and, if it is in `onload`, a crash the
  *   runtime reports honestly.
- * - **Present and inert.** `addSettingTab`, `registerMarkdownPostProcessor` and
- *   `registerEditorExtension` accept a registration and drop it, so the plugin
- *   loads happily and its settings pane, its rendering or its editor decoration
- *   never appears. That is the harder failure to report, which is exactly why
- *   it is named here rather than left to be noticed.
+ * - **Present and inert.** `addSettingTab` and `registerEditorExtension` accept
+ *   a registration and drop it, so the plugin loads happily and its settings
+ *   pane or its editor decoration never appears. That is the harder failure to
+ *   report, which is exactly why it is named here rather than left to be
+ *   noticed.
+ *
+ * A member that is answered but *bounded* belongs in neither kind. It is in
+ * `SUPPORTED_MEMBERS` and in `PARTIAL_MEMBERS` above — the read preview is the
+ * first, and the paragraph up there says why that needed a third list.
  */
 export const PLANNED_MEMBERS = Object.freeze({
   getAllLoadedFiles: "listing every loaded file is not wired to the adapter yet",
@@ -107,7 +146,6 @@ export const PLANNED_MEMBERS = Object.freeze({
   unresolvedLinks: "the link graph is not exposed to plugins yet",
   fileToLinktext: "the link graph is not exposed to plugins yet",
   addSettingTab: "a plugin's own settings pane is accepted and not drawn yet",
-  registerMarkdownPostProcessor: "rendering a plugin's markdown output is accepted and not drawn yet",
   registerMarkdownCodeBlockProcessor: "plugin-rendered code blocks are not drawn yet",
   registerEditorExtension: "editor decorations are accepted and not applied yet",
   registerView: "a plugin's own panel is not drawn yet",

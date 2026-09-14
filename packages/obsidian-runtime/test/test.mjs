@@ -6,6 +6,8 @@ import {
   parsePluginRpcRequest,
 } from "../src/protocol.js";
 import {
+  PREVIEW_LINKS_MAX,
+  PREVIEW_TEXT_MAX,
   parsePluginSandboxMessage,
   pluginSandboxDocument,
 } from "../src/sandbox.js";
@@ -331,6 +333,89 @@ assert.equal(parsePluginSandboxMessage({
     line: "x".repeat(9000),
   }, "secret");
   assert.equal(long.line.length, 4000);
+}
+
+/*
+  `preview-results` — what a plugin's markdown post-processor attached to each
+  of the note's links.
+
+  Nonce-authenticated for the sharpest reason in this file: a forged one would
+  draw somebody else's words in a tooltip over a link in a person's own note,
+  under the name of a plugin they trusted enough to enable.
+
+  The href travels with each preview rather than the previews being positional,
+  because a processor may answer for a subset — YouVersion previews bible.com
+  links and ignores the rest — and a positional list would slide every remaining
+  verse onto the wrong link.
+*/
+const JOHN = "https://www.bible.com/bible/1/JHN.3.16";
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "preview-results",
+  seq: 7,
+  previews: [{ href: JOHN, text: "For God so loved the world" }],
+}, "secret"), {
+  type: "preview-results",
+  seq: 7,
+  previews: [{ href: JOHN, text: "For God so loved the world" }],
+});
+// A note whose links no processor was interested in, which is not the same
+// answer as a guest that never replied.
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "preview-results",
+  seq: 8,
+  previews: [],
+}, "secret"), { type: "preview-results", seq: 8, previews: [] });
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "preview-results",
+  seq: 7,
+  previews: [{ href: JOHN, text: "anything at all" }],
+}, "secret"), null, "a forged preview must never reach a reader's tooltip");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "preview-results",
+  previews: [],
+}, "secret"), null, "a preview with no sequence cannot be matched to a query");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "preview-results",
+  seq: 7,
+  previews: [{ text: "a verse with no link to hang on" }],
+}, "secret"), null, "a preview without an href must not parse");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "preview-results",
+  seq: 7,
+  previews: "not a list",
+}, "secret"), null, "previews must be a list");
+{
+  const many = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "preview-results",
+    seq: 9,
+    previews: Array.from({ length: 200 }, (_, index) => ({
+      href: JOHN + "#" + index,
+      text: "v".repeat(5000),
+    })),
+  }, "secret");
+  assert.equal(many.previews.length, PREVIEW_LINKS_MAX, "the list is truncated, not rejected");
+  assert.equal(many.previews[0].text.length, PREVIEW_TEXT_MAX);
 }
 
 assert.deepEqual(parsePluginSandboxMessage({

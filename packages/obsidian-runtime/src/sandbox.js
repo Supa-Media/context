@@ -233,6 +233,37 @@ export function pluginSandboxDocument() {
   }
 
   /*
+    AND THE SAME THREE AS GLOBALS, WHICH IS A SEPARATE FACT.
+
+    Obsidian exposes createEl, createDiv and createSpan as globals as well as
+    methods, and a plugin builds a *detached* element with the global form.
+    YouVersion's read preview opens with exactly that:
+
+        const popup = createDiv({ cls: 'preview-youversion' });
+
+    Without them that line is a ReferenceError inside an async callback nobody
+    awaits — so the request still goes out, the rejection is swallowed, and the
+    preview simply never appears. A failure with no error anywhere is the shape
+    this package keeps being bitten by, so the globals are part of the preview
+    slice rather than a nicety beside it.
+
+    Detached on purpose: the element is built, handed back, and never attached
+    to this document by us. A plugin that wants it in a document puts it there.
+  */
+  function createEl(tag, options) {
+    const host = document.createElement('div');
+    const child = host.createEl(tag, options);
+    host.removeChild(child);
+    return child;
+  }
+  function createDiv(options) { return createEl('div', options); }
+  function createSpan(options) { return createEl('span', options); }
+  for (const [name, value] of [['createEl', createEl], ['createDiv', createDiv], ['createSpan', createSpan]]) {
+    if (typeof window[name] === 'function') continue;
+    Object.defineProperty(window, name, { value, writable: true, configurable: true });
+  }
+
+  /*
     THE STATUS BAR: THE TEXT CROSSES, THE ELEMENT DOES NOT.
 
     A plugin gets a real element and writes into it however it likes. What
@@ -361,6 +392,190 @@ export function pluginSandboxDocument() {
     send('suggest-applied', { seq: message.seq, line: offered.editor.getValue().slice(0, 4000) });
   }
 
+  /*
+    THE READ PREVIEW: THE PROCESSOR RUNS IN HERE, ITS TEXT IS WHAT LEAVES.
+
+    registerMarkdownPostProcessor is how a plugin decorates a note as it reads.
+    YouVersion's registers one that finds every external bible.com link in the
+    rendered markdown, fetches the verse over requestUrl, and attaches a tooltip
+    carrying it.
+
+    Obsidian hands the processor the real rendered document and lets it write
+    into it. Context cannot: that is third-party DOM in the trusted realm, which
+    docs/decisions/plugins.md rules out for the same reason it rules out
+    registerEditorExtension. So the halves are split exactly as they are for
+    suggestions.
+
+    The host says which links the open note has. The guest builds a rendered
+    document **in here** shaped the way Obsidian renders external links, runs
+    the plugin's processor against it, waits for the realm to go quiet, and
+    reports **the preview text each link ended up with**. The console draws its
+    own tooltip from that text. No element, no handler, no markup crosses.
+
+    ## What the guest cannot invent, and says so
+
+    The document it builds carries the note's external links and nothing else —
+    no headings, no paragraphs, no code, no embeds. That is enough for a
+    processor that works on links and not enough for one that works on anything
+    else, and the difference is reported as a limitation rather than discovered.
+  */
+  const processors = [];
+  // Links per query and characters per preview, interpolated from the host's
+  // own constants rather than written twice: two numbers meant to agree, in one
+  // file, with nothing linking them is how the shim and the scanner drifted.
+  // Roughly six seconds of waiting, in steps. A verse arrives over the brokered
+  // egress path, which is a Worker, a container and a third-party site.
+  const PREVIEW_TURNS = 60;
+  const PREVIEW_STEP_MS = 100;
+
+  function previewDocumentFor(links) {
+    const root = document.createElement('div');
+    root.className = 'markdown-preview-view markdown-rendered';
+    const anchors = [];
+    for (const link of links) {
+      const paragraph = document.createElement('p');
+      const anchor = document.createElement('a');
+      /*
+        Obsidian's own shape for an external link in rendered markdown, and each
+        attribute is load-bearing rather than decoration. YouVersion takes
+        anchors that carry external-link and whose text is not their own href —
+        so a container missing the class runs the plugin and finds nothing,
+        which from outside is indistinguishable from a plugin that does not
+        work.
+      */
+      anchor.className = 'external-link';
+      anchor.setAttribute('href', link.href);
+      anchor.setAttribute('target', '_blank');
+      anchor.setAttribute('rel', 'noopener');
+      anchor.textContent = link.text;
+      paragraph.appendChild(anchor);
+      root.appendChild(paragraph);
+      anchors.push({ href: link.href, anchor });
+    }
+    return { root, anchors };
+  }
+
+  /*
+    WHAT COUNTS AS A PREVIEW, AND WHY IT IS A LADDER.
+
+    A processor does not return its preview; it attaches it to the link. There
+    are four ways to do that in this ecosystem, and the guest reads all four in
+    order of how standard they are: the two accessible attributes first, then
+    the data attribute a few plugins use, then tippy.js — which is what
+    YouVersion bundles, and which records itself on the element it decorates.
+
+    A plugin attaching a preview some other way gets none reported. That is
+    stated in the limitation the console shows, because the alternative is a
+    plugin that looks enabled and silently does nothing.
+
+    Only text is read, never markup, and never the element itself.
+  */
+  function previewTextOf(anchor) {
+    const labelled = anchor.getAttribute('aria-label')
+      || anchor.getAttribute('title')
+      || anchor.getAttribute('data-tooltip')
+      || '';
+    if (labelled.trim() !== '') return labelled;
+    const tip = anchor._tippy;
+    const content = tip && tip.props ? tip.props.content : null;
+    if (typeof content === 'string') return content;
+    return textOfNode(content, 0);
+  }
+
+  /*
+    A line per element the plugin built, rather than one run of textContent.
+    YouVersion's popup is two sibling spans with no whitespace between them, so
+    textContent alone reads "...so loved the world.John 3:16 NIV". The structure
+    is the plugin's own and keeping it costs nothing; inventing a separator
+    where the plugin put none would be the host deciding how a plugin reads.
+  */
+  function textOfNode(node, depth) {
+    if (!node || typeof node.textContent !== 'string') return '';
+    // The plugin built this tree, so its depth is the plugin's choice and a
+    // plain recursion is a stack it controls. Past the limit the subtree is
+    // read flat rather than walked, which loses the line breaks and nothing
+    // else — and never takes the guest down mid-answer.
+    const children = node.children && (depth || 0) < 8
+      ? Array.prototype.slice.call(node.children)
+      : [];
+    if (children.length === 0) return node.textContent;
+    const parts = [];
+    for (const child of children) {
+      const text = textOfNode(child, (depth || 0) + 1);
+      if (text.trim() !== '') parts.push(text);
+    }
+    return parts.join('\\n');
+  }
+
+  function boundPreview(text) {
+    return String(text)
+      .split('\\n')
+      .map(line => line.replace(/\\s+/g, ' ').trim())
+      .filter(line => line !== '')
+      .join('\\n')
+      .slice(0, ${PREVIEW_TEXT_MAX});
+  }
+
+  /*
+    Obsidian lets a processor return a promise and waits on it. YouVersion's
+    does not: it starts a requestUrl per link and attaches the tooltip whenever
+    that answers, returning undefined immediately. So awaiting the call proves
+    nothing, and the guest waits for its own realm to go quiet instead —
+    bounded, and reporting whatever is attached when the wait ends rather than
+    throwing, because a slow verse should cost that one preview and not the
+    rest.
+  */
+  async function settlePreview(anchors) {
+    let previous = null;
+    for (let turn = 0; turn < PREVIEW_TURNS; turn += 1) {
+      await requestsIdle();
+      await new Promise(resolve => setTimeout(resolve, PREVIEW_STEP_MS));
+      const current = JSON.stringify(anchors.map(entry => previewTextOf(entry.anchor)));
+      if (inFlightRequests === 0 && current === previous) return;
+      previous = current;
+    }
+  }
+
+  async function answerPreview(message) {
+    const given = Array.isArray(message.links) ? message.links.slice(0, ${PREVIEW_LINKS_MAX}) : [];
+    const links = [];
+    for (const one of given) {
+      if (!one || typeof one.href !== 'string' || one.href === '') continue;
+      links.push({ href: one.href, text: typeof one.text === 'string' ? one.text : '' });
+    }
+    if (processors.length === 0 || links.length === 0) {
+      send('preview-results', { seq: message.seq, previews: [] });
+      return;
+    }
+    const built = previewDocumentFor(links);
+    /*
+      The context Obsidian passes. sourcePath is the note the host says is open,
+      which a processor may read; docId is this render and nothing else. The two
+      methods exist so that a processor calling one does not throw — there is no
+      child lifecycle here to add to, and no section of a source file to
+      describe, and answering honestly with nothing beats a TypeError inside a
+      callback whose rejection nobody sees.
+    */
+    const context = {
+      docId: 'context-preview-' + (message.seq === undefined ? 0 : message.seq),
+      sourcePath: activeFile === null ? '' : activeFile.path,
+      frontmatter: null,
+      addChild() {},
+      getSectionInfo() { return null; },
+    };
+    for (const processor of processors) {
+      try { await processor(built.root, context); } catch (_) {}
+    }
+    await settlePreview(built.anchors);
+    const previews = [];
+    for (const entry of built.anchors) {
+      const text = boundPreview(previewTextOf(entry.anchor));
+      if (text === '') continue;
+      previews.push({ href: entry.href, text });
+    }
+    send('preview-results', { seq: message.seq, previews });
+  }
+
   const app = { vault, metadataCache, workspace };
 
   class Plugin {
@@ -405,7 +620,14 @@ export function pluginSandboxDocument() {
       // the answer itself. See the host for why that is the whole design.
       if (suggester && typeof suggester.onTrigger === 'function') suggesters.push(suggester);
     }
-    registerMarkdownPostProcessor() {}
+    registerMarkdownPostProcessor(processor) {
+      // Kept, not mounted, for the reason registerEditorSuggest above is kept:
+      // the trusted document never receives this callback and never receives
+      // what it writes. It is run against a document built in here, on demand.
+      if (typeof processor !== 'function') return processor;
+      processors.push(processor);
+      return processor;
+    }
     registerEditorExtension() {}
     registerEvent(ref) { if (ref && typeof ref.off === 'function') disposers.push(() => ref.off()); }
     registerDomEvent(el, type, callback, options) {
@@ -558,6 +780,7 @@ export function pluginSandboxDocument() {
     // would be a line on the console from a plugin that is no longer running.
     suggesters.length = 0;
     offered = null;
+    processors.length = 0;
     if (statusWatch !== null) { statusWatch.disconnect(); statusWatch = null; }
     statusRoot.textContent = '';
     statusCount = 0;
@@ -648,6 +871,14 @@ export function pluginSandboxDocument() {
     if (message.type === 'suggest-apply') {
       if (instance === null) return;
       await applySuggest(message);
+      return;
+    }
+    // A preview carries the note's own links into the sandbox, so like a
+    // suggestion it is the host that decides whether this plugin may be asked,
+    // and an unloaded guest answers nothing at all rather than an empty list.
+    if (message.type === 'preview-query') {
+      if (instance === null) return;
+      await answerPreview(message);
       return;
     }
     // An unloaded plugin is inert, and that has to include the state it is
@@ -778,6 +1009,22 @@ export const SUGGEST_MAX = 8;
 export const STATUS_BAR_MAX = 8;
 
 /**
+ * How many links one preview query covers, and how long one preview may be.
+ *
+ * The link cap bounds what the *host* sends: a long note can hold hundreds of
+ * external links, and asking a plugin to fetch every one of them on open is a
+ * request neither the person nor the site they are hitting asked for. The first
+ * two dozen is what somebody is actually reading.
+ *
+ * The text cap bounds what the *guest* sends back, and that half is the one
+ * that matters for safety — a preview is entirely the plugin's words, drawn in
+ * a tooltip over somebody's own note. Enforced on both sides for the reason
+ * `STATUS_BAR_MAX` is: a cap the untrusted half applies to itself is not a cap.
+ */
+export const PREVIEW_LINKS_MAX = 24;
+export const PREVIEW_TEXT_MAX = 400;
+
+/**
  * Strictly recognize messages that may cross from the untrusted frame.
  * @param {unknown} value
  * @param {string} expectedNonce
@@ -890,6 +1137,33 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       return typeof row.seq === "number" && typeof row.line === "string"
         ? { type: "suggest-applied", seq: row.seq, line: row.line.slice(0, 4000) }
         : null;
+    /*
+      What a plugin's markdown post-processor attached to each link.
+
+      Text keyed to an href, bounded twice, nonce-authenticated like every
+      other observable event. A forged one would put a plugin's words — or
+      anybody's — into a tooltip over a person's own note, next to a link they
+      wrote, with the plugin's name on it.
+
+      The href is echoed rather than indexed, because the guest may answer for
+      a subset: a processor that ignored a link reports nothing for it, and a
+      positional list would silently shift every remaining preview onto the
+      wrong link. `seq` is carried back unchanged for the same reason a
+      suggestion's is — a note can be closed or edited while a verse is being
+      fetched.
+    */
+    case "preview-results": {
+      if (typeof row.seq !== "number" || !Array.isArray(row.previews)) return null;
+      const previews = [];
+      for (const entry of row.previews) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+        const one = /** @type {Record<string, unknown>} */ (entry);
+        if (typeof one.href !== "string" || typeof one.text !== "string") return null;
+        if (previews.length >= PREVIEW_LINKS_MAX) continue;
+        previews.push({ href: one.href.slice(0, 2000), text: one.text.slice(0, PREVIEW_TEXT_MAX) });
+      }
+      return { type: "preview-results", seq: row.seq, previews };
+    }
     case "registration":
       return (row.kind === "command" || row.kind === "ribbon") &&
         typeof row.id === "string" &&
