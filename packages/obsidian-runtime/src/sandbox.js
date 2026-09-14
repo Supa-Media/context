@@ -474,6 +474,31 @@ export function pluginSandboxDocument() {
   const receiveHostMessage = async event => {
     const message = event.data;
     if (!message || message.source !== 'context-plugin-host' || message.version !== VERSION) return;
+    /*
+      THE ONLY PART OF A HOST MESSAGE ITS SENDER CANNOT WRITE.
+
+      The 'context-plugin-host' marker above is a string in the payload, so any
+      window holding a handle to this frame can write it: opener.frames[i] then
+      postMessage reaches a nested frame across origins by design, and an opaque
+      origin does not change that. What such a sender cannot forge is
+      event.source, which the user agent sets to the posting window.
+
+      That matters because the claim below -- that a host-to-guest message can
+      only ask the plugin to act inside its own realm -- stopped being true once
+      the command path grew a read and a write of its own. A command now makes
+      this guest issue vault.read against the open note and vault.modify back
+      onto it, so a forged one is an unauthorized write to a customer's note,
+      timed by whoever forged it.
+
+      Nonce-ing this direction is still refused, for the reason given below: the
+      plugin shares this realm and would read the nonce out of the event.
+
+      event.source is absent on the React Native path, where the host injects
+      into the document rather than posting between windows, so an absent source
+      is accepted and a foreign one is refused. In a WebView window.parent is
+      window, which is what an injected post carries anyway.
+    */
+    if (event.source && event.source !== window.parent) return;
     // RPC replies carry no sandbox nonce. A plugin can observe every event in
     // its own realm, so including the nonce here would reveal the value the
     // trusted host uses to reject forged status and registration messages.
