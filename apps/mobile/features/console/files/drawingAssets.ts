@@ -11,18 +11,24 @@
  *
  * ## Why the fonts are ours to serve at all
  *
- * Excalidraw resolves fonts against `window.EXCALIDRAW_ASSET_PATH` and, unset,
- * falls back to **esm.sh** — a request to a third party made at the moment
- * somebody opens their own private drawing, from a page whose URL identifies
- * this product. `share/markdown.ts` already refuses the same thing in different
- * clothes: "a remote image in a shared note is a tracking pixel that reports
- * every read to whoever wrote it." A font is that request with a different
- * extension.
+ * Excalidraw appends a URL on **esm.sh** to the `src` list of every `FontFace`
+ * it registers, always, and the browser walks that list in order — so the third
+ * party is reached the moment the URL in front of it stops working. That is a
+ * request to a stranger fired when somebody opens their own private drawing,
+ * from a page whose URL identifies this product. `share/markdown.ts` already
+ * refuses the same thing in different clothes: "a remote image in a shared note
+ * is a tracking pixel that reports every read to whoever wrote it." A font is
+ * that request with a different extension.
  *
- * So the build copies these families next to the editor bundle, and the page
- * points at them relatively (`drawing-editor/assetPath.js`) — relative so a
- * self-hosted console serves its own, for the reason `shareOrigin.web.ts`
- * gives about share links.
+ * So the build copies these families next to the editor bundle, and
+ * `drawing-editor/assetPath.js` points `window.EXCALIDRAW_ASSET_PATH` at the
+ * directory the page itself was served from — resolved at load time, so a
+ * self-hosted console serves its own, for the reason `shareOrigin.web.ts` gives
+ * about share links. It is deliberately **not** the relative `"./"` it looks
+ * like it should be: the package normalizes a value starting `./` against the
+ * *origin*, which sent every scene font to a 404 and then on to esm.sh.
+ * `e2e/webkit/drawingFonts.spec.ts` is what found that, and is what now stands
+ * behind this on every run.
  */
 
 /**

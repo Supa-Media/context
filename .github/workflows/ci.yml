@@ -463,7 +463,11 @@ jobs:
         env:
           EXPO_PUBLIC_E2E_FIXTURE: "1"
           EXPO_PUBLIC_CONVEX_URL: "https://e2e-fixture.invalid"
-        run: npx expo export --platform web --output-dir web-build --clear
+        # This also builds the standalone drawing editor into `public/` before
+        # Expo copies public assets into the export. Calling `expo export`
+        # directly leaves `/drawing-assets/editor/index.html` absent, and the
+        # static server serves the SPA fallback page at that URL instead.
+        run: pnpm build:e2e-web
 
       - name: Run the suite in WebKit
         if: steps.changes.outputs.mobile == 'true'
