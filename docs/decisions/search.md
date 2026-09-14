@@ -320,6 +320,64 @@ invisible to the whole suite. It fails closed on an unrecognized kind, which is
 both a real property and the only handle a test has on that half until a paid
 tier arrives.
 
+### A name already taken in our own account is this context's database
+
+`databaseNameFor` is `context-search-<workspace id>`, deterministic on purpose:
+a slug can be renamed and a database name cannot, so a slug-derived name goes
+stale against the context it belongs to. Determinism means every attempt for
+one workspace asks Cloudflare for the same name, and the provisioner used to
+treat a name that was already there as a failure.
+
+It is not one. The account holds customer data and nothing of ours
+(non-negotiable #2), the workspace id is immutable and unguessable, and only
+this deployment creates databases there — so a database of that name **is**
+this workspace's, and the run adopts it. That is `managedProvisioning.ts`'s
+argument about a taken bucket name, with a wider safety margin: a bucket is the
+customer's only copy and a search database is a disposable derivative.
+
+Refusing was not a slower retry, it was a permanent one. A taken name answers
+outside the four statuses `classify` names, so it landed on `REFUSED`, which
+the provisioner treats as terminal — correctly, because a malformed request
+does not become well-formed by waiting. The row went `failed`, the settings
+card's "Try again" ran the identical create, and `disable` on a row with no
+`databaseId` deletes the row outright, so off-and-on-again came back to the
+same create. There was no way out of that screen from inside the product. Four
+ordinary things put a context in it: a create whose answer was lost, two
+schedules racing, a release that deleted the row and not the database, and a
+database migrated into this account ahead of the provision that asks for it.
+
+Two conditions travel with the adoption:
+
+- **The name must match exactly.** Cloudflare's `name` filter is a match, not
+  an identity, and the name is a shared prefix plus an id. Trusting the filter
+  would adopt another context's database and then project this context's notes
+  into it — one tenant's search answered out of another tenant's storage,
+  arrived at through a convenience.
+- **An adopted database is emptied first** (`RESET_STATEMENTS`), and the
+  backfill cursor in `index_state` is why. The cursor records how far the sweep
+  has walked; adopt one and the fresh backfill resumes past every note before
+  that point, which are then never projected while the counters report a
+  finished index — a hole in the front of somebody's search that nothing
+  reports. Emptying costs a rebuild and loses nothing, which is what "the index
+  is a disposable derivative" is for.
+
+Adoption is gated on what is **there**, never on which error code came back:
+which status Cloudflare answers a taken name with is provider behaviour this
+repo does not control, and a rule keyed on one would be a guess that fails
+silently when it is wrong.
+
+Beside it, the same failure's other half. `classify` dropped Cloudflare's own
+code and message so a provider sentence could not reach a row — the right rule,
+kept in a way that also kept it from us: every 4xx outside those four statuses
+became the same six words on a settings card with nothing behind them anywhere,
+and an operator could not tell a taken name from an account out of databases
+from a statement D1 would not accept. The detail now travels on `D1Error` and
+is logged beside the workspace id. The row and the screen are unchanged.
+
+The tests that fail if this is reversed: `__tests__/fastSearch.test.ts`, "a
+name already taken in our own account is this context's database" — five
+checks, each with its own measured sabotage.
+
 ### The gateway writes the projection, so the credential rides on the binding
 
 The switch above provisioned a database per opted-in context and **nothing put

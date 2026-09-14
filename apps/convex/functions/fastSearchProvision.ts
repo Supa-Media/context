@@ -23,6 +23,12 @@
  * screen would spin at a person with no way to learn why. What a failure
  * records is **our** sentence and our error code, never Cloudflare's text —
  * a provider message can name the account or the token.
+ *
+ * Cloudflare's account of it goes to the structured log instead, beside the
+ * workspace id (`D1Error.detail`). Keeping it out of the row is the rule;
+ * keeping it out of the *system* was an accident, and it made every 4xx
+ * outside the four statuses `classify` names look identical to the person who
+ * has to fix it.
  */
 
 import { v } from "convex/values";
@@ -33,10 +39,11 @@ import {
   D1_ACCOUNT_SECRET,
   D1_SCHEMA_VERSION,
   D1_TOKEN_SECRET,
+  RESET_STATEMENTS,
   SCHEMA_STATEMENTS,
-  createDatabase,
   databaseNameFor,
   deleteDatabase,
+  ensureDatabase,
   exec,
   messageFor,
   type D1Config,
@@ -147,9 +154,12 @@ export const provisionIndex = internalAction({
 
       if (databaseId === undefined) {
         const name = databaseNameFor(args.workspaceId);
-        const created = await createDatabase(config, name);
-        databaseId = created.uuid;
-        databaseName = created.name;
+        // Created, or adopted if that name is already taken in our account —
+        // `ensureDatabase` carries the argument for why adopting is right and
+        // what refusing used to cost.
+        const { database, adopted } = await ensureDatabase(config, name);
+        databaseId = database.uuid;
+        databaseName = database.name;
         // Recorded BEFORE the schema is applied, and that order is the whole
         // safety argument: a database created but not recorded is one nothing
         // can ever find to delete — an orphaned derived copy of somebody's
@@ -165,6 +175,14 @@ export const provisionIndex = internalAction({
             databaseName,
           },
         );
+        if (adopted) {
+          // An adopted database starts empty, and `RESET_STATEMENTS` says why
+          // that is required rather than tidy: whatever backfill cursor it
+          // carries would make the pass below resume past notes it has never
+          // projected. Recorded first, dropped second — the handle is worth
+          // more than the contents, which are rebuildable by definition.
+          await exec(config, databaseId, RESET_STATEMENTS);
+        }
       }
 
       await exec(config, databaseId, SCHEMA_STATEMENTS);
@@ -208,6 +226,24 @@ export const provisionIndex = internalAction({
       return { status: "backfilling" };
     } catch (error) {
       const code = error instanceof D1Error ? error.code : "REFUSED";
+      /*
+        WHAT CLOUDFLARE SAID, WHERE ONLY WE CAN READ IT.
+
+        The row gets `messageFor(code)` and nothing else, because it is drawn
+        on a settings card and a provider sentence can name the account, the
+        database or the token. That rule was being kept by throwing the
+        provider's account of the failure away at `classify`, which kept it
+        from us too: a context sitting on "Cloudflare refused the search
+        database request" left a staffer with a closed-set code that covers
+        every 4xx there is and no way to tell them apart. The detail is a log
+        line now, beside the workspace id and nothing else — no token, no path,
+        no note content.
+      */
+      console.error("fast_search.provision_failed", {
+        workspaceId: args.workspaceId,
+        code,
+        detail: error instanceof D1Error ? error.detail : "",
+      });
       /*
         A DATABASE CREATED A MOMENT AGO IS NOT A DATABASE THAT IS BROKEN.
 

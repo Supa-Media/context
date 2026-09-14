@@ -129,6 +129,42 @@ export const SCHEMA_STATEMENTS: readonly string[] = [
    )`,
 ];
 
+/**
+ * Everything `SCHEMA_STATEMENTS` creates, dropped.
+ *
+ * For one caller — a database this deployment is **adopting** rather than
+ * creating (`ensureDatabase`). An adopted database is this workspace's own
+ * from an attempt that did not finish, or from a life before the owner last
+ * switched fast search off, and what it holds is a disposable derivative
+ * (CLAUDE.md, "Plain files stay canonical"), so starting it empty costs a
+ * rebuild and loses nothing.
+ *
+ * **`index_state` is the reason this exists at all**, and dropping it is not
+ * tidiness. The backfill's cursor lives in that table: it records how far the
+ * sweep has walked so a pass that dies is resumed rather than restarted. Adopt
+ * a database with a cursor in it and the fresh backfill resumes from wherever
+ * the old one stopped — every note before that point is never projected, the
+ * counters say the index is complete, and the context quietly searches a
+ * corpus with a hole in the front of it. A stale `notes` row for a note
+ * deleted while the feature was off is the same class of wrong, more visibly.
+ *
+ * **`index_state` goes first**, and the order is the failure plan. These run
+ * one statement at a time, so a reset can stop half way — and only the first
+ * attempt resets, because the one after it finds a `databaseId` on the row and
+ * goes straight to the schema. Cursor first means the worst half-applied
+ * outcome is a full re-project over rows that are still there; the other order
+ * leaves the cursor standing with the tables gone, which is the hole above
+ * with no second chance at it.
+ *
+ * `notes_by_visibility` is not listed: an index goes with its table.
+ */
+export const RESET_STATEMENTS: readonly string[] = [
+  `DROP TABLE IF EXISTS index_state`,
+  `DROP TABLE IF EXISTS notes`,
+  `DROP TABLE IF EXISTS notes_private_fts`,
+  `DROP TABLE IF EXISTS notes_team_fts`,
+];
+
 /** The two FTS tables, by the visibility whose corpus each one is. */
 export const FTS_TABLE = {
   private: "notes_private_fts",
@@ -219,10 +255,28 @@ export type D1ErrorCode =
 
 export class D1Error extends Error {
   readonly code: D1ErrorCode;
-  constructor(code: D1ErrorCode, message: string) {
+  /**
+   * What Cloudflare actually said, for the structured log and nothing else.
+   *
+   * **Never a row, never a screen.** `message` above and `D1_MESSAGES` below
+   * are what a person reads, and the rule that keeps a provider sentence out
+   * of them — it can name an account, a database or the token — is a rule
+   * about what is *shown*, not about what is *known*. Dropping the provider's
+   * own code and text at `classify` turned every 4xx that is not one of the
+   * four statuses below into the same six words on a settings card with
+   * nothing behind them anywhere: the deployment that hit one had no way to
+   * learn whether it was a name already taken, an account out of databases, or
+   * a statement D1 would not accept. So the detail is carried, and the
+   * provisioner logs it beside the workspace id.
+   *
+   * Empty when the body was not JSON, which is itself worth seeing.
+   */
+  readonly detail: string;
+  constructor(code: D1ErrorCode, message: string, detail = "") {
     super(message);
     this.name = "D1Error";
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -232,26 +286,55 @@ export interface D1Envelope<T> {
   errors?: { code?: number; message?: string }[];
 }
 
+/**
+ * Cloudflare's own account of a failure, flattened onto one line.
+ *
+ * Codes as well as messages: `lib/cloudflare.ts` classifies on the numeric
+ * code precisely because it is the specific signal, and a log that records
+ * only the status says nothing a retry would not have said.
+ */
+function providerDetail(
+  status: number,
+  body: D1Envelope<unknown> | null,
+): string {
+  const said = (body?.errors ?? [])
+    .map((entry) =>
+      [entry.code, entry.message].filter((part) => part !== undefined).join(" "),
+    )
+    .filter((part) => part.length > 0);
+  return said.length === 0 ? `HTTP ${status}` : `HTTP ${status}: ${said.join("; ")}`;
+}
+
 function classify(status: number, body: D1Envelope<unknown> | null): D1Error {
   // Our codes, from a closed set, never the provider's text — the same rule
   // `lib/cloudflare.ts` states. A provider message can name an account, a
-  // database, or the token itself.
+  // database, or the token itself. It travels as `detail`, which the caller
+  // logs and never records on a row.
+  const detail = providerDetail(status, body);
   if (status === 401 || status === 403) {
-    return new D1Error("UNAUTHORIZED", "The search database credential was refused.");
+    return new D1Error(
+      "UNAUTHORIZED",
+      "The search database credential was refused.",
+      detail,
+    );
   }
   if (status === 404) {
-    return new D1Error("NOT_FOUND", "That search database does not exist.");
+    return new D1Error("NOT_FOUND", "That search database does not exist.", detail);
   }
   if (status === 429) {
-    return new D1Error("RATE_LIMITED", "Cloudflare is rate limiting this account.");
+    return new D1Error(
+      "RATE_LIMITED",
+      "Cloudflare is rate limiting this account.",
+      detail,
+    );
   }
   if (status >= 500) {
-    return new D1Error("UNAVAILABLE", "Cloudflare did not answer. Retry.");
+    return new D1Error("UNAVAILABLE", "Cloudflare did not answer. Retry.", detail);
   }
-  const first = body?.errors?.[0]?.message;
   return new D1Error(
     "REFUSED",
-    first ? `Cloudflare refused the request (${status}).` : `Cloudflare refused the request (${status}).`,
+    `Cloudflare refused the request (${status}).`,
+    detail,
   );
 }
 
@@ -320,6 +403,91 @@ export async function createDatabase(
     method: "POST",
     body: { name },
   });
+}
+
+/**
+ * The database of exactly this name in this account, or `null`.
+ *
+ * Cloudflare's `name` filter is a match rather than an identity, so the
+ * returned list is checked for the exact name before anything is adopted from
+ * it: `databaseNameFor` is a prefix plus a workspace id, and a filter that
+ * matched loosely would hand back a different context's database. An entry
+ * without a `uuid` is not a database anything can talk to and is skipped.
+ */
+export async function findDatabaseByName(
+  config: D1Config,
+  name: string,
+): Promise<D1Database | null> {
+  const listed = await call<D1Database[]>(
+    config,
+    `/accounts/${config.accountId}/d1/database?name=${encodeURIComponent(name)}`,
+    { method: "GET" },
+  );
+  if (!Array.isArray(listed)) return null;
+  const match = listed.find(
+    (entry) =>
+      entry?.name === name &&
+      typeof entry?.uuid === "string" &&
+      entry.uuid.length > 0,
+  );
+  return match ?? null;
+}
+
+/**
+ * The database for this context: created, or adopted if it is already there.
+ *
+ * ADOPTING IS THE CORRECT BEHAVIOUR HERE, and it is the same argument
+ * `managedProvisioning.ts` makes about a taken bucket name. A taken name in
+ * the *customer's* account is a question — it might be theirs. In ours there
+ * is no such doubt: the name is `context-search-<workspace id>`, the id is
+ * immutable and unguessable, and only this deployment creates databases in
+ * that account. A database of that name **is** this workspace's, so the run
+ * takes it rather than refusing.
+ *
+ * Refusing is what it used to do, and the cost was not a slower retry but a
+ * permanent one. A create whose name is taken answers from outside the four
+ * statuses `classify` names, so it landed on `REFUSED` — which
+ * `fastSearchProvision` treats as terminal, correctly, because a malformed
+ * request does not become well-formed by waiting. The row went `failed` with
+ * six words on it, the card's "Try again" ran the identical create, and it
+ * failed identically for as long as anybody pressed it. Every way the name
+ * comes to be taken is a way in: a create whose answer was lost, a schedule
+ * that raced another, a release that deleted the row and not the database, or
+ * a database migrated into this account under the name a later provision will
+ * ask for.
+ *
+ * **The lookup runs only after a create has already failed**, so the ordinary
+ * first provision is one request as before. A lookup that fails too rethrows
+ * the *create's* error: the create is what the caller was doing, and "we could
+ * not check" is not a more useful thing to report than what Cloudflare said.
+ *
+ * Gated on what is **there**, not on which code came back. Which status
+ * Cloudflare answers a taken name with is provider behaviour this repo does
+ * not control and has never tested (`fastSearch.test.ts` says so in as many
+ * words), so a rule keyed on one would be a guess that fails silently if it is
+ * wrong. "A database of this exact name exists in our account" is checkable,
+ * and it is the whole condition adoption needs. It also catches the create
+ * whose answer was lost rather than refused, which is the same orphan by a
+ * different route. A credential that may not create one usually may not list
+ * them either, so this is no way past a refused token.
+ */
+export async function ensureDatabase(
+  config: D1Config,
+  name: string,
+): Promise<{ database: D1Database; adopted: boolean }> {
+  try {
+    return { database: await createDatabase(config, name), adopted: false };
+  } catch (error) {
+    if (!(error instanceof D1Error)) throw error;
+    let existing: D1Database | null = null;
+    try {
+      existing = await findDatabaseByName(config, name);
+    } catch {
+      throw error;
+    }
+    if (existing === null) throw error;
+    return { database: existing, adopted: true };
+  }
 }
 
 export async function deleteDatabase(
