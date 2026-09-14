@@ -460,6 +460,45 @@ export function vaultEventForOperation(
   }
 }
 
+export interface AppliedPluginNoteWrite {
+  path: string;
+  text: string;
+  expectedEtag: string;
+  etag: string;
+}
+
+/**
+ * The exact successful note replacement the trusted host just performed.
+ *
+ * This is deliberately narrower than a vault event: only `vault.modify` has
+ * both the complete new body and an old version that lets the open editor
+ * prove it is still looking at the version the plugin replaced.  The values
+ * come from the request the host sent to Convex and the response Convex
+ * returned; nothing new is accepted from a guest after authorization.
+ */
+export function appliedPluginNoteWrite(
+  operation: {
+    kind?: unknown;
+    path?: unknown;
+    text?: unknown;
+    expectedEtag?: unknown;
+  } | undefined,
+  response: unknown,
+): AppliedPluginNoteWrite | null {
+  if (operation?.kind !== "vault.modify") return null;
+  if (typeof operation.path !== "string" || typeof operation.text !== "string") return null;
+  if (typeof operation.expectedEtag !== "string") return null;
+  if ((response as { ok?: unknown } | null)?.ok !== true) return null;
+  const etag = (response as { result?: { etag?: unknown } }).result?.etag;
+  if (typeof etag !== "string") return null;
+  return {
+    path: operation.path,
+    text: operation.text,
+    expectedEtag: operation.expectedEtag,
+    etag,
+  };
+}
+
 /**
  * Which loaded plugins may be told the path of a note.
  *

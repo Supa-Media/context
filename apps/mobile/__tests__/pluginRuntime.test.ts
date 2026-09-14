@@ -16,6 +16,7 @@ import {
   maySeePaths,
   runtimePill,
   vaultEventForOperation,
+  appliedPluginNoteWrite,
   type RuntimeState,
 } from "../features/console/plugins/runtime";
 import type { PluginGrant } from "../features/console/plugins/grants";
@@ -244,6 +245,33 @@ describe("a plugin's write becomes the event the other plugins see", () => {
   test("a missing etag is null rather than undefined, so the shape never varies", () => {
     expect(vaultEventForOperation({ kind: "vault.modify", path: "a.md" }, ok()))
       .toEqual({ kind: "modify", path: "a.md", etag: null });
+  });
+});
+
+describe("a successful plugin note replacement can refresh the trusted editor", () => {
+  const operation = {
+    kind: "vault.modify",
+    path: "proof.md",
+    text: "[John 3:16](https://www.bible.com/bible/1/JHN.3.16)",
+    expectedEtag: "etag-1",
+  };
+
+  test("carries the exact authorized request body and both versions", () => {
+    expect(appliedPluginNoteWrite(operation, { ok: true, result: { etag: "etag-2" } })).toEqual({
+      path: operation.path,
+      text: operation.text,
+      expectedEtag: "etag-1",
+      etag: "etag-2",
+    });
+  });
+
+  test("a refusal, malformed version, or different operation refreshes nothing", () => {
+    expect(appliedPluginNoteWrite(operation, { ok: false })).toBeNull();
+    expect(appliedPluginNoteWrite(operation, { ok: true, result: {} })).toBeNull();
+    expect(appliedPluginNoteWrite({ ...operation, kind: "vault.create" }, {
+      ok: true,
+      result: { etag: "etag-2" },
+    })).toBeNull();
   });
 });
 

@@ -27,7 +27,12 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
   comes and goes.
 */
 jest.mock("convex/react", () => ({
-  useAction: () => async () => mockBundle,
+  useAction: (ref: never) => {
+    const { getFunctionName } = require("convex/server") as typeof import("convex/server");
+    return getFunctionName(ref) === "functions/obsidianPlugins:executePluginRequest"
+      ? async () => mockRpcResponse
+      : async () => mockBundle;
+  },
   useMutation: () => async () => undefined,
   useQueries: () => ({}),
 }));
@@ -54,6 +59,7 @@ const BUNDLE = {
   expiresAt: 4_102_444_800_000,
 };
 const mockBundle = BUNDLE;
+let mockRpcResponse: unknown = { ok: true, result: {} };
 
 const SANDBOX: ActiveSandbox = { bundle: BUNDLE, nonce: "nonce-for-test", attempts: 1 };
 
@@ -63,12 +69,12 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function mount() {
+function mount(onNoteWrite?: Parameters<typeof useRuntime>[0]["onNoteWrite"]) {
   let latest: RuntimeView | null = null;
   const container = document.createElement("div");
   const root = createRoot(container);
   function Probe() {
-    latest = useRuntime({ workspaceId: WORKSPACE, role: "owner" });
+    latest = useRuntime({ workspaceId: WORKSPACE, role: "owner", onNoteWrite });
     return null;
   }
   act(() => root.render(createElement(Probe)));
@@ -85,6 +91,47 @@ function mount() {
     },
   };
 }
+
+async function settle() {
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+}
+
+describe("a confirmed plugin write reaches the trusted editor", () => {
+  test("forwards the exact authorized replacement after Convex accepts it", async () => {
+    const onNoteWrite = jest.fn();
+    mockRpcResponse = {
+      version: 1,
+      requestId: "request-1",
+      ok: true,
+      result: { etag: "etag-2" },
+    };
+    const host = mount(onNoteWrite);
+    const respond = jest.fn();
+    host.send({
+      type: "rpc",
+      request: {
+        version: 1,
+        requestId: "request-1",
+        operation: {
+          kind: "vault.modify",
+          path: "proof.md",
+          text: "[John 3:16](https://www.bible.com/bible/1/JHN.3.16)",
+          expectedEtag: "etag-1",
+        },
+      },
+      respond,
+    });
+    await settle();
+
+    expect(respond).toHaveBeenCalledWith(mockRpcResponse);
+    expect(onNoteWrite).toHaveBeenCalledWith({
+      path: "proof.md",
+      text: "[John 3:16](https://www.bible.com/bible/1/JHN.3.16)",
+      expectedEtag: "etag-1",
+      etag: "etag-2",
+    });
+  });
+});
 
 describe("the console holds what the guest last said, not a running total", () => {
   test("a status bar arrives under its plugin", () => {
