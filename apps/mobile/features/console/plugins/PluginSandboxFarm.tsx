@@ -2,9 +2,14 @@ import { useCallback } from "react";
 import { View } from "react-native";
 import { PluginSandbox } from "./PluginSandbox";
 import type { PluginGrant } from "./grants";
-import type { ActiveFileRef, SandboxEvent, VaultEventMessage } from "./sandboxTypes";
-import { maySeePaths } from "./runtime";
-import type { ActiveSandbox } from "./runtime";
+import type {
+  ActiveFileRef,
+  InvokeMessage,
+  SandboxEvent,
+  VaultEventMessage,
+} from "./sandboxTypes";
+import { invokeFor, maySeePaths } from "./runtime";
+import type { ActiveSandbox, InvokeRequest } from "./runtime";
 
 /** Trusted host for every active plugin; tokens remain in these closures. */
 export function PluginSandboxFarm({
@@ -12,6 +17,7 @@ export function PluginSandboxFarm({
   onEvent,
   activeFile = null,
   vaultEvent,
+  invoke,
   grants,
 }: {
   sandboxes: ActiveSandbox[];
@@ -20,6 +26,8 @@ export function PluginSandboxFarm({
   activeFile?: ActiveFileRef | null;
   /** The last change Context made, under the same rule. */
   vaultEvent?: VaultEventMessage;
+  /** The command the owner pressed. Unlike the two above, it is not broadcast. */
+  invoke?: InvokeRequest;
   /** What each plugin was approved for. Absent means nobody is told anything. */
   grants?: readonly PluginGrant[];
 }) {
@@ -43,6 +51,12 @@ export function PluginSandboxFarm({
             onEvent={onEvent}
             activeFile={shares ? activeFile : null}
             vaultEvent={shares ? vaultEvent : undefined}
+            /*
+              Routed, not broadcast, and not gated on `shares`: running a
+              command the owner pressed is not a read, and the plugin it
+              belongs to is the only one that hears about it.
+            */
+            invoke={invokeFor(sandbox, invoke)}
           />
         );
       })}
@@ -55,11 +69,13 @@ function SandboxSlot({
   onEvent,
   activeFile,
   vaultEvent,
+  invoke,
 }: {
   sandbox: ActiveSandbox;
   onEvent: (sandbox: ActiveSandbox, event: SandboxEvent) => void;
   activeFile: ActiveFileRef | null;
   vaultEvent?: VaultEventMessage;
+  invoke?: InvokeMessage;
 }) {
   const receive = useCallback(
     (event: SandboxEvent) => onEvent(sandbox, event),
@@ -72,6 +88,7 @@ function SandboxSlot({
       onEvent={receive}
       activeFile={activeFile}
       vaultEvent={vaultEvent}
+      invoke={invoke}
     />
   );
 }

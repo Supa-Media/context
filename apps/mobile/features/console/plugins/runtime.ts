@@ -62,6 +62,15 @@ export interface RuntimeView {
    * sandbox said in this browser tab and is gone the moment the frame is.
    */
   registrations?: Record<string, PluginRegistration[]>;
+  /**
+   * How each plugin's last pressed command turned out, keyed by plugin id.
+   *
+   * One per plugin, not one per command: a person presses one at a time, and
+   * keeping every command's last result would put stale outcomes beside
+   * controls nobody has touched since. Cleared with the frame, like
+   * `registrations`.
+   */
+  outcomes?: Record<string, CommandOutcome>;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
 }
@@ -75,6 +84,31 @@ export interface ActiveSandbox {
 export interface RuntimeActions {
   start: (pluginId: string, bundleFingerprint: string) => Promise<void>;
   stop: (pluginId: string, bundleFingerprint: string) => Promise<void>;
+  /**
+   * Ask a running plugin to run one of the commands it registered.
+   *
+   * Returns nothing, and that is the honest shape. The host posts a message
+   * into a frame it does not control; the guest may answer `command-result`,
+   * or may hang, or may have been torn down between the press and the post. A
+   * promise here would have to either resolve on delivery — which says nothing
+   * about whether the command ran — or wait for an answer that is not
+   * guaranteed to come. The outcome arrives through `outcomes` instead.
+   */
+  run: (pluginId: string, id: string) => void;
+}
+
+/**
+ * What came back from the last command this plugin was asked to run.
+ *
+ * `ok: false` is the plugin failing, not Context: the command threw inside the
+ * sandbox and the guest reported it rather than swallowing it. The console says
+ * which command, because a plugin with several is otherwise a screen saying
+ * something went wrong somewhere.
+ */
+export interface CommandOutcome {
+  id: string;
+  ok: boolean;
+  error: string | null;
 }
 
 /**
@@ -220,18 +254,98 @@ export function registrationsFor(
 }
 
 /**
- * Why the names are listed and nothing is pressable.
+ * Why the names are listed and nothing is pressable **here**.
  *
- * Said once, on any plugin that registered something, because the alternative
- * is a reader wondering why a command they can see does nothing when they look
- * for it in the palette.
+ * Now shown only where there are no controls at all — the landing page's demo
+ * console, which has no bucket, no frame and nothing to press. In the live
+ * console a registered command is a button.
  *
- * The copy says what is true for the reader — Context has not wired a way to
- * run these — without claiming, as an earlier draft did, that no such channel
- * exists. One does, on the guest side; see `describeRegistrations`.
+ * It is kept rather than deleted because the alternative is a reader of the
+ * demo wondering why a command they can see does nothing, and because the
+ * section's rule is that no row ends on its refusal: this is that row's
+ * closing line.
  */
 export const REGISTRATION_NOTE =
-  "Context can see what this plugin added but cannot run it from here yet — nothing in the console is wired to these names.";
+  "This preview only lists what a plugin adds. In your own console these run.";
+
+/**
+ * The last command's outcome, paired with the name it was pressed under.
+ *
+ * Null when the plugin has no outcome, and — the part worth a function —
+ * **also null when the outcome names a command the plugin no longer lists**. A
+ * bundle can register different commands across two loads, and a result left
+ * over from the previous one would attach a failure to whichever command
+ * happens to sit in that position now, or to an id with no name at all.
+ *
+ * Returning the name rather than the id is the other half: `toggle` means
+ * nothing to a reader, and a plugin with several commands otherwise gets a
+ * screen saying something went wrong somewhere.
+ */
+export function commandOutcomeFor(
+  registered: PluginRegistration[],
+  outcome: CommandOutcome | undefined,
+): { name: string; ok: boolean; error: string | null } | null {
+  if (outcome === undefined) return null;
+  const match = registered.find((one) => one.id === outcome.id);
+  if (match === undefined) return null;
+  return { name: match.name, ok: outcome.ok, error: outcome.error };
+}
+
+/**
+ * A command the owner pressed, before it is routed to a frame.
+ *
+ * Carries the plugin as well as the command, which `InvokeMessage` does not:
+ * by the time it reaches one sandbox the plugin is implied by which sandbox it
+ * reached, and including it there would be a field the guest could read and
+ * nothing would check.
+ */
+export interface InvokeRequest {
+  seq: number;
+  pluginId: string;
+  /** The frame this was aimed at. A replacement frame has a different one. */
+  nonce: string;
+  id: string;
+}
+
+/**
+ * The command to hand this frame, or nothing.
+ *
+ * **Routing, and the security-relevant half of invoke.** `active-file` and
+ * `vault-event` are broadcast to every guest allowed to see paths; a command is
+ * the opposite and must reach exactly the plugin whose control was pressed.
+ * Delivering it to the others would run whatever *they* registered under the
+ * same id — and `toggle`, `refresh` or `open` are ids two unrelated plugins
+ * pick without either being at fault.
+ *
+ * **Addressed to a frame, not to a plugin**, which is the half a self-review of
+ * the first draft found missing. A press sets one slot, and each sandbox posts
+ * it from an effect that waits for `loaded`. A restart mounts a *new* sandbox,
+ * so `loaded` goes false to true again — with the previous press still in the
+ * slot — and the replacement would run a command nobody pressed. The guest's
+ * ignore-an-unknown-id rule does not save that: a restarted plugin registers
+ * the same ids it registered before, so the id resolves and the command runs.
+ * Matching the nonce makes the replacement unreachable by an instruction aimed
+ * at its predecessor.
+ *
+ * The asymmetry with `active-file` and `vault-event` is the point rather than
+ * an inconsistency. Those are **state**, and a freshly loaded plugin should be
+ * told which note is open. A command is an **instruction**, and one aimed at a
+ * frame that is gone is not owed to its successor.
+ *
+ * No grant is consulted, deliberately: the plugin is running, which already
+ * required an active grant and a deliberate Start, and whatever the command
+ * then does crosses the RPC boundary and is authorized there. Pressing it
+ * grants nothing new.
+ */
+export function invokeFor(
+  sandbox: { bundle: { pluginId: string }; nonce: string },
+  request: InvokeRequest | undefined,
+): { seq: number; id: string } | undefined {
+  if (request === undefined) return undefined;
+  if (request.pluginId !== sandbox.bundle.pluginId) return undefined;
+  if (request.nonce !== sandbox.nonce) return undefined;
+  return { seq: request.seq, id: request.id };
+}
 
 /**
  * A revoked grant is the one "blocked" that is not a fault.
