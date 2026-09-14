@@ -542,7 +542,23 @@ const schema = defineSchema({
      * see `voidCapabilitiesAddressedTo`.
      */
     recipientHeldSince: v.optional(v.number()),
-    /** Unguessable, and useless without the matching identity. */
+    /**
+     * The 32 random bytes in the share URL.
+     *
+     * **Unguessable, and for three of the four audiences useless without the
+     * matching identity** — a `name`, `email` or `members` share resolves an
+     * identity or a membership before it answers, so the token is a locator
+     * and the reader is authorised by who they are.
+     *
+     * For `anyone` it is not a locator. `authorizeShareRead` takes
+     * `actorUserId: null` and `shareStillStands` answers for an unlisted
+     * share, so **possession of this value is the whole authorization** —
+     * which is the point of that audience and is argued under `recipientKind`
+     * above. This comment used to claim the identity requirement without
+     * qualification, which was true when it was written and stopped being true
+     * when `anyone` was added; a field holding a live bearer credential must
+     * not read as if it holds a locator.
+     */
     token: v.string(),
     status: v.union(v.literal("active"), v.literal("revoked")),
     /**
