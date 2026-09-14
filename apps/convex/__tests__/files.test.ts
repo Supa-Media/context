@@ -42,6 +42,7 @@ import {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 /**
@@ -886,7 +887,7 @@ describe("Obsidian plugin inventory", () => {
     expect(errorCode(blockedError)).toBe("PLUGIN_NOT_RUNNABLE");
   });
 
-  test("network authority is limited to hosts found in the reviewed bundle", async () => {
+  test("network authority is limited to reviewed hosts and every hop uses public-only egress", async () => {
     const f = await fixture();
     f.backend.seed(
       ".obsidian/plugins/web/manifest.json",
@@ -894,7 +895,7 @@ describe("Obsidian plugin inventory", () => {
     );
     f.backend.seed(
       ".obsidian/plugins/web/main.js",
-      'requestUrl("https://api.example.com/items")',
+      'requestUrl("https://api.example.com/items"); requestUrl("https://redirect.example/items")',
     );
     const inventory = await asUser(f.t, f.owner).action(
       api.functions.files.listObsidianPlugins,
@@ -914,6 +915,17 @@ describe("Obsidian plugin inventory", () => {
     ));
     expect(errorCode(widened)).toBe("INVALID_NETWORK_GRANT");
 
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+      { workspaceId: f.workspaceId },
+    )).toEqual({ egress: false });
+    vi.stubEnv("PLUGIN_EGRESS_URL", "https://egress.example.invalid");
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+      { workspaceId: f.workspaceId },
+    )).toEqual({ egress: false });
+    vi.unstubAllEnvs();
+
     const unavailable = await captureError(() => asUser(f.t, f.owner).action(
       api.functions.obsidianPlugins.approvePlugin,
       {
@@ -924,7 +936,117 @@ describe("Obsidian plugin inventory", () => {
         networkHosts: ["API.EXAMPLE.COM"],
       },
     ));
-    expect(errorCode(unavailable)).toBe("NETWORK_RUNTIME_UNAVAILABLE");
+    expect(errorCode(unavailable)).toBe("NETWORK_EGRESS_UNAVAILABLE");
+
+    vi.stubEnv("PLUGIN_EGRESS_URL", "https://egress.example.invalid");
+    vi.stubEnv("PLUGIN_EGRESS_SECRET", "test-egress-secret");
+    expect(await asUser(f.t, f.owner).query(
+      api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+      { workspaceId: f.workspaceId },
+    )).toEqual({ egress: true });
+
+    const storageFetch = f.backend.fetchImpl;
+    const egressCalls: Array<Record<string, unknown>> = [];
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const url = new URL(
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
+      );
+      if (url.hostname !== "egress.example.invalid") return await storageFetch(input, init);
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer test-egress-secret");
+      const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      egressCalls.push(request);
+      expect(request).not.toHaveProperty("workspaceId");
+      expect(request).not.toHaveProperty("pluginId");
+      if (request.url === "https://api.example.com/redirect") {
+        return Response.json({
+          ok: true,
+          status: 302,
+          headers: [{ name: "location", value: "https://redirect.example/private" }],
+          bodyBase64: "",
+        });
+      }
+      if (request.url === "https://redirect.example/private") {
+        return Response.json({
+          ok: false,
+          error: { code: "NETWORK_PRIVATE_ADDRESS_DENIED", message: "private" },
+        }, { status: 403 });
+      }
+      return Response.json({
+        ok: true,
+        status: 200,
+        headers: [
+          { name: "content-type", value: "application/json" },
+          { name: "set-cookie", value: "must-not-cross" },
+        ],
+        bodyBase64: btoa("{\"ok\":true}"),
+      });
+    });
+
+    const approved = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.approvePlugin,
+      {
+        workspaceId: f.workspaceId,
+        pluginId: "web",
+        bundleFingerprint: fingerprint,
+        capabilities: ["vault:read", "network:request"],
+        networkHosts: ["api.example.com", "redirect.example"],
+      },
+    );
+    expect(approved.networkHosts).toEqual(["api.example.com", "redirect.example"]);
+    const loaded = await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.loadPluginBundle, {
+      workspaceId: f.workspaceId,
+      pluginId: "web",
+      bundleFingerprint: fingerprint,
+    });
+    const success = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "network_ok",
+          operation: { kind: "network.request", url: "https://api.example.com/items", method: "GET", headers: [] },
+        },
+      },
+    );
+    expect(success).toMatchObject({ ok: true, result: { status: 200 } });
+    if (!success.ok) throw new Error("network request should succeed");
+    expect((success.result as { headers: Array<{ name: string }> }).headers)
+      .not.toContainEqual(expect.objectContaining({ name: "set-cookie" }));
+
+    const deniedHost = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "network_denied_host",
+          operation: { kind: "network.request", url: "https://evil.example/items", method: "GET", headers: [] },
+        },
+      },
+    );
+    expect(deniedHost).toMatchObject({ ok: false, error: { code: "NETWORK_HOST_DENIED" } });
+
+    const privateRedirect = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken: loaded.runtimeToken,
+        request: {
+          version: 1,
+          requestId: "network_private_redirect",
+          operation: { kind: "network.request", url: "https://api.example.com/redirect", method: "GET", headers: [] },
+        },
+      },
+    );
+    expect(privateRedirect).toMatchObject({
+      ok: false,
+      error: { code: "NETWORK_PRIVATE_ADDRESS_DENIED" },
+    });
+    expect(egressCalls.map((call) => call.url)).toEqual([
+      "https://api.example.com/items",
+      "https://api.example.com/redirect",
+      "https://redirect.example/private",
+    ]);
   });
 
   test("a lifecycle generation prevents review and runtime issuance from racing bundle changes", async () => {
