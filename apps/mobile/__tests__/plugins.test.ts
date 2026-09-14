@@ -9,6 +9,7 @@ import {
   fromInventoryRow,
   groupPlugins,
   limitationSummary,
+  pluginBlurb,
   runsHereNote,
   namedEvidence,
   offersInstall,
@@ -505,5 +506,46 @@ describe("a wall of limitations becomes a count", () => {
   test("the count describes limits rather than claiming everything is broken", () => {
     const summary = limitationSummary(["a", "b", "c", "d", "e"]);
     expect(summary).toBe("5 limits on what this one does here");
+  });
+});
+
+/*
+  THE ONE THING THE CARD NEVER SAID: WHAT THE PLUGIN DOES.
+
+  Every row carried an id, a version, an author, its findings, its hosts, its
+  limitations and its controls — and never the sentence the plugin's own author
+  wrote to describe it. `description` has been on `ConsolePlugin` and populated
+  by `fromInventoryRow` the whole time; nothing rendered it.
+
+  It is the plugin author's words, so it is bounded on this side like every
+  other piece of third-party text the console draws. An author controls the
+  manifest, and a description is not a place to put a paragraph into somebody
+  else's settings pane.
+*/
+describe("a row says what the plugin is for", () => {
+  test("the author's own sentence, trimmed", () => {
+    expect(pluginBlurb({ description: "  Link bible verses to YouVersion.  " }))
+      .toBe("Link bible verses to YouVersion.");
+  });
+
+  test("nothing to say is null rather than an empty line", () => {
+    expect(pluginBlurb({})).toBeNull();
+    expect(pluginBlurb({ description: "" })).toBeNull();
+    expect(pluginBlurb({ description: "   " })).toBeNull();
+  });
+
+  /*
+    Bounded, and collapsed to one line. A manifest is written by whoever wrote
+    the plugin, and a row in a settings pane is not theirs to make as tall as
+    they like.
+  */
+  test("a manifest with a paragraph in it does not get a paragraph here", () => {
+    const long = pluginBlurb({ description: "x".repeat(500) });
+    expect(long).toHaveLength(200);
+  });
+
+  test("a description spread over lines becomes one", () => {
+    expect(pluginBlurb({ description: "Links verses\n\tto YouVersion." }))
+      .toBe("Links verses to YouVersion.");
   });
 });

@@ -448,6 +448,29 @@ export function verdictPill(verdict: PluginVerdict): {
 }
 
 /**
+ * What the plugin is for, in its author's words — or null.
+ *
+ * ## The thing the card never said
+ *
+ * A row carried an id, a version, an author, its findings, its hosts, its
+ * limitations and its controls, and never the sentence describing what the
+ * plugin *does*. `description` has been on `ConsolePlugin` and populated by
+ * `fromInventoryRow` since the inventory existed; nothing rendered it. Somebody
+ * deciding whether to enable a plugin was reading a list of what it could not
+ * do, above a button, with no statement of the point.
+ *
+ * **Bounded and flattened here**, like every other piece of third-party text
+ * this console draws. A manifest is written by whoever wrote the plugin, and a
+ * row in somebody's settings pane is not theirs to make as tall as they like —
+ * the same reasoning the status bar's caps carry, applied to the one string
+ * that arrives from the bundle rather than from the scan.
+ */
+export function pluginBlurb(plugin: { description?: string }): string | null {
+  const text = (plugin.description ?? "").replace(/\s+/g, " ").trim();
+  return text === "" ? null : text.slice(0, 200);
+}
+
+/**
  * The one line that stands in for a column of limitations, or null.
  *
  * ## Why this is a rendering decision and not a data one
