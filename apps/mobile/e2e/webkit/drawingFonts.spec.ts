@@ -104,24 +104,94 @@ test.describe("the drawing editor is served entirely from our own origin", () =>
     });
 
     /*
+      Whatever the page has to say for itself, kept for the failure messages
+      below. A page that does not start is the one failure mode this test cannot
+      diagnose from its own assertions — it just stops announcing — so the
+      engine's account of why is collected rather than left in a trace nobody
+      opens. It earned this: the first WebKit run timed out on the wait below
+      with nothing else in the log.
+    */
+    const complaints: string[] = [];
+    page.on("pageerror", (error) => complaints.push(`uncaught: ${String(error)}`));
+    page.on("console", (message) => {
+      if (message.type() === "error") complaints.push(`console.error: ${message.text()}`);
+    });
+    page.on("requestfailed", (request) =>
+      complaints.push(`request failed: ${request.url()} — ${request.failure()?.errorText ?? "no reason given"}`)
+    );
+    page.on("response", (response) => {
+      if (response.status() >= 400) complaints.push(`${response.status()} for ${response.url()}`);
+    });
+
+    /*
       The page announces itself with `ready` before it will accept anything, and
-      posts that to `window.parent` — which, loaded directly rather than in an
-      iframe, is this same window. Listening from an init script puts the
-      listener in place before the bundle runs, so the announcement cannot be
-      missed in the gap between `load` firing and React's effects running.
+      says `error` if it could not start at all. Both are posted to
+      `window.parent` — which, loaded directly rather than in an iframe, is this
+      same window. Listening from an init script puts the listener in place
+      before the bundle runs, so neither can be missed in the gap between `load`
+      firing and React's effects running.
+
+      `postMessage` itself is recorded too, and the reason is specific: the page
+      posts to a target origin it works out from `document.referrer`, so a
+      message can be *sent* and silently dropped for not matching. Without this
+      that is indistinguishable from a page that never ran.
     */
     await page.addInitScript((channel) => {
-      (window as unknown as { __editorReady?: boolean }).__editorReady = false;
+      const box = window as unknown as {
+        __editorReady?: boolean;
+        __editorError?: string;
+        __posted?: string[];
+      };
+      box.__editorReady = false;
+      box.__posted = [];
+      const post = window.postMessage.bind(window);
+      window.postMessage = ((message: unknown, ...rest: unknown[]) => {
+        const target = typeof rest[0] === "string" ? rest[0] : "(none)";
+        const type = (message as { type?: string } | null)?.type ?? "(untyped)";
+        box.__posted?.push(`${type} → ${target}`);
+        return (post as (...args: unknown[]) => unknown)(message, ...rest);
+      }) as typeof window.postMessage;
       window.addEventListener("message", (event: MessageEvent) => {
-        const data = event.data as { channel?: string; type?: string } | null;
-        if (data && data.channel === channel && data.type === "ready") {
-          (window as unknown as { __editorReady?: boolean }).__editorReady = true;
-        }
+        const data = event.data as { channel?: string; type?: string; reason?: string } | null;
+        if (!data || data.channel !== channel) return;
+        if (data.type === "ready") box.__editorReady = true;
+        if (data.type === "error") box.__editorError = data.reason ?? "no reason given";
       });
     }, DRAWING_CHANNEL);
 
     await page.goto(DRAWING_EDITOR_PATH);
-    await page.waitForFunction(() => (window as unknown as { __editorReady?: boolean }).__editorReady === true);
+
+    /*
+      Either announcement ends the wait. Treating `error` as an outcome rather
+      than waiting through it to the timeout is the difference between a failure
+      that names the exception the page caught and one that says only that
+      90 seconds passed.
+    */
+    const announcement = await page
+      .waitForFunction(
+        () => {
+          const box = window as unknown as { __editorReady?: boolean; __editorError?: string };
+          if (box.__editorReady === true) return { started: true, reason: "" };
+          if (box.__editorError !== undefined) return { started: false, reason: box.__editorError };
+          return null;
+        },
+        undefined,
+        { timeout: 45_000 }
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => null);
+
+    const account = async () =>
+      [
+        `posted: ${JSON.stringify(await page.evaluate(() => (window as unknown as { __posted?: string[] }).__posted))}`,
+        ...complaints,
+      ].join("\n");
+
+    expect(announcement, `the editor page never announced itself.\n${await account()}`).not.toBeNull();
+    expect(
+      announcement?.started,
+      `the editor page reported that it could not start: ${announcement?.reason}\n${await account()}`
+    ).toBe(true);
 
     /*
       Hand it a drawing, because an idle editor renders nothing: `entry.jsx`
