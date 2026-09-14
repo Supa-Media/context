@@ -10,6 +10,7 @@ import {
   REGISTRATION_NOTE,
   REVOKED_NOTE,
   STATUS_BAR_NOTE,
+  editorCommandState,
   commandOutcomeFor,
   describeRegistrations,
   isOwnerStop,
@@ -156,19 +157,36 @@ export function PluginRuntimeCard({
       {registeredNote ? (
         <View style={styles.registrations} testID={`plugin-registrations-${plugin.id}`}>
           <Text variant="rowSub">{registeredNote}</Text>
-          {registered.map((one) => (
-            run ? (
-              <Button
-                key={`${one.kind}:${one.id}`}
-                label={`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
-                onPress={() => run(plugin.id, one.id)}
-              />
+          {registered.map((one) => {
+            /*
+              An editor command acts on the note its owner has open, so whether
+              it can run at all is a fact this card holds. Drawn disabled with
+              the reason rather than pressable and throwing — see
+              `editorCommandState`.
+            */
+            const command = editorCommandState(one, view.openNote);
+            return run ? (
+              <View key={`${one.kind}:${one.id}`} style={styles.command}>
+                <Button
+                  label={command.label}
+                  disabled={!command.runnable}
+                  onPress={() => {
+                    if (!command.runnable) return;
+                    run(plugin.id, one.id);
+                  }}
+                />
+                {command.hint ? (
+                  <Text variant="rowSub" style={styles.registration}>
+                    {command.hint}
+                  </Text>
+                ) : null}
+              </View>
             ) : (
               <Text key={`${one.kind}:${one.id}`} variant="rowSub" style={styles.registration}>
-                {`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
+                {command.label}
               </Text>
-            )
-          ))}
+            );
+          })}
           {/*
             Without `run` these stay names, and the note says why. It is the
             console that is unwired, never the sandbox: the guest has always
@@ -207,6 +225,7 @@ export function PluginRuntimeCard({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   registrations: { gap: 3, marginTop: 2 },
+  command: { gap: 3 },
   status: { gap: 2, marginTop: 2 },
   statusNote: { color: colors.muted },
   registration: { color: colors.muted },

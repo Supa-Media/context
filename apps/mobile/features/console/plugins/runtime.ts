@@ -45,6 +45,17 @@ export interface PluginRegistration {
   kind: "command" | "ribbon";
   id: string;
   name: string;
+  /**
+   * Whether the command takes an editor — `addCommand({ editorCallback })`.
+   *
+   * Such a command acts on the note its owner has open and cannot run without
+   * one. Obsidian keeps them out of its own palette unless an editor is
+   * focused; `editorCommandState` is how this console keeps the same promise.
+   *
+   * Optional because a guest older than the field reports nothing, and absence
+   * has to mean "not editor-scoped" — see the parser.
+   */
+  needsEditor?: boolean;
 }
 
 export interface RuntimeView {
@@ -78,6 +89,15 @@ export interface RuntimeView {
    * frame in this browser tab said, and it goes when the frame does.
    */
   statusItems?: Record<string, StatusItem[]>;
+  /**
+   * The note the console has open, or `null`.
+   *
+   * Here because an editor command cannot run without one, and the card has to
+   * know that *before* it draws the control rather than after somebody presses
+   * it. The path, not the content — this is the console telling its owner about
+   * their own open note, not something crossing to a plugin.
+   */
+  openNote?: string | null;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
 }
@@ -329,6 +349,57 @@ export function commandOutcomeFor(
   const match = registered.find((one) => one.id === outcome.id);
   if (match === undefined) return null;
   return { name: match.name, ok: outcome.ok, error: outcome.error };
+}
+
+/**
+ * Said beside an editor command that cannot run yet.
+ *
+ * The precondition, before the press rather than after it. The guest does
+ * refuse the call — `sandbox.js` throws "Open a note before running this
+ * command" — but a refusal that arrives only once somebody has pressed a
+ * control teaches them the product is broken. Obsidian solves the same problem
+ * by keeping these out of its palette entirely; this keeps the name visible, so
+ * a reader can see the plugin has the command, and says what it is waiting for.
+ */
+export const EDITOR_COMMAND_HINT =
+  "Open a note first — this command edits the note you have open.";
+
+/**
+ * How one registration should be drawn, given the note the console has open.
+ *
+ * ## Why an editor command is different from every other control here
+ *
+ * `addCommand({ editorCallback })` is Obsidian's way of saying "this acts on
+ * the open editor". YouVersion Linker's `Generate links` is one: it rewrites
+ * Bible references in the note you are looking at, in place. Two things follow,
+ * and the card was getting both wrong.
+ *
+ * **It cannot run with nothing open.** Obsidian does not offer these in its
+ * palette unless an editor is focused. Context drew the button always, and the
+ * guest threw after the press.
+ *
+ * **It does not say what it changes.** "Generate links" reads like it produces
+ * something somewhere; it edits one specific file. So the label names it — the
+ * basename, because a button is not the place for a long path, and a person
+ * looking at this already has the full path in the file browser beside it.
+ */
+export function editorCommandState(
+  registration: PluginRegistration,
+  openNote: string | null | undefined,
+): { runnable: boolean; label: string; hint: string | null } {
+  const prefix = registration.kind === "ribbon" ? "Ribbon" : "Command";
+  const base = `${prefix} · ${registration.name}`;
+  if (registration.needsEditor !== true) {
+    return { runnable: true, label: base, hint: null };
+  }
+  const path = typeof openNote === "string" && openNote.trim() !== "" ? openNote : null;
+  if (path === null) return { runnable: false, label: base, hint: EDITOR_COMMAND_HINT };
+  return { runnable: true, label: `${base} → ${basenameOf(path)}`, hint: null };
+}
+
+function basenameOf(path: string): string {
+  const parts = path.split("/");
+  return parts[parts.length - 1] || path;
 }
 
 /**

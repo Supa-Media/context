@@ -12,6 +12,8 @@ import {
   DEFAULT_CAPABILITIES,
   EVENTS_NOTE,
   grantableCapabilities,
+  enableCapabilities,
+  enableSummary,
   networkNote,
   STALE_NOTE,
   approvalOffer,
@@ -25,6 +27,7 @@ import {
   type PluginCapability,
 } from "../../plugins/grants";
 import type { ConsolePlugin } from "../../plugins/plugins";
+import type { RuntimeView } from "../../plugins/runtime";
 
 /**
  * What one plugin is allowed to do, and the control that changes it.
@@ -49,9 +52,22 @@ import type { ConsolePlugin } from "../../plugins/plugins";
 export function PluginGrantCard({
   plugin,
   view,
+  runtime = { loading: false },
 }: {
   plugin: ConsolePlugin;
   view: GrantsView;
+  /**
+   * The runtime, so Enable can start what it just approved.
+   *
+   * Approval and execution stay two mutations and two records — a revoked
+   * grant must still stop a running bundle, a stopped bundle must still keep
+   * its approval. What changed is that nobody has to press them separately.
+   *
+   * Optional, and the default is the honest one: a surface with no runtime —
+   * the landing page's demo console, a non-owner — gets a card that can grant
+   * and cannot start, which is exactly what those people can do.
+   */
+  runtime?: RuntimeView;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
@@ -88,6 +104,7 @@ export function PluginGrantCard({
     reason the whole row was withheld while there was no egress service.
     `networkNote` says so in words rather than leaving an absence to be read.
   */
+  const enableNote = enableSummary(offer, view.egress);
   const offerable = grantableCapabilities(view.egress).filter(
     (capability) => capability !== "network:request" || hosts.length > 0,
   );
@@ -107,7 +124,18 @@ export function PluginGrantCard({
     if (!canApprove && offer.kind === "available") return null;
   }
 
-  async function approve() {
+  /**
+   * Approve, then start — and in that order, which is not cosmetic.
+   *
+   * Starting a bundle the control plane holds no grant for is a load that will
+   * be refused, and the refusal lands as a crash against a plugin that did
+   * nothing wrong. So a failed approval starts nothing, and that has a test.
+   *
+   * The start is best-effort on top: a non-owner has no runtime actions at all,
+   * and the grant is the half they were offered. Enable does what it can rather
+   * than throwing on the way past.
+   */
+  async function enable(capabilities: PluginCapability[]) {
     if (!canApprove || fingerprint === null) return;
     setBusy(true);
     setFailure(null);
@@ -117,19 +145,20 @@ export function PluginGrantCard({
         bundleFingerprint: fingerprint,
         /*
           Filtered against what is actually offerable, not sent as held. The
-          deployment's egress can go away between opening this form and pressing
-          it — a redeploy, a revoked token — and a stale tick would make the
-          whole approval fail rather than the one capability drop.
+          deployment's egress can go away between opening this card and pressing
+          it — a redeploy, a revoked token — and a stale capability would make
+          the whole approval fail rather than the one drop out.
         */
-        capabilities: chosen.filter((capability) => offerable.includes(capability)),
-        networkHosts: wantsNetwork ? hosts : [],
+        capabilities: capabilities.filter((capability) => offerable.includes(capability)),
+        networkHosts: capabilities.includes("network:request") && hosts.length > 0 ? hosts : [],
       });
       setOpen(false);
+      await runtime.actions?.start(plugin.id, fingerprint).catch(() => undefined);
     } catch (error) {
       /*
         The server's own refusal, kept. `approvePlugin` has real things to say —
         `PLUGIN_CHANGED` when the bundle moved between the scan and the press,
-        `PLUGIN_NOT_RUNNABLE`, `NETWORK_RUNTIME_UNAVAILABLE` — and a form that
+        `PLUGIN_NOT_RUNNABLE`, `NETWORK_RUNTIME_UNAVAILABLE` — and a card that
         closes silently on any of them looks like a button that does nothing.
       */
       setFailure(approvalFailure(error));
@@ -161,7 +190,29 @@ export function PluginGrantCard({
         ) : null}
       </Row>
 
+      {/*
+        THE FAST PATH, AND WHY IT IS NOT A WEAKER ONE.
+
+        Enable grants the read-only defaults plus the exact hosts the scan read,
+        then starts the bundle. What it withholds is the whole reason it can be
+        one press: create, change, rename and delete stay off, and raising a
+        plugin above reading stays something somebody does on purpose in the
+        form below. `enableSummary` says both halves above the button, so the
+        press is an informed decision rather than a hidden default.
+      */}
+      {canApprove && standing.kind !== "active" && enableNote ? (
+        <Text variant="rowSub" style={styles.lead}>{enableNote}</Text>
+      ) : null}
+
       <Row style={styles.controls}>
+        {canApprove && standing.kind !== "active" ? (
+          <Button
+            label={busy ? "Enabling…" : standing.kind === "stale" ? "Enable the new bundle" : "Enable"}
+            variant="white"
+            disabled={busy}
+            onPress={() => void enable(enableCapabilities(offer, view.egress))}
+          />
+        ) : null}
         {canApprove ? (
           <Button
             label={
@@ -169,7 +220,7 @@ export function PluginGrantCard({
                 ? "Review the new bundle"
                 : standing.kind === "active"
                   ? "Change what it can do"
-                  : "Review access"
+                  : "Choose what it can do"
             }
             onPress={() => setOpen((was) => !was)}
           />
@@ -260,10 +311,10 @@ export function PluginGrantCard({
 
           <Row style={styles.controls}>
             <Button
-              label={busy ? "Approving…" : "Approve this bundle"}
+              label={busy ? "Enabling…" : "Enable with these"}
               variant="white"
               disabled={busy || chosen.length === 0}
-              onPress={() => void approve()}
+              onPress={() => void enable(chosen)}
             />
             <Button label="Cancel" onPress={() => setOpen(false)} />
           </Row>

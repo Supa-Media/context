@@ -30,7 +30,8 @@ import {
   SCOPE_NOTE,
   foundLabel,
   groupPlugins,
-  installPending,
+  limitationSummary,
+  runsHereNote,
   namedEvidence,
   readLabel,
   routeOut,
@@ -437,9 +438,9 @@ function VaultInventory({
  * One plugin.
  *
  * The closing line is exactly one of two things and never both: the route that
- * still works (`routeOut`), or — for the two verdicts that will one day offer
- * an install — the note saying that running plugins here is not built yet
- * (`installPending`). Both come from the pure module, so the rule that a row
+ * still works (`routeOut`), or — for the two verdicts Context can run — the
+ * note saying so
+ * (`runsHereNote`). Both come from the pure module, so the rule that a row
  * never ends on a refusal is a property a test can hold rather than a habit
  * this component happens to have.
  */
@@ -455,11 +456,20 @@ function PluginRow({
   runtime: RuntimeView;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    Closed by default, and the only state this row has ever needed. Five lines
+    of "Not yet, so that part will not work" between a plugin's name and its
+    controls is a wall; the count stands in for it and every sentence is one
+    press away. See `limitationSummary` for why the wording counts limits
+    rather than claiming things are broken.
+  */
+  const [limitsOpen, setLimitsOpen] = useState(false);
   const { tone, dashed } = verdictPill(plugin.verdict);
   const findings = namedEvidence(plugin);
   const read = readLabel(plugin);
   const route = routeOut(plugin.verdict);
-  const pending = installPending(plugin.verdict);
+  const pending = runsHereNote(plugin.verdict);
+  const limits = limitationSummary(plugin.limitations);
   const from = sourceNote(plugin);
 
   return (
@@ -498,11 +508,23 @@ function PluginRow({
           </Text>
         ) : null}
 
-        {plugin.limitations.map((limitation, index) => (
-          <Text key={`${plugin.id}-limitation-${index}`} variant="rowSub" style={styles.line}>
-            {limitation}
-          </Text>
-        ))}
+        {limits === null || limitsOpen ? (
+          plugin.limitations.map((limitation, index) => (
+            <Text key={`${plugin.id}-limitation-${index}`} variant="rowSub" style={styles.line}>
+              {limitation}
+            </Text>
+          ))
+        ) : null}
+
+        {limits !== null ? (
+          <View style={styles.action}>
+            <Button
+              label={limitsOpen ? "Hide the details" : limits}
+              variant="mini"
+              onPress={() => setLimitsOpen((was) => !was)}
+            />
+          </View>
+        ) : null}
 
         {plugin.notes.map((note, index) => (
           <Text key={`${plugin.id}-note-${index}`} variant="rowSub" style={styles.line}>
@@ -527,7 +549,7 @@ function PluginRow({
         </Text>
 
         <PluginRuntimeCard plugin={plugin} view={runtime} grants={grants} />
-        <PluginGrantCard plugin={plugin} view={grants} />
+        <PluginGrantCard plugin={plugin} view={grants} runtime={runtime} />
         <PluginManagedCard plugin={plugin} view={browse} />
       </Grow>
     </Row>

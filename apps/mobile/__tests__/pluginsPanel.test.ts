@@ -440,6 +440,7 @@ describe("adding a plugin does not depend on the vault scan", () => {
         name: "Highlightr",
         author: "chetachi",
         description: "Highlight text in colour.",
+        repository: "chetachi/obsidian-highlightr-plugin",
       }],
       query: "highlightr",
     });
@@ -490,5 +491,70 @@ describe("adding a plugin does not depend on the vault scan", () => {
       box.dispatchEvent(new Event("input", { bubbles: true }));
     });
     expect(container.textContent).toContain('Search for "kanban"');
+  });
+});
+
+/*
+  The five-line wall, in the panel this time.
+
+  `plugins.test.ts` holds the counting rule; this holds that the row actually
+  uses it — and, more to the point, that pressing the count still gets you every
+  sentence. A collapse that quietly dropped the detail would be the opposite of
+  what the limitations are for.
+*/
+describe("a column of limitations collapses to a line you can open", () => {
+  const WORDY: PluginsView = {
+    state: "ready",
+    inventory: {
+      found: 1,
+      scanned: 1,
+      truncated: false,
+      checkedAt: "2026-09-12T09:41:00.000Z",
+      plugins: [plugin({
+        id: "youversion-linker",
+        name: "YouVersion Linker",
+        verdict: "needs-approval",
+        limitations: [
+          "Not yet, so that part will not work: a plugin's own settings pane is accepted and not drawn yet.",
+          "Not yet, so that part will not work: rendering a plugin's markdown output is accepted and not drawn yet.",
+          "Not yet, so that part will not work: editor decorations are accepted and not applied yet.",
+          "Not yet, so that part will not work: in-editor suggestions are not wired yet.",
+          "Not yet, so that part will not work: the icon set is not exposed to plugins yet.",
+        ],
+      })],
+    },
+  };
+
+  test("the five lines are one line until somebody asks", () => {
+    const container = panel(WORDY);
+    expect(container.textContent).toContain("5 limits on what this one does here");
+    expect(container.textContent).not.toContain("the icon set is not exposed");
+  });
+
+  test("opening it gives every sentence back, unedited", () => {
+    const container = panel(WORDY);
+    const toggle = [...container.querySelectorAll("[role='button']")]
+      .find((one) => (one.textContent ?? "").includes("5 limits"));
+    expect(toggle).toBeDefined();
+    act(() => { toggle!.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
+    expect(container.textContent).toContain("the icon set is not exposed to plugins yet");
+    expect(container.textContent).toContain("in-editor suggestions are not wired yet");
+  });
+
+  test("a plugin with two limitations still shows them outright", () => {
+    const brief: PluginsView = {
+      ...WORDY,
+      inventory: {
+        ...WORDY.state === "ready" ? WORDY.inventory : ({} as never),
+        plugins: [plugin({
+          id: "brief",
+          verdict: "runs",
+          limitations: ["Not yet: one thing.", "Not yet: another thing."],
+        })],
+      },
+    };
+    const container = panel(brief);
+    expect(container.textContent).toContain("Not yet: one thing.");
+    expect(container.textContent).not.toContain("limits on what this one does here");
   });
 });

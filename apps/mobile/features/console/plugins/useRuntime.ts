@@ -273,7 +273,13 @@ export function useRuntime(options: {
       setRegistrations((was) => {
         const mine = was[pluginId] ?? [];
         const without = mine.filter((one) => one.id !== event.id);
-        return { ...was, [pluginId]: [...without, { kind: event.kind, id: event.id, name: event.name }] };
+        return {
+          ...was,
+          [pluginId]: [
+            ...without,
+            { kind: event.kind, id: event.id, name: event.name, needsEditor: event.needsEditor },
+          ],
+        };
       });
       return;
     }
@@ -424,6 +430,12 @@ export function useRuntime(options: {
     registrations,
     outcomes,
     statusItems,
+    /*
+      The path only, and only so the card can tell whether an editor command
+      can run. It does not cross to a guest from here — that delivery is
+      `PluginSandboxFarm`'s and stays behind `maySeePaths`.
+    */
+    openNote: activeFile?.path ?? null,
     actions: isOwner && workspaceId !== null ? { start, stop, run } : undefined,
   };
 }

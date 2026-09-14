@@ -448,20 +448,61 @@ export function verdictPill(verdict: PluginVerdict): {
 }
 
 /**
- * The sentence under a row that *could* be installed, in a build that cannot
- * install anything yet.
+ * The one line that stands in for a column of limitations, or null.
+ *
+ * ## Why this is a rendering decision and not a data one
+ *
+ * YouVersion Linker's card opened with five lines each beginning *"Not yet, so
+ * that part will not work:"*, stacked between the plugin's name and anything
+ * anybody could press. Each is true and each is worth keeping — naming the
+ * half of a plugin that will not arrive is the whole argument in
+ * `surface.js` — but five of them in a column is a wall, and the reader's
+ * question is what the plugin *does*.
+ *
+ * So the count goes on the row and the sentences go behind it, verbatim. That
+ * keeps the rule this section has everywhere else: nothing is dropped to save
+ * room.
+ *
+ * **The wording is careful for a reason.** `limitations` carries two different
+ * kinds — the planned members the scan matched, and curated softening like
+ * Templater's User System Commands — so a summary reading "3 things that do
+ * not work" would be the client asserting more than the server told it. It
+ * counts limits; the list says which.
+ *
+ * Null below three, because a disclosure hiding one line is ceremony that
+ * costs a press and saves nothing.
+ */
+export function limitationSummary(limitations: string[]): string | null {
+  if (limitations.length < 3) return null;
+  return `${limitations.length} limits on what this one does here`;
+}
+
+/**
+ * The sentence under a row for a plugin Context can actually run.
  *
  * Null for every verdict with a `routeOut`, so a row carries exactly one
- * closing line and never two competing ones. This is the honest half of
- * "install controls remain unavailable until the backend action exists": no
- * greyed button, and no silence either — the reader is told that Context has
- * read this plugin and stopped there, and where it still runs meanwhile.
+ * closing line and never two competing ones.
+ *
+ * ## It used to say the opposite, and went on saying it for weeks
+ *
+ * This was `installPending`, and it read *"Context can read this plugin, and
+ * running it here is not built yet."* That was true of a build that could only
+ * report on a bundle. The sandbox host, capability grants, Start and managed
+ * install all landed afterwards and nobody came back to the copy — so the line
+ * sat, unchanged, directly above cards showing an installed, approved,
+ * **running** plugin. Both of the screenshots that prompted this change show
+ * exactly that.
+ *
+ * The rule it was written for is unharmed: a row still never ends on a
+ * refusal. It ends on what is true now, and still names the other place the
+ * plugin works, because a person deciding whether to enable something here has
+ * not stopped using Obsidian.
  */
-export function installPending(verdict: PluginVerdict): string | null {
+export function runsHereNote(verdict: PluginVerdict): string | null {
   if (!offersInstall(verdict)) return null;
   return (
-    "Context can read this plugin, and running it here is not built yet. " +
-    "It keeps working in Obsidian against this same bucket in the meantime."
+    "This one runs in Context. It keeps working in Obsidian against this same " +
+    "bucket either way, and Context reads whatever it writes."
   );
 }
 

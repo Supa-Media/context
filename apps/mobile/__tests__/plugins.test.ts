@@ -8,7 +8,8 @@ import {
   foundLabel,
   fromInventoryRow,
   groupPlugins,
-  installPending,
+  limitationSummary,
+  runsHereNote,
   namedEvidence,
   offersInstall,
   pluginsPreview,
@@ -124,7 +125,7 @@ describe("install is offered only where a verdict can carry it", () => {
 describe("no row ends on a refusal", () => {
   test("every verdict closes with exactly one of a route out or an install note", () => {
     for (const verdict of VERDICT_ORDER) {
-      const closings = [routeOut(verdict), installPending(verdict)].filter(
+      const closings = [routeOut(verdict), runsHereNote(verdict)].filter(
         (line): line is string => line !== null,
       );
       expect(closings).toHaveLength(1);
@@ -145,11 +146,31 @@ describe("no row ends on a refusal", () => {
     expect(line).toContain("Obsidian");
   });
 
-  test("the install-pending note is absent wherever a route out already answers", () => {
-    expect(installPending("wont-run")).toBeNull();
-    expect(installPending("files-only")).toBeNull();
-    expect(installPending("unknown")).toBeNull();
-    expect(installPending("runs")).toContain("not built yet");
+  test("the runs-here note is absent wherever a route out already answers", () => {
+    expect(runsHereNote("wont-run")).toBeNull();
+    expect(runsHereNote("files-only")).toBeNull();
+    expect(runsHereNote("unknown")).toBeNull();
+  });
+
+  /*
+    THE SENTENCE THAT WENT ON BEING PRINTED AFTER IT STOPPED BEING TRUE.
+
+    This line used to read "Context can read this plugin, and running it here
+    is not built yet", which was honest when the console could only report on a
+    bundle. The sandbox host, grants, Start and managed install all landed
+    since, and nothing updated the copy — so both of the screenshots that
+    prompted this change show it sitting directly above a plugin that is
+    installed, approved and, in one of them, **Running**.
+
+    A row still never ends on a refusal. It ends on what is true instead.
+  */
+  test("a plugin that can run here is not told that running it is unbuilt", () => {
+    for (const verdict of ["runs", "needs-approval"] as const) {
+      const line = runsHereNote(verdict);
+      expect(line).not.toBeNull();
+      expect(line).not.toContain("not built yet");
+      expect(line).toContain("Obsidian");
+    }
   });
 });
 
@@ -446,5 +467,43 @@ describe("the settings row never invents a claim out of an absence", () => {
         inventory: inventory({ plugins: [plugin({ verdict: "wont-run" })] }),
       }),
     ).toBe("1 found");
+  });
+});
+
+/*
+  FIVE NEAR-IDENTICAL REFUSALS ABOVE THE CONTROLS.
+
+  YouVersion Linker's card opened with five lines each beginning "Not yet, so
+  that part will not work:", stacked between the plugin's name and anything a
+  person could press. Every one is true and worth keeping — the argument for
+  naming them is in `surface.js` — but five of them in a column is a wall that
+  buries the one thing the reader came for, and the section's own rule is that
+  the row should end on what works.
+
+  So they collapse to a count with the list behind it. Nothing is dropped to
+  save room, which is the same rule `FLOOR_NOTE` keeps: the sentences are
+  verbatim, one press away.
+*/
+describe("a wall of limitations becomes a count", () => {
+  test("one or two stay where they are — a disclosure for one line is ceremony", () => {
+    expect(limitationSummary([])).toBeNull();
+    expect(limitationSummary(["Not yet: a."])).toBeNull();
+    expect(limitationSummary(["Not yet: a.", "Not yet: b."])).toBeNull();
+  });
+
+  test("three or more get counted", () => {
+    const summary = limitationSummary(["a", "b", "c"]);
+    expect(summary).toContain("3");
+  });
+
+  /*
+    Deliberately not "3 things that don't work". `limitations` carries two
+    kinds — the planned members the scan matched, and curated softening like
+    Templater's User System Commands — and a count that called both "broken"
+    would be the client asserting more than it was told.
+  */
+  test("the count describes limits rather than claiming everything is broken", () => {
+    const summary = limitationSummary(["a", "b", "c", "d", "e"]);
+    expect(summary).toBe("5 limits on what this one does here");
   });
 });

@@ -27,6 +27,8 @@ export type SandboxEvent =
       kind: "command" | "ribbon";
       id: string;
       name: string;
+      /** Whether it takes an editor, and so needs a note open to run at all. */
+      needsEditor: boolean;
     }
   /**
    * How a command the host asked for turned out.

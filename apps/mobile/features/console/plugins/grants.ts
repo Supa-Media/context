@@ -202,6 +202,58 @@ export const DEFAULT_CAPABILITIES: readonly PluginCapability[] = [
   "settings:write",
 ];
 
+/**
+ * What one press of Enable grants.
+ *
+ * ## The defaults, plus the hosts, and deliberately nothing else
+ *
+ * `DEFAULT_CAPABILITIES` is the whole of it for most plugins: read notes, read
+ * links and tags, read and write its own settings. **Create, change, rename and
+ * delete are not here and must not be**, for the reason the defaults themselves
+ * carry — the scan reports the members a bundle *names*, and turning that into
+ * a pre-ticked write grant would be the client deriving authority from
+ * evidence. Somebody raising a plugin above reading does it on purpose, through
+ * the form, which is what makes a one-press default defensible rather than
+ * merely quick.
+ *
+ * The network is the one addition. It is not derived either: `approvePlugin`
+ * accepts only hosts the scan actually read out of the bundle and refuses the
+ * capability with an empty list, so the set is the server's and the card names
+ * it above the button. Without it, Enable on a plugin whose entire purpose is a
+ * request would produce a plugin that cannot do the thing it exists for — a
+ * button that ships a broken result and a second trip through the form.
+ */
+export function enableCapabilities(offer: ApprovalOffer, egress: boolean): PluginCapability[] {
+  if (offer.kind !== "available") return [];
+  const grantable = grantableCapabilities(egress);
+  const chosen = DEFAULT_CAPABILITIES.filter((capability) => grantable.includes(capability));
+  if (offer.hosts.length > 0 && grantable.includes("network:request")) {
+    return [...chosen, "network:request"];
+  }
+  return [...chosen];
+}
+
+/**
+ * The sentence above Enable, so one press is an informed decision.
+ *
+ * It says both halves — what the plugin will be able to do, and what it still
+ * will not — because a summary that listed only the grants would read as the
+ * whole of what was possible, and the three it withholds are exactly the ones
+ * whose mistake nobody can undo from here.
+ */
+export function enableSummary(offer: ApprovalOffer, egress: boolean): string | null {
+  const capabilities = enableCapabilities(offer, egress);
+  if (capabilities.length === 0) return null;
+  const hosts = offer.kind === "available" ? offer.hosts : [];
+  const reach = capabilities.includes("network:request") && hosts.length > 0
+    ? ` and call ${hosts.join(", ")}`
+    : "";
+  return (
+    `Enable lets it read your notes, read links and tags, keep its own settings${reach}. ` +
+    "It will not create, change, rename or delete notes — turn those on with Choose what it can do."
+  );
+}
+
 /** Every capability, in the order the package lists them. */
 export const ALL_CAPABILITIES: readonly PluginCapability[] = PLUGIN_CAPABILITIES;
 
