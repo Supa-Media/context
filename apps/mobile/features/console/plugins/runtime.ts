@@ -180,12 +180,15 @@ export function runtimeDetail(state: RuntimeState): string | null {
  * 0 commands" on every row is noise that makes the rows that *do* add something
  * harder to spot.
  *
- * Deliberately a count and a list of names rather than a row of buttons. The
- * shim reports these registrations; there is no channel to invoke one back
- * through yet (`PluginSandbox` posts the bundle and RPC responses into the
- * frame and nothing else). Drawing a pressable command would be drawing a
- * control with nothing behind it — the failure this section has refused in four
- * other places.
+ * Deliberately a count and a list of names rather than a row of buttons, and
+ * the reason is narrower than it first looks. The *guest* can already run a
+ * command: `sandbox.js` keeps a `commands` Map and handles an inbound
+ * `{ type: "command", id }` by invoking it and answering `command-result`.
+ * What is missing is the **host** half — neither `PluginSandbox` posts that
+ * message nor does `sandboxTypes.ts` know the reply — so the button would have
+ * nothing behind it today, which is the failure this section has refused in
+ * four other places. Wiring the host half is frontend work and needs nobody's
+ * permission; until it is done, these are names.
  */
 export function describeRegistrations(list: PluginRegistration[]): string | null {
   if (list.length === 0) return null;
@@ -222,9 +225,13 @@ export function registrationsFor(
  * Said once, on any plugin that registered something, because the alternative
  * is a reader wondering why a command they can see does nothing when they look
  * for it in the palette.
+ *
+ * The copy says what is true for the reader — Context has not wired a way to
+ * run these — without claiming, as an earlier draft did, that no such channel
+ * exists. One does, on the guest side; see `describeRegistrations`.
  */
 export const REGISTRATION_NOTE =
-  "Context can see what this plugin added but cannot run it from here yet — the sandbox reports its commands and has no way to be told to run one.";
+  "Context can see what this plugin added but cannot run it from here yet — nothing in the console is wired to these names.";
 
 /**
  * A revoked grant is the one "blocked" that is not a fault.

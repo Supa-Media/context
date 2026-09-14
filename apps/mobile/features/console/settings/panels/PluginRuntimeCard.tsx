@@ -135,9 +135,9 @@ export function PluginRuntimeCard({
             </Text>
           ))}
           {/*
-            Names, not buttons. The shim reports these; there is no channel to
-            tell the frame to run one, so a pressable command would be a control
-            with nothing behind it.
+            Names, not buttons — because the host half of the invoke channel is
+            not wired, not because the channel is missing. The guest already
+            handles an inbound `command` message; nothing here sends one yet.
           */}
           <Text variant="rowSub" style={styles.registration}>
             {REGISTRATION_NOTE}
