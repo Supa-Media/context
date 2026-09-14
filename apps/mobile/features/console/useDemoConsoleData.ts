@@ -45,6 +45,85 @@ import type {
  * read cap, where a partial read reporting no blockers would otherwise look
  * exactly like a clean one.
  */
+/**
+ * The Context plugins, as the gateway's catalogue declares them.
+ *
+ * Copied rather than imported: the landing page is a static demo and must not
+ * pull the gateway's module into a web bundle for five rows of copy. Copied
+ * *faithfully*, though — these ids, names and consequences are the real ones,
+ * so the demo cannot show a product that does not exist.
+ */
+const DEMO_CONTEXT_PLUGINS = [
+  {
+    id: "context-forms",
+    name: "Markdown forms",
+    description:
+      "A ```form block in a note collects answers into a sister note — bug reports, requests, sign-ups, votes — from people who cannot write notes.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["submit_form", "update_submission", "retract_submission", "vote_form"],
+    surfaces: ["Notes", "Editor"],
+    offMeans:
+      "Form blocks stop being drawn and the four form tools disappear from connected clients. Every form block and every response file is left exactly as it is, and turning it back on restores them.",
+  },
+  {
+    id: "context-images",
+    name: "Image uploads",
+    description:
+      "Pictures pasted or dropped into a note, kept in .context/assets/images/ and readable by a connected client.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["read_image"],
+    surfaces: ["Notes", "Editor"],
+    offMeans:
+      "Notes stop accepting new images and read_image disappears. Images already in this context stay in the bucket and still render in Obsidian.",
+  },
+  {
+    id: "context-meetings",
+    name: "Meetings",
+    description: "Recorded meetings, their transcripts and their summaries, read as notes.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["list_meetings", "read_meeting"],
+    surfaces: ["Console"],
+    offMeans:
+      "The meeting tools disappear and the console stops listing meetings. Nothing stops being recorded and no transcript is deleted.",
+  },
+  {
+    id: "context-chats",
+    name: "Chat history",
+    description: "A day of a connected chat channel, read as a note.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: false,
+    defaultEnabled: true,
+    tools: ["list_channel_days", "read_channel_day"],
+    surfaces: ["Console"],
+    offMeans:
+      "The two channel tools disappear. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
+  },
+  {
+    id: "context-drawings",
+    name: "Drawings",
+    description:
+      "Excalidraw .excalidraw.md files, described for an agent, drawn in the console and edited there.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: [],
+    surfaces: ["Notes", "Console"],
+    offMeans:
+      "A drawing stops being described or drawn and opens as the file it is. It is still never overwritten with text — that guard is not part of this switch.",
+  },
+];
+
 const DEMO_PLUGINS: ConsolePlugin[] = [
   {
     id: "highlightr-plugin",
@@ -505,6 +584,22 @@ export function useDemoConsoleData(): ConsoleData {
         checkedAt: "2026-09-12",
         plugins: DEMO_PLUGINS,
       },
+    },
+    /*
+      The five built-ins, drawn exactly as a live context would draw them —
+      copied from `apps/mcp/src/plugins/catalog.js`, so the landing page agrees
+      with what a real context is running. One is off, because a demo where
+      every switch reads the same way shows nothing about what the switches do.
+
+      No `actions`: the landing page has no bucket, so a switch there would be
+      a control that lies about having changed something. `canManage` is false
+      for the same reason, which is also the state a member sees.
+    */
+    contextPlugins: {
+      state: "ready",
+      canManage: false,
+      settingsError: null,
+      plugins: DEMO_CONTEXT_PLUGINS,
     },
     /*
       No grants, and no `actions` to make any — the same rule `storageActions`

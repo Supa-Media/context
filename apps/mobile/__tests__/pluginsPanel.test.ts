@@ -34,6 +34,7 @@ import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
 import type { GrantsView } from "../features/console/plugins/grants";
 import type { BrowseView } from "../features/console/plugins/lifecycle";
 import type { RuntimeView } from "../features/console/plugins/runtime";
+import type { ContextPluginsView } from "../features/console/plugins/contextPlugins";
 import {
   SCOPE_NOTE,
   type ConsolePlugin,
@@ -57,6 +58,19 @@ function panel(
   grants: GrantsView = { grants: [], loading: false },
   browse: BrowseView = { query: "", limit: 20, searching: false, failure: null },
   runtime: RuntimeView = { states: [], loading: false },
+  /*
+    The built-ins, defaulted to an empty ready state so every check in this file
+    keeps testing the vault half alone. They are a separate block of the panel
+    with their own file of checks — `contextPluginsCard.test.ts` — and mixing
+    them in here would make assertions like "the panel says no plugins" depend
+    on a list that has nothing to do with `.obsidian/`.
+  */
+  contextPlugins: ContextPluginsView = {
+    state: "ready",
+    plugins: [],
+    settingsError: null,
+    canManage: false,
+  },
 ): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -66,7 +80,9 @@ function panel(
     container.remove();
   });
   act(() => {
-    root.render(createElement(PluginsPanel, { view, grants, browse, runtime }));
+    root.render(
+      createElement(PluginsPanel, { view, contextPlugins, grants, browse, runtime }),
+    );
   });
   return container;
 }
@@ -141,21 +157,32 @@ describe("the five states are five screens", () => {
     expect(text).toContain(".obsidian/");
   });
 
+  /*
+    Scoped to the vault section rather than the whole panel, and the scope is
+    the assertion doing its job rather than being weakened: the panel now
+    carries its own chrome — a search box and three filter chips — which are
+    controls this section's states have nothing to say about. Counting every
+    button on the screen would make "a scan in flight offers nothing to press"
+    fail for a filter chip, which is not what it is about.
+  */
+  function vaultControls(container: HTMLElement): NodeListOf<Element> {
+    return container.querySelectorAll("[data-testid='plugins-vault'] [role='button'], [data-testid='plugins-vault'] button");
+  }
+
   test("a non-owner is told whose it is, and offered no control", () => {
     const container = panel({ state: "withheld" });
     expect(container.textContent).toContain("Only an owner");
-    expect(container.querySelectorAll("[role='button'], button")).toHaveLength(0);
+    expect(vaultControls(container)).toHaveLength(0);
   });
 
   test("the read control is disabled when the view carries no action", () => {
-    const container = panel({ state: "idle" });
-    const control = container.querySelector("[role='button'], button");
-    expect(control).not.toBeNull();
+    const control = vaultControls(panel({ state: "idle" }))[0];
+    expect(control).not.toBeUndefined();
     expect(control?.getAttribute("aria-disabled")).toBe("true");
   });
 
   test("a scan in flight offers nothing to press twice", () => {
-    expect(panel({ state: "loading" }).querySelectorAll("[role='button'], button")).toHaveLength(0);
+    expect(vaultControls(panel({ state: "loading" }))).toHaveLength(0);
   });
 
   test("a failed read quotes the provider's own reason", () => {
