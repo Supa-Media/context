@@ -600,7 +600,6 @@ export function useLiveConsoleData(): ConsoleData {
   */
   // `withheld` and `loading` are the two states with no `read` to call: one is
   // a viewer who may not scan, the other is a scan already running.
-  const pluginRuntime = useRuntime({ workspaceId: selectedContextId, role: selected?.role });
   const rereadPlugins =
     plugins.state === "loading" || plugins.state === "withheld"
       ? undefined
@@ -669,6 +668,33 @@ export function useLiveConsoleData(): ConsoleData {
     ownAddress:
       own !== null && selected?.id === own.id ? ingestion.settings?.address : undefined,
     email: members.members.find((member) => member.isMe)?.email,
+  });
+
+  /*
+    Below `useFileBrowser` on purpose, and the order is the point: the runtime
+    hands every loaded plugin the note this console has open, so it has to be
+    able to see it. `editor.path` and `editor.etag` are the whole of what
+    crosses — never the text, which a plugin reads through the audited RPC like
+    any other file.
+
+    The etag also carries the console's own saves: the same path coming back
+    with a different version is a write, and it is the only part of "a change
+    Context made" that this hook cannot be told about directly.
+  */
+  const activeFile = useMemo(
+    () => (files.editor.path === null
+      ? null
+      : { path: files.editor.path, etag: files.editor.etag }),
+    [files.editor.etag, files.editor.path],
+  );
+  const pluginRuntime = useRuntime({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+    activeFile,
+    // Who may be told a path at all. See `maySeePaths`: a plugin approved for
+    // nothing but its own settings is told nothing, and an unanswered query is
+    // treated as nobody rather than everybody.
+    grants: pluginGrants.grants,
   });
 
   const viewerUserId = members.members.find((member) => member.isMe)?.userId;

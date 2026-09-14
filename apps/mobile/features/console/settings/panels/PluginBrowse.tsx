@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { StyleSheet } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
@@ -9,20 +9,49 @@ import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
   INSTALL_NOTE,
+  REGISTRY_CAP_NOTE,
+  REGISTRY_MAX,
   REGISTRY_NOTE,
+  REGISTRY_ORDER_NOTE,
+  REGISTRY_PAGE,
   annotateResults,
+  atRegistryCeiling,
+  browseEmptyNote,
+  canAskForMore,
   installVerb,
   type BrowseView,
 } from "../../plugins/lifecycle";
 import type { ConsolePlugin } from "../../plugins/plugins";
 
 /**
- * Obsidian's community registry, searched from inside Context.
+ * How long typing rests before the registry is read again.
+ *
+ * `searchCommunityPlugins` re-fetches the whole community list on every call —
+ * there is no server-side cache today — so a keystroke is not a cheap request
+ * and search-as-you-type without this would be one registry download per
+ * letter. Exported so the tests wait the same amount the component does rather
+ * than a number that happens to be larger.
+ */
+export const REGISTRY_DEBOUNCE_MS = 350;
+
+/**
+ * Obsidian's community registry, browsed from inside Context.
  *
  * Closed until asked for, like the inventory scan beside it and for a related
  * reason: searching reaches a third party's list over the network, and a
  * settings pane that did that on open would be making a request on somebody's
  * behalf that they did not ask for.
+ *
+ * **Opening it is that ask.** Until 2026-09-14 opening the card sent nothing and
+ * a person faced an empty box, a text field and a button before they could see
+ * a single plugin — searchable, but not browsable, and no use at all to somebody
+ * who does not already know the name of what they want. Pressing Browse now runs
+ * an empty-query search, which is the head of the registry. The rule that moved
+ * is "nothing on mount"; the rule that did not is "nothing without a deliberate
+ * press", and the card is still closed when this pane opens.
+ *
+ * Typing filters, debounced — see `REGISTRY_DEBOUNCE_MS` for why that delay is
+ * not decoration.
  *
  * Every result says what installing it would actually mean *for this bucket* —
  * a plugin already managed here says Update, one already in the vault says it
@@ -41,6 +70,36 @@ export function PluginBrowse({
   const [draft, setDraft] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
   const actions = view.actions;
+  /*
+    The opening search already asked for "", so the first run of the debounce
+    below would repeat it for nothing. This skips exactly that one, and is a ref
+    rather than state because changing it must not draw the card again.
+  */
+  const typed = useRef(false);
+  /*
+    The search function through a ref, and the debounce below deliberately does
+    NOT depend on it.
+
+    `useLifecycle` builds its `actions` object inline on every render, so
+    depending on it would make the timer restart on every render of this
+    console — and this console has live subscriptions. Under a steady trickle of
+    unrelated updates the 350ms would never elapse and a search would never be
+    sent: a debounce that resets faster than it fires is indistinguishable from
+    a search box that does nothing.
+  */
+  const searchRef = useRef(actions?.search);
+  useEffect(() => {
+    searchRef.current = actions?.search;
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    if (!typed.current) return;
+    const timer = setTimeout(() => {
+      void searchRef.current?.(draft, REGISTRY_PAGE);
+    }, REGISTRY_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [draft, open]);
 
   if (!actions) return null;
 
@@ -52,13 +111,30 @@ export function PluginBrowse({
             <Text variant="rowTitle">Add a plugin</Text>
             <Text variant="rowSub">{REGISTRY_NOTE}</Text>
           </Grow>
-          <Button label="Browse" onPress={() => setOpen(true)} />
+          <Button
+            label="Browse"
+            onPress={() => {
+              /*
+                Reopening starts clean. Without this the previous session's text
+                is still in `draft`, `typed` is still true, and the debounce
+                fires a search for it immediately after the empty-query one —
+                so the card opens on the head of the registry and then replaces
+                it with an old filter nobody typed.
+              */
+              setDraft("");
+              typed.current = false;
+              setOpen(true);
+              void actions.search("", REGISTRY_PAGE);
+            }}
+          />
         </Row>
       </Card>
     );
   }
 
   const rows = view.results === undefined ? null : annotateResults(view.results, installed);
+  const emptyNote = browseEmptyNote(view.query, view.results, view.searching);
+  const unsearched = view.query.trim() === "";
 
   return (
     <Card style={styles.card} testID="plugin-browse">
@@ -76,18 +152,21 @@ export function PluginBrowse({
             label="Search"
             testID="plugin-browse-query"
             value={draft}
-            onChangeText={setDraft}
+            onChangeText={(next) => {
+              typed.current = true;
+              setDraft(next);
+            }}
             placeholder="Name, or what it does"
             autoCapitalize="none"
             autoCorrect={false}
-            onSubmitEditing={() => void actions.search(draft)}
+            onSubmitEditing={() => void actions.search(draft, REGISTRY_PAGE)}
             returnKeyType="search"
           />
         </Grow>
         <Button
           label={view.searching ? "Searching…" : "Search"}
           disabled={view.searching}
-          onPress={() => void actions.search(draft)}
+          onPress={() => void actions.search(draft, REGISTRY_PAGE)}
         />
       </Row>
 
@@ -95,11 +174,15 @@ export function PluginBrowse({
         <FormError headline="That didn't work" next={view.failure} />
       ) : null}
 
-      {rows !== null && rows.length === 0 && !view.searching ? (
-        <Text variant="rowSub" style={styles.line}>
-          {view.query.trim() === ""
-            ? "Search for a plugin by name, or by what it does."
-            : `Nothing in the community list matches “${view.query.trim()}”.`}
+      {emptyNote !== null ? (
+        <Text variant="rowSub" style={styles.line} testID="plugin-browse-empty">
+          {emptyNote}
+        </Text>
+      ) : null}
+
+      {rows !== null && rows.length > 0 && unsearched ? (
+        <Text variant="treeMeta" style={styles.order}>
+          {REGISTRY_ORDER_NOTE}
         </Text>
       ) : null}
 
@@ -131,6 +214,21 @@ export function PluginBrowse({
         </Row>
       ))}
 
+      {canAskForMore(view.results, view.limit) ? (
+        <Button
+          label={view.searching ? "Searching…" : "Show more"}
+          disabled={view.searching}
+          testID="plugin-browse-more"
+          onPress={() => void actions.search(view.query, REGISTRY_MAX)}
+        />
+      ) : null}
+
+      {atRegistryCeiling(view.results, view.limit) ? (
+        <Text variant="rowSub" style={styles.line} testID="plugin-browse-ceiling">
+          {REGISTRY_CAP_NOTE}
+        </Text>
+      ) : null}
+
       <Hint style={styles.hint}>
         <Text variant="hint">{INSTALL_NOTE}</Text>
       </Hint>
@@ -146,5 +244,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   resultHead: { alignItems: "flex-start", gap: 10 },
   meta: { marginTop: 2, color: colors.muted },
   line: { marginTop: 4 },
+  order: { marginTop: 8, color: colors.muted },
   hint: { marginTop: 12 },
 });
