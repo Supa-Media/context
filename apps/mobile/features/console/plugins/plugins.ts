@@ -448,6 +448,36 @@ export function verdictPill(verdict: PluginVerdict): {
 }
 
 /**
+ * The one line that stands in for a column of limitations, or null.
+ *
+ * ## Why this is a rendering decision and not a data one
+ *
+ * YouVersion Linker's card opened with five lines each beginning *"Not yet, so
+ * that part will not work:"*, stacked between the plugin's name and anything
+ * anybody could press. Each is true and each is worth keeping — naming the
+ * half of a plugin that will not arrive is the whole argument in
+ * `surface.js` — but five of them in a column is a wall, and the reader's
+ * question is what the plugin *does*.
+ *
+ * So the count goes on the row and the sentences go behind it, verbatim. That
+ * keeps the rule this section has everywhere else: nothing is dropped to save
+ * room.
+ *
+ * **The wording is careful for a reason.** `limitations` carries two different
+ * kinds — the planned members the scan matched, and curated softening like
+ * Templater's User System Commands — so a summary reading "3 things that do
+ * not work" would be the client asserting more than the server told it. It
+ * counts limits; the list says which.
+ *
+ * Null below three, because a disclosure hiding one line is ceremony that
+ * costs a press and saves nothing.
+ */
+export function limitationSummary(limitations: string[]): string | null {
+  if (limitations.length < 3) return null;
+  return `${limitations.length} limits on what this one does here`;
+}
+
+/**
  * The sentence under a row for a plugin Context can actually run.
  *
  * Null for every verdict with a `routeOut`, so a row carries exactly one

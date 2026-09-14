@@ -30,6 +30,7 @@ import {
   SCOPE_NOTE,
   foundLabel,
   groupPlugins,
+  limitationSummary,
   runsHereNote,
   namedEvidence,
   readLabel,
@@ -455,11 +456,20 @@ function PluginRow({
   runtime: RuntimeView;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    Closed by default, and the only state this row has ever needed. Five lines
+    of "Not yet, so that part will not work" between a plugin's name and its
+    controls is a wall; the count stands in for it and every sentence is one
+    press away. See `limitationSummary` for why the wording counts limits
+    rather than claiming things are broken.
+  */
+  const [limitsOpen, setLimitsOpen] = useState(false);
   const { tone, dashed } = verdictPill(plugin.verdict);
   const findings = namedEvidence(plugin);
   const read = readLabel(plugin);
   const route = routeOut(plugin.verdict);
   const pending = runsHereNote(plugin.verdict);
+  const limits = limitationSummary(plugin.limitations);
   const from = sourceNote(plugin);
 
   return (
@@ -498,11 +508,23 @@ function PluginRow({
           </Text>
         ) : null}
 
-        {plugin.limitations.map((limitation, index) => (
-          <Text key={`${plugin.id}-limitation-${index}`} variant="rowSub" style={styles.line}>
-            {limitation}
-          </Text>
-        ))}
+        {limits === null || limitsOpen ? (
+          plugin.limitations.map((limitation, index) => (
+            <Text key={`${plugin.id}-limitation-${index}`} variant="rowSub" style={styles.line}>
+              {limitation}
+            </Text>
+          ))
+        ) : null}
+
+        {limits !== null ? (
+          <View style={styles.action}>
+            <Button
+              label={limitsOpen ? "Hide the details" : limits}
+              variant="mini"
+              onPress={() => setLimitsOpen((was) => !was)}
+            />
+          </View>
+        ) : null}
 
         {plugin.notes.map((note, index) => (
           <Text key={`${plugin.id}-note-${index}`} variant="rowSub" style={styles.line}>

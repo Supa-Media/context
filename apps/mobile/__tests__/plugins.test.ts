@@ -8,6 +8,7 @@ import {
   foundLabel,
   fromInventoryRow,
   groupPlugins,
+  limitationSummary,
   runsHereNote,
   namedEvidence,
   offersInstall,
@@ -466,5 +467,43 @@ describe("the settings row never invents a claim out of an absence", () => {
         inventory: inventory({ plugins: [plugin({ verdict: "wont-run" })] }),
       }),
     ).toBe("1 found");
+  });
+});
+
+/*
+  FIVE NEAR-IDENTICAL REFUSALS ABOVE THE CONTROLS.
+
+  YouVersion Linker's card opened with five lines each beginning "Not yet, so
+  that part will not work:", stacked between the plugin's name and anything a
+  person could press. Every one is true and worth keeping — the argument for
+  naming them is in `surface.js` — but five of them in a column is a wall that
+  buries the one thing the reader came for, and the section's own rule is that
+  the row should end on what works.
+
+  So they collapse to a count with the list behind it. Nothing is dropped to
+  save room, which is the same rule `FLOOR_NOTE` keeps: the sentences are
+  verbatim, one press away.
+*/
+describe("a wall of limitations becomes a count", () => {
+  test("one or two stay where they are — a disclosure for one line is ceremony", () => {
+    expect(limitationSummary([])).toBeNull();
+    expect(limitationSummary(["Not yet: a."])).toBeNull();
+    expect(limitationSummary(["Not yet: a.", "Not yet: b."])).toBeNull();
+  });
+
+  test("three or more get counted", () => {
+    const summary = limitationSummary(["a", "b", "c"]);
+    expect(summary).toContain("3");
+  });
+
+  /*
+    Deliberately not "3 things that don't work". `limitations` carries two
+    kinds — the planned members the scan matched, and curated softening like
+    Templater's User System Commands — and a count that called both "broken"
+    would be the client asserting more than it was told.
+  */
+  test("the count describes limits rather than claiming everything is broken", () => {
+    const summary = limitationSummary(["a", "b", "c", "d", "e"]);
+    expect(summary).toBe("5 limits on what this one does here");
   });
 });
