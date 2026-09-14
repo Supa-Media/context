@@ -694,6 +694,64 @@ describe("what a non-owner is told instead of the controls", () => {
     );
   });
 
+  /*
+    THE PROOF THE PLUGIN CARD PROMISED AND THE PANEL COULD NOT SHOW.
+
+    "Brokered, audited and revocable" is what the consent screen says about a
+    network grant, and the audited half was unreadable: `plugin.network` carries
+    no path by construction, so the row said only that some plugin reached
+    somewhere. The control plane has stored the four fields since the egress
+    service landed.
+
+    Both halves are asserted here rather than only the first — a change that
+    started drawing every row's `details` would pass a "the line is there" test
+    and fail this one.
+  */
+  test("advanced: a plugin's network row names the plugin, the host and what came back", () => {
+    const container = mount(() =>
+      createElement(AdvancedPanel, {
+        view: {
+          moves: { jobs: [], loading: false, failure: null },
+          audit: {
+            events: [
+              {
+                eventId: "net-1",
+                action: "plugin.network",
+                paths: [],
+                at: Date.now(),
+                actorEmail: "owner@example.test",
+                details: {
+                  pluginId: "youversion-linker",
+                  host: "www.bible.com",
+                  method: "GET",
+                  status: 200,
+                },
+              },
+              {
+                eventId: "write-1",
+                action: "file.write",
+                paths: ["1-projects/john-3.md"],
+                at: Date.now(),
+                actorEmail: "owner@example.test",
+                details: { conflictCheck: true },
+              },
+            ],
+            loading: false,
+            failure: null,
+          },
+          keyExport: undefined,
+        },
+      }),
+    );
+    expect(container.textContent ?? "").toContain("A plugin reached the internet");
+    expect(container.querySelector('[data-testid="audit-detail-net-1"]')?.textContent).toBe(
+      "youversion-linker · www.bible.com · GET · 200",
+    );
+    // And the row beside it, whose details the server also sent, draws none.
+    expect(container.querySelector('[data-testid="audit-detail-write-1"]')).toBeNull();
+    expect(container.textContent ?? "").not.toContain("conflictCheck");
+  });
+
   test("advanced: a durable move shows its measured phase and percentage", () => {
     const container = mount(() =>
       createElement(AdvancedPanel, {
