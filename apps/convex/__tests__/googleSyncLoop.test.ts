@@ -1807,6 +1807,22 @@ describe("one pass, end to end, through the credential barrier", () => {
     }
     const google = calendarAndBucket({ backend });
     vi.stubGlobal("fetch", google.fetchImpl);
+    /*
+      PINNED, FOR THE REASON THE TEST ABOVE IS PINNED.
+
+      This one names `2026-09-13.md` three times, and the shared day a
+      contribution lands in is today in the *calendar's* zone — America/New_York
+      for this fixture. So it passed only while it was still the 13th there, and
+      began failing the moment it stopped being, with nothing having changed.
+
+      The sibling above learned this at 04:00 UTC and was pinned; this one was
+      left on the real clock and rotted a day later. Pinning both is what stops
+      the pair coming back one test at a time.
+    */
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-13T18:00:00.000Z"),
+    });
 
     const result = await runPass(t, workspaceId, connectionId);
 
