@@ -849,6 +849,103 @@ describe("Obsidian plugin inventory", () => {
     expect(errorCode(revokedToken)).toBe("PLUGIN_SESSION_INVALID");
   });
 
+  /**
+   * `metadata:read` MEANS METADATA, WHICH IS WHAT THE CONSENT SCREEN PROMISED.
+   *
+   * The approval dialog offers two separate rows, and a person is asked to
+   * decide on each:
+   *
+   *   vault:read      "Read your notes — open the Markdown of any note in this
+   *                    context that you can see."
+   *   metadata:read   "Read links and tags — frontmatter, headings, tags and
+   *                    the links between notes."
+   *
+   * The second is offered as the *lesser* of the two, and somebody who grants
+   * it while declining the first has said, in as many words, that this plugin
+   * may not read their notes. So the test is not "does `metadata.get` work" —
+   * it is whether the distinction the person was shown is the distinction the
+   * gateway enforces.
+   *
+   * `metadata.get` resolves to a full `read` of the note and shapes the
+   * response with `extractFields`, whose fields are `title`, `headings`,
+   * `tags`, `links` — and `body`, which is the whole note minus its
+   * frontmatter and heading lines. Spread into the response, that hands the
+   * Markdown to a grant that was explicitly refused it.
+   *
+   * SABOTAGE: restore `body` to the `metadata.get` response and the marker
+   * assertion below reddens on its own; the shape assertion stays green, which
+   * is why both are here.
+   */
+  test("a plugin granted metadata:read and refused vault:read cannot read a note's body", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".obsidian/plugins/tagwrangler/manifest.json",
+      JSON.stringify({ id: "tagwrangler", name: "Tag Wrangler", version: "0.5.0" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/tagwrangler/main.js",
+      'const { Plugin } = require("obsidian"); class TagWrangler extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(
+      api.functions.files.listObsidianPlugins,
+      { workspaceId: f.workspaceId },
+    );
+    const fingerprint = inventory.plugins[0].bundleFingerprint!;
+
+    // The whole point: metadata:read alone. No vault:read.
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "tagwrangler",
+      bundleFingerprint: fingerprint,
+      capabilities: ["metadata:read"],
+      networkHosts: [],
+    });
+    const { runtimeToken } = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      { workspaceId: f.workspaceId, pluginId: "tagwrangler", bundleFingerprint: fingerprint },
+    );
+
+    // Reading the note outright is refused, which is the grant working.
+    const refused = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "read_denied",
+          operation: { kind: "vault.read", path: "2-areas/private-note.md" },
+        },
+      },
+    );
+    expect(refused).toMatchObject({ ok: false, error: { code: "CAPABILITY_DENIED" } });
+
+    const metadata = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "metadata_1",
+          operation: { kind: "metadata.get", path: "2-areas/private-note.md" },
+        },
+      },
+    );
+    expect(metadata).toMatchObject({ ok: true });
+
+    // The note's body must not have come back by the other door.
+    expect(JSON.stringify(metadata)).not.toContain(SECRET_BODY_MARKER);
+
+    // And the metadata the capability *does* promise is still delivered, so
+    // this is a narrowing rather than a removal. Stated as an exact key set:
+    // a future field is a decision somebody makes here, not one that arrives.
+    const result = (metadata as { result: Record<string, unknown> }).result;
+    expect(Object.keys(result).sort()).toEqual(
+      ["etag", "headings", "links", "path", "tags", "title"],
+    );
+    expect(result.title).toBe("Private");
+  });
+
+
   test("only an owner can grant a plugin and a blocked bundle cannot be granted", async () => {
     const f = await fixture();
     f.backend.seed(
