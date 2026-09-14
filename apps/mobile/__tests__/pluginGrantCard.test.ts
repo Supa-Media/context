@@ -182,6 +182,29 @@ describe("the form opens closed", () => {
     expect(container.querySelector("[data-testid='capability-network:request']")).toBeNull();
   });
 
+  /*
+    The decision this holds on screen: a plugin's handlers fire for changes
+    Context makes, and not for an edit made in Obsidian against the same bucket.
+    Seyi took that limit on 2026-09-14 rather than build the machinery to watch
+    a bucket from outside, on the condition that the UI says so where somebody
+    is enabling a plugin.
+
+    It is asserted here rather than left to the copy, because the failure is
+    invisible: a task panel that is simply wrong after an evening's work in
+    Obsidian, with nothing on screen to explain it. Somebody who read this
+    sentence reopens the plugin; somebody who did not concludes it is broken.
+  */
+  test("the form says which changes a plugin will actually notice", () => {
+    const container = card(plugin(), { grants: [], loading: false, actions: actions() });
+    press(container, "Review access");
+    const note = container.querySelector(
+      "[data-testid='plugin-events-note-highlightr-plugin']",
+    );
+    expect(note).not.toBeNull();
+    expect(note!.textContent).toContain("changes Context makes");
+    expect(note!.textContent).toContain("Obsidian");
+  });
+
   test("approving sends the ticked capabilities and the installed fingerprint", async () => {
     approved.length = 0;
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });

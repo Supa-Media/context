@@ -1,3 +1,5 @@
+import type { PluginGrant } from "./grants";
+import type { VaultEventMessage } from "./sandboxTypes";
 /**
  * Whether a plugin is actually running, and what stopped it if not.
  *
@@ -243,3 +245,89 @@ export function isOwnerStop(state: RuntimeState): boolean {
 export const REVOKED_NOTE =
   "You revoked its access, so Context stopped it. Approve it again whenever you want it back.";
 import type { ReactNode } from "react";
+
+/* -------------------------------------------------------------------------- */
+/*                    a plugin's own write, as an event                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Turn one successful plugin RPC into the change the other plugins are told
+ * about, or `null` when it was not a change.
+ *
+ * Pure, and here rather than in `useRuntime`, because the decision is the part
+ * worth pinning: which operations count, what path each reports, and what it
+ * does with anything it does not recognise.
+ *
+ * **The writer's own guest is told too.** Obsidian dispatches vault events to
+ * every handler including the one whose write caused them, and a shim that
+ * filtered the author out would be a difference nobody could debug from inside
+ * a plugin.
+ *
+ * Silence on anything unrecognised is the load-bearing half. An unknown write
+ * reported as a `modify` with no version is worse than one not reported at all,
+ * because a plugin acts on it — and a future operation kind would arrive here
+ * as exactly that.
+ */
+export function vaultEventForOperation(
+  operation: { kind?: unknown; path?: unknown; from?: unknown; to?: unknown } | undefined,
+  response: unknown,
+): Omit<VaultEventMessage, "seq"> | null {
+  if (!operation || typeof operation.kind !== "string") return null;
+  if ((response as { ok?: unknown } | null)?.ok !== true) return null;
+  const etag = (response as { result?: { etag?: unknown } }).result?.etag;
+  const version = typeof etag === "string" ? etag : null;
+  const path = typeof operation.path === "string" ? operation.path : null;
+  switch (operation.kind) {
+    case "vault.create":
+      return path === null ? null : { kind: "create", path, etag: version };
+    case "vault.modify":
+      return path === null ? null : { kind: "modify", path, etag: version };
+    case "vault.delete":
+      // No version: there is nothing left to hold one, and a path with a stale
+      // etag beside it is an invitation to write over what replaced it.
+      return path === null ? null : { kind: "delete", path, etag: null };
+    case "vault.rename": {
+      // Obsidian hands a rename handler the file at its *new* path and the old
+      // path beside it, so `to` is the event's path and `from` is the extra.
+      const to = typeof operation.to === "string" ? operation.to : null;
+      if (to === null) return null;
+      const from = typeof operation.from === "string" ? operation.from : undefined;
+      return { kind: "rename", path: to, from, etag: version };
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Which loaded plugins may be told the path of a note.
+ *
+ * **Found reviewing the diff that introduced the active file.** The host was
+ * handing `active-file` and every `vault-event` to every loaded guest alike —
+ * including one approved for nothing but its own settings. A plugin with no
+ * vault grant cannot read a single note, and was nonetheless being told, live,
+ * the path of whatever its owner had open and the path of everything they
+ * edited. That is a read the consent screen never offered and the RPC would
+ * refuse.
+ *
+ * A path is note data. So this is the same rule the RPC enforces, applied to the
+ * state the host pushes rather than the state a plugin asks for: `vault:read` or
+ * `metadata:read`, or nothing crosses.
+ *
+ * Keyed on the fingerprint as well as the id, like `runtimeFor`: a grant for a
+ * bundle that is no longer the one running is not this plugin's grant.
+ */
+export function maySeePaths(
+  sandbox: { pluginId: string; bundleFingerprint: string },
+  grants: readonly PluginGrant[] | undefined,
+): boolean {
+  if (grants === undefined) return false;
+  const grant = grants.find(
+    (one) =>
+      one.pluginId === sandbox.pluginId &&
+      one.bundleFingerprint === sandbox.bundleFingerprint &&
+      one.status === "active",
+  );
+  if (grant === undefined) return false;
+  return grant.capabilities.includes("vault:read") || grant.capabilities.includes("metadata:read");
+}
