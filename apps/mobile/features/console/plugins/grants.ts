@@ -286,3 +286,23 @@ export function standingPill(
 export const STALE_NOTE =
   "The bundle changed since you approved it. What you approved still describes the version you read; " +
   "the version now in your bucket has no access at all until you review it.";
+
+/**
+ * What a plugin will and will not notice, said where somebody is deciding to
+ * run one.
+ *
+ * A plugin's handlers fire for changes **Context** makes. An edit in Obsidian,
+ * rclone, or anything else writing to the bucket directly never passes through
+ * this console, so no plugin is told about it — the product took that limit
+ * deliberately on 2026-09-14 rather than building the machinery to observe a
+ * bucket from outside.
+ *
+ * It is on the consent form rather than in a hint at the bottom of the pane
+ * because of what the failure looks like from the other side: a task panel that
+ * is simply *wrong* after an evening's work in Obsidian, with nothing on screen
+ * to say why. Somebody who has read this sentence knows to reopen it; somebody
+ * who has not has a plugin they conclude is broken.
+ */
+export const EVENTS_NOTE =
+  "A plugin sees the changes Context makes — what you edit here, and what other plugins write. " +
+  "It does not see edits you make in Obsidian or another app against the same bucket; refresh to pick those up.";

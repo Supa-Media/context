@@ -38,6 +38,7 @@ import {
   CURATED_PLUGINS,
   DYNAMIC_CODE_PATTERNS,
   NETWORK_MEMBERS,
+  PLANNED_MEMBERS,
   SUPPORTED_MEMBERS,
 } from "./capabilities.js";
 
@@ -239,18 +240,26 @@ export function scanBundle(source) {
   const presentSupported = namesPresent(source, SUPPORTED_MATCHER);
   const supported = SUPPORTED_MEMBERS.filter((name) => presentSupported.has(name));
 
+  // Named, not counted, and carried separately from `supported`: these are the
+  // members the shim has committed to and does not answer, so a plugin using
+  // one still runs with that part of it missing. `verdictFor` turns each into a
+  // limitation, which is the only place the difference is visible to a reader.
+  const presentPlanned = namesPresent(source, PLANNED_MATCHER);
+  const planned = Object.keys(PLANNED_MEMBERS).filter((name) => presentPlanned.has(name));
+
   return {
     unreadable: null,
     dynamic,
     blocked: [...blockedModules, ...blockedMembers],
     network,
     supported,
+    planned,
     hosts: network.length ? literalHosts(source) : [],
   };
 }
 
 function emptyScan({ unreadable }) {
-  return { unreadable, dynamic: [], blocked: [], network: [], supported: [], hosts: [] };
+  return { unreadable, dynamic: [], blocked: [], network: [], supported: [], planned: [], hosts: [] };
 }
 
 /**
@@ -290,6 +299,7 @@ function alternation(names) {
 }
 
 const SUPPORTED_MATCHER = alternation(SUPPORTED_MEMBERS);
+const PLANNED_MATCHER = alternation(Object.keys(PLANNED_MEMBERS));
 const BLOCKED_MEMBER_MATCHER = alternation(Object.keys(BLOCKED_MEMBERS));
 const NETWORK_MATCHER = alternation(Object.keys(NETWORK_MEMBERS));
 
@@ -301,7 +311,19 @@ const NETWORK_MATCHER = alternation(Object.keys(NETWORK_MEMBERS));
  */
 export function verdictFor({ manifest, scan }) {
   const curated = (manifest && CURATED_PLUGINS[manifest.id]) || {};
-  const limitations = [];
+  /*
+    A member the shim has committed to and does not answer yet is a limitation
+    on every verdict that can carry one, not a blocker and not silence.
+
+    Silence is what this replaced, and it was the one place a verdict overclaimed:
+    a plugin using only `registerMarkdownPostProcessor` scanned clean, read as
+    "everything these use, Context implements", loaded, registered, and rendered
+    nothing — with no sentence anywhere to explain it. One line per distinct
+    reason rather than one per member, so a plugin naming all four link-graph
+    members says the link graph is not exposed, once.
+  */
+  const limitations = [...new Set((scan.planned || []).map((name) => PLANNED_MEMBERS[name]))]
+    .map((reason) => `Not yet, so that part will not work: ${reason}.`);
   const notes = curated.note ? [curated.note] : [];
 
   if (!manifest) {
@@ -322,6 +344,7 @@ export function verdictFor({ manifest, scan }) {
       limitations,
       reason: "bundle-not-statically-readable",
       supported: scan.supported,
+      planned: scan.planned,
     });
   }
 
@@ -341,6 +364,7 @@ export function verdictFor({ manifest, scan }) {
       limitations,
       reason: curated.formatSupported ? "runs-in-obsidian-format-read-here" : "reaches-outside-the-sandbox",
       supported: scan.supported,
+      planned: scan.planned,
     });
   }
 
@@ -352,6 +376,7 @@ export function verdictFor({ manifest, scan }) {
       hosts: scan.hosts,
       reason: "calls-a-host-outside-context",
       supported: scan.supported,
+      planned: scan.planned,
     });
   }
 
@@ -361,11 +386,12 @@ export function verdictFor({ manifest, scan }) {
     limitations,
     reason: "no-calls-outside-the-sandbox-found",
     supported: scan.supported,
+    planned: scan.planned,
   });
 }
 
-function result(verdict, { evidence, notes, limitations, hosts = [], reason, supported = [] }) {
-  return { verdict, evidence, notes, limitations, hosts, reason, supported };
+function result(verdict, { evidence, notes, limitations, hosts = [], reason, supported = [], planned = [] }) {
+  return { verdict, evidence, notes, limitations, hosts, reason, supported, planned };
 }
 
 /**

@@ -1789,18 +1789,13 @@ describe("one pass, end to end, through the credential barrier", () => {
 
   test("a Calendar cursor stays put until every account for the folder has a contribution", async () => {
     /*
-      PINNED, for the reason the two tests above state at length: the full-sync
+      PINNED, for the reason the test two above states at length: the full-sync
       window starts at *today* in the calendar's zone (`America/New_York`
-      here), so a fixture whose only event is on the 13th leaves the window the
-      moment it stops being the 13th in New York — 04:00 UTC — and the shared
-      day file asserted twice below is never written.
-
-      `#525` set out to pin exactly this test and named it in its commit
-      message, but the block landed inside the test above, which
-      `vi.setSystemTime` had already pinned since it was written. So the fix
-      was real, the diagnosis was right, and the clock-dependent test stayed
-      clock-dependent — red on `main` every day after the 13th. Same pin, this
-      time in the test that has the assertions.
+      here), so a fixture whose only event is on the 13th falls out of the
+      window the moment it stops being the 13th in New York — 04:00 UTC — and
+      the shared day file this asserts is never written. Unpinned, this passed
+      for one day and has failed every day since, on a clock rather than on a
+      change.
 
       `shouldAdvanceTime`, because convex-test drives scheduled functions on
       real timers and a frozen clock hangs them.
@@ -1828,6 +1823,24 @@ describe("one pass, end to end, through the credential barrier", () => {
     }
     const google = calendarAndBucket({ backend });
     vi.stubGlobal("fetch", google.fetchImpl);
+    /*
+      PINNED, FOR THE REASON THE TEST TWO ABOVE ALREADY WRITES OUT.
+
+      This one names `0-inbox/calendar/2026-09-13.md` as well, and the day a
+      calendar sync writes is bounded by a horizon measured from *today*:
+      `calendar-sync.js` keeps only `date >= windowStart`. So the fixture's
+      event on the 13th stopped being written the moment it stopped being the
+      13th in New York, and this test began failing on every run from
+      2026-09-14 — on `main`, for every branch, with nothing having changed.
+
+      Its neighbour was pinned when it rotted the same way. This one was missed,
+      which is the whole argument for the comment: a hardcoded date in this file
+      is a test with an expiry date on it unless the clock is pinned beside it.
+    */
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-12T18:00:00.000Z"),
+    });
 
     const result = await runPass(t, workspaceId, connectionId);
 

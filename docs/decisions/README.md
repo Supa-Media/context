@@ -132,6 +132,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The manifest is the query surface, and the diff moved out from under it
 - The console searches through the gateway's search, not a copy of it
 - A database we own holds a copy of somebody's notes only where they asked
+- A name already taken in our own account is this context's database
 - The gateway writes the projection, so the credential rides on the binding
 - Progress is reported to the control plane, which owns the row
 - The backfill percentage is derived, and inherits the census's owner-only gate

@@ -162,6 +162,27 @@ context.** `team` means named people the owner granted access to, and none of
 them consented to somebody else's plugin. Whatever the runtime ends up being, it
 is scoped below the context, not equal to it.
 
+### Network access uses a public-only socket service
+
+An approved exact hostname does not make a direct `fetch` safe. DNS can return
+a public address during validation and a private address when the connection is
+opened. The control plane therefore keeps request policy, while
+`infra/egress-service` performs one socket operation. It resolves every address
+for the hostname, refuses the request if any address is not public, and opens
+TLS to one checked address with the hostname as SNI and the HTTP `Host` header.
+Convex handles redirects manually and calls the service again for each hop.
+
+The service receives the URL, method, headers, and body after Convex has checked
+the plugin grant. It receives no workspace, user, plugin, or storage identity,
+and it has no storage binding. `PLUGIN_EGRESS_URL` and
+`PLUGIN_EGRESS_SECRET` configure the Convex caller. With either value absent or
+invalid, `pluginRuntimeCapabilities` reports `{ egress: false }` and network
+approval fails closed.
+
+This does not reopen server-side plugin execution. The plugin still runs in the
+console sandbox. The container only makes a bounded HTTPS request that Convex
+already authorized.
+
 ## Drawings: read the file, describe it, and refuse to write over it
 
 `.excalidraw.md` was listed above as a format we do not parse and therefore

@@ -105,7 +105,7 @@ const EVERY_VERDICT: PluginsView = {
 };
 
 const NO_GRANTS: GrantsView = { grants: [], loading: false };
-const NO_BROWSE: BrowseView = { query: "", searching: false, failure: null };
+const NO_BROWSE: BrowseView = { query: "", limit: 20, searching: false, failure: null };
 const NO_RUNTIME: RuntimeView = { states: [], loading: false };
 
 function panel(): HTMLElement {

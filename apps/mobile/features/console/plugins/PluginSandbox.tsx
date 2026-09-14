@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet } from "react-native";
 import {
   WebView,
@@ -12,8 +12,23 @@ import {
 import type { ParsedSandboxEvent, PluginSandboxProps } from "./sandboxTypes";
 
 /** The native half of the same sandbox, in its own WebView JavaScript realm. */
-export function PluginSandbox({ bundle, nonce, onEvent }: PluginSandboxProps) {
+export function PluginSandbox({
+  bundle,
+  nonce,
+  onEvent,
+  activeFile = null,
+  vaultEvent,
+}: PluginSandboxProps) {
   const frame = useRef<WebView | null>(null);
+  // See the web host: host-to-guest state only lands once the bundle is
+  // running, and state rather than a ref so the note already open when a plugin
+  // starts reaches it at that moment.
+  const [loaded, setLoaded] = useState(false);
+  const post = useCallback((payload: Record<string, unknown>) => {
+    frame.current?.postMessage(
+      JSON.stringify({ source: "context-plugin-host", version: 1, ...payload }),
+    );
+  }, []);
   const source = useMemo(
     () => ({ html: pluginSandboxDocument(), baseUrl: "about:blank" }),
     [],
@@ -44,6 +59,8 @@ export function PluginSandbox({ bundle, nonce, onEvent }: PluginSandboxProps) {
         );
         return;
       }
+      if (message.type === "loaded") setLoaded(true);
+      if (message.type === "unloaded" || message.type === "crashed") setLoaded(false);
       if (message.type === "rpc") {
         onEvent({
           ...message,
@@ -63,6 +80,28 @@ export function PluginSandbox({ bundle, nonce, onEvent }: PluginSandboxProps) {
     },
     [bundle.mainJs, bundle.manifestJson, nonce, onEvent],
   );
+
+  useEffect(() => {
+    if (!loaded) return;
+    post({
+      type: "active-file",
+      path: activeFile?.path ?? null,
+      etag: activeFile?.etag ?? null,
+    });
+  }, [activeFile?.etag, activeFile?.path, loaded, post]);
+
+  useEffect(() => {
+    if (!loaded || vaultEvent === undefined) return;
+    // Keyed on `seq` — see the web host for why the object itself will not do.
+    post({
+      type: "vault-event",
+      kind: vaultEvent.kind,
+      path: vaultEvent.path,
+      from: vaultEvent.from,
+      etag: vaultEvent.etag,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, vaultEvent?.seq]);
 
   return (
     <WebView
