@@ -336,7 +336,7 @@ export function pluginSandboxDocument() {
       for (const value of values.slice(0, SUGGEST_MAX)) {
         const el = document.createElement('div');
         try { suggester.renderSuggestion(value, el); } catch (_) {}
-        const text = String(el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        const text = String(el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200);
         items.push({ text });
       }
       offered = { suggester, values: values.slice(0, SUGGEST_MAX), editor, line };
