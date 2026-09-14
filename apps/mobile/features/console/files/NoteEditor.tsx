@@ -116,6 +116,8 @@ export function NoteEditor({
   onKeepMine,
   onOpenLink,
   notePaths,
+  onSuggest,
+  onPickSuggestion,
   onSubmitForm,
   onReadFormResponses,
   onVoteForm,
@@ -146,6 +148,9 @@ export function NoteEditor({
    * `docs/decisions/forms.md`, "A `member` may submit, and that is the only
    * write they get".
    */
+  /** Plugin completions, absent where no plugin can run. See `LiveEditorProps`. */
+  onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  onPickSuggestion?: (index: number) => Promise<string | null>;
   onSubmitForm?: (submission: FormSubmission) => Promise<FormOutcome>;
   /** Read a form's response note through the same access check as opening it. */
   onReadFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;
@@ -617,6 +622,8 @@ export function NoteEditor({
             */
             onOpenNote={onOpenLink === undefined ? undefined : (path) => onOpenLink(path)}
             onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
+            onSuggest={onSuggest}
+            onPickSuggestion={onPickSuggestion}
             onSubmitForm={onSubmitForm}
             onReadFormResponses={onReadFormResponses}
             onVoteForm={onVoteForm}
