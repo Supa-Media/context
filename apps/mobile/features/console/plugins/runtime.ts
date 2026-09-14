@@ -122,7 +122,32 @@ export interface RuntimeActions {
    * guaranteed to come. The outcome arrives through `outcomes` instead.
    */
   run: (pluginId: string, id: string) => void;
+  /**
+   * Ask the running plugins whether any wants to complete this line.
+   *
+   * Resolves to an empty list when nobody does, when nobody may be asked, or
+   * when nobody answers in time — the editor treats all three the same way,
+   * which is to carry on.
+   *
+   * Optional, like `host`: a surface with no editor to complete into — the
+   * landing page's demo console — has no suggestions, and absence says that
+   * more honestly than a function that always resolves empty.
+   */
+  askSuggestions?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  /** Take the pick; resolves to the rewritten line, or null if nothing answers. */
+  applySuggestion?: (index: number) => Promise<string | null>;
 }
+
+/**
+ * How long the editor waits for a plugin to answer before carrying on.
+ *
+ * #533 shipped a command with no timeout and named the gap: *"a pending state
+ * that can hang for ever is worse than none"*. In a completion menu that state
+ * is entered on a keystroke, so the clock is not optional here. Short enough
+ * that a wedged guest is indistinguishable from no suggester, long enough for a
+ * guest that has to reach the network through the broker.
+ */
+export const SUGGEST_TIMEOUT_MS = 1200;
 
 /**
  * What came back from the last command this plugin was asked to run.

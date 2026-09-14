@@ -19,6 +19,8 @@ export function PluginSandbox({
   activeFile = null,
   vaultEvent,
   invoke,
+  suggest,
+  suggestApply,
 }: PluginSandboxProps) {
   const frame = useRef<WebView | null>(null);
   // See the web host: host-to-guest state only lands once the bundle is
@@ -103,6 +105,26 @@ export function PluginSandbox({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, post, vaultEvent?.seq]);
+
+  /*
+    Ask this plugin whether it wants to suggest against the line somebody is
+    typing. Keyed on `seq` like every other slot here: the object arrives new on
+    every render, and a query sent twice would answer twice for one keystroke.
+
+    Whether this frame should be asked at all is decided in the farm — the line
+    is note content and `maySeeContent` is the gate. This posts what it is given.
+  */
+  useEffect(() => {
+    if (!loaded || suggest === undefined) return;
+    post({ type: "suggest-query", seq: suggest.seq, line: suggest.line, ch: suggest.ch });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, suggest?.seq]);
+
+  useEffect(() => {
+    if (!loaded || suggestApply === undefined) return;
+    post({ type: "suggest-apply", seq: suggestApply.seq, index: suggestApply.index });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, suggestApply?.seq]);
 
   useEffect(() => {
     if (!loaded || invoke === undefined) return;
