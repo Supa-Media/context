@@ -447,6 +447,27 @@ context.** `team` means named people the owner granted access to, and none of
 them consented to somebody else's plugin. Whatever the runtime ends up being, it
 is scoped below the context, not equal to it.
 
+### Network access uses a public-only socket service
+
+An approved exact hostname does not make a direct `fetch` safe. DNS can return
+a public address during validation and a private address when the connection is
+opened. The control plane therefore keeps request policy, while
+`infra/egress-service` performs one socket operation. It resolves every address
+for the hostname, refuses the request if any address is not public, and opens
+TLS to one checked address with the hostname as SNI and the HTTP `Host` header.
+Convex handles redirects manually and calls the service again for each hop.
+
+The service receives the URL, method, headers, and body after Convex has checked
+the plugin grant. It receives no workspace, user, plugin, or storage identity,
+and it has no storage binding. `PLUGIN_EGRESS_URL` and
+`PLUGIN_EGRESS_SECRET` configure the Convex caller. With either value absent or
+invalid, `pluginRuntimeCapabilities` reports `{ egress: false }` and network
+approval fails closed.
+
+This does not reopen server-side plugin execution. The plugin still runs in the
+console sandbox. The container only makes a bounded HTTPS request that Convex
+already authorized.
+
 ## Drawings: read the file, describe it, and refuse to write over it
 
 `.excalidraw.md` was listed above as a format we do not parse and therefore
@@ -609,18 +630,45 @@ and downloads.
 
 ### Fonts are served from our own origin, and that is not a preference
 
-Excalidraw resolves fonts against `window.EXCALIDRAW_ASSET_PATH` and falls back
-to **esm.sh** — a request to a third party fired at the moment somebody opens
+Excalidraw does not *choose* between our fonts and a CDN. It appends
+`ASSETS_FALLBACK_URL` — a URL on **esm.sh** — to the `src` list of every
+`FontFace` it registers, unconditionally, and the browser walks that list in
+order. The third party is not reached only for as long as the URL in front of it
+works, which makes this a fallback that fires on a bug rather than a setting
+that can be turned off. And the request goes out at the moment somebody opens
 their own private drawing, from a page whose URL identifies this product. The
 share renderer already refuses the same thing in different clothes: "a remote
 image in a shared note is a tracking pixel that reports every read to whoever
 wrote it". A font is that request with a different extension.
 
-The build copies the font files next to the bundle and the page points at them
-relatively, so a self-hosted deployment serves its own. Verified by loading the
-built page in a browser and recording every request: zero off our own origin.
-That check is manual and worth re-running on every upgrade of the package —
-saying so is more useful than implying the code comment is a guarantee.
+The build copies the font files next to the bundle and the page points
+`window.EXCALIDRAW_ASSET_PATH` at the directory it was itself served from,
+resolved at load time, so a self-hosted deployment serves its own.
+
+**Not `"./"`, which is what this shipped as and what it looks like it should
+be.** `FontFace.normalizeBaseUrl` rewrites any value beginning `./` or `/` as
+`new URL(value, location.origin)` — against the origin, not the page — so `"./"`
+became the origin root, every scene font resolved to `/fonts/<Family>/…` where
+nothing is served, and the browser did exactly what the `src` list told it to
+and fetched from esm.sh. An absolute URL passes through that normalization
+untouched.
+
+The bug survived a manual check at the time because it is silent from both
+sides. The canvas still draws, in a fallback serif nobody had a reference for,
+and the editor's *interface* font comes from `editor.css`, whose `url()`
+resolves against the stylesheet and is same-origin whatever the asset path says
+— so "the page loaded fonts from us" was true, of the wrong fonts. Watching the
+network panel and seeing our own origin is not the same as seeing the drawing's
+font come from it.
+
+`e2e/webkit/drawingFonts.spec.ts` replaces that check and is built around the
+same trap: it draws a scene in a named family, requires *that* family to have
+been fetched from the editor's own directory and to have reached `loaded` rather
+than `error`, and only then asserts that nothing went off-origin at all. Five
+sabotages were measured against it — the `"./"` bug itself, the assignment
+deleted, the path pointed at the CDN, the family dropped from the build, and an
+unrelated off-origin resource added to the page — and each fails it on the
+assertion meant for it.
 
 `Xiaolai` is excluded: 13MB on its own, more than the rest of the editor
 together, for Chinese handwriting. A drawing using it falls back to a system

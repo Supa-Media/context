@@ -110,6 +110,8 @@ const COMMUNITY_REGISTRY_URL =
 const MAX_REGISTRY_BYTES = 4 * 1024 * 1024;
 const MAX_PLUGIN_ASSET_BYTES = 10 * 1024 * 1024;
 const RUNTIME_SESSION_MS = 15 * 60 * 1_000;
+const PLUGIN_EGRESS_URL_ENV = "PLUGIN_EGRESS_URL";
+const PLUGIN_EGRESS_SECRET_ENV = "PLUGIN_EGRESS_SECRET";
 
 const communityPluginValidator = v.object({
   id: v.string(),
@@ -155,6 +157,26 @@ async function callerId(ctx: Parameters<typeof getAuthUserId>[0]): Promise<Id<"u
   const userId = await getAuthUserId(ctx);
   if (userId === null) throw pluginError("NOT_AUTHENTICATED", "Sign in to continue");
   return userId as Id<"users">;
+}
+
+type PluginEgressConfiguration = { endpoint: string; secret: string };
+
+function pluginEgressConfiguration(
+  env: Record<string, string | undefined> = process.env,
+): PluginEgressConfiguration | null {
+  const rawUrl = env[PLUGIN_EGRESS_URL_ENV]?.trim() ?? "";
+  const secret = env[PLUGIN_EGRESS_SECRET_ENV]?.trim() ?? "";
+  if (!rawUrl || !secret) return null;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) return null;
+    return {
+      endpoint: new URL("request", url.href.endsWith("/") ? url.href : `${url.href}/`).href,
+      secret,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function requireOwner(
@@ -646,6 +668,17 @@ function parseReleaseManifest(text: string, expectedId: string): { id: string; v
   return { id: expectedId, version: row.version };
 }
 
+/** Deployment capability, not a grant: absent configuration keeps self-hosters fail-closed. */
+export const pluginRuntimeCapabilities = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ egress: v.boolean() }),
+  handler: async (ctx, args) => {
+    const userId = await callerId(ctx);
+    await requireOwner(ctx, args.workspaceId, userId);
+    return { egress: pluginEgressConfiguration() !== null };
+  },
+});
+
 /** Owner-only because installed software is private workspace metadata. */
 export const listPluginGrants = query({
   args: { workspaceId: v.id("workspaces") },
@@ -714,14 +747,12 @@ export const approvePlugin = action({
       if (plugin.verdict !== "needs-approval" || networkHosts.some((host) => !detected.has(host))) {
         throw pluginError("INVALID_NETWORK_GRANT", "Only detected network hosts may be granted");
       }
-      // Direct server fetch cannot pin DNS across resolution and connection,
-      // so a public-looking approved host could rebind to a private address.
-      // Keep the protocol shape, but fail closed until a public-only egress
-      // service enforces that boundary on every request and redirect.
-      throw pluginError(
-        "NETWORK_RUNTIME_UNAVAILABLE",
-        "Networked plugins require the public-only egress service",
-      );
+      if (pluginEgressConfiguration() === null) {
+        throw pluginError(
+          "NETWORK_EGRESS_UNAVAILABLE",
+          "Networked plugins require a configured public-only egress service",
+        );
+      }
     }
 
     return await ctx.runMutation(internal.functions.obsidianPlugins.persistGrant, {
@@ -847,7 +878,6 @@ export const persistRuntimeSession = internalMutation({
     if (
       !grant || grant.status !== "active" ||
       grant.bundleFingerprint !== args.bundleFingerprint ||
-      grant.capabilities.includes("network:request") ||
       lifecycle?.busy === true ||
       args.expiresAt <= now || args.expiresAt > now + RUNTIME_SESSION_MS + 5_000
     ) {
@@ -904,7 +934,6 @@ export const resolveRuntimeSession = internalQuery({
     if (
       !grant || grant.status !== "active" ||
       grant.bundleFingerprint !== session.bundleFingerprint ||
-      grant.capabilities.includes("network:request") ||
       lifecycle?.busy === true
     ) return null;
     const membership = await getMembership(ctx, session.workspaceId, session.createdBy);
@@ -946,7 +975,6 @@ export const claimRuntimeRequest = internalMutation({
     if (
       !grant || grant.status !== "active" ||
       grant.bundleFingerprint !== session.bundleFingerprint ||
-      grant.capabilities.includes("network:request") ||
       lifecycle?.busy === true ||
       (await getMembership(ctx, session.workspaceId, session.createdBy))?.role !== "owner"
     ) return "invalid" as const;
@@ -1604,12 +1632,11 @@ async function brokerNetworkRequest(operation: RpcOperation, allowedHosts: strin
     if (!allowedHosts.includes(host) || parsed.protocol !== "https:" || (parsed.port && parsed.port !== "443")) {
       throw pluginError("NETWORK_HOST_DENIED", "Plugin was not granted this exact HTTPS host");
     }
-    const response = await fetch(url, {
+    const response = await fetchThroughPluginEgress({
+      url,
       method: operation.method!,
-      headers: Object.fromEntries((operation.headers ?? []).map((header) => [header.name, header.value])),
+      headers: operation.headers ?? [],
       body: operation.body,
-      redirect: "manual",
-      signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS),
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
@@ -1630,6 +1657,92 @@ async function brokerNetworkRequest(operation: RpcOperation, allowedHosts: strin
     return { status: response.status, headers, body };
   }
   throw pluginError("NETWORK_REDIRECT_DENIED", "Too many network redirects");
+}
+
+type EgressWireResponse = {
+  ok?: unknown;
+  status?: unknown;
+  headers?: unknown;
+  bodyBase64?: unknown;
+  error?: { code?: unknown; message?: unknown };
+};
+
+function decodeBase64(value: string): ArrayBuffer {
+  let decoded: string;
+  try {
+    decoded = atob(value);
+  } catch {
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
+  }
+  if (decoded.length > MAX_NETWORK_RESPONSE_BYTES) {
+    throw pluginError("NETWORK_RESPONSE_TOO_LARGE", "Network response exceeds 2 MB");
+  }
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
+  return bytes.buffer;
+}
+
+async function fetchThroughPluginEgress(input: {
+  url: string;
+  method: string;
+  headers: Array<{ name: string; value: string }>;
+  body?: string;
+}): Promise<Response> {
+  const config = pluginEgressConfiguration();
+  if (config === null) {
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The public-only egress service is not configured");
+  }
+  let response: Response;
+  try {
+    response = await fetch(config.endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${config.secret}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input),
+      redirect: "error",
+      signal: AbortSignal.timeout(NETWORK_REQUEST_TIMEOUT_MS),
+    });
+  } catch {
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The public-only egress service is unavailable");
+  }
+
+  let wire: EgressWireResponse;
+  try {
+    wire = await response.json() as EgressWireResponse;
+  } catch {
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
+  }
+  if (!response.ok || wire.ok !== true) {
+    const code = wire.error?.code;
+    if (code === "NETWORK_PRIVATE_ADDRESS_DENIED") {
+      throw pluginError(code, "The approved host resolved to a non-public address");
+    }
+    if (code === "NETWORK_RESPONSE_TOO_LARGE") {
+      throw pluginError(code, "Network response exceeds 2 MB");
+    }
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The public-only egress service is unavailable");
+  }
+  if (!Number.isInteger(wire.status) || (wire.status as number) < 100 || (wire.status as number) > 599 ||
+    !Array.isArray(wire.headers) || typeof wire.bodyBase64 !== "string") {
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
+  }
+  const headers = new Headers();
+  try {
+    for (const row of wire.headers.slice(0, 64)) {
+      if (!row || typeof row !== "object") continue;
+      const { name, value } = row as { name?: unknown; value?: unknown };
+      if (typeof name === "string" && typeof value === "string") headers.append(name, value);
+    }
+  } catch {
+    throw pluginError("NETWORK_EGRESS_UNAVAILABLE", "The egress service returned an invalid response");
+  }
+  const body = decodeBase64(wire.bodyBase64);
+  return new Response([204, 205, 304].includes(wire.status as number) ? null : body, {
+    status: wire.status as number,
+    headers,
+  });
 }
 
 async function boundedResponseBody(response: Response): Promise<ArrayBuffer> {

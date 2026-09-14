@@ -264,7 +264,12 @@ describe("the card", () => {
   });
 });
 
-const NO_GRANTS: GrantsView = { grants: [], loading: false };
+/*
+  `egress: false` because nothing in this file asks for the network, and false
+  is the honest default for a deployment that has not configured one — the
+  flag arrived with #535 and is a property of the deployment, not of this panel.
+*/
+const NO_GRANTS: GrantsView = { grants: [], loading: false, egress: false };
 const NO_BROWSE: BrowseView = { query: "", limit: 20, searching: false, failure: null };
 const NO_RUNTIME: RuntimeView = { states: [], loading: false };
 

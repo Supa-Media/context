@@ -292,11 +292,48 @@ export async function runPluginChecks(check) {
   const clean = scanPlugin({ id: "demo", manifestText: manifestFor("demo"), source: CLEAN_BUNDLE });
   check("a bundle with no outside calls runs here", clean.verdict === "runs");
   check("a running plugin carries no evidence against it", clean.evidence.length === 0);
+  /*
+    This used to assert `registerMarkdownCodeBlockProcessor` was *supported*,
+    and that was the over-claim this split exists to end: the shim does not
+    implement it, and a bundle using it scanned clean, read as "everything these
+    use, Context implements", loaded, registered, and rendered nothing.
+
+    It is now named on the other list, and the row says so.
+  */
   check(
     "the supported members it touches are named",
-    clean.supported.includes("registerMarkdownCodeBlockProcessor") &&
-      clean.supported.includes("getMarkdownFiles")
+    clean.supported.includes("getMarkdownFiles")
   );
+  check(
+    "a member the shim has not implemented is not called supported",
+    !clean.supported.includes("registerMarkdownCodeBlockProcessor") &&
+      clean.planned.includes("registerMarkdownCodeBlockProcessor")
+  );
+  check(
+    "and it becomes a limitation the reader can act on, rather than silence",
+    clean.limitations.some((line) => line.includes("code blocks are not drawn yet"))
+  );
+  check(
+    "a planned member never changes the verdict — the plugin still runs",
+    clean.verdict === "runs"
+  );
+  {
+    // Four link-graph members, one sentence: a row listing the same reason four
+    // times is a row nobody finishes reading.
+    const graph = scanPlugin({
+      id: "graph",
+      manifestText: manifestFor("graph"),
+      source:
+        "const a = this.app.metadataCache.resolvedLinks;\n" +
+        "const b = this.app.metadataCache.unresolvedLinks;\n" +
+        "const c = this.app.metadataCache.getFirstLinkpathDest('x');\n" +
+        "const d = this.app.metadataCache.fileToLinktext(e);\n",
+    });
+    check(
+      "four members with one cause produce one sentence",
+      graph.limitations.filter((line) => line.includes("link graph")).length === 1
+    );
+  }
 
   const shell = scanPlugin({
     id: "sh",

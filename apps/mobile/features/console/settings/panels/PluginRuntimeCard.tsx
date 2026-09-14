@@ -9,6 +9,7 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
   REGISTRATION_NOTE,
   REVOKED_NOTE,
+  commandOutcomeFor,
   describeRegistrations,
   isOwnerStop,
   isRevocation,
@@ -93,6 +94,13 @@ export function PluginRuntimeCard({
   */
   const registered = registrationsFor(state, view.registrations);
   const registeredNote = describeRegistrations(registered);
+  /*
+    A name becomes a control only when there is something behind it: the
+    runtime has to be able to reach the frame. Without `run` this renders
+    exactly what it did before invoke existed — names, and the note saying so.
+  */
+  const run = view.actions?.run;
+  const outcome = commandOutcomeFor(registered, view.outcomes?.[plugin.id]);
 
   return (
     <View testID={`plugin-runtime-${plugin.id}`} style={styles.wrap}>
@@ -130,18 +138,39 @@ export function PluginRuntimeCard({
         <View style={styles.registrations} testID={`plugin-registrations-${plugin.id}`}>
           <Text variant="rowSub">{registeredNote}</Text>
           {registered.map((one) => (
-            <Text key={`${one.kind}:${one.id}`} variant="rowSub" style={styles.registration}>
-              {`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
-            </Text>
+            run ? (
+              <Button
+                key={`${one.kind}:${one.id}`}
+                label={`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
+                onPress={() => run(plugin.id, one.id)}
+              />
+            ) : (
+              <Text key={`${one.kind}:${one.id}`} variant="rowSub" style={styles.registration}>
+                {`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
+              </Text>
+            )
           ))}
           {/*
-            Names, not buttons — because the host half of the invoke channel is
-            not wired, not because the channel is missing. The guest already
-            handles an inbound `command` message; nothing here sends one yet.
+            Without `run` these stay names, and the note says why. It is the
+            console that is unwired, never the sandbox: the guest has always
+            handled an inbound `command`.
           */}
-          <Text variant="rowSub" style={styles.registration}>
-            {REGISTRATION_NOTE}
-          </Text>
+          {run ? null : (
+            <Text variant="rowSub" style={styles.registration}>
+              {REGISTRATION_NOTE}
+            </Text>
+          )}
+          {outcome ? (
+            <Text
+              variant={outcome.ok ? "rowSub" : "error"}
+              testID={`plugin-command-outcome-${plugin.id}`}
+              style={outcome.ok ? styles.registration : undefined}
+            >
+              {outcome.ok
+                ? `Ran ${outcome.name}.`
+                : `${outcome.name} did not finish. The plugin reported: ${outcome.error}`}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 

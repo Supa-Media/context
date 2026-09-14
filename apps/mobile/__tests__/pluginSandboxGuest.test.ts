@@ -23,7 +23,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
-import { pluginSandboxDocument } from "@context/obsidian-runtime";
+import {
+  PLANNED_MEMBERS,
+  SUPPORTED_MEMBERS,
+  pluginSandboxDocument,
+} from "@context/obsidian-runtime";
 
 /*
   A fresh nonce per test, and it is isolation rather than realism.
@@ -297,5 +301,89 @@ describe("the guest can already be told to run a command", () => {
     await Promise.resolve();
     expect(posted.filter((one) => one.type === "command-result")).toHaveLength(0);
     expect(seen()!.ran).toEqual([]);
+  });
+});
+
+/*
+  THE GUARD THIS WHOLE FILE WAS WORTH WRITING FOR.
+
+  `SUPPORTED_MEMBERS` is the scanner's claim about this shim, and a `runs`
+  verdict is printed as "everything these use, Context implements". It had
+  drifted twenty names: `resolvedLinks`, `MarkdownRenderer`, `registerView` and
+  the rest were not reachable here at all, so a bundle touching only them
+  scanned clean, was approved by somebody reading that sentence, loaded, and
+  threw on its first call.
+
+  The list now lives in the same package as the shim, and this walks the shim it
+  describes. A name added to the declaration without an implementation reddens
+  here, which is the only place it can: the scanner cannot run the sandbox, and
+  a browser test proves isolation rather than surface.
+
+  It cannot prove the opposite direction — a member that is reachable and does
+  nothing, like `addSettingTab` — so those are hand-named in `PLANNED_MEMBERS`
+  with the sentence to say about them, and the test below only holds that the
+  two lists do not both claim the same name.
+*/
+describe("the scanner's claim about this shim is true", () => {
+  const REACH = `
+    const api = require('obsidian');
+    module.exports = class extends api.Plugin {
+      async onload() {
+        const names = new Set(Object.keys(api));
+        for (const source of [
+          Object.getPrototypeOf(this),
+          this.app.vault,
+          this.app.metadataCache,
+          this.app.workspace,
+        ]) {
+          let walk = source;
+          while (walk && walk !== Object.prototype) {
+            for (const name of Object.getOwnPropertyNames(walk)) names.add(name);
+            walk = Object.getPrototypeOf(walk);
+          }
+        }
+        globalThis.__reach = [...names];
+      }
+    };
+  `;
+
+  function reachable(): string[] {
+    delete (globalThis as unknown as { __reach?: unknown }).__reach;
+    nonces += 1;
+    const own = `nonce-for-reach-${nonces}`;
+    (0, eval)(scriptOf(pluginSandboxDocument()));
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          source: "context-plugin-host",
+          version: 1,
+          nonce: own,
+          type: "load",
+          mainJs: REACH,
+          manifestJson: '{"id":"reach"}',
+        },
+      }),
+    );
+    const found = (globalThis as unknown as { __reach?: string[] }).__reach;
+    if (!found) throw new Error("the reachability bundle did not load");
+    return found;
+  }
+
+  test("every member the scanner calls supported is reachable on the shim", () => {
+    const found = new Set(reachable());
+    const missing = SUPPORTED_MEMBERS.filter((name) => !found.has(name));
+    expect(missing).toEqual([]);
+  });
+
+  test("nothing is claimed as both answered and still on the way", () => {
+    const planned = Object.keys(PLANNED_MEMBERS);
+    expect(SUPPORTED_MEMBERS.filter((name) => planned.includes(name))).toEqual([]);
+  });
+
+  test("every planned member carries a sentence rather than a flag", () => {
+    for (const [name, reason] of Object.entries(PLANNED_MEMBERS)) {
+      expect(typeof reason === "string" && reason.length > 10).toBe(true);
+      expect(name).not.toBe("");
+    }
   });
 });

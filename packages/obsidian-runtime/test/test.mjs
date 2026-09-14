@@ -100,6 +100,76 @@ assert.equal(parsePluginSandboxMessage({
   nonce: "wrong",
   type: "loaded",
 }, "secret"), null);
+/*
+  `command-result` — the guest's answer to a host `command`.
+
+  It is nonce-authenticated like every other observable event, because it is
+  one: a forged result would tell the console a command it never ran had run,
+  or hide a failure behind a success. `ok` is taken strictly rather than
+  coerced, so a missing field reads as "no result" rather than as success.
+*/
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "say-hello",
+  ok: true,
+}, "secret"), { type: "command-result", id: "say-hello", ok: true, error: null });
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "throws",
+  ok: false,
+  error: "the command failed",
+}, "secret"), {
+  type: "command-result",
+  id: "throws",
+  ok: false,
+  error: "the command failed",
+});
+// A result for a command the host never asked about is still well-formed; the
+// host decides whether it was waiting. What must not parse is a malformed one.
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "say-hello",
+}, "secret"), null, "a result with no ok must not parse");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "say-hello",
+  ok: "yes",
+}, "secret"), null, "ok must be a boolean, not anything truthy");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "command-result",
+  id: "say-hello",
+  ok: true,
+}, "secret"), null, "a forged result must not parse");
+// Bounded like every other guest string: a plugin controls both of these.
+{
+  const long = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "command-result",
+    id: "x".repeat(500),
+    ok: false,
+    error: "e".repeat(2000),
+  }, "secret");
+  assert.equal(long.id.length, 100);
+  assert.equal(long.error.length, 500);
+}
+
 assert.deepEqual(parsePluginSandboxMessage({
   source: "context-plugin-sandbox",
   version: 1,
