@@ -5423,7 +5423,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
   // whose own write then failed is a file referring to a form that does not
   // exist.
   const forms = formBlocks.length
-    ? await ensureFormResponseFiles(store, scope, rules, formBlocks, path)
+    ? await ensureFormResponseFiles(store, scope, rules, overrides, formBlocks, path)
     : { created: [], occupied: [] };
   const formLines = [
     ...forms.created.map((responses) => `response file created: ${responses}`),
@@ -5491,6 +5491,49 @@ function roleAtLeast(role, required) {
   const needed = ROLE_RANK.get(required) || ROLE_RANK.get("member");
   return held >= needed;
 }
+
+/**
+ * May this connection's own write reach the file a form collects into?
+ *
+ * `responses:` is a path the *caller* chose, in a note the caller is writing,
+ * so it is a second route to a file `write_note` answers for directly — and it
+ * has to answer the same way. A team connection is refused a create in private
+ * space there (`scope === "team" && !existing && inheritedVisibility !==
+ * "team"`) and is told nothing about what is already at the path: one refusal,
+ * whether the note exists or not.
+ *
+ * Without this, the author's own write was the oracle `write_note` refuses to
+ * be. Aimed at a private note that exists it answered "form not collecting
+ * yet: … (that file is not a form response file)"; aimed at a private response
+ * file it named the form that file belongs to; aimed at a private path holding
+ * nothing it answered "response file created" — and created a note in private
+ * space, through a connection that may not write one.
+ *
+ * `effectiveVisibility` rather than `canSee`, and `!== "team"` rather than
+ * `=== "private"`, for the reason the same test is spelled that way in
+ * `toolWriteNote`: a note held back to a group is not `"private"`, and a
+ * destination a team connection may not write must fail this whatever tier it
+ * is held at.
+ */
+function mayCollectResponsesAt(scope, path, rules, overrides) {
+  if (scope !== "team") return true;
+  return effectiveVisibility(path, rules, overrides) === "team";
+}
+
+/**
+ * What a caller who cannot read the response file is told when it is unusable.
+ *
+ * One message for every reason — absent, not a response file, another form's,
+ * another layout, encrypted — because each of those is a fact about a file
+ * this caller may not read, and `docs/decisions/forms.md` refuses "a lookup
+ * that tells somebody something about a file they may not read". A member
+ * submitting to a private drop-box gets this too, which is the honest cost:
+ * they could not have read the reason anyway, and the line points at somebody
+ * who can.
+ */
+const RESPONSE_FILE_UNUSABLE =
+  "this form is not collecting responses right now. An editor of this context can check the " +
+  "file it collects into; nothing has been written.";
 
 /** Whoever is calling, as a form records and authorizes them. */
 function formActor(store) {
@@ -5591,13 +5634,27 @@ async function mutateFormResponses(store, scope, rules, overrides, args, action,
     );
   }
 
+  /*
+   * A response file the caller cannot read answers with one message.
+   *
+   * Submitting to a file you may not read is the drop-box the design chose —
+   * "a form whose responses are private is final" — so this does not refuse the
+   * submission. What it refuses is the *diagnosis*: absent, not a response
+   * file, another form's, another layout and encrypted are five distinguishable
+   * facts about a note this caller may not open, and a form's `responses:` can
+   * be aimed anywhere by whoever wrote the note. The author's write is gated by
+   * `mayCollectResponsesAt`; this is the same gap through the submitting door.
+   */
+  const blind = !canSee(responsesPath, scope, rules, overrides);
   for (let attempt = 0; attempt < FORM_WRITE_ATTEMPTS; attempt++) {
     const current = await readFormResponses(store, config, responsesPath);
-    if (current.refusal) return current.refusal;
+    if (current.refusal) return blind ? toolError(RESPONSE_FILE_UNUSABLE) : current.refusal;
     if (current.missing) {
       return toolError(
-        "this form has no response file yet. An editor of this context can create it by saving " +
-          "the form's note again; nothing has been written."
+        blind
+          ? RESPONSE_FILE_UNUSABLE
+          : "this form has no response file yet. An editor of this context can create it by saving " +
+            "the form's note again; nothing has been written."
       );
     }
 
@@ -5799,7 +5856,7 @@ async function toolVoteForm(store, scope, rules, overrides, args) {
  * is — including a file that is not a response file, which is reported back so
  * the author can see their `responses:` is aimed at somebody's note.
  */
-async function ensureFormResponseFiles(store, scope, rules, blocks, notePath) {
+async function ensureFormResponseFiles(store, scope, rules, overrides, blocks, notePath) {
   const created = [];
   const occupied = [];
   for (const block of blocks) {
@@ -5813,6 +5870,15 @@ async function ensureFormResponseFiles(store, scope, rules, blocks, notePath) {
       responsesPath === notePath
     ) {
       occupied.push(`${block.config.id} → ${block.config.responses} (not a writable note path)`);
+      continue;
+    }
+    // Before the `get`, because the `get` is the oracle: reaching the file at
+    // all is what this connection may not do.
+    if (!mayCollectResponsesAt(scope, responsesPath, rules, overrides)) {
+      occupied.push(
+        `${block.config.id} → ${responsesPath} (this connection cannot collect responses there; ` +
+          "use a personal connection)"
+      );
       continue;
     }
     const existing = await getWithLegacyFallback(store, responsesPath);

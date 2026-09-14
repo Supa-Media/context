@@ -940,6 +940,133 @@ export async function runFormChecks(check) {
     );
     check("...nor did a response file appear in theirs", otherBucket.text("3-resources/bugs.responses.md") === undefined);
 
+    /* -- (8b) a form aimed at a file this connection may not see ------------- */
+    /*
+     * A team-tier connection holding `editor` writes notes, and a form's
+     * `responses:` is a path it chooses inside one. `write_note` refuses that
+     * same connection a create in private space, and refuses it any diagnosis
+     * of what is already there — one refusal whether the note exists or not.
+     *
+     * The form path reaches the same file in the same call, so it has to
+     * answer the same way. Otherwise the author's own write is an existence
+     * oracle over every private note in the workspace: "not collecting yet"
+     * with a parse error for one that exists, "response file created" for one
+     * that does not — and in that second case a note written into private
+     * space by a connection that may not write there. `docs/decisions/forms.md`
+     * names the thing being refused: "a lookup that tells somebody something
+     * about a file they may not read".
+     */
+    const aimedAt = (id, responses) =>
+      [
+        "```form",
+        `id: ${id}`,
+        `responses: ${responses}`,
+        "layout: table",
+        "fields:",
+        "  - { name: x, type: line, max: 10 }",
+        "```",
+      ].join("\n");
+    // `2-areas` is under the manifest's `default_visibility: private`, so none
+    // of these three paths is visible to a team connection.
+    bucket.seed("2-areas/ledger.md", "the owner's private ledger");
+    // Named so that the form id inside it appears nowhere in the path: the
+    // caller chose the path, so echoing that back leaks nothing, and only the
+    // id read out of the file's marker would.
+    bucket.seed(
+      "2-areas/archive.md",
+      "<!-- context:form responses id=payroll layout=table -->\n\n| Id  | By  | At  | x   |\n| --- | --- | --- | --- |\n"
+    );
+    const probe = async (note, responses) =>
+      call(env, EDITOR_TOKEN, "write_note", {
+        path: `3-resources/${note}.md`,
+        content: aimedAt("probe", responses),
+        visibility: "team",
+      });
+    const atExistingPrivate = await probe("probe-one", "2-areas/ledger.md");
+    const atAbsentPrivate = await probe("probe-two", "2-areas/absent.md");
+    const atPrivateResponses = await probe("probe-three", "2-areas/archive.md");
+    // The written path and its etag differ between the three by construction;
+    // what must not differ is the line about the file the form collects into.
+    const formLine = (result) =>
+      (result.text.split("\n").find((line) => /^(form not collecting yet|response file created):/.test(line)) || "")
+        .replace(/2-areas\/[a-z.]+\.md/g, "PATH");
+    check(
+      "a team connection is told the same thing whether the private file it aims a form at exists",
+      formLine(atExistingPrivate) === formLine(atAbsentPrivate) && formLine(atAbsentPrivate) !== ""
+    );
+    check(
+      "...and the same again when that file is somebody else's response file",
+      formLine(atPrivateResponses) === formLine(atAbsentPrivate)
+    );
+    check(
+      "...never naming the form that private response file belongs to",
+      !/payroll/.test(atPrivateResponses.text)
+    );
+    check(
+      "...never reporting on the contents of a note it may not read",
+      !/not a form response file|laid out as/.test(atExistingPrivate.text)
+    );
+    check(
+      "...and no response file is created in private space by a team connection",
+      bucket.text("2-areas/absent.md") === undefined
+    );
+    check(
+      "...leaving the private note it aimed at exactly as it was",
+      bucket.text("2-areas/ledger.md") === "the owner's private ledger"
+    );
+
+    // The same oracle through the other door: submitting reads that file too.
+    const blindExisting = await call(env, MEMBER_TOKEN, "submit_form", {
+      path: "3-resources/probe-one.md",
+      values: pairs({ x: "hello" }),
+    });
+    const blindAbsent = await call(env, MEMBER_TOKEN, "submit_form", {
+      path: "3-resources/probe-two.md",
+      values: pairs({ x: "hello" }),
+    });
+    check(
+      "submitting cannot tell those two apart either",
+      blindExisting.isError && blindAbsent.isError && blindExisting.text === blindAbsent.text
+    );
+    check(
+      "...and no submission lands in private space",
+      bucket.text("2-areas/absent.md") === undefined &&
+        bucket.text("2-areas/ledger.md") === "the owner's private ledger"
+    );
+
+    /* -- (8c) the drop-box the design chose, which still has to work --------- */
+    /*
+     * `docs/decisions/forms.md`: "a form whose responses are private is final.
+     * A survey respondent cannot retract, because they cannot see their own
+     * row." Submitting into a file you may not read is the feature, so the
+     * blinding above collapses the *reasons* a response file is unusable and
+     * never the submission itself. Untested until now, and it sits directly
+     * under the change that could turn it into a refusal.
+     */
+    const dropBox = await call(env, OWNER_TOKEN, "write_note", {
+      path: "3-resources/survey.md",
+      content: aimedAt("survey", "2-areas/survey.responses.md"),
+      visibility: "team",
+      confirm_team_publish: true,
+    });
+    check(
+      "an owner may point a form at a response file only they can read",
+      /response file created: 2-areas\/survey\.responses\.md/.test(dropBox.text)
+    );
+    const intoDropBox = await call(env, MEMBER_TOKEN, "submit_form", {
+      path: "3-resources/survey.md",
+      values: pairs({ x: "anonymous" }),
+    });
+    check("...and a member who cannot read it can still submit into it", !intoDropBox.isError);
+    check(
+      "...with the answer really in the file",
+      (bucket.text("2-areas/survey.responses.md") || "").includes("anonymous")
+    );
+    check(
+      "...while that file stays unreadable to them",
+      (await call(env, MEMBER_TOKEN, "read_note", { path: "2-areas/survey.responses.md" })).text === "not found"
+    );
+
     /* -- (9) two responses landing together ---------------------------------- */
 
     {
