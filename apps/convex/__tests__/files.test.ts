@@ -1108,6 +1108,9 @@ describe("Obsidian plugin inventory", () => {
     );
     expect(success).toMatchObject({ ok: true, result: { status: 200 } });
     if (!success.ok) throw new Error("network request should succeed");
+    expect((success.result as { bodyBase64: string }).bodyBase64)
+      .toBe(btoa('{"ok":true}'));
+    expect(success.result).not.toHaveProperty("body");
     expect((success.result as { headers: Array<{ name: string }> }).headers)
       .not.toContainEqual(expect.objectContaining({ name: "set-cookie" }));
 

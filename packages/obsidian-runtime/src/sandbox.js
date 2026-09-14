@@ -23,6 +23,8 @@ export function pluginSandboxDocument() {
   let instance = null;
   let counter = 0;
   const pending = new Map();
+  let inFlightRequests = 0;
+  const requestIdleWaiters = [];
   const disposers = [];
   const commands = new Map();
   // The note the console has open, as last told by the host. Path and etag
@@ -63,10 +65,21 @@ export function pluginSandboxDocument() {
 
   function request(operation) {
     const requestId = 'p_' + Date.now().toString(36) + '_' + (++counter).toString(36);
+    inFlightRequests += 1;
     return new Promise((resolve, reject) => {
       pending.set(requestId, { resolve, reject });
       send('rpc', { request: { version: VERSION, requestId, operation } });
+    }).finally(() => {
+      inFlightRequests -= 1;
+      if (inFlightRequests !== 0) return;
+      while (requestIdleWaiters.length) requestIdleWaiters.shift()();
     });
+  }
+
+  function requestsIdle() {
+    return inFlightRequests === 0
+      ? Promise.resolve()
+      : new Promise(resolve => requestIdleWaiters.push(resolve));
   }
 
   class TFile {
@@ -155,6 +168,25 @@ export function pluginSandboxDocument() {
     getActiveViewOfType() { return null; },
     getLeavesOfType() { return []; },
   };
+
+  // Obsidian keeps these aliases for plugins written against its augmented
+  // JavaScript realm. They change no authority; they only keep a plugin from
+  // failing before its first capability-checked call.
+  if (typeof Array.prototype.contains !== 'function') {
+    Object.defineProperty(Array.prototype, 'contains', {
+      value(value) { return this.includes(value); }, writable: true, configurable: true,
+    });
+  }
+  if (typeof Array.prototype.first !== 'function') {
+    Object.defineProperty(Array.prototype, 'first', {
+      value() { return this.length === 0 ? undefined : this[0]; }, writable: true, configurable: true,
+    });
+  }
+  if (typeof String.prototype.contains !== 'function') {
+    Object.defineProperty(String.prototype, 'contains', {
+      value(value) { return this.includes(value); }, writable: true, configurable: true,
+    });
+  }
 
   /*
     Obsidian augments HTMLElement itself, and a plugin calls these on whatever
@@ -281,6 +313,7 @@ export function pluginSandboxDocument() {
       }
       return el;
     }
+    registerEditorSuggest() {}
     registerMarkdownPostProcessor() {}
     registerEditorExtension() {}
     registerEvent(ref) { if (ref && typeof ref.off === 'function') disposers.push(() => ref.off()); }
@@ -292,7 +325,7 @@ export function pluginSandboxDocument() {
     addSettingTab() {}
     async loadData() {
       const result = await request({ kind: 'settings.load' });
-      if (!result || typeof result.json !== 'string') return null;
+      if (!result || typeof result.json !== 'string') return {};
       return JSON.parse(result.json);
     }
     async saveData(value) {
@@ -309,22 +342,118 @@ export function pluginSandboxDocument() {
   class Component { load() {}; unload() {} }
   class MarkdownView {}
   class ItemView {}
+  class EditorSuggest { constructor(appValue) { this.app = appValue; } }
   class PluginSettingTab { constructor(appValue, plugin) { this.app = appValue; this.plugin = plugin; } }
   class Setting { constructor() {} setName() { return this; } setDesc() { return this; } addText() { return this; } addToggle() { return this; } addDropdown() { return this; } addButton() { return this; } }
+  function decodeBase64(value) {
+    const binary = atob(String(value || ''));
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return bytes;
+  }
+
+  function requestUrlResponse(result) {
+    const bytes = decodeBase64(result && result.bodyBase64);
+    const text = new TextDecoder().decode(bytes);
+    const headers = {};
+    for (const row of result && Array.isArray(result.headers) ? result.headers : []) {
+      if (row && typeof row.name === 'string' && typeof row.value === 'string') {
+        headers[row.name.toLowerCase()] = row.value;
+      }
+    }
+    let json = null;
+    try { json = JSON.parse(text); } catch (_) {}
+    return {
+      status: result && Number.isInteger(result.status) ? result.status : 0,
+      headers,
+      arrayBuffer: bytes.buffer,
+      json,
+      text,
+    };
+  }
+
+  /*
+    YouVersion 1.8.1 imports these three modules while constructing an editor
+    extension, before onload can register it. Context does not mount third-party
+    extensions in the trusted editor yet, so these are deliberately inert
+    compatibility objects inside the opaque guest, not the host's CodeMirror
+    instances. They let the reviewed bundle load without pretending editor
+    decorations or suggestions are implemented.
+  */
+  class CompatRangeSetBuilder {
+    add() {}
+    finish() { return []; }
+  }
+  class CompatWidgetType {}
+  const codeMirrorModules = {
+    '@codemirror/language': {
+      syntaxTree() { return { iterate() {} }; },
+    },
+    '@codemirror/state': { RangeSetBuilder: CompatRangeSetBuilder },
+    '@codemirror/view': {
+      Decoration: { replace(spec) { return { spec }; } },
+      ViewPlugin: { fromClass(extensionClass, spec) { return { extensionClass, spec }; } },
+      WidgetType: CompatWidgetType,
+    },
+  };
+
   const api = {
-    Plugin, Notice, Component, MarkdownView, ItemView, PluginSettingTab, Setting,
+    Plugin, Notice, Component, MarkdownView, ItemView, EditorSuggest, PluginSettingTab, Setting,
     TFile, TFolder, Vault: function Vault() {}, Workspace: function Workspace() {},
     MetadataCache: function MetadataCache() {},
     normalizePath: value => String(value).replace(/\\\\/g, '/').replace(/^\\/+|\\/+$/g, ''),
-    requestUrl: options => {
+    requestUrl: async options => {
       const input = typeof options === 'string' ? { url: options } : options;
-      return request({ kind: 'network.request', url: input.url, method: input.method || 'GET', headers: Object.entries(input.headers || {}).map(([name, value]) => ({ name, value: String(value) })), ...(input.body === undefined ? {} : { body: String(input.body) }) });
+      const result = await request({ kind: 'network.request', url: input.url, method: input.method || 'GET', headers: Object.entries(input.headers || {}).map(([name, value]) => ({ name, value: String(value) })), ...(input.body === undefined ? {} : { body: String(input.body) }) });
+      return requestUrlResponse(result);
     },
   };
 
   function requireModule(name) {
     if (name === 'obsidian') return api;
+    if (Object.prototype.hasOwnProperty.call(codeMirrorModules, name)) return codeMirrorModules[name];
     throw new Error('Context sandbox does not provide module: ' + String(name));
+  }
+
+  function editorFor(text) {
+    let value = String(text);
+    let revision = 0;
+    const lines = () => value.split('\\n');
+    const offset = position => {
+      const all = lines();
+      const line = Math.max(0, Math.min(all.length - 1, Number(position && position.line) || 0));
+      const ch = Math.max(0, Math.min(all[line].length, Number(position && position.ch) || 0));
+      let found = ch;
+      for (let index = 0; index < line; index += 1) found += all[index].length + 1;
+      return found;
+    };
+    return {
+      lineCount() { return lines().length; },
+      lastLine() { return lines().length - 1; },
+      getLine(line) { return lines()[line] || ''; },
+      getValue() { return value; },
+      setValue(next) { value = String(next); revision += 1; },
+      getRange(from, to) { return value.slice(offset(from), offset(to)); },
+      replaceRange(replacement, from, to) {
+        const start = offset(from);
+        const end = offset(to || from);
+        value = value.slice(0, start) + String(replacement) + value.slice(end);
+        revision += 1;
+      },
+      revision() { return revision; },
+    };
+  }
+
+  async function settleEditorWork(editor) {
+    let previous = -1;
+    for (let turn = 0; turn < 20; turn += 1) {
+      await requestsIdle();
+      await new Promise(resolve => setTimeout(resolve, 0));
+      const current = editor.revision();
+      if (inFlightRequests === 0 && current === previous) return;
+      previous = current;
+    }
+    throw new Error('Plugin command did not settle');
   }
 
   async function unload() {
@@ -368,8 +497,22 @@ export function pluginSandboxDocument() {
       const command = commands.get(message.id);
       if (!command) return;
       try {
-        const run = command.callback || command.checkCallback || command.editorCallback;
-        if (typeof run === 'function') await run();
+        if (typeof command.editorCallback === 'function') {
+          if (activeFile === null) throw new Error('Open a note before running this command');
+          // Pin the target before the first await. The owner may open another
+          // note while a plugin's network work is in flight, and the result
+          // still belongs to the note the command was invoked against.
+          const target = activeFile;
+          const before = await vault.read(target);
+          const editor = editorFor(before);
+          await command.editorCallback(editor, null);
+          await settleEditorWork(editor);
+          const after = editor.getValue();
+          if (after !== before) await vault.modify(target, after);
+        } else {
+          const run = command.callback || command.checkCallback;
+          if (typeof run === 'function') await run();
+        }
         send('command-result', { id: message.id, ok: true });
       } catch (error) {
         send('command-result', { id: message.id, ok: false, error: String(error && error.message || error).slice(0, 500) });
