@@ -1807,6 +1807,24 @@ describe("one pass, end to end, through the credential barrier", () => {
     }
     const google = calendarAndBucket({ backend });
     vi.stubGlobal("fetch", google.fetchImpl);
+    /*
+      PINNED, FOR THE REASON THE TEST TWO ABOVE ALREADY WRITES OUT.
+
+      This one names `0-inbox/calendar/2026-09-13.md` as well, and the day a
+      calendar sync writes is bounded by a horizon measured from *today*:
+      `calendar-sync.js` keeps only `date >= windowStart`. So the fixture's
+      event on the 13th stopped being written the moment it stopped being the
+      13th in New York, and this test began failing on every run from
+      2026-09-14 — on `main`, for every branch, with nothing having changed.
+
+      Its neighbour was pinned when it rotted the same way. This one was missed,
+      which is the whole argument for the comment: a hardcoded date in this file
+      is a test with an expiry date on it unless the clock is pinned beside it.
+    */
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-12T18:00:00.000Z"),
+    });
 
     const result = await runPass(t, workspaceId, connectionId);
 
