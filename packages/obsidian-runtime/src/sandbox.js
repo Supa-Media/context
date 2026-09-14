@@ -284,6 +284,83 @@ export function pluginSandboxDocument() {
     send('status-bar', { items });
   }
 
+  /*
+    EDITOR SUGGESTIONS: A ROUND TRIP OVER ONE LINE, AND NOTHING ELSE CROSSES.
+
+    registerEditorSuggest is how a plugin offers an in-editor completion —
+    YouVersion Linker's whole primary interaction, the list you get from typing
+    @ John 1:1. Obsidian mounts the suggester into its editor; Context cannot,
+    because that puts third-party callbacks and DOM in the trusted realm, which
+    docs/decisions/plugins.md rules out.
+
+    So the interaction is inverted. The host asks *"here is the line and where
+    the cursor is — do you want to suggest?"*; the guest runs the plugin's own
+    onTrigger and getSuggestions against a one-line editor, renders each
+    suggestion into an element **in here**, and reports what those elements say.
+    The host draws its own list. On a pick, the plugin's selectSuggestion runs
+    against the same one-line editor and the guest reports the line it produced
+    — the *trusted editor* then makes that edit through its own editing path.
+
+    Two consequences worth stating, because they are the reason this shape was
+    chosen over the obvious one:
+
+    - **A suggester needs no write grant.** The edit is the person typing, made
+      by their own editor, undoable like anything else they typed. Nothing here
+      touches vault.modify.
+    - **The line is note content**, so the *host* decides whether a plugin may
+      be asked at all. That gate is maySeeContent on the trusted side; the
+      guest cannot be trusted to filter what it is handed.
+  */
+  const suggesters = [];
+  const SUGGEST_MAX = 8;
+  // The offer the last query produced: which suggester made it, the values it
+  // returned, and the editor it was computed against. Replaced by the next
+  // query, so an apply can only ever land on what is currently on screen.
+  let offered = null;
+
+  async function answerSuggest(message) {
+    const line = typeof message.line === 'string' ? message.line : '';
+    const ch = Math.max(0, Math.min(line.length, Number(message.ch) || 0));
+    const editor = editorFor(line);
+    const cursor = { line: 0, ch };
+    offered = null;
+    for (const suggester of suggesters) {
+      let context = null;
+      try { context = suggester.onTrigger(cursor, editor, activeFile); } catch (_) { context = null; }
+      if (!context) continue;
+      suggester.context = Object.assign({ editor, file: activeFile }, context);
+      let values = [];
+      try { values = await suggester.getSuggestions(suggester.context); } catch (_) { values = []; }
+      if (!Array.isArray(values)) values = [];
+      const items = [];
+      for (const value of values.slice(0, SUGGEST_MAX)) {
+        const el = document.createElement('div');
+        try { suggester.renderSuggestion(value, el); } catch (_) {}
+        const text = String(el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        items.push({ text });
+      }
+      offered = { suggester, values: values.slice(0, SUGGEST_MAX), editor, line };
+      send('suggest-results', { seq: message.seq, items });
+      return;
+    }
+    send('suggest-results', { seq: message.seq, items: [] });
+  }
+
+  async function applySuggest(message) {
+    if (offered === null) return;
+    const index = Number(message.index);
+    const value = offered.values[index];
+    if (value !== undefined) {
+      // Awaited directly rather than through settleEditorWork: a selection is
+      // one edit on one line, and the loop that exists for a command's network
+      // round trips would make a keystroke wait on timers it does not need.
+      // An async selectSuggestion still resolves here; a throwing one is the
+      // plugin's failure and leaves the line as it was.
+      try { await offered.suggester.selectSuggestion(value, {}); } catch (_) {}
+    }
+    send('suggest-applied', { seq: message.seq, line: offered.editor.getValue().slice(0, 4000) });
+  }
+
   const app = { vault, metadataCache, workspace };
 
   class Plugin {
@@ -322,7 +399,12 @@ export function pluginSandboxDocument() {
       }
       return el;
     }
-    registerEditorSuggest() {}
+    registerEditorSuggest(suggester) {
+      // Kept, not mounted. The trusted editor never receives this object, its
+      // callbacks or its DOM: it asks the guest over suggest-query and draws
+      // the answer itself. See the host for why that is the whole design.
+      if (suggester && typeof suggester.onTrigger === 'function') suggesters.push(suggester);
+    }
     registerMarkdownPostProcessor() {}
     registerEditorExtension() {}
     registerEvent(ref) { if (ref && typeof ref.off === 'function') disposers.push(() => ref.off()); }
@@ -474,6 +556,8 @@ export function pluginSandboxDocument() {
     activeFile = null;
     // An unloaded plugin is inert, and a status bar that went on reporting
     // would be a line on the console from a plugin that is no longer running.
+    suggesters.length = 0;
+    offered = null;
     if (statusWatch !== null) { statusWatch.disconnect(); statusWatch = null; }
     statusRoot.textContent = '';
     statusCount = 0;
@@ -551,6 +635,19 @@ export function pluginSandboxDocument() {
       } catch (error) {
         send('command-result', { id: message.id, ok: false, error: String(error && error.message || error).slice(0, 500) });
       }
+      return;
+    }
+    // A suggestion is only ever offered by a running plugin, and only over the
+    // line the host handed in. An unloaded guest answers nothing at all rather
+    // than an empty list, so the host can tell "no plugin" from "no match".
+    if (message.type === 'suggest-query') {
+      if (instance === null) return;
+      await answerSuggest(message);
+      return;
+    }
+    if (message.type === 'suggest-apply') {
+      if (instance === null) return;
+      await applySuggest(message);
       return;
     }
     // An unloaded plugin is inert, and that has to include the state it is
@@ -659,6 +756,16 @@ export function sandboxFrameIsOurs(loadCount) {
 }
 
 /**
+ * How many suggestions one plugin may offer for one line.
+ *
+ * A completion menu is a list somebody arrows through under time pressure, not
+ * a search result page; past a handful it stops being faster than typing. The
+ * guest stops at this and the host truncates whatever arrives anyway, because a
+ * cap the untrusted half applies to itself is not a cap.
+ */
+export const SUGGEST_MAX = 8;
+
+/**
  * How many status bar items one plugin may put on its card.
  *
  * Obsidian imposes no limit and neither does the shim's own list — this is the
@@ -747,6 +854,42 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       }
       return { type: "status-bar", items };
     }
+    /*
+      What the plugin offered for the line the host asked about.
+
+      Text only, bounded twice like the status bar, and nonce-authenticated like
+      every observable event: a forged list would put words into a completion
+      menu the person is about to accept into their own note.
+
+      `seq` is required and carried back unchanged. Typing is faster than a
+      round trip, so a result that arrives after the line has moved on must be
+      *droppable* — the host compares the sequence it asked with the one that
+      came back and ignores anything stale. Without it a suggestion computed for
+      a line nobody is on any more would be offered for the line they are.
+    */
+    case "suggest-results": {
+      if (typeof row.seq !== "number" || !Array.isArray(row.items)) return null;
+      const items = [];
+      for (const entry of row.items) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+        const one = /** @type {Record<string, unknown>} */ (entry);
+        if (typeof one.text !== "string") return null;
+        if (items.length >= SUGGEST_MAX) continue;
+        items.push({ text: one.text.slice(0, 200) });
+      }
+      return { type: "suggest-results", seq: row.seq, items };
+    }
+    /*
+      The line the plugin's own selectSuggestion produced.
+
+      The *trusted* editor makes this edit, through its own editing path, which
+      is why a suggester needs no write grant: it is the person typing, and it
+      undoes like anything else they typed. Bounded, because the guest wrote it.
+    */
+    case "suggest-applied":
+      return typeof row.seq === "number" && typeof row.line === "string"
+        ? { type: "suggest-applied", seq: row.seq, line: row.line.slice(0, 4000) }
+        : null;
     case "registration":
       return (row.kind === "command" || row.kind === "ribbon") &&
         typeof row.id === "string" &&
