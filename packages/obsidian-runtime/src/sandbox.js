@@ -291,7 +291,16 @@ export function pluginSandboxDocument() {
     addCommand(command) {
       if (!command || typeof command.id !== 'string' || typeof command.name !== 'string') return;
       commands.set(command.id, command);
-      send('registration', { kind: 'command', id: command.id, name: command.name });
+      // Whether it takes an editor, which decides whether the console may draw
+      // it as pressable. Obsidian keeps editor commands out of its palette
+      // unless an editor is focused; the host needs the same fact to do the
+      // same thing, and only the guest can see which callback was supplied.
+      send('registration', {
+        kind: 'command',
+        id: command.id,
+        name: command.name,
+        needsEditor: typeof command.editorCallback === 'function',
+      });
     }
     addRibbonIcon(icon, title, callback) {
       const id = 'ribbon-' + commands.size;
@@ -747,6 +756,14 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
             kind: row.kind,
             id: row.id.slice(0, 100),
             name: row.name.slice(0, 200),
+            /*
+              Absent means false, deliberately. A guest older than this field
+              reports nothing, and reading that as "takes an editor" would
+              disable every command on every card at once. False restores
+              exactly the previous behaviour, and the guest still refuses the
+              call itself, so the worst case is the error we already had.
+            */
+            needsEditor: row.needsEditor === true,
           }
         : null;
     default:

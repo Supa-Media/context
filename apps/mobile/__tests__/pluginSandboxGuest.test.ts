@@ -264,11 +264,49 @@ describe("unloading really unsubscribes", () => {
  * confident sentence. A grep can miss a branch; an executed shim cannot.
  */
 describe("the guest can already be told to run a command", () => {
-  test("registering one announces it to the host", () => {
+  /*
+    `needsEditor` says whether the command took an `editorCallback`. Only the
+    guest can see which callback a plugin supplied, and the console needs the
+    fact to decide whether the control can be pressed at all — an editor
+    command acts on the open note and Obsidian keeps those out of its palette
+    when nothing is focused. Both of these take a plain `callback`, so both
+    report false.
+  */
+  test("registering one announces it to the host, and whether it needs an editor", () => {
     expect(posted.filter((one) => one.type === "registration")).toEqual([
-      { source: "context-plugin-sandbox", version: 1, nonce, type: "registration", kind: "command", id: "say-hello", name: "Say hello" },
-      { source: "context-plugin-sandbox", version: 1, nonce, type: "registration", kind: "command", id: "throws", name: "Throws" },
+      { source: "context-plugin-sandbox", version: 1, nonce, type: "registration", kind: "command", id: "say-hello", name: "Say hello", needsEditor: false },
+      { source: "context-plugin-sandbox", version: 1, nonce, type: "registration", kind: "command", id: "throws", name: "Throws", needsEditor: false },
     ]);
+  });
+
+  test("a command that takes an editor says so", () => {
+    const own = `nonce-for-editor-${(nonces += 1)}`;
+    const mark = posted.length;
+    // eslint-disable-next-line no-eval
+    (0, eval)(scriptOf(pluginSandboxDocument()));
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        source: "context-plugin-host",
+        version: 1,
+        nonce: own,
+        type: "load",
+        manifestJson: '{"id":"editor-command"}',
+        mainJs: `
+          const { Plugin } = require('obsidian');
+          module.exports = class extends Plugin {
+            async onload() {
+              this.addCommand({
+                id: 'generate-links',
+                name: 'Generate links',
+                editorCallback: () => {},
+              });
+            }
+          };
+        `,
+      },
+    }));
+    const registration = posted.slice(mark).find((one) => one.type === "registration");
+    expect(registration).toMatchObject({ id: "generate-links", needsEditor: true });
   });
 
   test("an inbound command runs the callback and reports success", async () => {

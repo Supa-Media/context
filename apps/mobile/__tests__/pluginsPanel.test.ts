@@ -440,6 +440,7 @@ describe("adding a plugin does not depend on the vault scan", () => {
         name: "Highlightr",
         author: "chetachi",
         description: "Highlight text in colour.",
+        repository: "chetachi/obsidian-highlightr-plugin",
       }],
       query: "highlightr",
     });
