@@ -172,16 +172,16 @@ describe("no control that cannot succeed", () => {
 });
 
 describe("the form opens closed", () => {
-  test("no capability rows until Review access is pressed", () => {
+  test("no capability rows until Choose what it can do is pressed", () => {
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });
     expect(container.querySelector("[data-testid='plugin-approve-highlightr-plugin']")).toBeNull();
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     expect(container.querySelector("[data-testid='plugin-approve-highlightr-plugin']")).not.toBeNull();
   });
 
   test("what it opens with is read-only", () => {
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     const ticked = Array.from(container.querySelectorAll("[role='checkbox']"))
       .filter((node) => node.getAttribute("aria-checked") === "true")
       .map((node) => node.getAttribute("aria-label"));
@@ -192,7 +192,7 @@ describe("the form opens closed", () => {
 
   test("network is never a row here — it is not grantable yet", () => {
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     expect(container.querySelector("[data-testid='capability-network:request']")).toBeNull();
   });
 
@@ -210,7 +210,7 @@ describe("the form opens closed", () => {
   */
   test("the form says which changes a plugin will actually notice", () => {
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     const note = container.querySelector(
       "[data-testid='plugin-events-note-highlightr-plugin']",
     );
@@ -222,9 +222,9 @@ describe("the form opens closed", () => {
   test("approving sends the ticked capabilities and the installed fingerprint", async () => {
     approved.length = 0;
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     await act(async () => {
-      press(container, "Approve this bundle");
+      press(container, "Enable with these");
     });
     expect(approved).toHaveLength(1);
     expect(approved[0]).toContain("highlightr-plugin:");
@@ -247,9 +247,9 @@ describe("a refused approval says why", () => {
         revoke: async () => {},
       },
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     await act(async () => {
-      press(container, "Approve this bundle");
+      press(container, "Enable with these");
     });
     expect(container.textContent).toContain("The plugin changed; review it again");
     // Still open: a form that closes on a refusal looks like one that worked.
@@ -267,9 +267,9 @@ describe("a refused approval says why", () => {
         revoke: async () => {},
       },
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     await act(async () => {
-      press(container, "Approve this bundle");
+      press(container, "Enable with these");
     });
     expect(container.textContent).toContain("nothing was granted");
   });
@@ -353,7 +353,7 @@ describe("the network grant follows what the deployment can enforce", () => {
       egress: true,
       actions: actions(),
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     expect(container.querySelector("[data-testid='capability-network:request']")).not.toBeNull();
     // Not ticked by default: reaching a third party is somebody's decision.
     expect(
@@ -372,12 +372,12 @@ describe("the network grant follows what the deployment can enforce", () => {
       egress: true,
       actions: actions(),
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     press(container, "Reach the hosts it names");
     expect(container.querySelector("[data-testid='plugin-hosts-highlightr-plugin']")?.textContent)
       .toContain("www.bible.com");
     await act(async () => {
-      press(container, "Approve this bundle");
+      press(container, "Enable with these");
     });
     expect(approvedWithHosts).toHaveLength(1);
     expect(approvedWithHosts[0]).toContain("network:request");
@@ -397,9 +397,9 @@ describe("the network grant follows what the deployment can enforce", () => {
       egress: true,
       actions: actions(),
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     await act(async () => {
-      press(container, "Approve this bundle");
+      press(container, "Enable with these");
     });
     expect(approvedWithHosts[0]).not.toContain("network:request");
     expect(approvedWithHosts[0]!.endsWith("|")).toBe(true);
@@ -418,7 +418,7 @@ describe("the network grant follows what the deployment can enforce", () => {
       egress: true,
       actions: actions(),
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     expect(container.querySelector("[data-testid='capability-network:request']")).toBeNull();
     expect(container.textContent).toContain("builds the address as it runs");
   });
@@ -430,7 +430,7 @@ describe("the network grant follows what the deployment can enforce", () => {
       egress: true,
       actions: actions(),
     });
-    press(container, "Review access");
+    press(container, "Choose what it can do");
     expect(container.querySelector("[data-testid='plugin-network-note-highlightr-plugin']"))
       .toBeNull();
   });

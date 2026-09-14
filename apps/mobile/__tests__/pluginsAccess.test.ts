@@ -177,7 +177,7 @@ describe("nothing in this section is carried by colour alone", () => {
         view: { grants: [], loading: false, egress: false, actions: { approve: async () => {}, revoke: async () => {} } },
       }),
     );
-    const open = controls(container).find((node) => /Review access/.test(accessibleName(node)));
+    const open = controls(container).find((node) => /Choose what it can do/.test(accessibleName(node)));
     act(() => {
       open?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -198,7 +198,7 @@ describe("a screen reader can report and operate the consent form", () => {
         view: { grants: [], loading: false, egress: false, actions: { approve: async () => {}, revoke: async () => {} } },
       }),
     );
-    const open = controls(container).find((node) => /Review access/.test(accessibleName(node)));
+    const open = controls(container).find((node) => /Choose what it can do/.test(accessibleName(node)));
     act(() => {
       open?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -297,8 +297,12 @@ describe("nothing is lost at phone width", () => {
         runtime: NO_RUNTIME,
       }),
     );
-    // The two verdicts that can be approved each offer their control.
+    /*
+      The two verdicts that can be approved each offer their controls — now a
+      primary Enable and the form behind it, rather than one button into a form.
+    */
     const names = controls(container).map(accessibleName);
-    expect(names.filter((name) => /Review access/.test(name))).toHaveLength(1);
+    expect(names.filter((name) => /^Enable$/.test(name))).toHaveLength(1);
+    expect(names.filter((name) => /Choose what it can do/.test(name))).toHaveLength(1);
   });
 });

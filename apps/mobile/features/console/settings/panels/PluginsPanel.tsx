@@ -527,7 +527,7 @@ function PluginRow({
         </Text>
 
         <PluginRuntimeCard plugin={plugin} view={runtime} grants={grants} />
-        <PluginGrantCard plugin={plugin} view={grants} />
+        <PluginGrantCard plugin={plugin} view={grants} runtime={runtime} />
         <PluginManagedCard plugin={plugin} view={browse} />
       </Grow>
     </Row>
