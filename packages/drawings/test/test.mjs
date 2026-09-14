@@ -2,7 +2,7 @@
  * A DRAWING IS READ, NEVER REWRITTEN — `packages/drawings`.
  *
  * The rule this suite exists for is one sentence from
- * `docs/decisions/obsidian-plugins.md`: "`.canvas` and `.excalidraw.md` are
+ * `docs/decisions/plugins.md`: "`.canvas` and `.excalidraw.md` are
  * opaque, not malformed. A file we do not parse is still a file we do not
  * corrupt." Adding a parser is the moment that sentence is at risk, so the
  * checks are grouped by the four ways it could be broken:

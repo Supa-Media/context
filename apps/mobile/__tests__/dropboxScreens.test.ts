@@ -453,6 +453,10 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
       right stub.
     */
     plugins: { state: "idle" },
+    // Same reason as `plugins` above: the settings pane renders this section
+    // whatever else it is showing, and its view has no tolerable absent member.
+    // `loading` is where a live console rests until the read lands.
+    contextPlugins: { state: "loading" },
     pluginGrants: { grants: [], loading: false },
     pluginBrowse: { query: "", limit: 20, searching: false, failure: null },
     pluginRuntime: { states: [], loading: false },

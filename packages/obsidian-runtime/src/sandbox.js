@@ -156,6 +156,102 @@ export function pluginSandboxDocument() {
     getLeavesOfType() { return []; },
   };
 
+  /*
+    Obsidian augments HTMLElement itself, and a plugin calls these on whatever
+    it is handed: statusBarItem.setText(...), containerEl.createEl('div', ...).
+    Without them an element the shim returns is one a plugin cannot write to —
+    which would make addStatusBarItem reachable and useless, the exact failure
+    SUPPORTED_MEMBERS was split in two to stop claiming.
+
+    Installed only where the realm has no such member already, so a browser that
+    grows one of these names keeps its own.
+  */
+  const elementApi = {
+    setText(value) { this.textContent = value === null || value === undefined ? '' : String(value); return this; },
+    appendText(value) { this.appendChild(document.createTextNode(String(value))); return this; },
+    setAttr(name, value) { this.setAttribute(String(name), String(value)); return this; },
+    addClass(...names) { for (const name of names) this.classList.add(String(name)); return this; },
+    removeClass(...names) { for (const name of names) this.classList.remove(String(name)); return this; },
+    toggleClass(names, on) {
+      for (const name of Array.isArray(names) ? names : [names]) this.classList.toggle(String(name), !!on);
+      return this;
+    },
+    empty() { while (this.firstChild) this.removeChild(this.firstChild); return this; },
+    detach() { this.remove(); return this; },
+    createEl(tag, options) {
+      const child = document.createElement(String(tag));
+      const given = options || {};
+      if (given.cls) child.addClass(...(Array.isArray(given.cls) ? given.cls : String(given.cls).split(' ').filter(Boolean)));
+      if (given.text !== undefined) child.textContent = String(given.text);
+      if (given.attr) for (const name of Object.keys(given.attr)) child.setAttribute(name, String(given.attr[name]));
+      for (const name of ['href', 'type', 'placeholder', 'title', 'value']) {
+        if (given[name] !== undefined) child[name] = given[name];
+      }
+      this.appendChild(child);
+      return child;
+    },
+    createDiv(options) { return this.createEl('div', options); },
+    createSpan(options) { return this.createEl('span', options); },
+  };
+  for (const name of Object.keys(elementApi)) {
+    if (typeof HTMLElement.prototype[name] === 'function') continue;
+    Object.defineProperty(HTMLElement.prototype, name, {
+      value: elementApi[name], writable: true, configurable: true,
+    });
+  }
+
+  /*
+    THE STATUS BAR: THE TEXT CROSSES, THE ELEMENT DOES NOT.
+
+    A plugin gets a real element and writes into it however it likes. What
+    reaches the console is the text that ended up in it, and the console draws
+    that with its own components in its own theme — so a plugin cannot style,
+    position or script anything on the trusted side, and the sandbox stays the
+    only place its DOM exists.
+
+    Reported as a whole list on every change rather than an add and a remove.
+    A guest that is torn down or throws mid-render never owes the host a removal
+    message it might not send, so the console's copy cannot drift from this one.
+    The host's parser carries the same reasoning from its side.
+
+    The cap is interpolated from the host's own constant rather than written
+    twice. Two numbers meant to agree, in one file, with nothing linking them is
+    how the supported-members list drifted by twenty names.
+
+    Kept out of the layout with display:none: nothing here is meant to be seen
+    in the frame, which is 1x1 and invisible anyway, and a later change that
+    makes a frame visible must not start drawing this by accident.
+  */
+  const statusRoot = document.createElement('div');
+  statusRoot.style.display = 'none';
+  const statusIds = new WeakMap();
+  let statusCount = 0;
+  let statusWatch = null;
+  let statusSent = null;
+  function reportStatusBar() {
+    const items = [];
+    for (const el of Array.from(statusRoot.children)) {
+      const id = statusIds.get(el);
+      if (typeof id !== 'string') continue;
+      // Collapsed and bounded here as well as on the host: a status bar item
+      // is a line in a card, and a plugin that puts a paragraph in one should
+      // not be able to decide how tall somebody's console is.
+      const text = String(el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
+      if (text === '') continue;
+      items.push({ id, text });
+      if (items.length >= ${STATUS_BAR_MAX}) break;
+    }
+    // The observer fires on any mutation, and plenty of them leave the text
+    // exactly as it was: a plugin that empties an item and rebuilds it with the
+    // same words has changed its DOM twice and said nothing. Sending only what
+    // is new keeps a plugin re-rendering on a timer from re-rendering the
+    // console with it.
+    const encoded = JSON.stringify(items);
+    if (encoded === statusSent) return;
+    statusSent = encoded;
+    send('status-bar', { items });
+  }
+
   const app = { vault, metadataCache, workspace };
 
   class Plugin {
@@ -170,6 +266,20 @@ export function pluginSandboxDocument() {
       commands.set(id, { id, name: title, callback });
       send('registration', { kind: 'ribbon', id, name: String(title || icon || 'Plugin action') });
       return document.createElement('span');
+    }
+    addStatusBarItem() {
+      const el = document.createElement('div');
+      statusCount += 1;
+      statusIds.set(el, 'status-' + statusCount);
+      statusRoot.appendChild(el);
+      if (statusWatch === null) {
+        // One observer on the container rather than one per item, because the
+        // removal of an item is a mutation of the container and an observer on
+        // the item itself would never see it.
+        statusWatch = new MutationObserver(reportStatusBar);
+        statusWatch.observe(statusRoot, { childList: true, subtree: true, characterData: true });
+      }
+      return el;
     }
     registerMarkdownPostProcessor() {}
     registerEditorExtension() {}
@@ -224,6 +334,12 @@ export function pluginSandboxDocument() {
     commands.clear();
     listeners.clear();
     activeFile = null;
+    // An unloaded plugin is inert, and a status bar that went on reporting
+    // would be a line on the console from a plugin that is no longer running.
+    if (statusWatch !== null) { statusWatch.disconnect(); statusWatch = null; }
+    statusRoot.textContent = '';
+    statusCount = 0;
+    statusSent = null;
   }
 
   const receiveHostMessage = async event => {
@@ -366,6 +482,18 @@ export function sandboxFrameIsOurs(loadCount) {
 }
 
 /**
+ * How many status bar items one plugin may put on its card.
+ *
+ * Obsidian imposes no limit and neither does the shim's own list — this is the
+ * console's, because the items are drawn in a card beside the Stop button and a
+ * plugin that added forty of them would push it off the screen. Enforced on
+ * both sides: the guest stops reporting past this, and the host truncates
+ * anything that arrives anyway, because the guest is the untrusted half and a
+ * cap it applies to itself is not a cap.
+ */
+export const STATUS_BAR_MAX = 8;
+
+/**
  * Strictly recognize messages that may cross from the untrusted frame.
  * @param {unknown} value
  * @param {string} expectedNonce
@@ -396,6 +524,52 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       return typeof row.message === "string"
         ? { type: "notice", message: row.message.slice(0, 500) }
         : null;
+    /*
+      The guest's answer to a host `command`.
+
+      Nonce-checked above with everything else observable, and for the same
+      reason: a forged result would report a command as run that never was, or
+      report success for one that threw. `ok` is required to be a boolean
+      rather than coerced — a message that simply omits it is malformed, and
+      treating a missing field as failure would invent an outcome the guest
+      never claimed.
+    */
+    case "command-result":
+      return typeof row.id === "string" && typeof row.ok === "boolean"
+        ? {
+            type: "command-result",
+            id: row.id.slice(0, 100),
+            ok: row.ok,
+            error: typeof row.error === "string" ? row.error.slice(0, 500) : null,
+          }
+        : null;
+    /*
+      Everything the plugin currently has in its status bar.
+
+      **A whole list every time, not an add and a remove.** The alternative
+      needs the guest to report a removal, and a guest that is torn down, throws
+      mid-render, or simply forgets leaves a line on the console describing an
+      item that no longer exists — the same stale-claim failure the
+      registrations card was careful to avoid, one layer down. Replacing the
+      list makes the console's copy unable to drift from the guest's.
+
+      Truncated rather than refused, unlike a malformed entry. Nine items is a
+      plugin being greedy and the eight before it are real; an entry without a
+      string `text` is not something the shim can produce, so the message is
+      dropped whole.
+    */
+    case "status-bar": {
+      if (!Array.isArray(row.items)) return null;
+      const items = [];
+      for (const entry of row.items) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+        const one = /** @type {Record<string, unknown>} */ (entry);
+        if (typeof one.id !== "string" || typeof one.text !== "string") return null;
+        if (items.length >= STATUS_BAR_MAX) continue;
+        items.push({ id: one.id.slice(0, 60), text: one.text.slice(0, 120) });
+      }
+      return { type: "status-bar", items };
+    }
     case "registration":
       return (row.kind === "command" || row.kind === "ribbon") &&
         typeof row.id === "string" &&

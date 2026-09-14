@@ -1,5 +1,6 @@
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
+import type { ContextPluginsView } from "./plugins/contextPlugins";
 import type { GrantsView } from "./plugins/grants";
 import type { BrowseView } from "./plugins/lifecycle";
 import type { RuntimeView } from "./plugins/runtime";
@@ -396,6 +397,16 @@ export interface ConsoleData {
    * why the live console answers `unavailable` today.
    */
   plugins: PluginsView;
+  /**
+   * The plugins that ship with Context, and their switches.
+   *
+   * Separate from `plugins` because they are a different kind of fact: no
+   * bundle to read, no verdict to reach, nothing to be unsure about. They are
+   * drawn in one panel with the vault's because they answer one question, and
+   * held apart here because a single type carrying both would be mostly `null`
+   * for whichever half you had.
+   */
+  contextPlugins: ContextPluginsView;
   /**
    * What each plugin in the selected context has been allowed to do.
    *

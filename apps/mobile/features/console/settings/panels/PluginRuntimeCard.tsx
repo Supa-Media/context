@@ -9,6 +9,8 @@ import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
   REGISTRATION_NOTE,
   REVOKED_NOTE,
+  STATUS_BAR_NOTE,
+  commandOutcomeFor,
   describeRegistrations,
   isOwnerStop,
   isRevocation,
@@ -18,6 +20,7 @@ import {
   runtimeFor,
   runtimeNote,
   runtimePill,
+  statusItemsFor,
   type RuntimeView,
 } from "../../plugins/runtime";
 import { standingFor, type GrantsView } from "../../plugins/grants";
@@ -93,6 +96,19 @@ export function PluginRuntimeCard({
   */
   const registered = registrationsFor(state, view.registrations);
   const registeredNote = describeRegistrations(registered);
+  /*
+    A name becomes a control only when there is something behind it: the
+    runtime has to be able to reach the frame. Without `run` this renders
+    exactly what it did before invoke existed — names, and the note saying so.
+  */
+  const run = view.actions?.run;
+  /*
+    The plugin's own words, under the same only-while-loaded rule. A reading is
+    the worst thing in this card to leave behind: "412 words" beside a stopped
+    plugin is not out of date, it is produced by nothing.
+  */
+  const status = statusItemsFor(state, view.statusItems);
+  const outcome = commandOutcomeFor(registered, view.outcomes?.[plugin.id]);
 
   return (
     <View testID={`plugin-runtime-${plugin.id}`} style={styles.wrap}>
@@ -126,22 +142,54 @@ export function PluginRuntimeCard({
         </Text>
       ) : null}
 
+      {status.length > 0 ? (
+        <View style={styles.status} testID={`plugin-status-bar-${plugin.id}`}>
+          <Text variant="rowSub" style={styles.statusNote}>{STATUS_BAR_NOTE}</Text>
+          {status.map((one) => (
+            <Text key={one.id} variant="rowSub">
+              {one.text}
+            </Text>
+          ))}
+        </View>
+      ) : null}
+
       {registeredNote ? (
         <View style={styles.registrations} testID={`plugin-registrations-${plugin.id}`}>
           <Text variant="rowSub">{registeredNote}</Text>
           {registered.map((one) => (
-            <Text key={`${one.kind}:${one.id}`} variant="rowSub" style={styles.registration}>
-              {`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
-            </Text>
+            run ? (
+              <Button
+                key={`${one.kind}:${one.id}`}
+                label={`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
+                onPress={() => run(plugin.id, one.id)}
+              />
+            ) : (
+              <Text key={`${one.kind}:${one.id}`} variant="rowSub" style={styles.registration}>
+                {`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
+              </Text>
+            )
           ))}
           {/*
-            Names, not buttons — because the host half of the invoke channel is
-            not wired, not because the channel is missing. The guest already
-            handles an inbound `command` message; nothing here sends one yet.
+            Without `run` these stay names, and the note says why. It is the
+            console that is unwired, never the sandbox: the guest has always
+            handled an inbound `command`.
           */}
-          <Text variant="rowSub" style={styles.registration}>
-            {REGISTRATION_NOTE}
-          </Text>
+          {run ? null : (
+            <Text variant="rowSub" style={styles.registration}>
+              {REGISTRATION_NOTE}
+            </Text>
+          )}
+          {outcome ? (
+            <Text
+              variant={outcome.ok ? "rowSub" : "error"}
+              testID={`plugin-command-outcome-${plugin.id}`}
+              style={outcome.ok ? styles.registration : undefined}
+            >
+              {outcome.ok
+                ? `Ran ${outcome.name}.`
+                : `${outcome.name} did not finish. The plugin reported: ${outcome.error}`}
+            </Text>
+          ) : null}
         </View>
       ) : null}
 
@@ -159,6 +207,8 @@ export function PluginRuntimeCard({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   registrations: { gap: 3, marginTop: 2 },
+  status: { gap: 2, marginTop: 2 },
+  statusNote: { color: colors.muted },
   registration: { color: colors.muted },
   wrap: { marginTop: 8, gap: 6 },
   head: { alignItems: "flex-start", gap: 12 },

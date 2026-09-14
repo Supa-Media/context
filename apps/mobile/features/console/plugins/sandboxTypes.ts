@@ -27,7 +27,37 @@ export type SandboxEvent =
       kind: "command" | "ribbon";
       id: string;
       name: string;
-    };
+    }
+  /**
+   * How a command the host asked for turned out.
+   *
+   * `ok: false` is the plugin's failure, not the sandbox's — the guest answers
+   * either way, because a host that never hears back cannot tell a command that
+   * broke from one still running.
+   */
+  | { type: "command-result"; id: string; ok: boolean; error: string | null }
+  /**
+   * Everything the plugin currently has in its status bar.
+   *
+   * The whole list every time, so the console replaces rather than reconciles —
+   * there is no removal message that could be lost, and a guest torn down
+   * mid-render cannot leave a reading on the screen that nothing is producing
+   * any more.
+   */
+  | { type: "status-bar"; items: StatusItem[] };
+
+/**
+ * One line a plugin put in its status bar.
+ *
+ * **The plugin's words, not Context's**, which is what makes the id worth
+ * carrying: the console keys on it so a changing reading updates in place
+ * rather than reordering the row under somebody's eyes. Both strings are
+ * bounded by the parser before they reach here — a plugin controls both.
+ */
+export interface StatusItem {
+  id: string;
+  text: string;
+}
 
 export type ParsedSandboxEvent =
   | { type: "ready" }
@@ -69,6 +99,19 @@ export interface VaultEventMessage {
   etag: string | null;
 }
 
+/**
+ * A command the owner asked a running plugin to run.
+ *
+ * Carried as a slot with a `seq` for the same reason `VaultEventMessage` is:
+ * this reaches the guest through props, and pressing the same command twice
+ * must send two messages. Without the counter the second press would change
+ * nothing about the object and no effect would fire.
+ */
+export interface InvokeMessage {
+  seq: number;
+  id: string;
+}
+
 export interface PluginSandboxProps {
   bundle: PluginRuntimeBundle;
   nonce: string;
@@ -77,4 +120,6 @@ export interface PluginSandboxProps {
   activeFile?: ActiveFileRef | null;
   /** The most recent change; `undefined` until Context has made one. */
   vaultEvent?: VaultEventMessage;
+  /** The command to run; `undefined` until somebody presses one. */
+  invoke?: InvokeMessage;
 }

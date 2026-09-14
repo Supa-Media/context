@@ -387,3 +387,193 @@ describe("the scanner's claim about this shim is true", () => {
     }
   });
 });
+
+/*
+  THE STATUS BAR, WHICH IS THE FIRST PIECE OF PLUGIN *UI* CONTEXT ACTUALLY DRAWS.
+
+  Everything the console showed about a running plugin until now was the
+  console's own sentence about it — a pill, a count, a list of names. A status
+  bar item is the plugin talking, and the reason it is the piece to do first is
+  that it needs no plugin DOM: the guest reports the **text**, and the console
+  draws it with its own components in its own theme. The element never crosses,
+  which is the same boundary Codex's view conditions draw, arrived at from the
+  other side.
+
+  The guest tests below load their own bundles rather than the shared one, so
+  the message counts stay readable — a status bar that reported twice per change
+  would still pass a "contains" assertion.
+*/
+describe("a plugin's status bar reaches the console", () => {
+  /** Load one more guest into this window and return only what it posted. */
+  async function guest(mainJs: string) {
+    nonces += 1;
+    const own = `nonce-for-status-${nonces}`;
+    const mark = posted.length;
+    // eslint-disable-next-line no-eval
+    (0, eval)(scriptOf(pluginSandboxDocument()));
+    window.dispatchEvent(
+      new MessageEvent("message", {
+        data: {
+          source: "context-plugin-host",
+          version: 1,
+          nonce: own,
+          type: "load",
+          mainJs,
+          manifestJson: '{"id":"status-under-test"}',
+        },
+      }),
+    );
+    await settle();
+    return {
+      /** Every status bar message this guest has sent, oldest first. */
+      bars: () =>
+        posted.slice(mark).filter((one) => one.type === "status-bar") as {
+          items: { id: string; text: string }[];
+        }[],
+      last: () => {
+        const all = posted.slice(mark).filter((one) => one.type === "status-bar");
+        return all.length === 0
+          ? null
+          : (all[all.length - 1] as { items: { id: string; text: string }[] }).items;
+      },
+    };
+  }
+
+  /*
+    The report is driven by a MutationObserver, which jsdom delivers as a
+    microtask and a browser delivers no sooner. A timer turn drains both that
+    and anything the bundle awaited.
+  */
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  const item = (body: string) => `
+    const { Plugin } = require('obsidian');
+    module.exports = class extends Plugin {
+      async onload() {
+        globalThis.__status = {};
+        ${body}
+      }
+    };
+  `;
+
+  test("an item a plugin writes into arrives as text, under its own id", async () => {
+    const one = await guest(item(`
+      const el = this.addStatusBarItem();
+      el.setText('412 words');
+    `));
+    expect(one.last()).toEqual([{ id: "status-1", text: "412 words" }]);
+  });
+
+  /*
+    An item with nothing in it is not a blank line on somebody's card.
+
+    The second item is what makes this a test rather than a coincidence: a
+    plugin that only ever adds one and writes nothing produces no report at all,
+    because nothing has mutated since the guest started watching — so the
+    assertion would hold with the empty-text rule deleted. Writing into a
+    sibling forces a report while the empty one is still there.
+  */
+  test("an item the plugin never wrote into is not a blank line", async () => {
+    const one = await guest(item(`
+      this.addStatusBarItem();
+      this.addStatusBarItem().setText('3 tasks due');
+    `));
+    expect(one.last()).toEqual([{ id: "status-2", text: "3 tasks due" }]);
+  });
+
+  test("the whole list arrives each time, so the console cannot drift", async () => {
+    const one = await guest(item(`
+      const left = this.addStatusBarItem();
+      const right = this.addStatusBarItem();
+      left.setText('412 words');
+      right.setText('3 tasks');
+      globalThis.__status.left = left;
+    `));
+    expect(one.last()).toEqual([
+      { id: "status-1", text: "412 words" },
+      { id: "status-2", text: "3 tasks" },
+    ]);
+  });
+
+  test("an item the plugin removes is gone from the next list", async () => {
+    const one = await guest(item(`
+      const left = this.addStatusBarItem();
+      const right = this.addStatusBarItem();
+      left.setText('412 words');
+      right.setText('3 tasks');
+      right.remove();
+    `));
+    expect(one.last()).toEqual([{ id: "status-1", text: "412 words" }]);
+  });
+
+  /*
+    A plugin cannot push the Stop button off the card. The guest stops at the
+    cap and the host truncates whatever arrives anyway — the cap on this side is
+    politeness, the one on the host's is the guard.
+  */
+  test("a plugin that adds forty items reports eight", async () => {
+    const one = await guest(item(`
+      for (let index = 0; index < 40; index += 1) {
+        this.addStatusBarItem().setText('item ' + index);
+      }
+    `));
+    expect(one.last()).toHaveLength(8);
+  });
+
+  test("markup a plugin builds crosses as its text and not as itself", async () => {
+    const one = await guest(item(`
+      const el = this.addStatusBarItem();
+      el.createSpan({ text: 'Synced' });
+      el.createSpan({ text: ' · 2m ago' });
+    `));
+    expect(one.last()).toEqual([{ id: "status-1", text: "Synced · 2m ago" }]);
+  });
+
+  /*
+    Collapsing is not cosmetic, and this test is here because the escape that
+    does it is the trap this file already records once: the shim is one template
+    literal, so the regex is written `\\s` to *emit* `\s`, and getting it wrong
+    yields a pattern matching a literal backslash — which still compiles, still
+    runs, and quietly stops collapsing anything.
+  */
+  test("a multi-line item becomes one line", async () => {
+    const one = await guest(item(`
+      this.addStatusBarItem().setText('Synced\\n\\t  2m ago');
+    `));
+    expect(one.last()).toEqual([{ id: "status-1", text: "Synced 2m ago" }]);
+  });
+
+  /*
+    A plugin that rewrites its status bar to the same words has changed its DOM
+    and said nothing. The observer cannot tell those apart — it fires on the
+    mutation, not on the result — so the guest compares before it sends, and a
+    plugin re-rendering on a timer does not re-render the console with it.
+  */
+  test("rewriting an item to the same words says nothing", async () => {
+    const one = await guest(item(`
+      const el = this.addStatusBarItem();
+      el.setText('412 words');
+      globalThis.__status.rewrite = () => { el.empty(); el.createSpan({ text: '412 words' }); };
+    `));
+    expect(one.bars()).toHaveLength(1);
+    (globalThis as unknown as { __status: { rewrite: () => void } }).__status.rewrite();
+    await settle();
+    expect(one.bars()).toHaveLength(1);
+  });
+
+  test("an unloaded plugin's status bar goes quiet", async () => {
+    const one = await guest(item(`
+      const el = this.addStatusBarItem();
+      el.setText('412 words');
+      globalThis.__status.el = el;
+    `));
+    expect(one.last()).toEqual([{ id: "status-1", text: "412 words" }]);
+    const before = one.bars().length;
+    toHost({ type: "unload" });
+    await settle();
+    (globalThis as unknown as { __status: { el: { setText: (value: string) => void } } })
+      .__status.el.setText("still counting");
+    await settle();
+    expect(one.bars().length).toBe(before);
+  });
+});

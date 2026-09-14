@@ -36,6 +36,16 @@ export function useGrants(options: {
     if (workspaceId === null || !isOwner) return EMPTY_QUERY_SPEC;
     return {
       grants: { query: api.functions.obsidianPlugins.listPluginGrants, args: { workspaceId } },
+      /*
+        A fact about the deployment, subscribed rather than fetched once: the
+        egress service can be configured (or its Cloudflare token fixed) while
+        somebody has this pane open, and the network tickbox should appear
+        without a reload.
+      */
+      capabilities: {
+        query: api.functions.obsidianPlugins.pluginRuntimeCapabilities,
+        args: { workspaceId },
+      },
     };
   }, [workspaceId, isOwner]);
 
@@ -49,28 +59,40 @@ export function useGrants(options: {
     context has approved nothing, which is a different sentence.
   */
   const grants = raw === undefined || raw instanceof Error ? undefined : (raw as PluginGrant[]);
+  const capabilities = results.capabilities;
+  /*
+    False for every answer that is not an explicit `true` — in flight, thrown,
+    or absent. Offering the network tickbox a moment early and withdrawing it is
+    worse than offering it a moment late, and an unanswered query is not a
+    deployment that has egress.
+  */
+  const egress =
+    capabilities !== undefined &&
+    !(capabilities instanceof Error) &&
+    (capabilities as { egress?: unknown }).egress === true;
 
   const approve = useCallback(
     async (input: {
       pluginId: string;
       bundleFingerprint: string;
       capabilities: PluginCapability[];
+      networkHosts: string[];
     }) => {
       if (workspaceId === null) return;
       /*
-        `networkHosts` is always empty from this console, and that is not a
-        placeholder. `approvePlugin` refuses a networked plugin outright with
-        `NETWORK_RUNTIME_UNAVAILABLE` until a DNS-pinned public-only egress
-        service exists, so the UI does not offer the control at all — see
-        `approvalOffer`. Sending hosts here would be building the half of a
-        feature whose other half fails closed.
+        `networkHosts` is passed through exactly as the form chose it, and the
+        form can only choose from the hosts the scan read. The server checks
+        that again — `approvePlugin` accepts only detected hosts, and refuses a
+        network capability without hosts or hosts without the capability — so
+        this is the client stating an intent rather than the client being
+        trusted with one.
       */
       await approveAction({
         workspaceId,
         pluginId: input.pluginId,
         bundleFingerprint: input.bundleFingerprint,
         capabilities: input.capabilities,
-        networkHosts: [],
+        networkHosts: input.networkHosts,
       });
     },
     [approveAction, workspaceId],
@@ -86,6 +108,7 @@ export function useGrants(options: {
 
   return {
     grants,
+    egress,
     loading: isOwner && workspaceId !== null && raw === undefined,
     // Absent — the whole object — for anyone the server would refuse, the rule
     // `StorageActions` states and every owner-only view here follows.

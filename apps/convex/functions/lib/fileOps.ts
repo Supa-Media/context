@@ -260,6 +260,15 @@ export type FileErrorCode =
   | "FOLDER_TOO_LARGE"
   | "STORAGE_UNSAFE"
   | "PLUGIN_TOO_LARGE"
+  /**
+   * The Context plugin this operation belongs to is switched off here.
+   *
+   * Its own code rather than `CONFIRMATION_REQUIRED` or `CONFLICT`, because it
+   * means something neither of those does to whoever is holding the editor:
+   * retrying will not help and there is nothing to reload — an owner turns the
+   * plugin back on, or this does not happen. See `plugins.md`.
+   */
+  | "PLUGIN_OFF"
   /** The store would not hand over the whole listing. Not the folder's fault. */
   | "LISTING_INCOMPLETE"
   | "ARCHIVE_UNAVAILABLE"

@@ -49,10 +49,11 @@
  * whole CI job to prevent. Caching what was actually fetched needs no list and
  * cannot go stale against one.
  *
- * No opaque responses, and nothing cross-origin. `#503` verified that this page
- * makes zero requests off our own origin, fonts included, and this worker
- * declines anything that is not a same-origin GET so that stays true rather
- * than being reasserted.
+ * No opaque responses, and nothing cross-origin. This page is meant to make zero
+ * requests off our own origin, fonts included — `e2e/webkit/drawingFonts.spec.ts`
+ * is what holds it to that, after a manual check missed a scene font falling
+ * through to esm.sh — and this worker declines anything that is not a
+ * same-origin GET so a leak cannot be cached here as well as made.
  */
 
 /** Bumped only when the shape of what is stored changes, never per deploy. */

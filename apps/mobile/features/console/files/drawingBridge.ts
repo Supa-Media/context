@@ -9,7 +9,7 @@
  * the web build put Excalidraw in a `__common` chunk that `index.html` loads
  * with a plain blocking `<script src>`, taking the console's total JavaScript
  * from 5.7MB to 14.6MB on *every* page load, for a feature most sessions never
- * open. The numbers are in `docs/decisions/obsidian-plugins.md`.
+ * open. The numbers are in `docs/decisions/plugins.md`.
  *
  * So the editor is not part of this application. It is a standalone page, built
  * separately by `scripts/build-drawing-editor.mjs` and served from our own
@@ -143,7 +143,7 @@ export function readToEditor(data: unknown, origin: string, expectedOrigin: stri
  * `file:///…` is the case that makes it concrete: the host is empty, the regex
  * matches nothing, the fallback fires, and a page we never loaded is trusted.
  * That is the shape a downloaded offline copy would introduce, which is how it
- * was found — see `docs/decisions/obsidian-plugins.md`.
+ * was found — see `docs/decisions/plugins.md`.
  *
  * So the whole url is compared rather than an origin distilled from it, and an
  * unreadable one is refused. The hash and the query are dropped because a

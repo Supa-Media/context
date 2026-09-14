@@ -12,7 +12,10 @@ export class EgressContainer extends DurableObject<Env> {
     ctx.blockConcurrencyWhile(async () => {
       const container = ctx.container!;
       await container.setInactivityTimeout(10 * 60 * 1000);
-      if (!container.running) container.start();
+      // The low-level Containers API does not inherit the higher-level
+      // Container class defaults. Egress is the purpose of this service, so
+      // keep internet access explicit and covered by the deployment test.
+      if (!container.running) container.start({ enableInternet: true });
       const port = container.getTcpPort(8080);
       let lastError: unknown;
       for (let attempt = 0; attempt < 100; attempt += 1) {

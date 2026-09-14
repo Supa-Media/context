@@ -100,6 +100,145 @@ assert.equal(parsePluginSandboxMessage({
   nonce: "wrong",
   type: "loaded",
 }, "secret"), null);
+/*
+  `command-result` — the guest's answer to a host `command`.
+
+  It is nonce-authenticated like every other observable event, because it is
+  one: a forged result would tell the console a command it never ran had run,
+  or hide a failure behind a success. `ok` is taken strictly rather than
+  coerced, so a missing field reads as "no result" rather than as success.
+*/
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "say-hello",
+  ok: true,
+}, "secret"), { type: "command-result", id: "say-hello", ok: true, error: null });
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "throws",
+  ok: false,
+  error: "the command failed",
+}, "secret"), {
+  type: "command-result",
+  id: "throws",
+  ok: false,
+  error: "the command failed",
+});
+// A result for a command the host never asked about is still well-formed; the
+// host decides whether it was waiting. What must not parse is a malformed one.
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "say-hello",
+}, "secret"), null, "a result with no ok must not parse");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "say-hello",
+  ok: "yes",
+}, "secret"), null, "ok must be a boolean, not anything truthy");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "command-result",
+  id: "say-hello",
+  ok: true,
+}, "secret"), null, "a forged result must not parse");
+// Bounded like every other guest string: a plugin controls both of these.
+{
+  const long = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "command-result",
+    id: "x".repeat(500),
+    ok: false,
+    error: "e".repeat(2000),
+  }, "secret");
+  assert.equal(long.id.length, 100);
+  assert.equal(long.error.length, 500);
+}
+
+/*
+  `status-bar` — everything the plugin has put in the status bar, each time it
+  changes.
+
+  A whole list rather than an add/remove protocol, and that is the design
+  decision worth the comment: the console replaces what it holds with what
+  arrives, so a plugin that empties an item, removes one, or is torn down
+  mid-render cannot leave a line behind that no longer exists. There is no
+  removal message to lose.
+
+  Every string is the plugin's, so every string is bounded, and the list itself
+  is truncated rather than rejected — nine items is a plugin being greedy, not a
+  forged message, and refusing the message outright would drop the eight
+  legitimate ones with it. A malformed *entry* is different and rejects the
+  whole message: it means the sender is not the shim we wrote.
+*/
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: [{ id: "status-1", text: "412 words" }],
+}, "secret"), { type: "status-bar", items: [{ id: "status-1", text: "412 words" }] });
+// An empty list is a real value: the plugin cleared its status bar, and the
+// console has to be able to tell that from never having been told.
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: [],
+}, "secret"), { type: "status-bar", items: [] });
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "status-bar",
+  items: [{ id: "status-1", text: "412 words" }],
+}, "secret"), null, "a forged status bar must not parse");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: "412 words",
+}, "secret"), null, "items must be a list");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "status-bar",
+  items: [{ id: "status-1" }],
+}, "secret"), null, "an entry with no text must not parse");
+{
+  const many = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "status-bar",
+    items: Array.from({ length: 40 }, (_, index) => ({
+      id: "i".repeat(200) + index,
+      text: "t".repeat(900),
+    })),
+  }, "secret");
+  assert.equal(many.items.length, 8, "the list is truncated, not rejected");
+  assert.equal(many.items[0].id.length, 60);
+  assert.equal(many.items[0].text.length, 120);
+}
+
 assert.deepEqual(parsePluginSandboxMessage({
   source: "context-plugin-sandbox",
   version: 1,

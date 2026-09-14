@@ -32,7 +32,7 @@ moving the note to `1-projects/` orphans the transcript, archiving one archives
 half a meeting, and `4-archive/` slowly fills with transcripts whose notes moved
 away. Every one of those is a bug report the customer files against *Obsidian*,
 because that is where they saw it. The bucket is the vault
-([obsidian-plugins](./obsidian-plugins.md)), and a file that only makes sense
+([plugins](./plugins.md)), and a file that only makes sense
 to the program that wrote it is exactly what plain-file portability is supposed
 to rule out.
 

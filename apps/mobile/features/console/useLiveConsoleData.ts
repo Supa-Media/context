@@ -22,6 +22,7 @@ import { useGroups } from "./groups/useGroups";
 import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
 import { usePlugins } from "./plugins/usePlugins";
+import { useContextPlugins } from "./plugins/useContextPlugins";
 import { useGrants } from "./plugins/useGrants";
 import { useLifecycle } from "./plugins/useLifecycle";
 import { useRuntime } from "./plugins/useRuntime";
@@ -589,6 +590,14 @@ export function useLiveConsoleData(): ConsoleData {
     outside the privacy manifest's reach from becoming a way to read around it.
   */
   const plugins = usePlugins({ workspaceId: selectedContextId, role: selected?.role });
+  /*
+    The built-ins, which are not a scan and not owner-only. No `role` is passed:
+    every member may see which features their context has — a member who cannot
+    is a member who files "the form isn't there" as a bug — and whether they may
+    work the switches comes back from the server as `canManage` rather than
+    being decided twice. See `useContextPlugins`.
+  */
+  const contextPlugins = useContextPlugins({ workspaceId: selectedContextId });
   // A live subscription, unlike the inventory above — a Revoke pressed here has
   // to stop reading as "Approved" in the same frame. See `useGrants`.
   const pluginGrants = useGrants({ workspaceId: selectedContextId, role: selected?.role });
@@ -815,6 +824,7 @@ export function useLiveConsoleData(): ConsoleData {
     groups,
     advanced,
     plugins,
+    contextPlugins,
     pluginGrants,
     pluginBrowse,
     pluginRuntime,
