@@ -1686,7 +1686,7 @@ async function brokerNetworkRequest(operation: RpcOperation, allowedHosts: strin
     response.headers.forEach((value, name) => {
       if (name.toLowerCase() !== "set-cookie" && headers.length < 64) headers.push({ name, value });
     });
-    return { status: response.status, headers, body };
+    return { status: response.status, headers, bodyBase64: encodeBase64(body) };
   }
   throw pluginError("NETWORK_REDIRECT_DENIED", "Too many network redirects");
 }
@@ -1712,6 +1712,16 @@ function decodeBase64(value: string): ArrayBuffer {
   const bytes = new Uint8Array(decoded.length);
   for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
   return bytes.buffer;
+}
+
+function encodeBase64(value: ArrayBuffer): string {
+  const bytes = new Uint8Array(value);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 async function fetchThroughPluginEgress(input: {

@@ -582,6 +582,26 @@ Rendering plugin-provided editor extensions, settings controls and views remains
 a frontend integration step; the sandbox is now the place those registrations
 come from rather than a reason they cannot be built.
 
+YouVersion Linker 1.8.1 sets the compatibility boundary more precisely. Its
+bundle imports `@codemirror/language`, `@codemirror/state` and
+`@codemirror/view` before `onload`, even though its Generate links command only
+needs an Obsidian editor. The guest therefore supplies the exact imported
+CodeMirror constructors as inert, guest-only objects and accepts the extension
+and suggestion registrations without mounting them in Context's trusted
+editor. Command invocation receives a bounded in-memory editor over the active
+note; a changed document is written once through the existing etag-checked
+`vault.modify` RPC. The note target is pinned before any awaited plugin work so
+opening another note cannot redirect the eventual write. This makes Generate
+links functional without claiming that live decorations, suggestions or a
+third-party CodeMirror instance run in Context's editor.
+
+`requestUrl` also follows Obsidian's response shape inside the guest:
+`{ status, headers, arrayBuffer, json, text }`. Convex transports the bounded
+body as base64 so the RPC remains JSON-safe; host policy, the public-only socket
+service, redirects and auditing are unchanged. These compatibility objects and
+response helpers add no authority — every read, write and request still crosses
+the same grant-checked RPC boundary.
+
 ## A plugin's UI reaches the console as text, never as DOM
 
 The status bar is the first piece of plugin interface Context draws, and it set
