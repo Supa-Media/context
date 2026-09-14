@@ -7,9 +7,12 @@ import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
+  REGISTRATION_NOTE,
   REVOKED_NOTE,
+  describeRegistrations,
   isOwnerStop,
   isRevocation,
+  registrationsFor,
   rollbackTarget,
   runtimeDetail,
   runtimeFor,
@@ -84,6 +87,12 @@ export function PluginRuntimeCard({
   const pill = revoked ? { label: "Access revoked", tone: "neutral" as const } : runtimePill(state);
   const detail = revoked || stopped ? null : runtimeDetail(state);
   const rollback = rollbackTarget(state);
+  /*
+    Only while it is loaded. A stopped plugin's commands went with its frame,
+    and a list left behind would say the console has something it does not.
+  */
+  const registered = registrationsFor(state, view.registrations);
+  const registeredNote = describeRegistrations(registered);
 
   return (
     <View testID={`plugin-runtime-${plugin.id}`} style={styles.wrap}>
@@ -117,6 +126,25 @@ export function PluginRuntimeCard({
         </Text>
       ) : null}
 
+      {registeredNote ? (
+        <View style={styles.registrations} testID={`plugin-registrations-${plugin.id}`}>
+          <Text variant="rowSub">{registeredNote}</Text>
+          {registered.map((one) => (
+            <Text key={`${one.kind}:${one.id}`} variant="rowSub" style={styles.registration}>
+              {`${one.kind === "ribbon" ? "Ribbon" : "Command"} · ${one.name}`}
+            </Text>
+          ))}
+          {/*
+            Names, not buttons — because the host half of the invoke channel is
+            not wired, not because the channel is missing. The guest already
+            handles an inbound `command` message; nothing here sends one yet.
+          */}
+          <Text variant="rowSub" style={styles.registration}>
+            {REGISTRATION_NOTE}
+          </Text>
+        </View>
+      ) : null}
+
       {canStart && !revoked ? (
         <Button
           label={busy ? (state.status === "loaded" ? "Stopping…" : "Starting…") : (state.status === "loaded" ? "Stop" : "Start again")}
@@ -130,6 +158,8 @@ export function PluginRuntimeCard({
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  registrations: { gap: 3, marginTop: 2 },
+  registration: { color: colors.muted },
   wrap: { marginTop: 8, gap: 6 },
   head: { alignItems: "flex-start", gap: 12 },
   detail: { color: colors.critText, fontSize: 12 },

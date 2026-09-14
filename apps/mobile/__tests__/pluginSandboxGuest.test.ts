@@ -66,6 +66,17 @@ const BUNDLE = `
       this.registerEvent(this.app.workspace.on('file-open', (file) => {
         globalThis.__seen.opened.push(file === null ? 'none' : file.path);
       }));
+      globalThis.__seen.ran = [];
+      this.addCommand({
+        id: 'say-hello',
+        name: 'Say hello',
+        callback: () => { globalThis.__seen.ran.push('say-hello'); },
+      });
+      this.addCommand({
+        id: 'throws',
+        name: 'Throws',
+        callback: () => { throw new Error('the command failed'); },
+      });
     }
   };
 `;
@@ -87,7 +98,12 @@ function toHost(message: Record<string, unknown>) {
 
 function seen() {
   return (globalThis as unknown as {
-    __seen?: { events: string[]; opened: string[]; active: () => { path: string } | null };
+    __seen?: {
+      events: string[];
+      opened: string[];
+      ran: string[];
+      active: () => { path: string } | null;
+    };
   }).__seen;
 }
 
@@ -126,7 +142,12 @@ afterEach(() => {
 
 describe("the bundle runs at all", () => {
   test("it says ready, then loaded, and the plugin's onload ran", () => {
-    expect(posted.map((one) => one.type)).toEqual(["ready", "loaded"]);
+    expect(posted.map((one) => one.type)).toEqual([
+      "ready",
+      "registration",
+      "registration",
+      "loaded",
+    ]);
     expect(seen()).toBeDefined();
   });
 });
@@ -220,5 +241,61 @@ describe("unloading really unsubscribes", () => {
     toHost({ type: "active-file", path: "b.md", etag: "e3" });
     expect(before.events).toHaveLength(count);
     expect(before.active()).toBeNull();
+  });
+});
+
+
+/**
+ * The guest half of running a command, which already existed and which a
+ * reviewer — me — asserted did not.
+ *
+ * The claim was that `sandbox.js` "has no way to be told to run a command", and
+ * it went into a PR body, a code comment and a shared note before anybody
+ * checked the file rather than a grep of it. It is wrong: the guest has handled
+ * an inbound `command` since before this sprint. What is missing is the *host*
+ * half — nothing posts the message and `sandboxTypes.ts` does not know the
+ * reply — which is a screen to build, not a protocol to negotiate.
+ *
+ * These tests exist so the next person reads a passing assertion instead of a
+ * confident sentence. A grep can miss a branch; an executed shim cannot.
+ */
+describe("the guest can already be told to run a command", () => {
+  test("registering one announces it to the host", () => {
+    expect(posted.filter((one) => one.type === "registration")).toEqual([
+      { source: "context-plugin-sandbox", version: 1, nonce, type: "registration", kind: "command", id: "say-hello", name: "Say hello" },
+      { source: "context-plugin-sandbox", version: 1, nonce, type: "registration", kind: "command", id: "throws", name: "Throws" },
+    ]);
+  });
+
+  test("an inbound command runs the callback and reports success", async () => {
+    toHost({ type: "command", id: "say-hello" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(seen()!.ran).toEqual(["say-hello"]);
+    expect(posted.filter((one) => one.type === "command-result")).toEqual([
+      { source: "context-plugin-sandbox", version: 1, nonce, type: "command-result", id: "say-hello", ok: true },
+    ]);
+  });
+
+  /*
+    A command that throws is the plugin's failure, not the sandbox's, and the
+    guest has to answer either way — a host that never hears back cannot tell a
+    broken command from a hung one.
+  */
+  test("a command that throws is reported, not swallowed", async () => {
+    toHost({ type: "command", id: "throws" });
+    await Promise.resolve();
+    await Promise.resolve();
+    const results = posted.filter((one) => one.type === "command-result");
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: "throws", ok: false });
+    expect(String(results[0]!.error)).toContain("the command failed");
+  });
+
+  test("an id nobody registered is ignored rather than answered", async () => {
+    toHost({ type: "command", id: "not-a-command" });
+    await Promise.resolve();
+    expect(posted.filter((one) => one.type === "command-result")).toHaveLength(0);
+    expect(seen()!.ran).toEqual([]);
   });
 });
