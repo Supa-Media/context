@@ -34,12 +34,34 @@ export interface RuntimeState {
   updatedAt: number;
 }
 
+/**
+ * A command or ribbon action a running plugin registered with the shim.
+ *
+ * It exists only while the bundle that registered it is loaded. A plugin that
+ * stops takes its commands with it, and a list left on screen afterwards would
+ * be claiming the console has something it does not.
+ */
+export interface PluginRegistration {
+  kind: "command" | "ribbon";
+  id: string;
+  name: string;
+}
+
 export interface RuntimeView {
   /** Absent until the owner-only query answers, and for anyone who is not the owner. */
   states?: RuntimeState[];
   loading: boolean;
   /** The trusted, invisible host. Render once at console scope. */
   host?: ReactNode;
+  /**
+   * What each running plugin registered, keyed by plugin id.
+   *
+   * Held here rather than on `RuntimeState` because the two have different
+   * lifetimes and different authorities: a state row is the control plane's
+   * record and survives a reload, while a registration is something the
+   * sandbox said in this browser tab and is gone the moment the frame is.
+   */
+  registrations?: Record<string, PluginRegistration[]>;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
 }
@@ -150,6 +172,66 @@ export function runtimeDetail(state: RuntimeState): string | null {
   const code = state.errorCode?.trim();
   return code ? `The runtime reported ${code}, with no further detail.` : null;
 }
+
+/**
+ * What a running plugin added to Context, in a sentence.
+ *
+ * Null when it added nothing — most plugins register nothing at all, and "adds
+ * 0 commands" on every row is noise that makes the rows that *do* add something
+ * harder to spot.
+ *
+ * Deliberately a count and a list of names rather than a row of buttons, and
+ * the reason is narrower than it first looks. The *guest* can already run a
+ * command: `sandbox.js` keeps a `commands` Map and handles an inbound
+ * `{ type: "command", id }` by invoking it and answering `command-result`.
+ * What is missing is the **host** half — neither `PluginSandbox` posts that
+ * message nor does `sandboxTypes.ts` know the reply — so the button would have
+ * nothing behind it today, which is the failure this section has refused in
+ * four other places. Wiring the host half is frontend work and needs nobody's
+ * permission; until it is done, these are names.
+ */
+export function describeRegistrations(list: PluginRegistration[]): string | null {
+  if (list.length === 0) return null;
+  const commands = list.filter((one) => one.kind === "command").length;
+  const ribbon = list.filter((one) => one.kind === "ribbon").length;
+  const parts: string[] = [];
+  if (commands > 0) parts.push(plural(commands, "command", "commands"));
+  if (ribbon > 0) parts.push(plural(ribbon, "ribbon action", "ribbon actions"));
+  return `Registered ${parts.join(" and ")}.`;
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/**
+ * The registrations to show for one plugin, and only while it is running.
+ *
+ * A stopped, crashed or blocked plugin reports none, whatever is still sitting
+ * in the map — the map is keyed by plugin and a frame can leave without
+ * clearing it, so the status is what decides, not the leftovers.
+ */
+export function registrationsFor(
+  state: RuntimeState,
+  registrations: Record<string, PluginRegistration[]> | undefined,
+): PluginRegistration[] {
+  if (state.status !== "loaded") return [];
+  return registrations?.[state.pluginId] ?? [];
+}
+
+/**
+ * Why the names are listed and nothing is pressable.
+ *
+ * Said once, on any plugin that registered something, because the alternative
+ * is a reader wondering why a command they can see does nothing when they look
+ * for it in the palette.
+ *
+ * The copy says what is true for the reader — Context has not wired a way to
+ * run these — without claiming, as an earlier draft did, that no such channel
+ * exists. One does, on the guest side; see `describeRegistrations`.
+ */
+export const REGISTRATION_NOTE =
+  "Context can see what this plugin added but cannot run it from here yet — nothing in the console is wired to these names.";
 
 /**
  * A revoked grant is the one "blocked" that is not a fault.

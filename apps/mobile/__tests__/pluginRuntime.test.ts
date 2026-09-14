@@ -1,7 +1,10 @@
 import { describe, expect, test } from "@jest/globals";
 
 import {
+  REGISTRATION_NOTE,
   REVOKED_NOTE,
+  describeRegistrations,
+  registrationsFor,
   isOwnerStop,
   isRevocation,
   rollbackTarget,
@@ -306,5 +309,74 @@ describe("a path only reaches a plugin allowed to read notes", () => {
   test("an unanswered grants query means nobody, not everybody", () => {
     expect(maySeePaths(sandbox, undefined)).toBe(false);
     expect(maySeePaths(sandbox, [])).toBe(false);
+  });
+});
+
+/**
+ * What a running plugin added to Context.
+ *
+ * The shim reports a command or ribbon action as the bundle registers it, and
+ * before this the console dropped every one of them on the floor. Surfacing
+ * them is the transparency half of "plugin commands and ribbon actions": a
+ * person can see what somebody else's code put into their console.
+ *
+ * The half that is *not* here is invoking one, and that is a missing channel
+ * rather than a missing screen — `PluginSandbox` posts the bundle and RPC
+ * responses into the frame and nothing else. So these are names, not buttons.
+ *
+ * Mutations these catch:
+ *
+ *  - registrations surviving the frame that made them, so a stopped plugin
+ *    still claims to have added commands;
+ *  - "registered 0 commands" on every row, which buries the rows that added
+ *    something;
+ *  - a pressable command with nothing behind it.
+ */
+describe("what a running plugin added", () => {
+  const command = { kind: "command" as const, id: "highlight-pink", name: "Highlight — pink" };
+  const ribbon = { kind: "ribbon" as const, id: "highlightr", name: "Highlightr" };
+
+  test("a loaded plugin reports what it registered", () => {
+    expect(
+      registrationsFor(state(), { "highlightr-plugin": [command, ribbon] }),
+    ).toHaveLength(2);
+  });
+
+  /*
+    The one that matters. A command exists while the frame that registered it
+    is alive; a list outliving the frame claims the console has something it
+    does not.
+  */
+  test("a stopped, crashed or blocked plugin reports none, whatever is left in the map", () => {
+    for (const status of ["crash-looped", "blocked"] as const) {
+      expect(
+        registrationsFor(state({ status }), { "highlightr-plugin": [command] }),
+      ).toEqual([]);
+    }
+  });
+
+  test("another plugin's registrations are not this one's", () => {
+    expect(registrationsFor(state(), { "obsidian-git": [command] })).toEqual([]);
+  });
+
+  test("no map at all is no registrations, not a crash", () => {
+    expect(registrationsFor(state(), undefined)).toEqual([]);
+  });
+
+  test("nothing registered says nothing at all", () => {
+    expect(describeRegistrations([])).toBeNull();
+  });
+
+  test("commands and ribbon actions are counted separately and pluralised", () => {
+    expect(describeRegistrations([command])).toBe("Registered 1 command.");
+    expect(describeRegistrations([command, { ...command, id: "b" }])).toBe("Registered 2 commands.");
+    expect(describeRegistrations([command, ribbon])).toBe(
+      "Registered 1 command and 1 ribbon action.",
+    );
+  });
+
+  test("the note says why the names are not pressable", () => {
+    expect(REGISTRATION_NOTE).toContain("cannot run it from here yet");
+    expect(REGISTRATION_NOTE).not.toMatch(/error|broken|failed/i);
   });
 });
