@@ -20,6 +20,7 @@ import type * as functions_cardAssets from "../functions/cardAssets.js";
 import type * as functions_cardRender from "../functions/cardRender.js";
 import type * as functions_chatProduct from "../functions/chatProduct.js";
 import type * as functions_cloudflare from "../functions/cloudflare.js";
+import type * as functions_contextPlugins from "../functions/contextPlugins.js";
 import type * as functions_controlPlane from "../functions/controlPlane.js";
 import type * as functions_dropboxConnect from "../functions/dropboxConnect.js";
 import type * as functions_encryptionKeys from "../functions/encryptionKeys.js";
@@ -102,6 +103,7 @@ declare const fullApi: ApiFromModules<{
   "functions/cardRender": typeof functions_cardRender;
   "functions/chatProduct": typeof functions_chatProduct;
   "functions/cloudflare": typeof functions_cloudflare;
+  "functions/contextPlugins": typeof functions_contextPlugins;
   "functions/controlPlane": typeof functions_controlPlane;
   "functions/dropboxConnect": typeof functions_dropboxConnect;
   "functions/encryptionKeys": typeof functions_encryptionKeys;

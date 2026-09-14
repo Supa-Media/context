@@ -84,6 +84,10 @@ import {
 import type { Doc, Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { inventoryPlugins } from "../../mcp/src/plugins/inventory.js";
+import {
+  resolveContextPlugins,
+  setPluginEnabled,
+} from "../../mcp/src/plugins/enablement.js";
 // The gateway's D1 wire, imported rather than ported, for the same reason
 // `lib/fileOps.ts` imports its search: `apps/mcp` targets the Workers runtime,
 // which is Convex's runtime too. It holds the write token for the life of one
@@ -355,6 +359,14 @@ const pluginValidator = v.object({
   reason: v.string(),
   supported: v.array(v.string()),
   /**
+   * A Context-managed install whose id is also a folder in `.obsidian/plugins/`.
+   *
+   * Optional because it is only ever true: absent means "no duplicate", which
+   * is every row in almost every bucket, and a boolean on all of them would be
+   * a field the console has to read to learn nothing.
+   */
+  alsoInVault: v.optional(v.boolean()),
+  /**
    * Members the shim has committed to and does not answer yet.
    *
    * Reported beside `supported` rather than folded into it, because the two are
@@ -388,6 +400,37 @@ const pluginSettingsValidator = v.object({
   etag: v.union(v.string(), v.null()),
 });
 
+/**
+ * One built-in Context plugin, resolved against this bucket's settings file.
+ *
+ * Flattened out of the manifest rather than passed through, because the wire
+ * shape is a contract with the console and the manifest is the gateway's.
+ * `offMeans` travels with the row for the same reason it exists at all: the
+ * switch is only honest if the cost is on screen beside it, and a console that
+ * had to keep its own copy of that sentence is a console whose copy goes stale.
+ */
+const contextPluginValidator = v.object({
+  id: v.string(),
+  name: v.string(),
+  description: v.string(),
+  version: v.string(),
+  author: v.string(),
+  enabled: v.boolean(),
+  defaultEnabled: v.boolean(),
+  tools: v.array(v.string()),
+  surfaces: v.array(v.string()),
+  offMeans: v.string(),
+});
+
+const contextPluginsValidator = v.object({
+  kind: v.literal("contextPlugins"),
+  plugins: v.array(contextPluginValidator),
+  // Why a row might not reflect what somebody set: a settings file that will
+  // not parse resolves to the defaults, and saying so is the difference
+  // between a console that looks wrong and one that explains itself.
+  settingsError: v.union(v.string(), v.null()),
+});
+
 const pluginManagedValidator = v.object({
   kind: v.literal("pluginManaged"),
   pluginId: v.string(),
@@ -405,6 +448,19 @@ const pluginBundleValidator = v.object({
 });
 
 type PluginVerdict = "runs" | "needs-approval" | "files-only" | "wont-run" | "unknown";
+type ContextPluginRow = {
+  id: string;
+  name: string;
+  description: string;
+  version: string;
+  author: string;
+  enabled: boolean;
+  defaultEnabled: boolean;
+  tools: string[];
+  surfaces: string[];
+  offMeans: string;
+};
+
 type PluginInventory = {
   available: boolean;
   reason: string | null;
@@ -430,6 +486,7 @@ type PluginInventory = {
     hosts: string[];
     reason: string;
     supported: string[];
+    alsoInVault?: boolean;
     planned: string[];
   }>;
   counts: Record<PluginVerdict, number>;
@@ -789,6 +846,7 @@ const operationResultValidator = v.union(
   imageWrittenValidator,
   imageValidator,
   pluginInventoryValidator,
+  contextPluginsValidator,
   pluginSettingsValidator,
   pluginManagedValidator,
   pluginBundleValidator,
@@ -898,6 +956,12 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
+  v.object({ kind: v.literal("contextPlugins") }),
+  v.object({
+    kind: v.literal("contextPluginSet"),
+    pluginId: v.string(),
+    enabled: v.boolean(),
+  }),
   v.object({
     kind: v.literal("pluginManagedInstall"),
     pluginId: v.string(),
@@ -1053,6 +1117,8 @@ type FileOperation =
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "pluginInventory" }
+  | { kind: "contextPlugins" }
+  | { kind: "contextPluginSet"; pluginId: string; enabled: boolean }
   | {
       kind: "pluginManagedInstall";
       pluginId: string;
@@ -1123,6 +1189,7 @@ type OperationResult =
     }
   | ({ kind: "searchResults" } & SearchResults)
   | ({ kind: "pluginInventory" } & PluginInventory)
+  | { kind: "contextPlugins"; plugins: ContextPluginRow[]; settingsError: string | null }
   | { kind: "pluginSettings"; json: string; etag: string | null }
   | { kind: "pluginManaged"; pluginId: string; version: string }
   | {
@@ -1235,6 +1302,65 @@ type OperationResult =
   | { kind: "image"; bytes: ArrayBuffer };
 
 /** Product-owned shadow settings; `.obsidian/` remains read-only. */
+/**
+ * The gateway's resolved built-ins, flattened onto the wire shape.
+ *
+ * One function for both operations, so a read and a write cannot come back
+ * describing the same context differently — the switch the console draws after
+ * saving is the same shape it drew before.
+ */
+/**
+ * Refuse an operation whose Context plugin is switched off.
+ *
+ * One read of one small object, on the write paths only — the console's reads
+ * are never gated, for the reason on `readImage`: a switch removes a capability
+ * and must never start hiding content that is already there.
+ *
+ * The refusal names the plugin and where to undo it, like the gateway's, because
+ * "that could not be saved" for a setting the reader themself chose is the
+ * refusal with no next step that `report.js` rules out.
+ */
+async function requireContextPlugin(
+  store: FileStore,
+  pluginId: string,
+  pluginName: string,
+): Promise<void> {
+  const resolved = await resolveContextPlugins(store);
+  const entry = resolved.plugins.find((plugin: { manifest: { id: string } }) =>
+    plugin.manifest.id === pluginId,
+  );
+  if (entry && !entry.enabled) {
+    throw new FileOpError(
+      "PLUGIN_OFF",
+      `${pluginName} is turned off in this context. An owner can turn it back on under Settings → Plugins.`,
+    );
+  }
+}
+
+function contextPluginsResult(
+  resolved: {
+    plugins: Array<{ manifest: Record<string, any>; enabled: boolean }>;
+    error: string | null;
+  },
+): Extract<OperationResult, { kind: "contextPlugins" }> {
+  return {
+    kind: "contextPlugins",
+    plugins: resolved.plugins.map(({ manifest, enabled }) => ({
+      id: String(manifest.id),
+      name: String(manifest.name),
+      description: String(manifest.description),
+      version: String(manifest.version),
+      author: String(manifest.author),
+      enabled,
+      defaultEnabled: manifest.context?.defaultEnabled !== false,
+      tools: [...(manifest.context?.tools ?? [])].map(String),
+      surfaces: [...(manifest.context?.surfaces ?? [])].map(String),
+      offMeans: String(manifest.context?.offMeans ?? ""),
+    })),
+    settingsError: resolved.error ?? null,
+  };
+}
+
 function pluginSettingsKey(pluginId: string): string {
   if (
     pluginId.length === 0 ||
@@ -2685,6 +2811,37 @@ export async function executeOperation(
         const inventory = await inventoryPlugins(store) as PluginInventory;
         return { kind: "pluginInventory", ...inventory };
       }
+      /*
+        The built-in plugins, resolved against this bucket's settings file.
+
+        The catalogue and the resolver are the gateway's — imported here, never
+        reimplemented — for the reason `lib/formOps.ts` gives about the form
+        format: two copies of "which plugins exist and which are on" would let
+        a console and a connected client disagree about the same context, and
+        the disagreement would be invisible until somebody's tool went missing
+        from one of the two.
+      */
+      case "contextPlugins": {
+        return contextPluginsResult(await resolveContextPlugins(store));
+      }
+      case "contextPluginSet": {
+        try {
+          await setPluginEnabled(store, operation.pluginId, operation.enabled);
+        } catch (error) {
+          // A lost conditional write is a conflict, which is what the console
+          // knows how to show; anything else is this bucket refusing, and is
+          // reported as a storage failure rather than as a bad request.
+          const message = error instanceof Error ? error.message : "That could not be saved.";
+          throw new FileOpError(
+            /changed while/.test(message) ? "CONFLICT" : "STORAGE_UNSAFE",
+            message,
+          );
+        }
+        // Re-read rather than assume. The write is the request; the answer is
+        // what the bucket now says, which is the only thing the console should
+        // draw a switch from.
+        return contextPluginsResult(await resolveContextPlugins(store));
+      }
       case "pluginManagedInstall": {
         if (
           store.capabilities?.conditionalWrite !== true ||
@@ -3004,6 +3161,18 @@ export async function executeOperation(
         return { kind: "written", ...written, forms };
       }
       case "form": {
+        /*
+          The same switch the gateway applies to `submit_form`, applied to the
+          console's own path into the same file.
+
+          Both, or the promise beside the switch is false. The gateway refuses
+          the four form tools when the Markdown forms plugin is off; a console
+          that went on writing rows into the same response file would make
+          "forms are off in this context" a statement about connected AI
+          clients only, which is not what the row says and not what an owner
+          pressing it meant.
+        */
+        await requireContextPlugin(store, "context-forms", "Markdown forms");
         const applied = await runFormAction(store, {
           scope,
           path: operation.path,
@@ -3109,6 +3278,15 @@ export async function executeOperation(
         return { kind: "visibility", ...result };
       }
       case "writeImage": {
+        /*
+          Deliberately NOT gated on the Images plugin, and the reason is worth
+          keeping: the only caller is `shareCard`, which renders the picture an
+          unfurl shows. Nothing a person would call "uploading an image" reaches
+          here. Gating it would have made an owner turning off an agent's
+          `read_image` silently break their own share links — a switch reaching
+          past what its own row promises, which is the failure `plugins.md`
+          spends a section on.
+        */
         const written = await writeImage(store, {
           leaf: operation.leaf,
           bytes: new Uint8Array(operation.bytes),

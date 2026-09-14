@@ -7,7 +7,7 @@
  * `.excalidraw.md` and returns a description of it; this is the one module that
  * produces bytes somebody's bucket will hold, and it is therefore the one place
  * where a misunderstanding of the format is destructive rather than merely
- * unhelpful. `docs/decisions/obsidian-plugins.md` already refuses the
+ * unhelpful. `docs/decisions/plugins.md` already refuses the
  * regenerating shape for exactly this reason: "a file we do not parse is still
  * a file we do not corrupt."
  *

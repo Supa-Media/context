@@ -19,6 +19,7 @@ import {
   browseEmptyNote,
   canAskForMore,
   installVerb,
+  keepInVaultNote,
   type BrowseView,
 } from "../../plugins/lifecycle";
 import type { ConsolePlugin } from "../../plugins/plugins";
@@ -61,9 +62,20 @@ export const REGISTRY_DEBOUNCE_MS = 350;
 export function PluginBrowse({
   view,
   installed,
+  seed = "",
 }: {
   view: BrowseView;
   installed: ConsolePlugin[];
+  /**
+   * What the panel's own box currently holds.
+   *
+   * It does not search anything by itself — reaching the registry is a request
+   * to a third party on somebody's behalf, and the rule above that nothing
+   * happens without a deliberate press is unchanged. What it does is put the
+   * words on that press, so a person who typed a name is offered a button that
+   * looks for it rather than a generic "Browse" and a box to retype it into.
+   */
+  seed?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
@@ -112,19 +124,20 @@ export function PluginBrowse({
             <Text variant="rowSub">{REGISTRY_NOTE}</Text>
           </Grow>
           <Button
-            label="Browse"
+            label={seed.trim() === "" ? "Browse" : `Search for "${seed.trim()}"`}
+            testID="plugin-browse-open"
             onPress={() => {
               /*
-                Reopening starts clean. Without this the previous session's text
-                is still in `draft`, `typed` is still true, and the debounce
-                fires a search for it immediately after the empty-query one —
-                so the card opens on the head of the registry and then replaces
-                it with an old filter nobody typed.
+                Reopening starts from the panel's box, or clean when it is
+                empty. Without resetting `typed`, the previous session's text is
+                still in `draft` and the debounce fires a search for it straight
+                after this one — so the card would open on what was asked for
+                and then replace it with an old filter nobody typed.
               */
-              setDraft("");
+              setDraft(seed);
               typed.current = false;
               setOpen(true);
-              void actions.search("", REGISTRY_PAGE);
+              void actions.search(seed, REGISTRY_PAGE);
             }}
           />
         </Row>
@@ -203,14 +216,20 @@ export function PluginBrowse({
               {row.description}
             </Text>
           </Grow>
-          <Button
-            label={busyId === row.id ? "Working…" : installVerb(row.already)}
-            disabled={busyId !== null}
-            onPress={() => {
-              setBusyId(row.id);
-              void Promise.resolve(actions.install(row.id)).finally(() => setBusyId(null));
-            }}
-          />
+          {row.already === "vault" ? (
+            <Text variant="hint" style={styles.keep} testID={`plugin-browse-keep-${row.id}`}>
+              {keepInVaultNote(row.already)}
+            </Text>
+          ) : (
+            <Button
+              label={busyId === row.id ? "Working…" : installVerb(row.already)}
+              disabled={busyId !== null}
+              onPress={() => {
+                setBusyId(row.id);
+                void Promise.resolve(actions.install(row.id)).finally(() => setBusyId(null));
+              }}
+            />
+          )}
         </Row>
       ))}
 
@@ -245,5 +264,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   meta: { marginTop: 2, color: colors.muted },
   line: { marginTop: 4 },
   order: { marginTop: 8, color: colors.muted },
+  keep: { maxWidth: 260 },
   hint: { marginTop: 12 },
 });

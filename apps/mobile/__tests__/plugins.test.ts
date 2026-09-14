@@ -28,7 +28,7 @@ import {
 /**
  * The plugin inventory's wording and its two guards.
  *
- * `docs/decisions/obsidian-plugins.md` argues one asymmetry at length:
+ * `docs/decisions/plugins.md` argues one asymmetry at length:
  * `wont-run` rests on evidence the scan found and can name, `runs` rests on
  * evidence it did not find, and three paths where an absence could read as a
  * clean bill are routed to `unknown` instead. Everything below is that

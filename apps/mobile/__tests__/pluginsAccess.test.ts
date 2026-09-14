@@ -48,6 +48,7 @@ import { VERDICT_ORDER, verdictHeading, type ConsolePlugin, type PluginsView } f
 import { ALL_CAPABILITIES, capabilityLabel, isDestructive, type GrantsView } from "../features/console/plugins/grants";
 import type { BrowseView } from "../features/console/plugins/lifecycle";
 import type { RuntimeView } from "../features/console/plugins/runtime";
+import type { ContextPluginsView } from "../features/console/plugins/contextPlugins";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -107,11 +108,19 @@ const EVERY_VERDICT: PluginsView = {
 const NO_GRANTS: GrantsView = { grants: [], loading: false, egress: false };
 const NO_BROWSE: BrowseView = { query: "", limit: 20, searching: false, failure: null };
 const NO_RUNTIME: RuntimeView = { states: [], loading: false };
+/** See `pluginsPanel.test.ts`: this file is about the vault half. */
+const NO_CONTEXT_PLUGINS: ContextPluginsView = {
+  state: "ready",
+  plugins: [],
+  settingsError: null,
+  canManage: false,
+};
 
 function panel(): HTMLElement {
   return mount(
     createElement(PluginsPanel, {
       view: EVERY_VERDICT,
+      contextPlugins: NO_CONTEXT_PLUGINS,
       grants: NO_GRANTS,
       browse: NO_BROWSE,
       runtime: NO_RUNTIME,
@@ -277,6 +286,7 @@ describe("nothing is lost at phone width", () => {
     const container = mount(
       createElement(PluginsPanel, {
         view: EVERY_VERDICT,
+        contextPlugins: NO_CONTEXT_PLUGINS,
         grants: {
           grants: [],
           loading: false,

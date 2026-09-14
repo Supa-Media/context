@@ -363,10 +363,28 @@ export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
     };
   }
 
-  // One plugin id yields one row and therefore one possible grant target. A
-  // Context-managed release is the explicitly selected runtime bundle, so it
-  // wins over a synced Obsidian folder carrying the same id.
+  /*
+    One plugin id yields one row and therefore one possible grant target, and
+    the Context-managed release is that row.
+
+    The obvious reversal — prefer the vault copy, because `.obsidian/` is the
+    directory its owner actually keeps current — was written, tested and backed
+    out, and the fact that killed it is worth stating so it is not tried again:
+    **a managed release is the only bundle this product can run.** `loadPluginBundle`
+    reads `.context/plugins/<id>/releases/<version>/`, and a fingerprint only
+    resolves there, so an inventory that hid the managed row behind a synced
+    folder would take a plugin somebody installed here, approved here and is
+    running here, and silently stop it the moment they also installed it in
+    Obsidian.
+
+    What was right about the reversal is kept: the duplicate is no longer
+    invisible. `alsoInVault` puts it on the row, so a person can be told which
+    copy is running and where the other one is — and the console refuses to
+    *create* the duplicate in the first place, which is the half that actually
+    fixes it. A plugin already in the vault is one to keep in the vault.
+  */
   const managedIds = new Set(managedFolders.map((folder) => decodeManagedSegment(folder) || folder));
+  const vaultIds = new Set(obsidianFolders);
   const locations = [
     ...obsidianFolders
       .filter((folder) => !managedIds.has(folder))
@@ -376,10 +394,14 @@ export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
   const selected = locations.slice(0, cap);
   const plugins = [];
   for (const location of selected) {
-    plugins.push(
+    const plugin =
       location.source === "context"
         ? await readManagedPlugin(store, location.folder)
-        : await readPlugin(store, location.folder)
+        : await readPlugin(store, location.folder);
+    plugins.push(
+      location.source === "context" && vaultIds.has(plugin.id)
+        ? { ...plugin, alsoInVault: true }
+        : plugin
     );
   }
 

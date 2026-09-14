@@ -280,8 +280,17 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What would make this a bad idea, argued as if we were not going to do it
 - What is deliberately not built
 
-## [Obsidian plugins](./obsidian-plugins.md)
+## [Plugins](./plugins.md)
 
+- A Context plugin is Obsidian's manifest with one extra key, and no bundle
+- The switch lives in the bucket, in two lists rather than one
+- A switch removes a capability and never a protection
+- The switch is enforced twice, because the listing is cached
+- What may never be a plugin
+- And a switch has to actually do something
+- A vault copy and a managed install are one plugin, and the duplicate is not created
+- One panel, one box, and the registry is still a deliberate press
+- What is deliberately not built, for Context plugins
 - The bucket is the vault, so compatibility starts as a duty not to break things
 - A compatibility verdict is a floor, and the code is shaped to keep it one
 - Curation changes the label and never the sandbox

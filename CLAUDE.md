@@ -209,7 +209,7 @@ it is reversed. Every section title is listed by area in
 [markdown forms](./docs/decisions/forms.md),
 [search](./docs/decisions/search.md),
 [app & console](./docs/decisions/app-and-console.md),
-[obsidian plugins](./docs/decisions/obsidian-plugins.md), and
+[plugins](./docs/decisions/plugins.md), and
 [testing](./docs/decisions/testing.md), which is one rule: **a guard nobody has
 checked is not a guard.**
 

@@ -194,21 +194,29 @@ export function annotateResults(
 }
 
 /** The verb for a registry row, given what is already in the bucket. */
-export function installVerb(already: "managed" | "vault" | null): string {
-  switch (already) {
-    case "managed":
-      return "Update to the latest release";
-    case "vault":
-      /*
-        It is in the vault already, and installing puts a second copy under
-        `.context/plugins/` that Context prefers on an id collision. That is a
-        real choice with a real consequence, so the verb says what happens
-        rather than pretending this is the same "Install" as the empty case.
-      */
-      return "Also install a managed copy";
-    case null:
-      return "Install";
-  }
+export function installVerb(already: "managed" | null): string {
+  return already === "managed" ? "Update to the latest release" : "Install";
+}
+
+/**
+ * Why a row offers nothing, or `null` when it offers an install.
+ *
+ * One case: the plugin is already in `.obsidian/plugins/`. There *used* to be a
+ * button here — "Also install a managed copy" — and the honest reading of what
+ * it did is that it created a second copy of one plugin in one bucket, with the
+ * managed one winning on an id collision, so the copy Obsidian keeps updating
+ * quietly stops being the one Context runs. Two copies to maintain, and the one
+ * a person actually touches is the ignored one.
+ *
+ * So the row says what to do instead, which is nothing: it is in the vault, the
+ * vault is a fine place for it, and Context already reads every file it writes.
+ * The refusal carries its route out, like every other refusal in this feature.
+ */
+export function keepInVaultNote(already: "managed" | "vault" | null): string | null {
+  return already === "vault"
+    ? "Already in your vault — keep it there. It runs in Obsidian against this same bucket, " +
+        "and Context reads whatever it writes. A managed copy here would be a second one to update."
+    : null;
 }
 
 /* -------------------------------------------------------------------------- */

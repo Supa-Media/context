@@ -167,6 +167,12 @@ import {
 } from "./encryption.js";
 import { inventoryPlugins } from "./plugins/inventory.js";
 import { renderPluginReport } from "./plugins/report.js";
+import { pluginForTool } from "./plugins/catalog.js";
+import {
+  disabledToolNames,
+  disabledToolRefusal,
+  resolveContextPlugins,
+} from "./plugins/enablement.js";
 import {
   ERROR_HEADER_MISMATCH,
   ERROR_METHOD_NOT_FOUND,
@@ -1967,7 +1973,7 @@ async function handleModernMcp(request, msg, store, session) {
         });
       case "tools/list":
         return modernResultResponse(id, {
-          tools: toolsForSession(session),
+          tools: await toolsForSession(session, store),
           ...CACHEABLE,
         });
       case "tools/call":
@@ -2167,16 +2173,32 @@ function toolArgumentRefusal(name, args, scope) {
  * decided, so adding a protocol revision can never quietly add a second, laxer
  * copy of either.
  */
-function toolsForSession(session) {
+async function toolsForSession(session, store) {
   const offered = writesAnywhere(session)
     ? toolDefinitions()
     : toolDefinitions().filter((tool) => tool.annotations?.readOnlyHint === true);
   // `readOnlyHint` is not the whole of the question — see
   // `PRIVATE_TIER_ONLY_TOOLS`. Offered to a connection that owns one of the
   // contexts it covers, and refused per call in the ones it does not.
-  return readsPrivateAnywhere(session)
+  const scoped = readsPrivateAnywhere(session)
     ? offered
     : offered.filter((tool) => !PRIVATE_TIER_ONLY_TOOLS.has(tool.name));
+  /*
+    A third filter, and the only one that asks the *bucket* a question.
+
+    A Context plugin somebody turned off takes its tools out of the listing, so
+    a client is not shown four form tools for a context whose owner does not
+    want forms. This listing is `CACHEABLE` for a minute, so a toggle can take
+    that long to reach a connected client — which is exactly why the refusal in
+    `callToolForSession` is the control and this is the courtesy, the same
+    division scope already keeps two filters below.
+
+    Unreadable settings mean the defaults, never an empty list: see
+    `enablement.js`. A storage failure here would otherwise present as a client
+    that suddenly speaks a quarter of the protocol.
+  */
+  const off = await disabledToolNames(store);
+  return off.size === 0 ? scoped : scoped.filter((tool) => !off.has(tool.name));
 }
 
 
@@ -2393,6 +2415,29 @@ async function callToolForSession(params, store, session) {
   const badArguments = toolArgumentRefusal(params?.name, supplied, target.scope);
   if (badArguments) return toolError(badArguments);
 
+  /*
+    The Context-plugin switch, enforced here as well as filtered out of the
+    listing — the listing is cached for a minute and a client can remember a
+    tool name for far longer than that, so this is the control.
+
+    Two things about where it sits.
+
+    **After the argument check**, which reverses the order scope uses, because
+    this one costs a storage read and the comment above is a promise that a
+    call with arguments we never advertised reaches no storage at all. A
+    malformed call to a switched-off tool is answered as malformed; the person
+    fixing it hits this refusal on the next attempt.
+
+    **Read off `targetStore`**, never the connection's own. The switch belongs
+    to the context the call was routed to, so a cross-context call into a
+    workspace whose owner turned forms off is refused with that owner's setting
+    and not with the caller's.
+  */
+  if (pluginForTool(params?.name)) {
+    const off = await disabledToolNames(targetStore);
+    if (off.has(params?.name)) return toolError(disabledToolRefusal(params?.name));
+  }
+
   const result = await callTool(params?.name, args, targetStore, target.scope);
   // Counted after the call, against the context the call was *routed to* —
   // `target`, never `session`. A cross-context call is activity in the workspace it
@@ -2528,7 +2573,7 @@ async function handleRpc(msg, store, session) {
       case "ping":
         return rpcResult(id, {});
       case "tools/list":
-        return rpcResult(id, { tools: toolsForSession(session) });
+        return rpcResult(id, { tools: await toolsForSession(session, store) });
       case "tools/call": {
         if (isNotification) return null;
         return rpcResult(id, await callToolForSession(params, store, session));
@@ -4357,8 +4402,15 @@ async function toolListChanges(store, scope, rules, overrides, limitArg) {
  * gateway breaks the thing it was compatible with.
  */
 async function toolListPlugins(store) {
-  const report = await inventoryPlugins(store);
-  return toolText(renderPluginReport(report));
+  // Both halves of one question. The Context plugins come from a catalogue and
+  // one small settings object; the vault's come from reading bundles. Asked
+  // together because "what plugins does this context have" is one question, and
+  // answering only the second half is what this tool used to do.
+  const [report, context] = await Promise.all([
+    inventoryPlugins(store),
+    resolveContextPlugins(store),
+  ]);
+  return toolText(renderPluginReport(report, context.plugins));
 }
 
 /**
@@ -5182,7 +5234,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
    * reads a note, edits a line and writes the whole thing back would replace
    * somebody's diagram with a paragraph about the diagram, and the only copy of
    * those elements is the file it just destroyed. That is exactly the
-   * data-loss shape `docs/decisions/obsidian-plugins.md` refuses ("a file we do
+   * data-loss shape `docs/decisions/plugins.md` refuses ("a file we do
    * not parse is still a file we do not corrupt"), arriving through the gateway
    * instead of through a tidy-up.
    *

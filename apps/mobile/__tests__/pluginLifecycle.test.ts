@@ -9,6 +9,7 @@ import {
   UNINSTALL_NOTE,
   annotateResults,
   installVerb,
+  keepInVaultNote,
   isLifecycleBusy,
   managedControl,
   uninstallBlocker,
@@ -103,8 +104,19 @@ describe("the verb says what will actually happen", () => {
     it rather than pretending this is the same press as the empty case.
   */
   test("already in the vault says a managed copy is being added", () => {
-    expect(installVerb("vault")).toContain("managed copy");
-    expect(installVerb("vault")).not.toBe("Install");
+    /*
+      REPLACED, and the old assertion is quoted because the behaviour changed
+      rather than the wording: it read `installVerb("vault")` and expected
+      "Also install a managed copy". There is no such button now. Installing
+      over a vault copy created a second copy of one plugin in one bucket, with
+      the managed one winning on an id collision — so the copy Obsidian keeps
+      updating quietly stopped being the one Context ran.
+    */
+    expect(keepInVaultNote("vault")).toContain("keep it there");
+    // And the refusal carries its route out, like every other one here.
+    expect(keepInVaultNote("vault")).toContain("Obsidian");
+    expect(keepInVaultNote("managed")).toBeNull();
+    expect(keepInVaultNote(null)).toBeNull();
   });
 });
 

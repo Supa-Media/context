@@ -1,12 +1,15 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
-import { FormError } from "../../../design/components/Input";
+import { FormError, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
+import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
+import { ContextPluginsCard } from "./ContextPluginsCard";
 import { PluginBrowse } from "./PluginBrowse";
 import { PluginGrantCard } from "./PluginGrantCard";
 import { PluginManagedCard } from "./PluginManagedCard";
@@ -14,6 +17,14 @@ import { PluginRuntimeCard } from "./PluginRuntimeCard";
 import type { RuntimeView } from "../../plugins/runtime";
 import type { BrowseView } from "../../plugins/lifecycle";
 import type { GrantsView } from "../../plugins/grants";
+import {
+  PLUGIN_FILTERS,
+  matchesVaultQuery,
+  showsContext,
+  showsObsidian,
+  type ContextPluginsView,
+  type PluginFilter,
+} from "../../plugins/contextPlugins";
 import {
   FLOOR_NOTE,
   SCOPE_NOTE,
@@ -35,29 +46,137 @@ import {
 } from "../../plugins/plugins";
 
 /**
- * The Obsidian plugins in this context's bucket, and what each one can do here.
+ * Every plugin this context has, from either place, behind one search box.
  *
- * The panel renders `PluginsView` and decides nothing: every verdict, every
- * named finding and every host comes from the gateway's read of
- * `.obsidian/plugins/`, and the wording for all five states lives in
- * `../../plugins/plugins.ts` so it can be tested without mounting anything.
+ * ## Why this is one panel and not two
  *
- * Four states, four different screens, because they answer four different
- * questions — collapsing them is how "no plugins" ends up meaning "your
- * storage key expired". A successful read that found nothing is **not** one of
- * the four: it is `ready` with `found: 0`, and it gets its own words inside the
- * ready branch rather than a failure-shaped state of its own.
+ * Context ships plugins of its own — forms, images, meetings, chat days — and a
+ * customer's bucket may be a vault full of somebody else's.
+ * Those were two different screens and two vocabularies for one question: a
+ * person looking for "the forms thing" and a person looking for Templater are
+ * both asking what this context can do. So: one box, one filter, two blocks
+ * drawn from the same card vocabulary, the Context half first because it is the
+ * half that is definitely working.
+ *
+ * ## The Context block is outside every one of the vault block's states
+ *
+ * This is the structural change and it is load-bearing rather than tidy. Each
+ * of the five states below used to *end the panel* — a member got "only an
+ * owner can read this", a bucket with no `.obsidian/` got "no plugins in this
+ * bucket" — in a context that was running four plugins the whole time. Nothing
+ * about the built-ins depends on reading somebody's plugin directory, so
+ * nothing about them sits behind that read.
+ *
+ * ## The box filters what is here; the registry is still a deliberate press
+ *
+ * Typing narrows the two local lists and sends nothing anywhere. Reaching the
+ * community registry is a request to a third party on somebody's behalf, and
+ * `PluginBrowse`'s rule — nothing without a deliberate press — is unchanged:
+ * what the box does is put the words on that press, so "Browse" becomes
+ * "Search the registry for …" and opens already looking for it.
+ *
+ * Four states, four different screens for the vault half, because they answer
+ * four different questions — collapsing them is how "no plugins" ends up
+ * meaning "your storage key expired". A successful read that found nothing is
+ * **not** one of the four: it is `ready` with `found: 0`, and it gets its own
+ * words inside the ready branch rather than a failure-shaped state of its own.
  */
 export function PluginsPanel({
   view,
+  contextPlugins,
   grants,
   browse,
   runtime,
 }: {
   view: PluginsView;
+  contextPlugins: ContextPluginsView;
   grants: GrantsView;
   browse: BrowseView;
   runtime: RuntimeView;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<PluginFilter>("all");
+
+  return (
+    <View testID="plugins-panel">
+      <Card>
+        <TextField
+          label="Search plugins"
+          testID="plugins-query"
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Name, what it does, or a tool name"
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Row style={styles.filters}>
+          {PLUGIN_FILTERS.map((entry) => (
+            <Button
+              key={entry.value}
+              label={entry.label}
+              variant="mini"
+              style={filter === entry.value ? styles.filterActive : undefined}
+              // A leading glyph as well as the tint: the accent is the same hue
+              // links use, which is not a safe distinguisher on its own — the
+              // rule `AppearancePanel`'s own chips follow.
+              leading={
+                filter === entry.value ? <Text style={styles.check}>{"\u2713 "}</Text> : undefined
+              }
+              accessibilityLabel={
+                filter === entry.value ? `${entry.label}, showing` : `Show ${entry.label}`
+              }
+              onPress={() => setFilter(entry.value)}
+              testID={`plugins-filter-${entry.value}`}
+            />
+          ))}
+        </Row>
+      </Card>
+
+      {showsContext(filter) ? <ContextPluginsCard view={contextPlugins} query={query} /> : null}
+      {showsObsidian(filter) ? (
+        /*
+          Wrapped so the vault half is addressable on its own. The panel's own
+          chrome is three chips and a box, and a check that counts "the controls
+          on this screen" has to be able to mean the section it is about — see
+          `pluginsPanel.test.ts`, where three assertions about a scan offering
+          nothing to press would otherwise be counting the filter.
+        */
+        <View testID="plugins-vault">
+          <VaultPlugins
+            view={view}
+            grants={grants}
+            browse={browse}
+            runtime={runtime}
+            query={query}
+          />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * The vault half: what `.obsidian/plugins/` holds and what each one would do here.
+ *
+ * Unchanged in what it says — every verdict, every named finding and every host
+ * still comes from the gateway's read, and the wording for all five states still
+ * lives in `../../plugins/plugins.ts`. What changed is that it is a section of a
+ * panel rather than the panel, so its refusals and its empty state no longer
+ * take the built-ins down with them.
+ */
+function VaultPlugins({
+  view,
+  grants,
+  browse,
+  runtime,
+  query,
+}: {
+  view: PluginsView;
+  grants: GrantsView;
+  browse: BrowseView;
+  runtime: RuntimeView;
+  query: string;
 }) {
   const styles = useThemedStyles(makeStyles);
 
@@ -156,6 +275,18 @@ export function PluginsPanel({
 
   const counts = verdictCounts(inventory.plugins);
   const coverage = scanCoverage(inventory);
+  /*
+    The box narrows the rows; the head keeps describing the bucket.
+
+    Deliberately not recounted against the filtered set. `foundLabel` and the
+    verdict chips are a statement about what is installed — the one place this
+    panel has ever been careful to report a floor honestly — and making them
+    follow a search box would turn "3 won't run here" into a number that means
+    "3 of the ones matching what you typed", which is the note-count trap in a
+    new costume.
+  */
+  const shown = inventory.plugins.filter((plugin) => matchesVaultQuery(plugin, query));
+  const filtered = shown.length !== inventory.plugins.length;
 
   return (
     <View testID="plugins-ready">
@@ -187,9 +318,17 @@ export function PluginsPanel({
         </View>
       </Card>
 
-      <PluginBrowse view={browse} installed={inventory.plugins} />
+      <PluginBrowse view={browse} installed={inventory.plugins} seed={query} />
 
-      {groupPlugins(inventory.plugins).map((group) => (
+      {filtered && shown.length === 0 ? (
+        <Card style={styles.group} testID="plugins-no-match">
+          <Text variant="rowSub">
+            {`Nothing in this vault matches "${query.trim()}". The registry search above looks past it.`}
+          </Text>
+        </Card>
+      ) : null}
+
+      {groupPlugins(shown).map((group) => (
         <Card key={group.verdict} style={styles.group}>
           <Row style={styles.head}>
             <Grow>
@@ -323,6 +462,12 @@ function PluginRow({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   lead: { marginTop: 6 },
+  // Wrapping rather than a fixed row: three chips and their gaps can exceed a
+  // phone's width, and wrapping is what keeps this a settings row instead of a
+  // horizontal scroller.
+  filters: { flexWrap: "wrap", gap: space.x2, marginTop: 12 },
+  filterActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
+  check: { color: colors.accentText },
   action: { marginTop: 13, alignItems: "flex-start" },
   hint: { marginTop: 12 },
   group: { marginTop: 11 },

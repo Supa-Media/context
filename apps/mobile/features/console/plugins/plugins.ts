@@ -13,7 +13,7 @@
  *
  * ## This file formats a decision. It never makes one.
  *
- * `docs/decisions/obsidian-plugins.md` is the argument, and its asymmetry is
+ * `docs/decisions/plugins.md` is the argument, and its asymmetry is
  * the reason this module is shaped the way it is: `wont-run` rests on evidence
  * the scan *found and can name*, while `runs` rests on evidence it did *not*
  * find, which is the weaker claim. Three paths where an absence could read as a

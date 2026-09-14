@@ -302,10 +302,32 @@ describe("a result says what installing it would do to this bucket", () => {
     expect(container.textContent).toContain("Installed here");
   });
 
-  test("already in the vault says a second, managed copy", () => {
+  /*
+    REPLACED, and the old assertion is quoted because the behaviour changed
+    rather than the copy: it expected "Also install a managed copy". Pressing
+    that put a second copy of one plugin in one bucket, with the managed one
+    winning on an id collision — so the copy Obsidian keeps updating quietly
+    stopped being the one Context ran, and a person had two to maintain without
+    being told which was live.
+
+    There is no control on that row now. The row says where the plugin already
+    is, that it is a fine place for it, and what Context does with it — the
+    refusal carrying its route out, like every other one in this feature.
+  */
+  test("already in the vault offers nothing, and says to keep it there", () => {
     const container = opened([plugin({ id: "highlightr-plugin", source: "obsidian" })]);
-    expect(container.textContent).toContain("Also install a managed copy");
     expect(container.textContent).toContain("In your vault");
+    expect(container.textContent).toContain("keep it there");
+    expect(container.querySelector("[data-testid='plugin-browse-keep-highlightr-plugin']")).not.toBeNull();
+    // The half that matters: no install control at all, not a disabled one. A
+    // greyed button invites somebody to go looking for the switch that enables
+    // it, and there is none.
+    expect(container.textContent).not.toContain("Also install");
+    expect(
+      Array.from(container.querySelectorAll("[role='button']")).map(
+        (node) => (node.getAttribute("aria-label") ?? node.textContent) ?? "",
+      ),
+    ).not.toContain("Install");
   });
 
   test("installing sends the id, and the note says it will not run it", () => {

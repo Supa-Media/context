@@ -15,7 +15,7 @@
  *    spends a caller's entire context on a compressed blob it cannot decode.
  *
  * None of that is a storage problem. The file is fine, and
- * `docs/decisions/obsidian-plugins.md` is explicit that we do not touch it:
+ * `docs/decisions/plugins.md` is explicit that we do not touch it:
  * "`.canvas` and `.excalidraw.md` are opaque, not malformed. A file we do not
  * parse is still a file we do not corrupt." This module keeps that promise and
  * adds the other half — **we now read it without rewriting it.** Nothing here
