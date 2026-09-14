@@ -269,6 +269,7 @@ function VaultPlugins({
             exclude it by default.
           </Text>
         </Card>
+        <PluginBrowse view={browse} installed={[]} />
       </View>
     );
   }

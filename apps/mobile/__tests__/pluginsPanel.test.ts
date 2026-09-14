@@ -213,6 +213,23 @@ describe("a successful read that found nothing", () => {
   test("points at the sync setting that usually explains it", () => {
     expect(panel(empty).textContent).toContain(".obsidian");
   });
+
+  test("still offers the community catalog so the first managed plugin can be installed", () => {
+    const container = panel(empty, undefined, {
+      query: "",
+      limit: 20,
+      searching: false,
+      failure: null,
+      actions: {
+        search: async () => {},
+        install: async () => {},
+        uninstall: async () => {},
+        recover: async () => {},
+      },
+    });
+    expect(container.querySelector("[data-testid='plugin-browse-closed']")).not.toBeNull();
+    expect(container.textContent).toContain("Add a plugin");
+  });
 });
 
 describe("the ready list", () => {
