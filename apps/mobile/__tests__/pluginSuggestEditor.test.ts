@@ -207,3 +207,49 @@ describe("what a pick writes", () => {
     expect(view.state.doc.toString()).toBe("gone");
   });
 });
+
+/*
+  TYPING, NOT `startCompletion`.
+
+  Every test above drives the menu open explicitly, which proves the source is
+  correct and proves nothing about whether it ever runs. The way somebody
+  actually meets this feature is by typing `@John 3:16` and expecting a list —
+  and a source that is only reachable from a keyboard shortcut nobody presses is
+  indistinguishable, from the outside, from a feature that was never built.
+
+  So this types character by character, the way the person in the bug report
+  did, and asserts the plugin was asked at all.
+*/
+describe("it fires on typing, which is the only way anyone will meet it", () => {
+  function type(view: EditorView, text: string) {
+    for (const character of text) {
+      const at = view.state.selection.main.head;
+      view.dispatch({
+        changes: { from: at, insert: character },
+        selection: { anchor: at + character.length },
+        userEvent: "input.type",
+      });
+    }
+  }
+
+  test("typing the trigger asks the plugin, with no shortcut pressed", async () => {
+    const asked: { line: string; ch: number }[] = [];
+    const view = editor({ doc: "", cursor: 0, asked, ask: async () => [{ text: "John 3:16 (NIV)" }] });
+    type(view, "@John 3:16");
+    await tick();
+    expect(asked.length).toBeGreaterThan(0);
+    /*
+      The last thing it was asked is the whole line up to the cursor. No space
+      after the `@` — that is what the plugin's own onTrigger scans for, and the
+      host must not be the thing deciding what a trigger looks like.
+    */
+    expect(asked[asked.length - 1]).toEqual({ line: "@John 3:16", ch: 10 });
+  });
+
+  test("and the list it returns is on screen without a shortcut", async () => {
+    const view = editor({ doc: "", cursor: 0, ask: async () => [{ text: "John 3:16 (NIV)" }] });
+    type(view, "@John 3:16");
+    await tick();
+    expect(currentCompletions(view.state).map((one) => one.label)).toEqual(["John 3:16 (NIV)"]);
+  });
+});
