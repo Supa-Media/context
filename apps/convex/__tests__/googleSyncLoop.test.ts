@@ -1788,6 +1788,22 @@ describe("one pass, end to end, through the credential barrier", () => {
   });
 
   test("a Calendar cursor stays put until every account for the folder has a contribution", async () => {
+    /*
+      PINNED, for the reason the test two above states at length: the full-sync
+      window starts at *today* in the calendar's zone (`America/New_York`
+      here), so a fixture whose only event is on the 13th falls out of the
+      window the moment it stops being the 13th in New York — 04:00 UTC — and
+      the shared day file this asserts is never written. Unpinned, this passed
+      for one day and has failed every day since, on a clock rather than on a
+      change.
+
+      `shouldAdvanceTime`, because convex-test drives scheduled functions on
+      real timers and a frozen clock hangs them.
+    */
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      now: new Date("2026-09-12T18:00:00.000Z"),
+    });
     const { t, owner, workspaceId, connectionId, backend } = await endToEnd();
     const siblingId = await seedGoogleConnection(t, {
       workspaceId,
