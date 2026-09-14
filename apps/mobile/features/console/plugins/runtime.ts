@@ -649,6 +649,25 @@ export function freshSuggestions(
 }
 
 /**
+ * Whether the walk that is asking is still the one the editor is waiting on.
+ *
+ * `askSuggestions` walks the running frames one at a time, and a second
+ * keystroke starts a second walk before the first has finished. Found reviewing
+ * the diff: both walks were writing the same "what did I last ask?" slot, so an
+ * **older** walk could overwrite it with its own newer sequence — and then the
+ * newer keystroke's answer looked stale and was dropped while the older one's
+ * was accepted and shown. The sequence number exists to stop exactly that, and
+ * this is the door it left open.
+ *
+ * A generation per call closes it: an answer is used only while its own walk is
+ * still the current one, and a superseded walk yields nothing whatever comes
+ * back to it.
+ */
+export function currentWalk(mine: number, latest: number): boolean {
+  return mine === latest;
+}
+
+/**
  * Which loaded plugins may be shown a line of somebody's note.
  *
  * ## Why this is not `maySeePaths`

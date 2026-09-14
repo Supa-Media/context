@@ -30,6 +30,7 @@ import {
   maySeePaths,
   suggestFor,
   freshSuggestions,
+  currentWalk,
 } from "../features/console/plugins/runtime";
 import type { PluginGrant } from "../features/console/plugins/grants";
 
@@ -127,5 +128,30 @@ describe("a query reaches one frame, and a stale answer reaches nobody", () => {
 
   test("an answer with no query outstanding is dropped", () => {
     expect(freshSuggestions({ seq: 7, items: [] }, null)).toBeNull();
+  });
+});
+
+/*
+  TWO KEYSTROKES IN FLIGHT AT ONCE.
+
+  Found reviewing the diff, not by a red test. `askSuggestions` walks the
+  running frames asking each in turn, and a second keystroke starts a second
+  walk before the first has finished. Both were writing the same "what did I
+  last ask?" slot, so an older walk could overwrite it with its own newer
+  sequence — and then the *newer* keystroke's answer looked stale and was
+  dropped, while the older one's was accepted and shown.
+
+  That is the failure the sequence number exists to prevent, arriving through
+  the door it left open. A generation per call is what closes it: an answer is
+  only used while its own walk is still the current one.
+*/
+describe("an older query cannot outlive a newer one", () => {
+  test("a walk that has been superseded yields nothing, whatever comes back", () => {
+    expect(currentWalk(2, 2)).toBe(true);
+    expect(currentWalk(1, 2)).toBe(false);
+  });
+
+  test("the first walk is current until a second starts", () => {
+    expect(currentWalk(1, 1)).toBe(true);
   });
 });

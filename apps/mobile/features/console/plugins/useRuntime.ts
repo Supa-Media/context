@@ -11,6 +11,7 @@ import type { PluginGrant } from "./grants";
 import {
   SUGGEST_TIMEOUT_MS,
   appliedPluginNoteWrite,
+  currentWalk,
   freshSuggestions,
   maySeeContent,
   vaultEventForOperation,
@@ -117,6 +118,12 @@ export function useRuntime(options: {
     timer: ReturnType<typeof setTimeout>;
   }>());
   const lastAsked = useRef<number | null>(null);
+  /*
+    Which walk is current. Two keystrokes overlap, so an answer is only used
+    while the walk that asked for it is still the one the editor waits on —
+    see `currentWalk` for the race this closes.
+  */
+  const walk = useRef(0);
   const offeredBy = useRef<{ pluginId: string; nonce: string } | null>(null);
 
 
@@ -321,7 +328,10 @@ export function useRuntime(options: {
    */
   const askSuggestions = useCallback(async (line: string, ch: number) => {
     if (!isOwner) return [];
+    walk.current += 1;
+    const mine = walk.current;
     for (const frame of sandboxes) {
+      if (!currentWalk(mine, walk.current)) return [];
       if (!maySeeContent(frame.bundle, grants)) continue;
       suggestSeq.current += 1;
       const seq = suggestSeq.current;
@@ -335,6 +345,7 @@ export function useRuntime(options: {
       });
       setSuggest({ seq, pluginId: frame.bundle.pluginId, nonce: frame.nonce, line, ch });
       const items = await answer;
+      if (!currentWalk(mine, walk.current)) return [];
       if (items.length > 0) return items;
     }
     return [];
