@@ -44,6 +44,10 @@
  *   `searchProjectionState` dropping the `databaseId` check         0 → 1
  *   `searchProjectionState` treating every status as `ready`            2
  *   `recordProjectionProgress` trusting the door to validate counts   0 → 1
+ *   `provisionIndex` creating instead of adopting a taken name          2
+ *   `provisionIndex` adopting without emptying the database             1
+ *   `provisionIndex` emptying a database it just created                1
+ *   `findDatabaseByName` trusting Cloudflare's own name filter          1
  *
  * **Each note below names its row.** "The last one" was how two of these read
  * until rows were appended beneath them, at which point both pointed at
@@ -1442,6 +1446,233 @@ describe("a search database this deployment just created is given time to settle
       const row = await bindingRow(t, workspaceId);
       expect(row?.status).toBe("failed");
       expect(row?.errorCode).toBe("UNAUTHORIZED");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("a name already taken in our own account is this context's database", () => {
+  /*
+    THE DEAD END A PERSON ACTUALLY HIT, AND WHY "TRY AGAIN" COULD NOT CLEAR IT.
+
+    `databaseNameFor` is deterministic, so every attempt for one workspace asks
+    Cloudflare for the same name. Four ordinary things make that name already
+    exist with no `databaseId` on the row to show for it: a create whose answer
+    was lost, two schedules racing, a release that deleted the row and not the
+    database, and a database migrated into this account ahead of the provision
+    that will ask for it. Cloudflare answers a taken name outside the four
+    statuses `classify` names, so it landed on `REFUSED` — which this file's
+    own settling tests prove is terminal, correctly, because a malformed
+    request does not become well-formed by waiting.
+
+    The result was a context parked on "The index could not be prepared" with
+    six words of explanation, a "Try again" that ran the identical create, and
+    no way out at all: `disable` on a row with no `databaseId` deletes the row
+    outright, so even off-and-on-again came back to the same create.
+
+    `managedProvisioning.ts` had already argued this through for buckets —
+    "a bucket that already exists for this workspace **is** this workspace's,
+    and the run adopts it" — and D1 is the same argument with a sharper safety
+    margin, because a search database is a disposable derivative and a bucket
+    is the customer's only copy.
+
+    SABOTAGE, measured rather than assumed. Replacing `ensureDatabase` with the
+    old bare `createDatabase` reddens the first two here and nothing else;
+    dropping `RESET_STATEMENTS` from the adopt branch reddens the second alone;
+    running the reset unconditionally reddens the third alone; dropping the
+    exact-name check in `findDatabaseByName` reddens the fifth alone.
+  */
+  async function configured(t: TestConvex) {
+    await seedAppSecret(t, "SEARCH_D1_API_TOKEN", "d1_operator_obviously_fake");
+    await seedAppSecret(t, "SEARCH_D1_ACCOUNT_ID", "0123456789abcdef0123456789abcdef");
+  }
+
+  /**
+   * A Cloudflare that refuses the create and answers the lookup however the
+   * test says, recording every statement that reaches the query endpoint.
+   *
+   * The create's shape is the real one: HTTP 400 with a `success: false`
+   * envelope, which is neither of the statuses that retry and is exactly why
+   * the old code called it permanent.
+   */
+  function stubD1({ existing }: { existing: { uuid: string; name: string }[] }) {
+    const sql: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: { method?: string }) => {
+      const json = (status: number, body: unknown) => ({
+        ok: status < 400,
+        status,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => body,
+      });
+      if (url.includes("/query")) {
+        sql.push(JSON.parse(String((init as { body?: string })?.body ?? "{}")).sql);
+        return json(200, { success: true, errors: [], result: [{ results: [] }] });
+      }
+      if (init?.method === "GET") {
+        return json(200, { success: true, errors: [], result: existing });
+      }
+      return json(400, {
+        success: false,
+        errors: [{ code: 7502, message: "database already exists" }],
+      });
+    });
+    return sql;
+  }
+
+  async function optedIn(t: TestConvex, slug: string) {
+    const { owner, workspaceId } = await context(t, slug);
+    await asUser(t, owner).mutation(api.functions.fastSearch.enable, { workspaceId });
+    return { owner, workspaceId };
+  }
+
+  test("the database already sitting there is adopted, not refused forever", async () => {
+    const t = setupTest();
+    await configured(t);
+    const { workspaceId } = await optedIn(t, "d1-adopt");
+    const sql = stubD1({
+      existing: [{ uuid: "db-orphaned", name: `context-search-${workspaceId}` }],
+    });
+    try {
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      const row = await bindingRow(t, workspaceId);
+      // It got somewhere, rather than back to the card it started on.
+      expect(row?.status).toBe("backfilling");
+      expect(row?.databaseId).toBe("db-orphaned");
+      expect(row?.errorCode).toBeUndefined();
+      // And it really did apply the schema to the adopted one.
+      expect(sql.some((statement) => statement.includes("notes_team_fts"))).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("and it is emptied first, so the backfill cannot resume past notes it never wrote", async () => {
+    /*
+      The invariant, not the field. An adopted database can carry the previous
+      life's cursor in `index_state`, and the backfill reads that cursor to
+      decide where to start. Adopt without dropping it and the pass resumes
+      past every note before that point — which are then never projected, while
+      the counters report a finished index. A hole in the front of somebody's
+      search that nothing ever reports.
+    */
+    const t = setupTest();
+    await configured(t);
+    const { workspaceId } = await optedIn(t, "d1-adopt-reset");
+    const sql = stubD1({
+      existing: [{ uuid: "db-with-a-cursor", name: `context-search-${workspaceId}` }],
+    });
+    try {
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      const dropped = sql.findIndex((statement) =>
+        statement.includes("DROP TABLE IF EXISTS index_state"),
+      );
+      const created = sql.findIndex((statement) =>
+        statement.includes("CREATE TABLE IF NOT EXISTS index_state"),
+      );
+      expect(dropped).toBeGreaterThanOrEqual(0);
+      // Dropped BEFORE the schema goes back on, or the drop takes the schema
+      // with it and leaves a database with no tables at all.
+      expect(created).toBeGreaterThan(dropped);
+      for (const table of ["notes", "notes_private_fts", "notes_team_fts"]) {
+        expect(sql).toContain(`DROP TABLE IF EXISTS ${table}`);
+      }
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a freshly created database is not emptied, because there is nothing to empty", async () => {
+    const t = setupTest();
+    await configured(t);
+    const { workspaceId } = await optedIn(t, "d1-fresh");
+    const sql: string[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: { method?: string; body?: string }) => {
+      const ok = (body: unknown) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => body,
+      });
+      if (url.includes("/query")) {
+        sql.push(JSON.parse(String(init?.body ?? "{}")).sql);
+        return ok({ success: true, errors: [], result: [{ results: [] }] });
+      }
+      return ok({
+        success: true,
+        errors: [],
+        result: { uuid: "db-new", name: `context-search-${workspaceId}` },
+      });
+    });
+    try {
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      expect((await bindingRow(t, workspaceId))?.databaseId).toBe("db-new");
+      expect(sql.some((statement) => statement.startsWith("DROP TABLE"))).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a refusal with nothing there to adopt is still a refusal", async () => {
+    // Adoption must not turn every refused create into a silent success. An
+    // account out of D1 databases, or a token that may not create one, is a
+    // deployment somebody has to fix, and the row has to say so.
+    const t = setupTest();
+    await configured(t);
+    const { workspaceId } = await optedIn(t, "d1-nothing-to-adopt");
+    stubD1({ existing: [] });
+    try {
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      const row = await bindingRow(t, workspaceId);
+      expect(row?.status).toBe("failed");
+      expect(row?.errorCode).toBe("REFUSED");
+      expect(row?.databaseId).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  test("a database whose name merely resembles this one is never adopted", async () => {
+    /*
+      Cloudflare's `name` filter is a match, not an identity, and
+      `databaseNameFor` is a shared prefix plus a workspace id. A lookup that
+      trusted the filter would adopt whatever came back first — another
+      context's database — and then drop its tables and project this
+      context's notes into it. One tenant's search answered out of another
+      tenant's storage is the isolation failure this repo tests for, arrived
+      at through a convenience.
+    */
+    const t = setupTest();
+    await configured(t);
+    const { workspaceId } = await optedIn(t, "d1-near-miss");
+    stubD1({
+      existing: [{ uuid: "db-someone-else", name: `context-search-${workspaceId}-old` }],
+    });
+    try {
+      await t.action(internal.functions.fastSearchProvision.provisionIndex, {
+        workspaceId,
+        generation: FAST_SEARCH_GENERATION,
+      });
+
+      const row = await bindingRow(t, workspaceId);
+      expect(row?.status).toBe("failed");
+      expect(row?.databaseId).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();
     }
