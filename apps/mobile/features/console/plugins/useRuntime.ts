@@ -6,9 +6,9 @@ import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
 import type { ActiveFileRef, SandboxEvent, StatusItem, VaultEventMessage } from "./sandboxTypes";
-import type { CommandOutcome, InvokeRequest } from "./runtime";
+import type { AppliedPluginNoteWrite, CommandOutcome, InvokeRequest } from "./runtime";
 import type { PluginGrant } from "./grants";
-import { vaultEventForOperation } from "./runtime";
+import { appliedPluginNoteWrite, vaultEventForOperation } from "./runtime";
 import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
 
 /**
@@ -47,8 +47,10 @@ export function useRuntime(options: {
    * a read nobody approved.
    */
   grants?: readonly PluginGrant[];
+  /** Update the trusted editor after Convex confirms a plugin note write. */
+  onNoteWrite?: (write: AppliedPluginNoteWrite) => void;
 }): RuntimeView {
-  const { workspaceId, role, activeFile = null, grants } = options;
+  const { workspaceId, role, activeFile = null, grants, onNoteWrite } = options;
   const isOwner = role === "owner";
   const loadBundle = useAction(api.functions.obsidianPlugins.loadPluginBundle);
   const executeRequest = useAction(api.functions.obsidianPlugins.executePluginRequest);
@@ -318,10 +320,19 @@ export function useRuntime(options: {
         ? (event.request as { requestId: string }).requestId
         : "invalid";
       const operation = (event.request as {
-        operation?: { kind?: unknown; path?: unknown; from?: unknown; to?: unknown };
+        operation?: {
+          kind?: unknown;
+          path?: unknown;
+          from?: unknown;
+          to?: unknown;
+          text?: unknown;
+          expectedEtag?: unknown;
+        };
       }).operation;
       void executeRequest({ runtimeToken, request: event.request }).then((response) => {
         event.respond(response);
+        const noteWrite = appliedPluginNoteWrite(operation, response);
+        if (noteWrite !== null) onNoteWrite?.(noteWrite);
         const change = vaultEventForOperation(operation, response);
         if (change !== null) publish(change);
       }).catch(() => {
@@ -366,7 +377,7 @@ export function useRuntime(options: {
         void reportCrash(pluginId, bundleFingerprint, sandbox.attempts, new Error(event.message));
       }
     }
-  }, [executeRequest, loadBundle, publish, reportCrash, reportStatus, workspaceId]);
+  }, [executeRequest, loadBundle, onNoteWrite, publish, reportCrash, reportStatus, workspaceId]);
 
   useEffect(() => {
     if (!states || workspaceId === null || !isOwner) return;

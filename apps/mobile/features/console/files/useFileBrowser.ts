@@ -76,6 +76,7 @@ import { isGroupVisibility } from "./types";
 import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
+import type { AppliedPluginNoteWrite } from "../plugins/runtime";
 
 /**
  * Where the draft for a note nobody is looking at actually is.
@@ -1612,6 +1613,28 @@ export function useFileBrowser(options: {
       .catch((error: unknown) => setNotice(toFileError(error).message));
   }, [readNote, workspaceId]);
 
+  const applyPluginNoteWrite = useCallback((write: AppliedPluginNoteWrite) => {
+    const current = editorRef.current;
+    if (current.path !== write.path) return;
+    if (current.etag !== write.expectedEtag) return;
+    if (current.status !== "clean" && current.status !== "saved") return;
+
+    const note: OpenNote = {
+      path: write.path,
+      text: write.text,
+      etag: write.etag,
+      visibility: current.visibility,
+      inherited: current.inherited,
+      exception: current.exception,
+      readOnly: current.readOnly,
+      encrypted: current.encrypted,
+    };
+    offlineRef.current.forgetDraft(write.path);
+    offlineRef.current.dropQueued(write.path);
+    offlineRef.current.rememberNote(note);
+    dispatch({ type: "reloaded", note });
+  }, []);
+
   /**
    * "Keep mine" — send this draft over the version that is there now.
    *
@@ -2556,6 +2579,7 @@ export function useFileBrowser(options: {
       editor,
       setDraft,
       save,
+      applyPluginNoteWrite,
       flushAutosave,
       discardLocalCopies,
       encryptedElsewhere,
@@ -2668,6 +2692,7 @@ export function useFileBrowser(options: {
       updateStorageLayout,
       resolveWith,
       save,
+      applyPluginNoteWrite,
       search,
       select,
       deselect,

@@ -704,6 +704,7 @@ export function useLiveConsoleData(): ConsoleData {
     // nothing but its own settings is told nothing, and an unanswered query is
     // treated as nobody rather than everybody.
     grants: pluginGrants.grants,
+    onNoteWrite: files.applyPluginNoteWrite,
   });
 
   const viewerUserId = members.members.find((member) => member.isMe)?.userId;

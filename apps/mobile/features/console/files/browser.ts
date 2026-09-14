@@ -40,6 +40,7 @@ import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, SettableVisibility } from "./types";
 import type { SyncFacts } from "../../offline/copy";
 import type { ConflictReview } from "./useConflictReview";
+import type { AppliedPluginNoteWrite } from "../plugins/runtime";
 
 /** What one search found, and whether there was an index to find it in. */
 export interface SearchAnswer {
@@ -203,6 +204,12 @@ export interface FileBrowser {
   editor: EditorState;
   setDraft: (text: string) => void;
   save: () => void;
+  /**
+   * Reflect a plugin write only when the open editor is still the clean,
+   * exact version that write replaced; a newer or dirty draft always wins the
+   * screen and reaches the ordinary conflict flow on save.
+   */
+  applyPluginNoteWrite?: (write: AppliedPluginNoteWrite) => void;
   /**
    * Write the draft autosave is holding, now, and say whether there was one.
    *
