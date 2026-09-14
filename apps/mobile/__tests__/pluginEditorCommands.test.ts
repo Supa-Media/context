@@ -230,3 +230,82 @@ describe("the card draws the precondition instead of discovering it", () => {
     expect(pressed).toEqual(["generate-links"]);
   });
 });
+
+/*
+  WHAT THE CARD SAYS WHILE A COMMAND IS RUNNING, AND WHEN NOTHING ANSWERS.
+
+  #533's own log entry named this gap and shipped without it: "a command that is
+  slow or never answers shows nothing between the press and the result." Pressing
+  `Generate links` on a plugin that was thinking, wedged, or quietly gone
+  produced the same screen in all three cases — nothing, for ever.
+
+  Both halves are asserted here rather than only the first, because the two
+  sentences are the point: a plugin that *answered* that it failed is quoted, and
+  a silence is not. Saying "the plugin reported" about a silence would put words
+  in its mouth and send a reader to the wrong place to look.
+*/
+describe("a command that is still running, and one that never answered", () => {
+  function withCommand(over: Partial<RuntimeView>): HTMLElement {
+    return card({
+      loading: false,
+      states: [LOADED],
+      openNote: "1-projects/sermons/john-3.md",
+      registrations: { "youversion-linker": [GENERATE] },
+      actions: { start: async () => {}, stop: async () => {}, run: () => {} },
+      ...over,
+    });
+  }
+
+  test("while it is in flight the card names it, rather than showing nothing", () => {
+    const host = withCommand({ pending: { "youversion-linker": { id: "generate-links", seq: 1 } } });
+    expect(host.querySelector('[data-testid="plugin-command-pending-youversion-linker"]')?.textContent)
+      .toBe("Running Generate links…");
+  });
+
+  test("with nothing in flight there is no running line", () => {
+    const host = withCommand({});
+    expect(host.querySelector('[data-testid="plugin-command-pending-youversion-linker"]')).toBeNull();
+  });
+
+  /*
+    The distinction the whole change exists for. A plugin that threw inside the
+    sandbox reported something, and the card quotes it.
+  */
+  test("a plugin that reported a failure is quoted", () => {
+    const host = withCommand({
+      outcomes: {
+        "youversion-linker": { id: "generate-links", ok: false, error: "Open a note first" },
+      },
+    });
+    const text = host.querySelector('[data-testid="plugin-command-outcome-youversion-linker"]')?.textContent ?? "";
+    expect(text).toContain("The plugin reported: Open a note first");
+    expect(text).not.toContain("did not answer");
+  });
+
+  test("a silence is never quoted, and says what can be done about it", () => {
+    const host = withCommand({
+      outcomes: {
+        "youversion-linker": { id: "generate-links", ok: false, error: null, timedOut: true },
+      },
+    });
+    const text = host.querySelector('[data-testid="plugin-command-outcome-youversion-linker"]')?.textContent ?? "";
+    expect(text).toContain("did not answer");
+    expect(text).toContain("stopping and starting");
+    expect(text).not.toContain("The plugin reported");
+    expect(text).not.toContain("null");
+  });
+
+  /*
+    A restart mounts a new frame, and a press survives in the host's map across
+    it. The replacement may register a different set — so a pending row for a
+    command *this* frame does not have would be a spinner for something that is
+    not there to press, which is the status bar's stale-claim rule one row down.
+  */
+  test("a press the replacement frame does not recognise draws no running line", () => {
+    const host = withCommand({
+      registrations: { "youversion-linker": [] },
+      pending: { "youversion-linker": { id: "generate-links", seq: 1 } },
+    });
+    expect(host.querySelector('[data-testid="plugin-command-pending-youversion-linker"]')).toBeNull();
+  });
+});

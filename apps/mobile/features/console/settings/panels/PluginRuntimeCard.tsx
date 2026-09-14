@@ -10,6 +10,7 @@ import {
   REGISTRATION_NOTE,
   REVOKED_NOTE,
   STATUS_BAR_NOTE,
+  commandPendingFor,
   editorCommandState,
   commandOutcomeFor,
   describeRegistrations,
@@ -110,6 +111,7 @@ export function PluginRuntimeCard({
   */
   const status = statusItemsFor(state, view.statusItems);
   const outcome = commandOutcomeFor(registered, view.outcomes?.[plugin.id]);
+  const pending = commandPendingFor(registered, view.pending?.[plugin.id]);
 
   return (
     <View testID={`plugin-runtime-${plugin.id}`} style={styles.wrap}>
@@ -197,6 +199,21 @@ export function PluginRuntimeCard({
               {REGISTRATION_NOTE}
             </Text>
           )}
+          {/*
+            Between the press and the answer. #533 shipped with nothing here and
+            said so; a press that produced no visible change for as long as the
+            guest took looked like a control that does not work, which is the
+            failure this whole section keeps being written against.
+          */}
+          {pending ? (
+            <Text
+              variant="rowSub"
+              testID={`plugin-command-pending-${plugin.id}`}
+              style={styles.registration}
+            >
+              {`Running ${pending.name}…`}
+            </Text>
+          ) : null}
           {outcome ? (
             <Text
               variant={outcome.ok ? "rowSub" : "error"}
@@ -205,7 +222,15 @@ export function PluginRuntimeCard({
             >
               {outcome.ok
                 ? `Ran ${outcome.name}.`
-                : `${outcome.name} did not finish. The plugin reported: ${outcome.error}`}
+                : outcome.timedOut
+                  ? /*
+                      Nothing answered, so nothing is quoted. "The plugin
+                      reported" would be a sentence about a silence, and would
+                      send somebody to look at the plugin when what they can
+                      actually act on is the frame.
+                    */
+                    `${outcome.name} did not answer. It may still be running — stopping and starting this plugin clears it.`
+                  : `${outcome.name} did not finish. The plugin reported: ${outcome.error}`}
             </Text>
           ) : null}
         </View>
