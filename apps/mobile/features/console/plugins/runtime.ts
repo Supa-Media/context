@@ -571,6 +571,94 @@ export function appliedPluginNoteWrite(
 }
 
 /**
+ * One suggestion query, before it is routed to a frame.
+ *
+ * Carries the plugin and the frame for the same reason `InvokeRequest` does: by
+ * the time it reaches a sandbox the plugin is implied, and a field the guest
+ * could read that nothing checks is worse than no field.
+ */
+export interface SuggestRequest {
+  seq: number;
+  pluginId: string;
+  /** The frame this was aimed at. A replacement frame has a different one. */
+  nonce: string;
+  /** The line the cursor is on, up to and including it. Note content. */
+  line: string;
+  /** Where the cursor sits in that line. */
+  ch: number;
+}
+
+/**
+ * The query to hand this frame, or nothing.
+ *
+ * The rule #533 established for commands, applied to the other instruction in
+ * this protocol. A restart mounts a new frame, and a query aimed at the frame
+ * before it is not owed to its successor — a suggester answering it would be
+ * completing against a line the person has since left.
+ */
+export function suggestFor(
+  sandbox: { bundle: { pluginId: string }; nonce: string },
+  request: SuggestRequest | undefined,
+): { seq: number; line: string; ch: number } | undefined {
+  if (request === undefined) return undefined;
+  if (request.pluginId !== sandbox.bundle.pluginId) return undefined;
+  if (request.nonce !== sandbox.nonce) return undefined;
+  return { seq: request.seq, line: request.line, ch: request.ch };
+}
+
+/**
+ * The suggestions to show, or null when the answer is stale.
+ *
+ * **Typing outruns a round trip.** A menu built from an answer to a line the
+ * cursor has already left is worse than no menu: it offers completions for text
+ * that is no longer there, and somebody accepts one into the text that is. The
+ * sequence the host asked with is the only thing that can tell those apart, so
+ * it is required on the wire and compared here.
+ */
+export function freshSuggestions(
+  answer: { seq: number; items: { text: string }[] },
+  asked: number | null,
+): { text: string }[] | null {
+  if (asked === null) return null;
+  return answer.seq === asked ? answer.items : null;
+}
+
+/**
+ * Which loaded plugins may be shown a line of somebody's note.
+ *
+ * ## Why this is not `maySeePaths`
+ *
+ * A suggestion query carries **content** — the line somebody is in the middle
+ * of typing. Every other piece of state this host pushes to a guest carries a
+ * *path*, and `maySeePaths` opens on `vault:read` **or** `metadata:read`
+ * because a path is metadata-shaped.
+ *
+ * A line of prose is not metadata. A plugin granted `metadata:read` was
+ * approved to see frontmatter, headings, tags and the links between notes; it
+ * was not approved to read the sentence being written. So this is `vault:read`
+ * alone, and it is a separate function rather than a parameter on the other one
+ * — two gates that answer different questions drift into each other the moment
+ * they share a name.
+ *
+ * The guest cannot enforce this: it is handed the line before it runs any
+ * plugin code. The decision has to be made here, before the message is sent.
+ */
+export function maySeeContent(
+  sandbox: { pluginId: string; bundleFingerprint: string },
+  grants: readonly PluginGrant[] | undefined,
+): boolean {
+  if (grants === undefined) return false;
+  const grant = grants.find(
+    (one) =>
+      one.pluginId === sandbox.pluginId &&
+      one.bundleFingerprint === sandbox.bundleFingerprint &&
+      one.status === "active",
+  );
+  if (grant === undefined) return false;
+  return grant.capabilities.includes("vault:read");
+}
+
+/**
  * Which loaded plugins may be told the path of a note.
  *
  * **Found reviewing the diff that introduced the active file.** The host was
