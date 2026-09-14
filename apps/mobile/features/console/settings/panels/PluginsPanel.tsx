@@ -31,6 +31,7 @@ import {
   foundLabel,
   groupPlugins,
   limitationSummary,
+  pluginBlurb,
   runsHereNote,
   namedEvidence,
   readLabel,
@@ -470,6 +471,7 @@ function PluginRow({
   const route = routeOut(plugin.verdict);
   const pending = runsHereNote(plugin.verdict);
   const limits = limitationSummary(plugin.limitations);
+  const blurb = pluginBlurb(plugin);
   const from = sourceNote(plugin);
 
   return (
@@ -489,6 +491,16 @@ function PluginRow({
             .filter(Boolean)
             .join(" · ")}
         </Text>
+
+        {/*
+          What it is for, before what it cannot do. The row carried its id, its
+          findings and its refusals and never this — see `pluginBlurb`.
+        */}
+        {blurb ? (
+          <Text variant="rowSub" style={styles.line} testID={`plugin-blurb-${plugin.id}`}>
+            {blurb}
+          </Text>
+        ) : null}
 
         {plugin.manifestError ? (
           <Text variant="rowSub" style={styles.line}>

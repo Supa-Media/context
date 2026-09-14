@@ -558,3 +558,40 @@ describe("a column of limitations collapses to a line you can open", () => {
     expect(container.textContent).not.toContain("limits on what this one does here");
   });
 });
+
+describe("a row leads with what the plugin is for", () => {
+  test("the author's sentence is on the card", () => {
+    const container = panel({
+      state: "ready",
+      inventory: {
+        found: 1,
+        scanned: 1,
+        truncated: false,
+        checkedAt: "2026-09-12T09:41:00.000Z",
+        plugins: [plugin({
+          id: "youversion-linker",
+          name: "YouVersion Linker",
+          verdict: "needs-approval",
+          description: "Automatically link bible verses in your notes to YouVersion bible.",
+        })],
+      },
+    });
+    expect(container.textContent).toContain(
+      "Automatically link bible verses in your notes to YouVersion bible.",
+    );
+  });
+
+  test("a plugin whose manifest says nothing gets no empty line", () => {
+    const container = panel({
+      state: "ready",
+      inventory: {
+        found: 1,
+        scanned: 1,
+        truncated: false,
+        checkedAt: "2026-09-12T09:41:00.000Z",
+        plugins: [plugin({ id: "quiet", name: "Quiet", verdict: "runs", description: "" })],
+      },
+    });
+    expect(container.querySelector("[data-testid='plugin-blurb-quiet']")).toBeNull();
+  });
+});
