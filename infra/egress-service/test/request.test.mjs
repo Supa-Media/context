@@ -25,7 +25,16 @@ test("literal IPv4 and IPv6 URLs are refused without DNS", async () => {
     resolve: async () => { resolved = true; return ["93.184.216.34"]; },
     connect: async () => response(),
   });
-  for (const url of ["https://127.0.0.1/", "https://[::1]/", "https://[2001:4860:4860::8888]/"]) {
+  for (const url of [
+    "https://127.0.0.1/",
+    "https://0x7f000001/",
+    "https://0177.0.0.1/",
+    "https://[::1]/",
+    "https://[::ffff:127.0.0.1]/",
+    "https://[fc00::1]/",
+    "https://[fe80::1]/",
+    "https://[2001:4860:4860::8888]/",
+  ]) {
     await assert.rejects(request({ url, method: "GET" }), { code: "NETWORK_PRIVATE_ADDRESS_DENIED" });
   }
   assert.equal(resolved, false);
