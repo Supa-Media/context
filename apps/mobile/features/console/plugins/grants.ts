@@ -44,6 +44,21 @@ export interface GrantsView {
   /** Absent while the owner-only query has not answered, or for a non-owner. */
   grants?: PluginGrant[];
   loading: boolean;
+  /**
+   * Whether this **deployment** has a public-only egress service configured.
+   *
+   * A fact about the server, not about the plugin or the person — which is why
+   * it arrives from `pluginRuntimeCapabilities` rather than being inferred. A
+   * self-hoster who never configured one, and this deployment until its
+   * Cloudflare token gains Containers access, both sit at `false`, and the
+   * console has to be honest there rather than offering a control whose only
+   * outcome is `NETWORK_EGRESS_UNAVAILABLE`.
+   *
+   * **Defaults to false while the query is in flight.** Offering the network
+   * tickbox a moment early and withdrawing it is worse than offering it a
+   * moment late.
+   */
+  egress: boolean;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: GrantActions;
 }
@@ -53,6 +68,12 @@ export interface GrantActions {
     pluginId: string;
     bundleFingerprint: string;
     capabilities: PluginCapability[];
+    /**
+     * The exact hosts to grant, and empty unless `network:request` is among the
+     * capabilities — `approvePlugin` refuses the two apart, in either
+     * direction, with `INVALID_NETWORK_GRANT`.
+     */
+    networkHosts: string[];
   }) => Promise<void>;
   revoke: (pluginId: string) => Promise<void>;
 }
@@ -185,34 +206,42 @@ export const DEFAULT_CAPABILITIES: readonly PluginCapability[] = [
 export const ALL_CAPABILITIES: readonly PluginCapability[] = PLUGIN_CAPABILITIES;
 
 /**
- * The capabilities a consent form may actually offer today.
+ * The capabilities a consent form may offer, given what this deployment can
+ * actually enforce.
  *
- * `network:request` is not one of them, and it is excluded here rather than
- * filtered at the call site so the reason lives beside the list and a test can
- * hold it: `approvePlugin` fails closed on any network grant until the
- * public-only egress service exists, so a tickbox for it would be a control
- * that makes the whole form fail on submit.
+ * `network:request` is the only conditional one. `approvePlugin` refuses a
+ * network grant with `NETWORK_EGRESS_UNAVAILABLE` where no public-only egress
+ * service is configured, so a tickbox for it there is a control whose only
+ * outcome is an error — which teaches people the product is broken rather than
+ * that it is careful.
  *
  * Derived from `ALL_CAPABILITIES` rather than written out, so a capability
  * added to the enforcer appears here automatically and only a deliberate
  * exclusion has to be stated.
  */
-export const GRANTABLE_CAPABILITIES: readonly PluginCapability[] = ALL_CAPABILITIES.filter(
-  (capability) => capability !== "network:request",
-);
+export function grantableCapabilities(egress: boolean): readonly PluginCapability[] {
+  return egress
+    ? ALL_CAPABILITIES
+    : ALL_CAPABILITIES.filter((capability) => capability !== "network:request");
+}
 
 /* -------------------------------------------------------------------------- */
 /*                            whether to offer it                             */
 /* -------------------------------------------------------------------------- */
 
 export type ApprovalOffer =
-  /** Approval is available, on these capabilities. */
-  | { kind: "available" }
+  /**
+   * Approval is available. `hosts` are the exact hosts the scan read out of the
+   * bundle and the only ones `approvePlugin` will accept — empty for a plugin
+   * that reaches nothing, and empty *also* for one that reaches the network
+   * through an address this scan could not read, which `offerNote` explains.
+   */
+  | { kind: "available"; hosts: string[] }
   /** Nothing to approve: the verdict cannot run here at all. */
   | { kind: "not-runnable" }
   /** The scan could not identify the bundle, so there is nothing exact to bind a grant to. */
   | { kind: "unidentified" }
-  /** It runs, but reaches the network, and Context has no egress service yet. */
+  /** It runs, but reaches the network and this deployment has no egress service. */
   | { kind: "network-unavailable"; hosts: string[] };
 
 /**
@@ -228,15 +257,27 @@ export type ApprovalOffer =
  */
 export function approvalOffer(
   plugin: Pick<ConsolePlugin, "verdict" | "hosts" | "bundleFingerprint">,
+  egress = false,
 ): ApprovalOffer {
   if (plugin.verdict !== "runs" && plugin.verdict !== "needs-approval") {
     return { kind: "not-runnable" };
   }
-  if (plugin.verdict === "needs-approval") {
-    return { kind: "network-unavailable", hosts: plugin.hosts ?? [] };
-  }
+  /*
+    THE FINGERPRINT CHECK COMES FIRST, AND IT DID NOT USED TO.
+
+    While every networked plugin was unapprovable, `needs-approval` could
+    short-circuit above this and the order never mattered. With egress
+    configured it decides a real question: an unidentified bundle would be
+    offered approval, and a grant is bound to an exact bundle — there would be
+    nothing to bind it to. The order is the guard, so it has a test rather than
+    this comment alone.
+  */
   if (!plugin.bundleFingerprint) return { kind: "unidentified" };
-  return { kind: "available" };
+  const hosts = plugin.hosts ?? [];
+  if (plugin.verdict === "needs-approval" && !egress) {
+    return { kind: "network-unavailable", hosts };
+  }
+  return { kind: "available", hosts };
 }
 
 /** The sentence a blocked offer carries. Null where approval is available. */
@@ -250,10 +291,39 @@ export function offerNote(offer: ApprovalOffer): string | null {
       return "This bundle could not be identified, and a grant is bound to an exact bundle. Nothing can be approved until it can be read.";
     case "network-unavailable":
       return (
-        "This plugin calls out to the internet, and Context has no egress service that can hold a host to its address for the whole of a request. " +
+        "This plugin calls out to the internet, and this deployment has no egress service that can hold a host to its address for the whole of a request. " +
         "Until it does, approving it would be approving something Context cannot enforce — so there is nothing to press here yet. It keeps working in Obsidian."
       );
   }
+}
+
+/**
+ * The extra sentence a *networked* plugin needs on an available offer.
+ *
+ * Two cases, and they are not the same:
+ *
+ * - Hosts were read out of the bundle. The form lists them, and this says the
+ *   list is the whole of what a grant can cover — a call anywhere else is
+ *   refused at request time, not quietly allowed.
+ * - The bundle reaches the network through an address the scan could not read,
+ *   which happens when a plugin builds its URL rather than writing it down.
+ *   `approvePlugin` only accepts detected hosts, so the network capability
+ *   cannot be granted at all — the plugin installs and runs with that part
+ *   failing. **Saying so is the point**: this is the half-installed state, and
+ *   it is honest only when somebody is told before they press.
+ */
+export function networkNote(offer: ApprovalOffer, verdict: string): string | null {
+  if (offer.kind !== "available" || verdict !== "needs-approval") return null;
+  if (offer.hosts.length === 0) {
+    return (
+      "This plugin reaches the internet, and Context could not read which host from its code — it builds the address as it runs. " +
+      "You can approve everything else, and its calls out will be refused; it keeps working in full in Obsidian."
+    );
+  }
+  return (
+    "Only the hosts listed here can be granted, and only these. A call anywhere else is refused when it is made, " +
+    "not just unapproved — and every call that is made is written to your audit trail."
+  );
 }
 
 /* -------------------------------------------------------------------------- */

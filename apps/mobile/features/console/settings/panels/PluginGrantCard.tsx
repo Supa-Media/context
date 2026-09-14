@@ -11,7 +11,8 @@ import { useArming } from "../../useArming";
 import {
   DEFAULT_CAPABILITIES,
   EVENTS_NOTE,
-  GRANTABLE_CAPABILITIES,
+  grantableCapabilities,
+  networkNote,
   STALE_NOTE,
   approvalOffer,
   capabilityDetail,
@@ -71,12 +72,26 @@ export function PluginGrantCard({
 
   const standing = standingFor(plugin, grants);
   const pill = standingPill(standing);
-  const offer = approvalOffer(plugin);
+  const offer = approvalOffer(plugin, view.egress);
   const note = offerNote(offer);
+  const note2 = networkNote(offer, plugin.verdict);
   const actions = view.actions;
 
   const fingerprint = plugin.bundleFingerprint;
   const canApprove = offer.kind === "available" && actions !== undefined && fingerprint !== null;
+  const hosts = offer.kind === "available" ? offer.hosts : [];
+  /*
+    The network row is offered only when this deployment can enforce it *and*
+    the scan read a host to name. `approvePlugin` accepts only detected hosts
+    and refuses the capability without any, so a tickbox on a plugin whose
+    address is built at runtime is a control that cannot succeed — the same
+    reason the whole row was withheld while there was no egress service.
+    `networkNote` says so in words rather than leaving an absence to be read.
+  */
+  const offerable = grantableCapabilities(view.egress).filter(
+    (capability) => capability !== "network:request" || hosts.length > 0,
+  );
+  const wantsNetwork = chosen.includes("network:request") && hosts.length > 0;
 
   /*
     Nothing granted, nothing grantable, nothing to press — so draw nothing.
@@ -100,7 +115,14 @@ export function PluginGrantCard({
       await actions?.approve({
         pluginId: plugin.id,
         bundleFingerprint: fingerprint,
-        capabilities: chosen,
+        /*
+          Filtered against what is actually offerable, not sent as held. The
+          deployment's egress can go away between opening this form and pressing
+          it — a redeploy, a revoked token — and a stale tick would make the
+          whole approval fail rather than the one capability drop.
+        */
+        capabilities: chosen.filter((capability) => offerable.includes(capability)),
+        networkHosts: wantsNetwork ? hosts : [],
       });
       setOpen(false);
     } catch (error) {
@@ -169,7 +191,7 @@ export function PluginGrantCard({
             it on here.
           </Text>
 
-          {GRANTABLE_CAPABILITIES.map(
+          {offerable.map(
             (capability) => {
               const on = chosen.includes(capability);
               return (
@@ -202,6 +224,25 @@ export function PluginGrantCard({
               );
             },
           )}
+
+          {note2 !== null ? (
+            <Hint style={styles.hint}>
+              <Text variant="hint" testID={`plugin-network-note-${plugin.id}`}>
+                {note2}
+              </Text>
+            </Hint>
+          ) : null}
+
+          {wantsNetwork ? (
+            <View testID={`plugin-hosts-${plugin.id}`} style={styles.hosts}>
+              <Text variant="rowSub">It will be able to reach:</Text>
+              {hosts.map((host) => (
+                <Text key={host} variant="treeMeta" style={styles.host}>
+                  {host}
+                </Text>
+              ))}
+            </View>
+          ) : null}
 
           <Hint style={styles.hint}>
             <Text variant="hint" testID={`plugin-events-note-${plugin.id}`}>
@@ -271,6 +312,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   lead: { marginTop: 4 },
   hint: { marginTop: 4 },
   capability: { flexDirection: "row", alignItems: "flex-start", gap: 11, paddingVertical: 7 },
+  hosts: { marginTop: 2, gap: 2 },
+  host: { color: colors.accentText },
   box: {
     width: 18,
     height: 18,

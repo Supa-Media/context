@@ -67,12 +67,17 @@ function grant(over: Partial<PluginGrant> = {}): PluginGrant {
 }
 
 const approved: string[] = [];
+/** `pluginId:capabilities|hosts`, so a grant's two halves can be asserted together. */
+const approvedWithHosts: string[] = [];
 const revoked: string[] = [];
 
 function actions(): GrantsView["actions"] {
   return {
     approve: async (input) => {
       approved.push(`${input.pluginId}:${input.capabilities.join(",")}`);
+      approvedWithHosts.push(
+        `${input.pluginId}:${input.capabilities.join(",")}|${input.networkHosts.join(",")}`,
+      );
     },
     revoke: async (pluginId) => {
       revoked.push(pluginId);
@@ -80,7 +85,16 @@ function actions(): GrantsView["actions"] {
   };
 }
 
-function card(one: ConsolePlugin, view: GrantsView): HTMLElement {
+/**
+ * `egress` defaults to false, which is what every existing test here assumed
+ * when it did not exist: no public-only egress service, so no network row. The
+ * tests that care about the other state pass it explicitly.
+ */
+function card(
+  one: ConsolePlugin,
+  partial: Omit<GrantsView, "egress"> & { egress?: boolean },
+): HTMLElement {
+  const view: GrantsView = { egress: false, ...partial };
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -303,5 +317,121 @@ describe("revoke takes two presses", () => {
   test("nothing to revoke where nothing was granted", () => {
     const container = card(plugin(), { grants: [], loading: false, actions: actions() });
     expect(buttons(container).some((label) => /revoke/i.test(label))).toBe(false);
+  });
+});
+
+/*
+  Slice 3. Until the egress service existed, every networked plugin was
+  unapprovable and the console said so; now the deployment answers whether it
+  can enforce a host, and the form follows that answer.
+
+  What these hold, and what each would let through if it went:
+
+   - the network row appearing where the deployment cannot enforce it, which is
+     a tickbox whose only outcome is `NETWORK_EGRESS_UNAVAILABLE`;
+   - hosts sent without the capability, or the capability without hosts —
+     `approvePlugin` refuses both, in either direction;
+   - a host being sent that the scan never found, which the server also refuses
+     and which would be the client inventing authority;
+   - a networked plugin whose address is built at runtime being offered a
+     network row it can never use.
+*/
+describe("the network grant follows what the deployment can enforce", () => {
+  const networked = (over: Partial<ConsolePlugin> = {}) =>
+    plugin({ verdict: "needs-approval", hosts: ["www.bible.com"], ...over });
+
+  test("no egress service, no network row — and the sentence says why", () => {
+    const container = card(networked(), { grants: [], loading: false, actions: actions() });
+    expect(container.querySelector("[data-testid='capability-network:request']")).toBeNull();
+    expect(container.textContent).toContain("no egress service");
+  });
+
+  test("with egress, the row appears and the hosts are named", () => {
+    const container = card(networked(), {
+      grants: [],
+      loading: false,
+      egress: true,
+      actions: actions(),
+    });
+    press(container, "Review access");
+    expect(container.querySelector("[data-testid='capability-network:request']")).not.toBeNull();
+    // Not ticked by default: reaching a third party is somebody's decision.
+    expect(
+      container
+        .querySelector("[data-testid='capability-network:request']")
+        ?.getAttribute("aria-checked"),
+    ).toBe("false");
+    expect(container.querySelector("[data-testid='plugin-hosts-highlightr-plugin']")).toBeNull();
+  });
+
+  test("ticking it lists the exact hosts, and approving sends them", async () => {
+    approvedWithHosts.length = 0;
+    const container = card(networked(), {
+      grants: [],
+      loading: false,
+      egress: true,
+      actions: actions(),
+    });
+    press(container, "Review access");
+    press(container, "Reach the hosts it names");
+    expect(container.querySelector("[data-testid='plugin-hosts-highlightr-plugin']")?.textContent)
+      .toContain("www.bible.com");
+    await act(async () => {
+      press(container, "Approve this bundle");
+    });
+    expect(approvedWithHosts).toHaveLength(1);
+    expect(approvedWithHosts[0]).toContain("network:request");
+    expect(approvedWithHosts[0]).toContain("|www.bible.com");
+  });
+
+  /*
+    The two halves of a network grant are refused apart by `approvePlugin`, in
+    either direction. Leaving the capability unticked has to send no hosts, or
+    the whole approval fails on something the reader did not choose.
+  */
+  test("leaving it unticked sends no hosts at all", async () => {
+    approvedWithHosts.length = 0;
+    const container = card(networked(), {
+      grants: [],
+      loading: false,
+      egress: true,
+      actions: actions(),
+    });
+    press(container, "Review access");
+    await act(async () => {
+      press(container, "Approve this bundle");
+    });
+    expect(approvedWithHosts[0]).not.toContain("network:request");
+    expect(approvedWithHosts[0]!.endsWith("|")).toBe(true);
+  });
+
+  /*
+    A plugin that builds its URL as it runs reaches the network with no host the
+    scan can name. `approvePlugin` accepts only detected hosts, so the row could
+    never succeed — and the absence has to be explained rather than left to be
+    noticed after installing.
+  */
+  test("a networked plugin with no readable host gets no row, and is told why", () => {
+    const container = card(networked({ hosts: [] }), {
+      grants: [],
+      loading: false,
+      egress: true,
+      actions: actions(),
+    });
+    press(container, "Review access");
+    expect(container.querySelector("[data-testid='capability-network:request']")).toBeNull();
+    expect(container.textContent).toContain("builds the address as it runs");
+  });
+
+  test("a plugin that reaches nothing is never told about hosts", () => {
+    const container = card(plugin(), {
+      grants: [],
+      loading: false,
+      egress: true,
+      actions: actions(),
+    });
+    press(container, "Review access");
+    expect(container.querySelector("[data-testid='plugin-network-note-highlightr-plugin']"))
+      .toBeNull();
   });
 });

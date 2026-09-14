@@ -104,7 +104,7 @@ const EVERY_VERDICT: PluginsView = {
   },
 };
 
-const NO_GRANTS: GrantsView = { grants: [], loading: false };
+const NO_GRANTS: GrantsView = { grants: [], loading: false, egress: false };
 const NO_BROWSE: BrowseView = { query: "", limit: 20, searching: false, failure: null };
 const NO_RUNTIME: RuntimeView = { states: [], loading: false };
 
@@ -165,11 +165,7 @@ describe("nothing in this section is carried by colour alone", () => {
     const container = mount(
       createElement(PluginGrantCard, {
         plugin: plugin({ id: "highlightr-plugin" }),
-        view: {
-          grants: [],
-          loading: false,
-          actions: { approve: async () => {}, revoke: async () => {} },
-        },
+        view: { grants: [], loading: false, egress: false, actions: { approve: async () => {}, revoke: async () => {} } },
       }),
     );
     const open = controls(container).find((node) => /Review access/.test(accessibleName(node)));
@@ -190,11 +186,7 @@ describe("a screen reader can report and operate the consent form", () => {
     const container = mount(
       createElement(PluginGrantCard, {
         plugin: plugin({ id: "highlightr-plugin" }),
-        view: {
-          grants: [],
-          loading: false,
-          actions: { approve: async () => {}, revoke: async () => {} },
-        },
+        view: { grants: [], loading: false, egress: false, actions: { approve: async () => {}, revoke: async () => {} } },
       }),
     );
     const open = controls(container).find((node) => /Review access/.test(accessibleName(node)));
@@ -288,6 +280,7 @@ describe("nothing is lost at phone width", () => {
         grants: {
           grants: [],
           loading: false,
+          egress: false,
           actions: { approve: async () => {}, revoke: async () => {} },
         },
         browse: NO_BROWSE,
