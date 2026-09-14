@@ -239,6 +239,100 @@ assert.equal(parsePluginSandboxMessage({
   assert.equal(many.items[0].text.length, 120);
 }
 
+/*
+  `suggest-results` / `suggest-applied` — the two halves of an editor
+  suggestion, which is a round trip over one line and nothing else.
+
+  Both are nonce-authenticated because both are observable: a forged result
+  would put words into a completion menu somebody is about to accept into their
+  own note, and a forged applied-line would hand the trusted editor text no
+  plugin produced. `seq` is required on both so a result computed for a line the
+  cursor has already left can be dropped rather than offered.
+*/
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-results",
+  seq: 3,
+  items: [{ text: "John 3:16 (NIV)" }],
+}, "secret"), { type: "suggest-results", seq: 3, items: [{ text: "John 3:16 (NIV)" }] });
+// No match is an empty list, which is a different answer from no plugin at all.
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-results",
+  seq: 4,
+  items: [],
+}, "secret"), { type: "suggest-results", seq: 4, items: [] });
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "suggest-results",
+  seq: 3,
+  items: [],
+}, "secret"), null, "a forged suggestion list must not parse");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-results",
+  items: [],
+}, "secret"), null, "a result with no sequence cannot be matched to a query");
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-results",
+  seq: 3,
+  items: [{ label: "John 3:16" }],
+}, "secret"), null, "an entry without text must not parse");
+{
+  const many = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "suggest-results",
+    seq: 5,
+    items: Array.from({ length: 40 }, () => ({ text: "t".repeat(900) })),
+  }, "secret");
+  assert.equal(many.items.length, 8, "the menu is truncated, not rejected");
+  assert.equal(many.items[0].text.length, 200);
+}
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-applied",
+  seq: 3,
+  line: "see [John 3:16](https://www.bible.com/bible/1/John.3.16)",
+}, "secret"), {
+  type: "suggest-applied",
+  seq: 3,
+  line: "see [John 3:16](https://www.bible.com/bible/1/John.3.16)",
+});
+assert.equal(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "wrong",
+  type: "suggest-applied",
+  seq: 3,
+  line: "anything",
+}, "secret"), null, "a forged applied line must not reach the editor");
+{
+  const long = parsePluginSandboxMessage({
+    source: "context-plugin-sandbox",
+    version: 1,
+    nonce: "secret",
+    type: "suggest-applied",
+    seq: 3,
+    line: "x".repeat(9000),
+  }, "secret");
+  assert.equal(long.line.length, 4000);
+}
+
 assert.deepEqual(parsePluginSandboxMessage({
   source: "context-plugin-sandbox",
   version: 1,

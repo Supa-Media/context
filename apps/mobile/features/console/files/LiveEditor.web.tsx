@@ -39,6 +39,7 @@
 
 import { useEffect, useRef } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
+import { pluginSuggestions } from "./pluginSuggest";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
 import { findInNote } from "./findInNote";
@@ -173,6 +174,16 @@ export interface LiveEditorProps {
   onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
   onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
   onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
+  /**
+   * Ask the running plugins to complete the line being typed.
+   *
+   * Absent where no plugin can run — the landing page's demo console — and the
+   * completion extension is then not installed at all, rather than installed
+   * over a source that always answers nothing. `onPickSuggestion` comes with
+   * it; one without the other is a menu that cannot be accepted.
+   */
+  onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  onPickSuggestion?: (index: number) => Promise<string | null>;
 }
 
 /**
@@ -392,6 +403,8 @@ export function LiveEditor({
   onVoteForm,
   onUpdateFormResponse,
   onRetractFormResponse,
+  onSuggest,
+  onPickSuggestion,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -538,6 +551,15 @@ export function LiveEditor({
             see `coveredBottom`.
           */
         }),
+        /*
+          A plugin's in-editor suggestions, and only where a plugin can run.
+          Installed as its own extension rather than folded into
+          `editorExtensions` because that list is shared with the native
+          webview guest, which has no sandbox on the other side of it yet.
+        */
+        ...(onSuggest !== undefined && onPickSuggestion !== undefined
+          ? [pluginSuggestions({ ask: onSuggest, pick: onPickSuggestion })]
+          : []),
         findInNote(),
       ],
     });

@@ -6,9 +6,16 @@ import { EMPTY_QUERY_SPEC } from "../querySpec";
 import { PluginSandboxFarm } from "./PluginSandboxFarm";
 import { newSandboxNonce } from "./sandboxNonce";
 import type { ActiveFileRef, SandboxEvent, StatusItem, VaultEventMessage } from "./sandboxTypes";
-import type { AppliedPluginNoteWrite, CommandOutcome, InvokeRequest } from "./runtime";
+import type { AppliedPluginNoteWrite, CommandOutcome, InvokeRequest, SuggestRequest } from "./runtime";
 import type { PluginGrant } from "./grants";
-import { appliedPluginNoteWrite, vaultEventForOperation } from "./runtime";
+import {
+  SUGGEST_TIMEOUT_MS,
+  appliedPluginNoteWrite,
+  currentWalk,
+  freshSuggestions,
+  maySeeContent,
+  vaultEventForOperation,
+} from "./runtime";
 import type { ActiveSandbox, PluginRegistration, RuntimeState, RuntimeView } from "./runtime";
 
 /**
@@ -85,6 +92,40 @@ export function useRuntime(options: {
   */
   const [statusItems, setStatusItems] = useState<Record<string, StatusItem[]>>({});
   const presses = useRef(0);
+  /*
+    EDITOR SUGGESTIONS: A ROUND TRIP THE EDITOR AWAITS, WITH A CLOCK ON IT.
+
+    CodeMirror's completion source is a promise, and the answer comes back as a
+    message from a frame this host does not control. So a query is a sequence
+    number, a promise, and a timer — and **the timer is the part #533 said was
+    missing**. That change shipped a command with no timeout and named it: "a
+    pending state that can hang for ever is worse than none". A completion menu
+    that never resolves is that, on every keystroke, in the editor. A guest that
+    does not answer inside the window resolves to nothing and the person keeps
+    typing.
+  */
+  const [suggest, setSuggest] = useState<SuggestRequest | undefined>(undefined);
+  const [suggestApply, setSuggestApply] = useState<
+    { seq: number; pluginId: string; nonce: string; index: number } | undefined
+  >(undefined);
+  const suggestSeq = useRef(0);
+  const waiting = useRef(new Map<number, {
+    resolve: (items: { text: string }[]) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>());
+  const applying = useRef(new Map<number, {
+    resolve: (line: string | null) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>());
+  const lastAsked = useRef<number | null>(null);
+  /*
+    Which walk is current. Two keystrokes overlap, so an answer is only used
+    while the walk that asked for it is still the one the editor waits on —
+    see `currentWalk` for the race this closes.
+  */
+  const walk = useRef(0);
+  const offeredBy = useRef<{ pluginId: string; nonce: string } | null>(null);
+
 
   /*
     REGISTRATIONS FOLLOW THE FRAMES, RATHER THAN EACH PATH REMEMBERING TO CLEAR.
@@ -110,6 +151,18 @@ export function useRuntime(options: {
       if (keep.length === keys.length) return was;
       return Object.fromEntries(keep.map((pluginId) => [pluginId, was[pluginId]!]));
     };
+    /*
+      A frame leaving is an answer that is never coming. Left alone, the editor
+      would hold a completion promise until its timer fired — briefly correct
+      and needlessly slow, on a surface measured in keystrokes.
+    */
+    if (sandboxes.length === 0) {
+      for (const [, pending] of waiting.current) { clearTimeout(pending.timer); pending.resolve([]); }
+      waiting.current.clear();
+      for (const [, pending] of applying.current) { clearTimeout(pending.timer); pending.resolve(null); }
+      applying.current.clear();
+      offeredBy.current = null;
+    }
     setRegistrations(prune);
     /*
       And the status bar with them. A reading is worse than a name to leave
@@ -261,6 +314,67 @@ export function useRuntime(options: {
     });
   }, [isOwner, sandboxes]);
 
+  /**
+   * Ask the plugins whether any of them wants to complete this line.
+   *
+   * **First non-empty answer wins**, which is what the guest does too: its
+   * loop returns on the first suggester whose `onTrigger` matches, exactly as
+   * Obsidian's does. So the frames are asked in order and the first that
+   * offers anything owns the menu — and owns the pick, which is what makes
+   * `applySuggestion` unambiguous.
+   *
+   * Only frames that pass `maySeeContent` are asked at all. The line is note
+   * content, and that gate is `vault:read` alone.
+   */
+  const askSuggestions = useCallback(async (line: string, ch: number) => {
+    if (!isOwner) return [];
+    walk.current += 1;
+    const mine = walk.current;
+    for (const frame of sandboxes) {
+      if (!currentWalk(mine, walk.current)) return [];
+      if (!maySeeContent(frame.bundle, grants)) continue;
+      suggestSeq.current += 1;
+      const seq = suggestSeq.current;
+      lastAsked.current = seq;
+      const answer = new Promise<{ text: string }[]>((resolve) => {
+        const timer = setTimeout(() => {
+          waiting.current.delete(seq);
+          resolve([]);
+        }, SUGGEST_TIMEOUT_MS);
+        waiting.current.set(seq, { resolve, timer });
+      });
+      setSuggest({ seq, pluginId: frame.bundle.pluginId, nonce: frame.nonce, line, ch });
+      const items = await answer;
+      if (!currentWalk(mine, walk.current)) return [];
+      if (items.length > 0) return items;
+    }
+    return [];
+  }, [grants, isOwner, sandboxes]);
+
+  /**
+   * Take the suggestion somebody picked, and return the line it produced.
+   *
+   * Routed to the frame that offered the menu rather than to the plugin, for
+   * #533's reason: a restart registers the same things, and a pick aimed at a
+   * frame that has gone is not owed to its successor. Null when nothing
+   * answers, so the editor leaves the line alone rather than clearing it.
+   */
+  const applySuggestion = useCallback(async (index: number) => {
+    const offer = offeredBy.current;
+    if (offer === null) return null;
+    suggestSeq.current += 1;
+    const seq = suggestSeq.current;
+    const answer = new Promise<string | null>((resolve) => {
+      const timer = setTimeout(() => {
+        applying.current.delete(seq);
+        resolve(null);
+      }, SUGGEST_TIMEOUT_MS);
+      applying.current.set(seq, { resolve, timer });
+    });
+    setSuggestApply({ seq, pluginId: offer.pluginId, nonce: offer.nonce, index });
+    return answer;
+  }, []);
+
   const onEvent = useCallback((sandbox: ActiveSandbox, event: SandboxEvent) => {
     if (workspaceId === null) return;
     const { pluginId, bundleFingerprint, runtimeToken } = sandbox.bundle;
@@ -290,6 +404,31 @@ export function useRuntime(options: {
         card with it.
       */
       setStatusItems((was) => ({ ...was, [pluginId]: event.items }));
+      return;
+    }
+    if (event.type === "suggest-results") {
+      const pending = waiting.current.get(event.seq);
+      if (pending === undefined) return;
+      /*
+        Stale answers are dropped rather than shown. Typing outruns the round
+        trip, and a menu for a line the cursor has left offers completions for
+        text that is no longer there.
+      */
+      const items = freshSuggestions(event, lastAsked.current);
+      waiting.current.delete(event.seq);
+      clearTimeout(pending.timer);
+      if (items !== null && items.length > 0) {
+        offeredBy.current = { pluginId, nonce: sandbox.nonce };
+      }
+      pending.resolve(items ?? []);
+      return;
+    }
+    if (event.type === "suggest-applied") {
+      const pending = applying.current.get(event.seq);
+      if (pending === undefined) return;
+      applying.current.delete(event.seq);
+      clearTimeout(pending.timer);
+      pending.resolve(event.line);
       return;
     }
     if (event.type === "command-result") {
@@ -425,7 +564,9 @@ export function useRuntime(options: {
     states,
     loading: isOwner && workspaceId !== null && raw === undefined,
     host: isOwner
-      ? createElement(PluginSandboxFarm, { sandboxes, onEvent, activeFile, vaultEvent, invoke, grants })
+      ? createElement(PluginSandboxFarm, {
+          sandboxes, onEvent, activeFile, vaultEvent, invoke, suggest, suggestApply, grants,
+        })
       : undefined,
     registrations,
     outcomes,
@@ -436,6 +577,8 @@ export function useRuntime(options: {
       `PluginSandboxFarm`'s and stays behind `maySeePaths`.
     */
     openNote: activeFile?.path ?? null,
-    actions: isOwner && workspaceId !== null ? { start, stop, run } : undefined,
+    actions: isOwner && workspaceId !== null
+      ? { start, stop, run, askSuggestions, applySuggestion }
+      : undefined,
   };
 }

@@ -46,7 +46,40 @@ export type SandboxEvent =
    * mid-render cannot leave a reading on the screen that nothing is producing
    * any more.
    */
-  | { type: "status-bar"; items: StatusItem[] };
+  | { type: "status-bar"; items: StatusItem[] }
+  /**
+   * What the plugin offered for the line the host asked about.
+   *
+   * Text only — the plugin rendered each suggestion into an element inside its
+   * own sandbox and the guest reported what that element says. `seq` comes back
+   * unchanged so an answer for a line the cursor has left can be dropped.
+   */
+  | { type: "suggest-results"; seq: number; items: { text: string }[] }
+  /**
+   * The line the plugin's own `selectSuggestion` produced.
+   *
+   * The trusted editor makes this edit through its own editing path, which is
+   * why a suggester needs no write grant: it is the person typing.
+   */
+  | { type: "suggest-applied"; seq: number; line: string };
+
+/**
+ * A suggestion query on its way to one frame.
+ *
+ * `seq` is what makes this deliverable through props and what makes a stale
+ * answer droppable — see `freshSuggestions`.
+ */
+export interface SuggestMessage {
+  seq: number;
+  line: string;
+  ch: number;
+}
+
+/** A pick, routed back to the frame that offered it. */
+export interface SuggestApplyMessage {
+  seq: number;
+  index: number;
+}
 
 /**
  * One line a plugin put in its status bar.
@@ -124,4 +157,14 @@ export interface PluginSandboxProps {
   vaultEvent?: VaultEventMessage;
   /** The command to run; `undefined` until somebody presses one. */
   invoke?: InvokeMessage;
+  /**
+   * The line to suggest against.
+   *
+   * Note *content*, so the farm sends it only to a plugin granted
+   * `vault:read` — see `maySeeContent`. `undefined` for everyone else, which is
+   * the same shape as never having been asked.
+   */
+  suggest?: SuggestMessage;
+  /** The suggestion the person picked, routed back to the frame that offered it. */
+  suggestApply?: SuggestApplyMessage;
 }

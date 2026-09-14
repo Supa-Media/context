@@ -745,6 +745,13 @@ export function BrowsePane({
           write notes files a bug in a workspace they are a read-only member
           of, which is the case the feature was built for.
         */
+        /*
+          Plugin completions. Absent for anyone whose runtime has no actions —
+          a non-owner, or a console with no plugin running — and the editor then
+          installs no completion extension at all.
+        */
+        onSuggest={data.pluginRuntime?.actions?.askSuggestions}
+        onPickSuggestion={data.pluginRuntime?.actions?.applySuggestion}
         onSubmitForm={files.submitForm}
         onReadFormResponses={files.readFormResponses}
         onVoteForm={files.voteForm}

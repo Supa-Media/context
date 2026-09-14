@@ -122,7 +122,32 @@ export interface RuntimeActions {
    * guaranteed to come. The outcome arrives through `outcomes` instead.
    */
   run: (pluginId: string, id: string) => void;
+  /**
+   * Ask the running plugins whether any wants to complete this line.
+   *
+   * Resolves to an empty list when nobody does, when nobody may be asked, or
+   * when nobody answers in time — the editor treats all three the same way,
+   * which is to carry on.
+   *
+   * Optional, like `host`: a surface with no editor to complete into — the
+   * landing page's demo console — has no suggestions, and absence says that
+   * more honestly than a function that always resolves empty.
+   */
+  askSuggestions?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  /** Take the pick; resolves to the rewritten line, or null if nothing answers. */
+  applySuggestion?: (index: number) => Promise<string | null>;
 }
+
+/**
+ * How long the editor waits for a plugin to answer before carrying on.
+ *
+ * #533 shipped a command with no timeout and named the gap: *"a pending state
+ * that can hang for ever is worse than none"*. In a completion menu that state
+ * is entered on a keystroke, so the clock is not optional here. Short enough
+ * that a wedged guest is indistinguishable from no suggester, long enough for a
+ * guest that has to reach the network through the broker.
+ */
+export const SUGGEST_TIMEOUT_MS = 1200;
 
 /**
  * What came back from the last command this plugin was asked to run.
@@ -568,6 +593,113 @@ export function appliedPluginNoteWrite(
     expectedEtag: operation.expectedEtag,
     etag,
   };
+}
+
+/**
+ * One suggestion query, before it is routed to a frame.
+ *
+ * Carries the plugin and the frame for the same reason `InvokeRequest` does: by
+ * the time it reaches a sandbox the plugin is implied, and a field the guest
+ * could read that nothing checks is worse than no field.
+ */
+export interface SuggestRequest {
+  seq: number;
+  pluginId: string;
+  /** The frame this was aimed at. A replacement frame has a different one. */
+  nonce: string;
+  /** The line the cursor is on, up to and including it. Note content. */
+  line: string;
+  /** Where the cursor sits in that line. */
+  ch: number;
+}
+
+/**
+ * The query to hand this frame, or nothing.
+ *
+ * The rule #533 established for commands, applied to the other instruction in
+ * this protocol. A restart mounts a new frame, and a query aimed at the frame
+ * before it is not owed to its successor — a suggester answering it would be
+ * completing against a line the person has since left.
+ */
+export function suggestFor(
+  sandbox: { bundle: { pluginId: string }; nonce: string },
+  request: SuggestRequest | undefined,
+): { seq: number; line: string; ch: number } | undefined {
+  if (request === undefined) return undefined;
+  if (request.pluginId !== sandbox.bundle.pluginId) return undefined;
+  if (request.nonce !== sandbox.nonce) return undefined;
+  return { seq: request.seq, line: request.line, ch: request.ch };
+}
+
+/**
+ * The suggestions to show, or null when the answer is stale.
+ *
+ * **Typing outruns a round trip.** A menu built from an answer to a line the
+ * cursor has already left is worse than no menu: it offers completions for text
+ * that is no longer there, and somebody accepts one into the text that is. The
+ * sequence the host asked with is the only thing that can tell those apart, so
+ * it is required on the wire and compared here.
+ */
+export function freshSuggestions(
+  answer: { seq: number; items: { text: string }[] },
+  asked: number | null,
+): { text: string }[] | null {
+  if (asked === null) return null;
+  return answer.seq === asked ? answer.items : null;
+}
+
+/**
+ * Whether the walk that is asking is still the one the editor is waiting on.
+ *
+ * `askSuggestions` walks the running frames one at a time, and a second
+ * keystroke starts a second walk before the first has finished. Found reviewing
+ * the diff: both walks were writing the same "what did I last ask?" slot, so an
+ * **older** walk could overwrite it with its own newer sequence — and then the
+ * newer keystroke's answer looked stale and was dropped while the older one's
+ * was accepted and shown. The sequence number exists to stop exactly that, and
+ * this is the door it left open.
+ *
+ * A generation per call closes it: an answer is used only while its own walk is
+ * still the current one, and a superseded walk yields nothing whatever comes
+ * back to it.
+ */
+export function currentWalk(mine: number, latest: number): boolean {
+  return mine === latest;
+}
+
+/**
+ * Which loaded plugins may be shown a line of somebody's note.
+ *
+ * ## Why this is not `maySeePaths`
+ *
+ * A suggestion query carries **content** — the line somebody is in the middle
+ * of typing. Every other piece of state this host pushes to a guest carries a
+ * *path*, and `maySeePaths` opens on `vault:read` **or** `metadata:read`
+ * because a path is metadata-shaped.
+ *
+ * A line of prose is not metadata. A plugin granted `metadata:read` was
+ * approved to see frontmatter, headings, tags and the links between notes; it
+ * was not approved to read the sentence being written. So this is `vault:read`
+ * alone, and it is a separate function rather than a parameter on the other one
+ * — two gates that answer different questions drift into each other the moment
+ * they share a name.
+ *
+ * The guest cannot enforce this: it is handed the line before it runs any
+ * plugin code. The decision has to be made here, before the message is sent.
+ */
+export function maySeeContent(
+  sandbox: { pluginId: string; bundleFingerprint: string },
+  grants: readonly PluginGrant[] | undefined,
+): boolean {
+  if (grants === undefined) return false;
+  const grant = grants.find(
+    (one) =>
+      one.pluginId === sandbox.pluginId &&
+      one.bundleFingerprint === sandbox.bundleFingerprint &&
+      one.status === "active",
+  );
+  if (grant === undefined) return false;
+  return grant.capabilities.includes("vault:read");
 }
 
 /**

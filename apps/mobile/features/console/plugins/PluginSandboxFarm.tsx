@@ -8,8 +8,8 @@ import type {
   SandboxEvent,
   VaultEventMessage,
 } from "./sandboxTypes";
-import { invokeFor, maySeePaths } from "./runtime";
-import type { ActiveSandbox, InvokeRequest } from "./runtime";
+import { invokeFor, maySeeContent, maySeePaths, suggestFor } from "./runtime";
+import type { ActiveSandbox, InvokeRequest, SuggestRequest } from "./runtime";
 
 /** Trusted host for every active plugin; tokens remain in these closures. */
 export function PluginSandboxFarm({
@@ -18,6 +18,8 @@ export function PluginSandboxFarm({
   activeFile = null,
   vaultEvent,
   invoke,
+  suggest,
+  suggestApply,
   grants,
 }: {
   sandboxes: ActiveSandbox[];
@@ -28,6 +30,17 @@ export function PluginSandboxFarm({
   vaultEvent?: VaultEventMessage;
   /** The command the owner pressed. Unlike the two above, it is not broadcast. */
   invoke?: InvokeRequest;
+  /**
+   * The line to suggest against, aimed at one frame.
+   *
+   * **Content, not a path**, so it passes a stricter gate than `activeFile`
+   * does: `maySeeContent` requires `vault:read`, where `maySeePaths` also
+   * accepts `metadata:read`. A plugin approved to read tags and links was not
+   * approved to read the sentence somebody is typing.
+   */
+  suggest?: SuggestRequest;
+  /** The pick, routed back to the frame that offered it. */
+  suggestApply?: { seq: number; pluginId: string; nonce: string; index: number };
   /** What each plugin was approved for. Absent means nobody is told anything. */
   grants?: readonly PluginGrant[];
 }) {
@@ -57,6 +70,20 @@ export function PluginSandboxFarm({
               belongs to is the only one that hears about it.
             */
             invoke={invokeFor(sandbox, invoke)}
+            /*
+              Two gates, deliberately different. `shares` above decides who may
+              be told a path; this decides who may be shown a line, and only
+              `vault:read` opens it. Routed as well as gated — a query belongs
+              to the frame it was aimed at, like a command.
+            */
+            suggest={maySeeContent(sandbox.bundle, grants) ? suggestFor(sandbox, suggest) : undefined}
+            suggestApply={
+              suggestApply !== undefined &&
+              suggestApply.pluginId === sandbox.bundle.pluginId &&
+              suggestApply.nonce === sandbox.nonce
+                ? { seq: suggestApply.seq, index: suggestApply.index }
+                : undefined
+            }
           />
         );
       })}
@@ -70,12 +97,16 @@ function SandboxSlot({
   activeFile,
   vaultEvent,
   invoke,
+  suggest,
+  suggestApply,
 }: {
   sandbox: ActiveSandbox;
   onEvent: (sandbox: ActiveSandbox, event: SandboxEvent) => void;
   activeFile: ActiveFileRef | null;
   vaultEvent?: VaultEventMessage;
   invoke?: InvokeMessage;
+  suggest?: { seq: number; line: string; ch: number };
+  suggestApply?: { seq: number; index: number };
 }) {
   const receive = useCallback(
     (event: SandboxEvent) => onEvent(sandbox, event),
@@ -89,6 +120,8 @@ function SandboxSlot({
       activeFile={activeFile}
       vaultEvent={vaultEvent}
       invoke={invoke}
+      suggest={suggest}
+      suggestApply={suggestApply}
     />
   );
 }
