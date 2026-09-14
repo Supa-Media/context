@@ -8,7 +8,7 @@ import {
   foundLabel,
   fromInventoryRow,
   groupPlugins,
-  installPending,
+  runsHereNote,
   namedEvidence,
   offersInstall,
   pluginsPreview,
@@ -124,7 +124,7 @@ describe("install is offered only where a verdict can carry it", () => {
 describe("no row ends on a refusal", () => {
   test("every verdict closes with exactly one of a route out or an install note", () => {
     for (const verdict of VERDICT_ORDER) {
-      const closings = [routeOut(verdict), installPending(verdict)].filter(
+      const closings = [routeOut(verdict), runsHereNote(verdict)].filter(
         (line): line is string => line !== null,
       );
       expect(closings).toHaveLength(1);
@@ -145,11 +145,31 @@ describe("no row ends on a refusal", () => {
     expect(line).toContain("Obsidian");
   });
 
-  test("the install-pending note is absent wherever a route out already answers", () => {
-    expect(installPending("wont-run")).toBeNull();
-    expect(installPending("files-only")).toBeNull();
-    expect(installPending("unknown")).toBeNull();
-    expect(installPending("runs")).toContain("not built yet");
+  test("the runs-here note is absent wherever a route out already answers", () => {
+    expect(runsHereNote("wont-run")).toBeNull();
+    expect(runsHereNote("files-only")).toBeNull();
+    expect(runsHereNote("unknown")).toBeNull();
+  });
+
+  /*
+    THE SENTENCE THAT WENT ON BEING PRINTED AFTER IT STOPPED BEING TRUE.
+
+    This line used to read "Context can read this plugin, and running it here
+    is not built yet", which was honest when the console could only report on a
+    bundle. The sandbox host, grants, Start and managed install all landed
+    since, and nothing updated the copy — so both of the screenshots that
+    prompted this change show it sitting directly above a plugin that is
+    installed, approved and, in one of them, **Running**.
+
+    A row still never ends on a refusal. It ends on what is true instead.
+  */
+  test("a plugin that can run here is not told that running it is unbuilt", () => {
+    for (const verdict of ["runs", "needs-approval"] as const) {
+      const line = runsHereNote(verdict);
+      expect(line).not.toBeNull();
+      expect(line).not.toContain("not built yet");
+      expect(line).toContain("Obsidian");
+    }
   });
 });
 

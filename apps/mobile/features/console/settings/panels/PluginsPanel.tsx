@@ -30,7 +30,7 @@ import {
   SCOPE_NOTE,
   foundLabel,
   groupPlugins,
-  installPending,
+  runsHereNote,
   namedEvidence,
   readLabel,
   routeOut,
@@ -437,9 +437,9 @@ function VaultInventory({
  * One plugin.
  *
  * The closing line is exactly one of two things and never both: the route that
- * still works (`routeOut`), or — for the two verdicts that will one day offer
- * an install — the note saying that running plugins here is not built yet
- * (`installPending`). Both come from the pure module, so the rule that a row
+ * still works (`routeOut`), or — for the two verdicts Context can run — the
+ * note saying so
+ * (`runsHereNote`). Both come from the pure module, so the rule that a row
  * never ends on a refusal is a property a test can hold rather than a habit
  * this component happens to have.
  */
@@ -459,7 +459,7 @@ function PluginRow({
   const findings = namedEvidence(plugin);
   const read = readLabel(plugin);
   const route = routeOut(plugin.verdict);
-  const pending = installPending(plugin.verdict);
+  const pending = runsHereNote(plugin.verdict);
   const from = sourceNote(plugin);
 
   return (
