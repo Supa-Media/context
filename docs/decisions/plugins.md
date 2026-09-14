@@ -578,9 +578,34 @@ console, tokens rotate before expiry, and three failed loads become
 
 The first shim covers conflict-safe vault reads and mutations, metadata, the
 plugin's own settings, notices, command registration and lifecycle cleanup.
-Rendering plugin-provided editor extensions, settings controls, ribbon actions
-and views remains a frontend integration step; the sandbox is now the place
-  those registrations come from rather than a reason they cannot be built.
+Rendering plugin-provided editor extensions, settings controls and views remains
+a frontend integration step; the sandbox is now the place those registrations
+come from rather than a reason they cannot be built.
+
+## A plugin's UI reaches the console as text, never as DOM
+
+The status bar is the first piece of plugin interface Context draws, and it set
+the shape for the rest: **the guest reports what an element says, and the
+console draws that with its own components in its own theme.** The element never
+crosses. A plugin therefore cannot style, size, position or script anything on
+the trusted side, and the sandbox stays the only place its markup exists — the
+same boundary the view conditions draw, arrived at from the other side.
+
+Two rules come with it and apply to whatever is drawn next:
+
+- **State is sent whole, not as a diff.** The guest reports its entire status
+  bar on every change, so there is no removal message that a guest torn down
+  mid-render could fail to send, and the console's copy cannot drift from the
+  guest's. A plugin that empties its status bar sends an empty list.
+- **Bounds are enforced on the trusted side too.** The guest stops at eight
+  items and collapses each to a single line; the host truncates and re-bounds
+  whatever arrives anyway, because a cap the untrusted half applies to itself is
+  not a cap.
+
+And it is labelled. This is the first third-party text in the console, and a
+reader who takes a plugin's "412 words" for something Context measured has been
+misled by the frame it was put in rather than by the plugin.
+
 ## The drawing editor is a page, because a dynamic import is not a lazy chunk
 
 Drawings became editable by embedding the real Excalidraw — the only way to be

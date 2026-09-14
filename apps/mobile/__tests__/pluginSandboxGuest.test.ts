@@ -464,9 +464,21 @@ describe("a plugin's status bar reaches the console", () => {
     expect(one.last()).toEqual([{ id: "status-1", text: "412 words" }]);
   });
 
-  test("nothing is reported for an item the plugin never wrote into", async () => {
-    const one = await guest(item("this.addStatusBarItem();"));
-    expect(one.bars()).toEqual([]);
+  /*
+    An item with nothing in it is not a blank line on somebody's card.
+
+    The second item is what makes this a test rather than a coincidence: a
+    plugin that only ever adds one and writes nothing produces no report at all,
+    because nothing has mutated since the guest started watching — so the
+    assertion would hold with the empty-text rule deleted. Writing into a
+    sibling forces a report while the empty one is still there.
+  */
+  test("an item the plugin never wrote into is not a blank line", async () => {
+    const one = await guest(item(`
+      this.addStatusBarItem();
+      this.addStatusBarItem().setText('3 tasks due');
+    `));
+    expect(one.last()).toEqual([{ id: "status-2", text: "3 tasks due" }]);
   });
 
   test("the whole list arrives each time, so the console cannot drift", async () => {
@@ -529,6 +541,24 @@ describe("a plugin's status bar reaches the console", () => {
       this.addStatusBarItem().setText('Synced\\n\\t  2m ago');
     `));
     expect(one.last()).toEqual([{ id: "status-1", text: "Synced 2m ago" }]);
+  });
+
+  /*
+    A plugin that rewrites its status bar to the same words has changed its DOM
+    and said nothing. The observer cannot tell those apart — it fires on the
+    mutation, not on the result — so the guest compares before it sends, and a
+    plugin re-rendering on a timer does not re-render the console with it.
+  */
+  test("rewriting an item to the same words says nothing", async () => {
+    const one = await guest(item(`
+      const el = this.addStatusBarItem();
+      el.setText('412 words');
+      globalThis.__status.rewrite = () => { el.empty(); el.createSpan({ text: '412 words' }); };
+    `));
+    expect(one.bars()).toHaveLength(1);
+    (globalThis as unknown as { __status: { rewrite: () => void } }).__status.rewrite();
+    await settle();
+    expect(one.bars()).toHaveLength(1);
   });
 
   test("an unloaded plugin's status bar goes quiet", async () => {

@@ -19,8 +19,15 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
+/*
+  `useAction` answers `loadPluginBundle` as well as the RPC, so `start` can
+  actually mount a frame — which is what the last test here needs: the status
+  bar is cleared by a *derivation* from the live sandboxes, not by anything the
+  stop path remembers to call, and that is only observable if a frame really
+  comes and goes.
+*/
 jest.mock("convex/react", () => ({
-  useAction: () => async () => undefined,
+  useAction: () => async () => mockBundle,
   useMutation: () => async () => undefined,
   useQueries: () => ({}),
 }));
@@ -36,20 +43,19 @@ import type { Id } from "@context/convex/_generated/dataModel";
 
 const WORKSPACE = "ws_one" as Id<"workspaces">;
 
-const SANDBOX: ActiveSandbox = {
-  bundle: {
-    pluginId: "obsidian-tasks-plugin",
-    version: "1.0.0",
-    bundleFingerprint: "fp-1",
-    manifestJson: '{"id":"obsidian-tasks-plugin"}',
-    mainJs: "module.exports = class {};",
-    stylesCss: null,
-    runtimeToken: "runtime-token-for-test",
-    expiresAt: 4_102_444_800_000,
-  },
-  nonce: "nonce-for-test",
-  attempts: 1,
+const BUNDLE = {
+  pluginId: "obsidian-tasks-plugin",
+  version: "1.0.0",
+  bundleFingerprint: "fp-1",
+  manifestJson: '{"id":"obsidian-tasks-plugin"}',
+  mainJs: "module.exports = class {};",
+  stylesCss: null,
+  runtimeToken: "runtime-token-for-test",
+  expiresAt: 4_102_444_800_000,
 };
+const mockBundle = BUNDLE;
+
+const SANDBOX: ActiveSandbox = { bundle: BUNDLE, nonce: "nonce-for-test", attempts: 1 };
 
 const mounted: (() => void)[] = [];
 afterEach(() => {
@@ -118,6 +124,32 @@ describe("the console holds what the guest last said, not a running total", () =
     const host = mount();
     host.send({ type: "status-bar", items: [{ id: "status-1", text: "412 words" }] });
     host.send({ type: "unloaded" });
+    expect(host.view().statusItems).toEqual({});
+  });
+});
+
+/*
+  The clear that nothing calls.
+
+  `useRuntime` derives what it holds from the live sandboxes rather than
+  clearing at each of the five ways a frame can go — the arrangement #527
+  adopted after a self-review found two of those five already missed. This is
+  that arrangement holding for the status bar: Stop removes the frame and
+  nothing anywhere mentions status items, and the reading still leaves the card.
+*/
+describe("a status bar goes when its frame does, without anything clearing it", () => {
+  test("stopping the plugin takes its last reading with it", async () => {
+    const host = mount();
+    await act(async () => {
+      await host.view().actions?.start("obsidian-tasks-plugin", "fp-1");
+    });
+    host.send({ type: "status-bar", items: [{ id: "status-1", text: "412 words" }] });
+    expect(host.view().statusItems?.["obsidian-tasks-plugin"]).toEqual([
+      { id: "status-1", text: "412 words" },
+    ]);
+    await act(async () => {
+      await host.view().actions?.stop("obsidian-tasks-plugin", "fp-1");
+    });
     expect(host.view().statusItems).toEqual({});
   });
 });

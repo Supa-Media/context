@@ -214,16 +214,20 @@ export function pluginSandboxDocument() {
     message it might not send, so the console's copy cannot drift from this one.
     The host's parser carries the same reasoning from its side.
 
+    The cap is interpolated from the host's own constant rather than written
+    twice. Two numbers meant to agree, in one file, with nothing linking them is
+    how the supported-members list drifted by twenty names.
+
     Kept out of the layout with display:none: nothing here is meant to be seen
     in the frame, which is 1x1 and invisible anyway, and a later change that
     makes a frame visible must not start drawing this by accident.
   */
-  const STATUS_MAX = 8;
   const statusRoot = document.createElement('div');
   statusRoot.style.display = 'none';
   const statusIds = new WeakMap();
   let statusCount = 0;
   let statusWatch = null;
+  let statusSent = null;
   function reportStatusBar() {
     const items = [];
     for (const el of Array.from(statusRoot.children)) {
@@ -235,8 +239,16 @@ export function pluginSandboxDocument() {
       const text = String(el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 120);
       if (text === '') continue;
       items.push({ id, text });
-      if (items.length >= STATUS_MAX) break;
+      if (items.length >= ${STATUS_BAR_MAX}) break;
     }
+    // The observer fires on any mutation, and plenty of them leave the text
+    // exactly as it was: a plugin that empties an item and rebuilds it with the
+    // same words has changed its DOM twice and said nothing. Sending only what
+    // is new keeps a plugin re-rendering on a timer from re-rendering the
+    // console with it.
+    const encoded = JSON.stringify(items);
+    if (encoded === statusSent) return;
+    statusSent = encoded;
     send('status-bar', { items });
   }
 
@@ -327,6 +339,7 @@ export function pluginSandboxDocument() {
     if (statusWatch !== null) { statusWatch.disconnect(); statusWatch = null; }
     statusRoot.textContent = '';
     statusCount = 0;
+    statusSent = null;
   }
 
   const receiveHostMessage = async event => {
