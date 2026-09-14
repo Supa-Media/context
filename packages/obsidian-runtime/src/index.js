@@ -11,3 +11,5 @@ export {
   pluginSandboxDocument,
   sandboxFrameIsOurs,
 } from "./sandbox.js";
+
+export { PLANNED_MEMBERS, SUPPORTED_MEMBERS } from "./surface.js";

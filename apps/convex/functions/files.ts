@@ -354,6 +354,18 @@ const pluginValidator = v.object({
   hosts: v.array(v.string()),
   reason: v.string(),
   supported: v.array(v.string()),
+  /**
+   * Members the shim has committed to and does not answer yet.
+   *
+   * Reported beside `supported` rather than folded into it, because the two are
+   * different claims: `supported` says the sandbox serves this, `planned` says
+   * it will. Mixing them is exactly the drift the scanner's own list had, where
+   * twenty names read as implemented and threw on first call. The console does
+   * not render this array directly — `limitations` already carries a sentence
+   * per distinct cause — but it travels so the two halves stay auditable
+   * against each other.
+   */
+  planned: v.array(v.string()),
 });
 
 const pluginInventoryValidator = v.object({
@@ -418,6 +430,7 @@ type PluginInventory = {
     hosts: string[];
     reason: string;
     supported: string[];
+    planned: string[];
   }>;
   counts: Record<PluginVerdict, number>;
   found: number;
