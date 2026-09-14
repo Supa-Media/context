@@ -311,7 +311,7 @@ importers:
         version: 15.0.11(expo@54.0.37)(react-native@0.81.5(@babel/core@7.29.7)(@react-native/metro-config@0.87.0(@babel/core@7.29.7))(@types/react@19.1.17)(react@19.1.0))
       posthog-js:
         specifier: ^1.429.2
-        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0)
+        version: 1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0)
       posthog-react-native:
         specifier: ^4.68.6
         version: 4.68.9(ohiom62wyrczzcsohh7isxq75a)
@@ -400,6 +400,21 @@ importers:
       typescript:
         specifier: ~5.9.2
         version: 5.9.3
+
+  infra/egress-service:
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^5.20260719.1
+        version: 5.20260826.1
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2
+        version: 2.1.9(@edge-runtime/vm@5.0.0)(@types/node@22.20.1)(jsdom@26.1.0)(lightningcss@1.33.0)(sass@1.51.0)(terser@5.51.2)
+      wrangler:
+        specifier: ^4.124.0
+        version: 4.126.0(@cloudflare/workers-types@5.20260826.1)
 
   infra/email-worker:
     devDependencies:
@@ -16075,7 +16090,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11(preact@10.24.3))(react@19.1.0):
+  posthog-js@1.429.5(@types/react@19.1.17)(preact-render-to-string@6.5.11)(react@19.1.0):
     dependencies:
       '@posthog/browser-common': 0.8.2
       '@posthog/core': 1.53.1
@@ -16083,7 +16098,7 @@ snapshots:
       core-js: 3.50.0
       dompurify: 3.4.15
       fflate: 0.4.9
-      preact: 10.29.8(preact-render-to-string@6.5.11(preact@10.24.3))
+      preact: 10.29.8(preact-render-to-string@6.5.11)
       query-selector-shadow-dom: 1.0.1
       web-vitals: 6.2.1
       web-vitals-soft-navs: web-vitals@6.2.1
@@ -16117,11 +16132,16 @@ snapshots:
     dependencies:
       preact: 10.24.3
 
+  preact-render-to-string@6.5.11(preact@10.29.8):
+    dependencies:
+      preact: 10.29.8(preact-render-to-string@6.5.11)
+    optional: true
+
   preact@10.24.3: {}
 
-  preact@10.29.8(preact-render-to-string@6.5.11(preact@10.24.3)):
+  preact@10.29.8(preact-render-to-string@6.5.11):
     optionalDependencies:
-      preact-render-to-string: 6.5.11(preact@10.24.3)
+      preact-render-to-string: 6.5.11(preact@10.29.8)
 
   prelude-ls@1.2.1: {}
 
