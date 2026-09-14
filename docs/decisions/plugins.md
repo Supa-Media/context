@@ -1,12 +1,256 @@
-# Obsidian plugins
+# Plugins
 
 _See `docs/decisions/README.md` for the index._
 
-Obsidian's plugin ecosystem is the largest body of work built on top of plain
-Markdown vaults, and Context's storage model means it is not somebody else's
-ecosystem: **the bucket that Context serves is the vault those plugins are
-already running against.** The decisions here govern how far we go towards
-running them, and what we promise about the ones we do not.
+Two things are called a plugin here, and merging them was a decision rather
+than a tidy-up (owner, 2026-09-14).
+
+**Obsidian's** are somebody else's code in the customer's bucket. Obsidian's
+plugin ecosystem is the largest body of work built on top of plain Markdown
+vaults, and Context's storage model means it is not somebody else's ecosystem:
+**the bucket that Context serves is the vault those plugins are already running
+against.** Everything from "The bucket is the vault" down governs how far we go
+towards running them, and what we promise about the ones we do not.
+
+**Context's** are ours, and they were not called plugins at all until this
+file said so. Forms, image uploads, meetings, chat days and drawings were
+features of the app — a tool in the gateway, a widget in the editor, a card in
+the console — with no off switch and no row anywhere, while the word "plugin"
+in this product meant Templater. That split is arbitrary from the customer's
+side: a person looking for "the forms thing" and a person looking for Templater
+are asking the same question of the same screen.
+
+## A Context plugin is Obsidian's manifest with one extra key, and no bundle
+
+`apps/mcp/src/plugins/catalog.js` declares five, in Obsidian's own manifest
+shape — `id`, `name`, `version`, `minAppVersion`, `description`, `author`,
+`authorUrl`, `isDesktopOnly`, spelled the way Obsidian spells them. Everything
+Context needs that Obsidian has no concept of goes under a single `context`
+key, which Obsidian ignores exactly as it ignores any unknown manifest key, the
+same round-trip rule frontmatter already keeps here.
+
+That is what makes "the same shape, in two places" a fact rather than a
+resemblance: one renderer draws a row for a plugin from this catalogue and a row
+for a plugin in `.obsidian/plugins/`, because the fields it reads are the same
+fields.
+
+**What it is not is a bundle.** Nothing in the catalogue is downloaded, stored
+in a bucket, scanned, or executed. The code ships with the gateway and the
+console. So a Context plugin has no verdict, no fingerprint and no grant — the
+whole apparatus below exists for code we did not write, and applying it to our
+own would be theatre.
+
+**Ids carry a reserved `context-` prefix, and the prefix is a guard.**
+`isReservedPluginId` refuses it to anything read out of a bucket. A vault folder
+called `forms`, or a community plugin published under that id, must never be
+able to present itself as the built-in one — the built-in's row carries a switch
+that changes what the gateway serves, and a folder anybody can sync into a
+bucket borrowing that row would be a control surface with an untrusted name on
+it. Reserved is the whole prefix rather than the five ids in use, so a plugin
+added later is not shadowable by a folder that predates it.
+
+**What a simplification costs.** Dropping the prefix check lets a synced folder
+take a built-in's row. Inventing a manifest shape of our own ends the one-row
+claim and makes a future third-party Context plugin unpublishable to either
+catalogue. `a vault folder cannot borrow a built-in id` is the check.
+
+## The switch lives in the bucket, in two lists rather than one
+
+`.context/plugins/enabled.json`, beside the managed installs and deliberately
+not inside `.obsidian/` — which is read and never written, and this is a file
+of ours.
+
+It could have lived in the control plane. It is small, it is not note content,
+and Convex already holds the plugin *grants*. It does not, and the reason is
+non-negotiable #1 rather than convenience: a customer who hands their bucket to
+storage of their own, or self-hosts the gateway at it, should find their context
+configured the way they left it. A workspace whose forms silently come back on
+after an export was partly ours. `an owner turning one off writes the decision
+into the customer's bucket` asserts it against the bucket, never against a row.
+
+**Two lists, because these default to on.** Obsidian's
+`.obsidian/community-plugins.json` is a bare array of enabled ids, and the
+absence of an id means off. Copying that exactly would be wrong in the one case
+that matters most — a bucket that has never seen this file, which is every
+bucket today. Under Obsidian's shape an empty file and a missing file both mean
+*everything off*, so shipping it would turn five working features off for every
+existing customer at once. So the file records **decisions** —
+`{ "version": 1, "enabled": [], "disabled": ["context-meetings"] }` — and an id
+nobody has decided about takes its manifest's default. An id in both lists is
+not a third state to invent a rule for; it is a file edited into a
+contradiction, and it makes the file malformed.
+
+A decision about a plugin this build does not have is kept and never acted on,
+so a newer console against an older gateway does not lose somebody's setting.
+The rendered file is sorted and pretty-printed, because it syncs into a vault
+and is opened in editors: off, on, off again produces the bytes that were there
+before.
+
+**What a simplification costs.** Moving the file into Convex ends the export
+guarantee above. Adopting Obsidian's bare array turns every existing context's
+plugins off on deploy. Dropping the round-trip lets a toggle rewrite a file that
+was already correct. The checks are in `contextPlugins.test.mjs`.
+
+## A switch removes a capability and never a protection
+
+The rule the whole design rests on, and the one to check any addition against.
+No guard, no privacy rule, no write refusal is part of any switch. Turning
+Drawings off stops a drawing being described or rendered; it does **not** relax
+the rule that a write to a `.excalidraw.md` path must itself parse as a drawing,
+which is the guard standing between a careless client and somebody's only copy
+of a diagram.
+
+That is what makes the failure behaviour safe, and the failure behaviour is
+uniform: absent, empty, malformed, contradictory, versioned from the future, or
+a backend that threw — every one of them resolves to the manifest's default, and
+the default is on. The worst that can do is hand somebody back a feature they
+had hidden. The opposite failure — a storage blip disabling forms across a
+shared workspace, so a member's bug report is refused with no explanation
+anybody can act on — is both worse and silent. A settings file that will not
+parse is *reported* on the panel, so nobody is left thinking their choice stuck.
+
+**What a simplification costs.** Folding any guard into a switch makes a
+preferences file a security control, and a preferences file is hand-editable in
+Obsidian by anybody with the bucket. Failing closed turns a typo into a
+workspace losing its tools. `a switch never fails closed: an unreachable file
+disables nothing` is the check, sabotage-confirmed.
+
+## The switch is enforced twice, because the listing is cached
+
+Exactly as scope is, and for the same division of labour. `toolsForSession`
+filters a disabled plugin's tools out of `tools/list`, and that is the
+**courtesy**: the modern listing is `CACHEABLE` for a minute, and a client
+remembers a tool name for much longer than that. `callToolForSession` refuses
+the call, and that is the **control**.
+
+Two things about where the per-call gate sits. It is **after** the argument
+check, reversing the order scope uses, because it costs a storage read and the
+comment above it promises that a call carrying arguments we never advertised
+reaches no storage at all. And it reads the switch off the **target** store, so
+a cross-context call into a workspace whose owner turned forms off is refused
+with that owner's setting rather than the caller's.
+
+The refusal names the plugin and where to turn it back on. "Unknown tool" is
+what a client would otherwise report to somebody whose own setting caused it,
+and it names no way back — the `report.js` rule that a refusal always carries
+its next step, applied to the one refusal an owner can undo in a single press.
+
+**What a simplification costs.** Keeping only the listing filter makes the
+switch a suggestion for up to a minute, and forever for a client that caches
+harder. `a Context plugin turned off takes its tools out of the listing` and
+`a call to a switched-off tool is refused by name, with the way to undo it` fail
+respectively; the second was deliberately merged from a weaker pair, because
+`isError === true` alone passes on the broken build.
+
+## What may never be a plugin
+
+A feature belongs in the catalogue when turning it off removes a **capability**
+and nothing else. Notes, privacy, search, audit, storage and encryption are
+absent and are not candidates: a switch that can stop the privacy engine running
+is not a plugin, it is a hole, and a switch that hides encrypted notes is a
+switch that loses somebody's content.
+
+`no Context plugin claims a core tool` pins the tool half of that —
+`read_note`, `write_note`, `search`, `search_notes`, `orient` and `list_notes`
+have no owner and cannot acquire one — and the catalogue refuses to build at all
+if two plugins claim one tool, because a tool whose switch is ambiguous is on
+for one reader and off for another.
+
+## A vault copy and a managed install are one plugin, and the duplicate is not created
+
+Precedence when one id is in both places is **unchanged**: the Context-managed
+release is the row and the runtime. The reversal — prefer the vault copy,
+because `.obsidian/` is the directory its owner actually keeps current — was
+written, tested and backed out, and the fact that killed it belongs here so it
+is not tried again: **a managed release is the only bundle this product can
+run.** `loadPluginBundle` reads `.context/plugins/<id>/releases/<version>/` and
+a fingerprint only resolves there, so an inventory that hid the managed row
+behind a synced folder would take a plugin somebody installed here, approved
+here and is running here, and silently stop it the moment they also installed it
+in Obsidian.
+
+What was right about the reversal is kept in two places.
+
+**The duplicate is visible.** `alsoInVault` rides the row, and `list_plugins`
+says which copy runs here and which runs in Obsidian, so nobody spends a week
+updating the one that is being ignored.
+
+**The duplicate is not created.** A registry row for a plugin already in
+`.obsidian/plugins/` offers no install control at all — not a disabled one,
+because a greyed button invites somebody to go looking for the switch that
+enables it. It says the plugin is in the vault, that the vault is a fine place
+for it, and that Context reads every file it writes. The button that used to be
+there read "Also install a managed copy", and the honest description of what it
+did is that it put two copies of one plugin in one bucket and made the
+maintained one the ignored one.
+
+**What a simplification costs.** Restoring the install button restores the
+two-copy state. Preferring the vault copy stops approved, running plugins. The
+checks are `a managed release deterministically replaces the same Obsidian
+plugin id`, `and the vault's copy is reported on that row rather than silently
+dropped`, and `already in the vault offers nothing, and says to keep it there` —
+the last two replacing assertions that are quoted where they used to be.
+
+## One panel, one box, and the registry is still a deliberate press
+
+The two halves are one screen: a search box, a three-way filter (All ·
+Context · Obsidian), then the Context block and the vault block, drawn from the
+same card vocabulary. Context first, because it is the half that is definitely
+working — no bundle to read, no verdict to be unsure about.
+
+**The Context block sits outside every state the vault block can be in**, and
+that is structural rather than cosmetic. Each of those states used to *end the
+panel*: a member got "only an owner can read this", a bucket with no
+`.obsidian/` got "no plugins in this bucket" — in a context that was running
+five plugins the whole time. Nothing about the built-ins depends on reading
+somebody's plugin directory, so nothing about them sits behind that read. Four
+checks assert it by name rather than in a loop, because a loop over states is
+exactly what a future early return passes silently.
+
+**Typing narrows what is already here and sends nothing anywhere.** Reaching the
+community registry is a request to a third party on somebody's behalf, and
+`PluginBrowse`'s rule — nothing without a deliberate press — is unchanged. What
+the box does is put the words on that press: "Browse" becomes `Search for "…"`
+and opens already looking for it. The vault block's head counts are deliberately
+*not* recomputed against the filtered set: `foundLabel` and the verdict chips
+are a statement about what is installed, and making them follow a search box
+would turn "3 won't run here" into a number meaning "3 of the ones matching what
+you typed", which is the note count's floor-as-total trap in a new costume.
+
+**Each row says what turning it off costs, in both states**, in words that
+travel from the gateway's catalogue rather than being restated in the console —
+so the promise beside the switch and the behaviour of the tool gate cannot
+drift. A switch whose cost only appears after it has been pressed is a switch
+somebody presses to find out, and this one changes what every connected client
+of every member can do.
+
+**Reading is a member's, changing is an owner's.** A member who cannot see which
+features their context has is a member who files "the form isn't there" as a
+bug; they see the list, no controls, and a sentence naming who has them. Whether
+the caller may manage comes back from the server as `canManage` rather than
+being re-derived in the client.
+
+**What a simplification costs.** Putting the Context block inside the vault
+block's ready branch hides it from every reader who cannot scan and every bucket
+with no vault — five checks fail. Making the box drive the registry sends a
+request to a third party per keystroke on somebody's behalf. Printing the
+consequence only on the off state fails two.
+
+## What is deliberately not built, for Context plugins
+
+- **Third-party Context plugins.** The manifest shape is chosen so they could
+  exist, and nothing about the catalogue, the settings file or the panel assumes
+  the five are the only ones — `withDecision` deliberately keeps a decision
+  about an id this build does not have. What is missing is the part that
+  matters: a runtime, a review, and a grant. None of it is foreclosed.
+- **Per-plugin settings for the built-ins.** `.context/plugins/<id>/data.json`
+  already exists for managed installs and is the obvious home, but no built-in
+  has a setting worth having yet, and inventing one to justify the screen is how
+  a settings pane grows rows nobody asked for.
+- **Turning a plugin off for one person rather than one context.** The switch is
+  the context's, which is why it is the owner's and why it is audited. A
+  per-member override would be a second answer to "is forms on here" and the
+  two would disagree.
 
 ### The bucket is the vault, so compatibility starts as a duty not to break things
 

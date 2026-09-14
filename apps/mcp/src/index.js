@@ -5234,7 +5234,7 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
    * reads a note, edits a line and writes the whole thing back would replace
    * somebody's diagram with a paragraph about the diagram, and the only copy of
    * those elements is the file it just destroyed. That is exactly the
-   * data-loss shape `docs/decisions/obsidian-plugins.md` refuses ("a file we do
+   * data-loss shape `docs/decisions/plugins.md` refuses ("a file we do
    * not parse is still a file we do not corrupt"), arriving through the gateway
    * instead of through a tidy-up.
    *

@@ -22,7 +22,7 @@
  *
  * `id`, `name`, `version`, `minAppVersion`, `description`, `author`,
  * `authorUrl` and `isDesktopOnly` are Obsidian's keys, spelled the way Obsidian
- * spells them, because the whole argument of `obsidian-plugins.md` is that this
+ * spells them, because the whole argument of `plugins.md` is that this
  * ecosystem is not somebody else's. Everything Context needs that Obsidian has
  * no concept of goes under a single `context` key, which Obsidian ignores the
  * way it ignores any unknown manifest key — the same round-trip rule
