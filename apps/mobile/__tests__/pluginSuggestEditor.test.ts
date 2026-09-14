@@ -3,21 +3,36 @@
  */
 
 /**
- * The suggestion list, in a real CodeMirror.
+ * The suggestion list, in the editor it actually ships in.
  *
  * `pluginSuggest.test.ts` holds the gate and the routing as pure functions.
- * This drives the actual extension against a real `EditorView`, because the two
- * things most likely to be wrong here are not expressible without one: what the
- * plugin is *asked* (the line up to the cursor, not the whole document, not the
- * word under the caret), and what a pick *writes* (the line the plugin
+ * This drives the real completion source against a real `EditorView`, because
+ * the things most likely to be wrong here are not expressible without one: what
+ * the plugin is *asked* (the line up to the cursor, not the whole document, not
+ * the word under the caret), and what a pick *writes* (the line the plugin
  * produced, and only if that line has not moved underneath it).
+ *
+ * ## Why the harness mounts `editorExtensions` rather than the source alone
+ *
+ * It did not, and that shipped a crash. The first version of this file built an
+ * `EditorState` from `pluginSuggestions(...)` and nothing else — the extension
+ * proved correct in an editor nobody uses. In the console's real editor there
+ * is already an `autocompletion()` call, and CodeMirror's `override` field has
+ * no combiner: a second one throws `Config merge conflict for field override`
+ * at state construction, which is every note failing to open for anyone with a
+ * plugin running.
+ *
+ * Both `linkComplete.ts` and `formComplete.ts` carry that warning in their own
+ * headers. The test that would have caught it is the one that builds the editor
+ * the product builds, so that is what every test below does now.
  */
 
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { currentCompletions, startCompletion } from "@codemirror/autocomplete";
-import { pluginSuggestions } from "../features/console/files/pluginSuggest";
+import { editorExtensions } from "../features/console/files/editorSetup";
+import { pluginSuggestSource } from "../features/console/files/pluginSuggest";
 
 const views: EditorView[] = [];
 afterEach(() => {
@@ -51,15 +66,23 @@ function editor(options: {
     state: EditorState.create({
       doc: options.doc,
       selection: { anchor: options.cursor },
-      extensions: [
-        pluginSuggestions({
+      /*
+        The whole editor, not the one extension. See the module header: the
+        source has to compose with the completion this console already
+        configures, and only building both proves that it does.
+      */
+      extensions: editorExtensions({
+        editable: true,
+        editableCompartment: new Compartment(),
+        handlers: { current: { onChange: () => {}, onSave: () => {} } },
+        pluginSuggest: pluginSuggestSource({
           ask: async (line, ch) => {
             options.asked?.push({ line, ch });
             return options.ask ? options.ask(line, ch) : [];
           },
           pick: async (index) => (options.pick ? options.pick(index) : null),
         }),
-      ],
+      }),
     }),
   });
   views.push(view);
@@ -251,5 +274,45 @@ describe("it fires on typing, which is the only way anyone will meet it", () => 
     type(view, "@John 3:16");
     await tick();
     expect(currentCompletions(view.state).map((one) => one.label)).toEqual(["John 3:16 (NIV)"]);
+  });
+});
+
+/*
+  THE CRASH THIS FILE DID NOT CATCH.
+
+  Reported from production in `@test-workspace`: opening a note threw
+  `Config merge conflict for field override` and the console fell back to the
+  workspace route. Not a plugin fault and not a data fault — CodeMirror's
+  `completionConfig` facet combines its fields with `combineConfig`, and
+  `override` is not in its combiner map, so a *second* `autocompletion()` in the
+  same state is a throw at construction rather than a second list.
+
+  The console has configured one since forms and `[[` links shared it. #552
+  added another, and every test it shipped with built an editor that had only
+  the new one.
+
+  These two hold the composition itself: the state builds, and both sources are
+  still reachable in it.
+*/
+describe("it composes with the completion this editor already has", () => {
+  test("a note with a plugin source in it opens at all", () => {
+    expect(() => editor({ doc: "see @ John 3:16", cursor: 15 })).not.toThrow();
+  });
+
+  /*
+    The other half of the same bug, and the reason the fix is a source rather
+    than a second `autocompletion()`: if this file's source silently displaced
+    the editor's own, `[[` and form completion would stop answering and nothing
+    here would say so.
+  */
+  test("the editor's own completion still answers beside it", async () => {
+    const view = editor({
+      doc: "```form\nlayout: ",
+      cursor: "```form\nlayout: ".length,
+      ask: async () => [],
+    });
+    startCompletion(view);
+    await tick();
+    expect(currentCompletions(view.state).length).toBeGreaterThan(0);
   });
 });

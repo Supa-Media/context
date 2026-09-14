@@ -1,5 +1,4 @@
-import { autocompletion, type CompletionSource } from "@codemirror/autocomplete";
-import type { Extension } from "@codemirror/state";
+import type { CompletionSource } from "@codemirror/autocomplete";
 import type { EditorView } from "@codemirror/view";
 
 /**
@@ -33,14 +32,27 @@ import type { EditorView } from "@codemirror/view";
  * is abandoned unless that line is still character-for-character the one the
  * suggestion was computed from. That is the etag rule this codebase applies to
  * notes, at the scale of one line: **never write over what you did not read.**
+ *
+ * ## A source, never an `autocompletion()` of its own
+ *
+ * This returned an `Extension` first, and that shipped a crash: opening any
+ * note with a plugin running threw `Config merge conflict for field override`
+ * and dropped the console back to the workspace route. CodeMirror combines its
+ * completion facet with `combineConfig`, and `override` has no combiner — so a
+ * second `autocompletion()` in the same state is not a second list, it is a
+ * throw at construction.
+ *
+ * `linkComplete.ts` and `formComplete.ts` both say so in their own headers, and
+ * `editorCompletion` exists to be the one place that builds the list. This is a
+ * source for it, like the other two.
  */
-export function pluginSuggestions(options: {
+export function pluginSuggestSource(options: {
   /** Ask the running plugins; resolves empty when none offers anything. */
   ask: (line: string, ch: number) => Promise<{ text: string }[]>;
   /** Take the pick; resolves to the rewritten line, or null if nothing answers. */
   pick: (index: number) => Promise<string | null>;
-}): Extension {
-  const source: CompletionSource = async (context) => {
+}): CompletionSource {
+  return async (context) => {
     const line = context.state.doc.lineAt(context.pos);
     const ch = context.pos - line.from;
     const items = await options.ask(line.text.slice(0, ch), ch);
@@ -81,11 +93,4 @@ export function pluginSuggestions(options: {
       })),
     };
   };
-  /*
-    `override` rather than an added source: this is the only completion this
-    editor offers, and leaving CodeMirror's default word-completion on beside it
-    would put the note's own vocabulary in the same menu as a plugin's
-    suggestions, with no way for a reader to tell which came from where.
-  */
-  return autocompletion({ override: [source], activateOnTyping: true });
 }
