@@ -790,13 +790,47 @@ describe("a plugin can suggest into the editor", () => {
   });
 
   /*
-    Applying an index nobody offered must not throw into the editor's lap, and
-    must not apply something else. It answers with the line unchanged.
+    Applying an index nobody offered must not run the plugin's selection at all.
+
+    The first version of this test used the suggester above, whose
+    `selectSuggestion` reads `value.ref` and therefore throws on `undefined` —
+    so the line came back unchanged whether the guard existed or not, and the
+    test passed under sabotage. This one uses a suggester that writes
+    unconditionally, so removing the guard visibly rewrites the line.
   */
-  test("applying an index that was never offered changes nothing", async () => {
-    const guest = await suggester();
-    await guest.ask("see @ John 3:16", 15);
-    const applied = await guest.apply(99);
-    expect(applied?.line).toBe("see @ John 3:16");
+  test("applying an index that was never offered does not run the plugin", async () => {
+    nonces += 1;
+    const own = `nonce-for-unoffered-${nonces}`;
+    const mark = posted.length;
+    // eslint-disable-next-line no-eval
+    (0, eval)(scriptOf(pluginSandboxDocument()));
+    window.dispatchEvent(new MessageEvent("message", {
+      data: {
+        source: "context-plugin-host", version: 1, nonce: own, type: "load",
+        manifestJson: '{"id":"unoffered"}',
+        mainJs: `
+          const { Plugin, EditorSuggest } = require('obsidian');
+          class Always extends EditorSuggest {
+            onTrigger(cursor) { return { start: { line: 0, ch: 0 }, end: cursor, query: '' }; }
+            getSuggestions() { return ['only']; }
+            renderSuggestion(value, el) { el.setText(String(value)); }
+            selectSuggestion() {
+              this.context.editor.replaceRange('RAN', this.context.start, this.context.end);
+            }
+          }
+          module.exports = class extends Plugin {
+            async onload() { this.registerEditorSuggest(new Always(this.app)); }
+          };
+        `,
+      },
+    }));
+    await settle();
+    toHost({ type: "suggest-query", seq: 1, line: "untouched", ch: 9 });
+    await settle();
+    toHost({ type: "suggest-apply", seq: 1, index: 99 });
+    await settle();
+    const applied = posted.slice(mark).filter((one) => one.type === "suggest-applied").pop() as
+      { line: string };
+    expect(applied.line).toBe("untouched");
   });
 });
