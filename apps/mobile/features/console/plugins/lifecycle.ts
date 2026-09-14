@@ -36,6 +36,8 @@ export interface BrowseView {
   /** Absent until a search has run — an empty array is "nothing matched". */
   results?: CommunityPlugin[];
   query: string;
+  /** The count the current `results` were asked for, so the view can tell a full page from a short one. */
+  limit: number;
   searching: boolean;
   /** The server's own sentence when a search or an install was refused. */
   failure: string | null;
@@ -56,7 +58,12 @@ export interface BrowseView {
 }
 
 export interface LifecycleActions {
-  search: (query: string) => Promise<void>;
+  /**
+   * `limit` is how many rows to ask for, not how many to add: the endpoint
+   * takes a count and returns the head of the matches, so "show more" re-runs
+   * the same search with a larger number rather than paging.
+   */
+  search: (query: string, limit?: number) => Promise<void>;
   /** Installs *or* updates: the endpoint pins whatever the official release is now. */
   install: (pluginId: string) => Promise<void>;
   uninstall: (pluginId: string, bundleFingerprint: string) => Promise<void>;
@@ -202,4 +209,75 @@ export function installVerb(already: "managed" | "vault" | null): string {
     case null:
       return "Install";
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*                          browsing rather than searching                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * How many rows the first look asks for, and how many the second one does.
+ *
+ * `searchCommunityPlugins` clamps its own `limit` to 50, so `REGISTRY_MAX` is
+ * that ceiling written down on this side rather than discovered by asking for
+ * more and quietly getting less. One "Show more" is therefore the whole of
+ * paging today — see `REGISTRY_CAP_NOTE` for what is said when it runs out.
+ */
+export const REGISTRY_PAGE = 20;
+export const REGISTRY_MAX = 50;
+
+/**
+ * Whether a result set is the server's ceiling rather than the end of the
+ * matches.
+ *
+ * A short page means the matches ran out; a full one at the ceiling means they
+ * did not, and saying "that is all of them" there would be a claim nobody
+ * checked. The two have to be told apart before either sentence is printed.
+ */
+export function atRegistryCeiling(results: CommunityPlugin[] | undefined, limit: number): boolean {
+  return results !== undefined && limit >= REGISTRY_MAX && results.length >= REGISTRY_MAX;
+}
+
+/** Whether asking for more could return more. */
+export function canAskForMore(results: CommunityPlugin[] | undefined, limit: number): boolean {
+  return results !== undefined && limit < REGISTRY_MAX && results.length >= limit;
+}
+
+/**
+ * The sentence under a full page at the ceiling.
+ *
+ * The registry is a couple of thousand plugins and this endpoint returns at
+ * most fifty of them, so a browser that stopped there silently would be
+ * presenting a slice as the list. Naming the number is what keeps "50 rows" from
+ * reading as "50 plugins exist".
+ */
+export const REGISTRY_CAP_NOTE =
+  `Showing the first ${REGISTRY_MAX}. There are far more — type a word or two to narrow it down.`;
+
+/** Said once, under an unsearched list, so the order is not mistaken for a ranking. */
+export const REGISTRY_ORDER_NOTE =
+  "In the order Obsidian's list carries them, which is not a popularity order — search if you know what you want.";
+
+/**
+ * What to say where results would be, when there are none to show.
+ *
+ * Three different situations reach the same empty space, and they want three
+ * different sentences: the registry is being read, nothing matched what was
+ * typed, or a filter matched nothing while the unfiltered list is fine. A
+ * single "No results" for all three is the kind of message that makes a working
+ * screen look broken.
+ */
+export function browseEmptyNote(
+  query: string,
+  results: CommunityPlugin[] | undefined,
+  searching: boolean,
+): string | null {
+  if (results !== undefined && results.length > 0) return null;
+  if (searching) return "Reading Obsidian\u2019s community list\u2026";
+  if (results === undefined) return null;
+  const needle = query.trim();
+  if (needle === "") {
+    return "Obsidian\u2019s community list came back empty, which usually means it could not be read just now.";
+  }
+  return `Nothing in the community list matches \u201c${needle}\u201d.`;
 }
