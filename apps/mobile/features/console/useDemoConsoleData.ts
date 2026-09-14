@@ -66,21 +66,21 @@ const DEMO_CONTEXT_PLUGINS = [
     tools: ["submit_form", "update_submission", "retract_submission", "vote_form"],
     surfaces: ["Notes", "Editor"],
     offMeans:
-      "Form blocks stop being drawn and the four form tools disappear from connected clients. Every form block and every response file is left exactly as it is, and turning it back on restores them.",
+      "No new answers are taken: the four form tools disappear from connected clients, and the console refuses a submission too. Every form block and every response file is left exactly as it is, and turning it back on takes answers again.",
   },
   {
     id: "context-images",
-    name: "Image uploads",
+    name: "Images",
     description:
-      "Pictures pasted or dropped into a note, kept in .context/assets/images/ and readable by a connected client.",
+      "read_image: a connected client opening a picture stored with your notes, in .context/assets/images/.",
     version: "1.0.0",
     author: "Context",
     enabled: true,
     defaultEnabled: true,
     tools: ["read_image"],
-    surfaces: ["Notes", "Editor"],
+    surfaces: ["Notes"],
     offMeans:
-      "Notes stop accepting new images and read_image disappears. Images already in this context stay in the bucket and still render in Obsidian.",
+      "read_image disappears from connected clients, so an AI client can no longer open a picture from this context. Every image stays exactly where it is, still shows in your notes, and still renders in Obsidian.",
   },
   {
     id: "context-meetings",
@@ -93,7 +93,7 @@ const DEMO_CONTEXT_PLUGINS = [
     tools: ["list_meetings", "read_meeting"],
     surfaces: ["Console"],
     offMeans:
-      "The meeting tools disappear and the console stops listing meetings. Nothing stops being recorded and no transcript is deleted.",
+      "The two meeting tools disappear from connected clients, so an AI client can no longer list or read them. Nothing stops being recorded, no transcript is deleted, and the console still shows them.",
   },
   {
     id: "context-chats",
@@ -106,21 +106,7 @@ const DEMO_CONTEXT_PLUGINS = [
     tools: ["list_channel_days", "read_channel_day"],
     surfaces: ["Console"],
     offMeans:
-      "The two channel tools disappear. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
-  },
-  {
-    id: "context-drawings",
-    name: "Drawings",
-    description:
-      "Excalidraw .excalidraw.md files, described for an agent, drawn in the console and edited there.",
-    version: "1.0.0",
-    author: "Context",
-    enabled: true,
-    defaultEnabled: true,
-    tools: [],
-    surfaces: ["Notes", "Console"],
-    offMeans:
-      "A drawing stops being described or drawn and opens as the file it is. It is still never overwritten with text — that guard is not part of this switch.",
+      "The two channel tools disappear from connected clients, so an AI client can no longer read a day of a channel. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
   },
 ];
 

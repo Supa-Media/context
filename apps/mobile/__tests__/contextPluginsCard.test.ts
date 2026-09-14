@@ -9,7 +9,7 @@
  *     This is the structural claim the whole restructure rests on. Every early
  *     return in `PluginsPanel` used to end the panel — a member got "only an
  *     owner can read this", a bucket with no `.obsidian/` got "no plugins" —
- *     while the context was running five plugins the whole time.
+ *     while the context was running four plugins the whole time.
  *  2. **A switch says what it costs before it is pressed.** `switchConsequence`
  *     prints in both states, and its words come from the gateway's own
  *     catalogue, so the promise on screen and the behaviour of the tool gate
@@ -283,7 +283,7 @@ function panel(view: PluginsView, contextPlugins: ContextPluginsView = ready()):
 describe("the built-ins survive every state the vault half can be in", () => {
   /*
     The property the restructure exists for. Each of these used to end the
-    panel, in a context that was running five plugins at the time — so each one
+    panel, in a context that was running four plugins at the time — so each one
     is checked by name rather than by a loop, because a loop over states is the
     thing a future early return would silently pass.
   */

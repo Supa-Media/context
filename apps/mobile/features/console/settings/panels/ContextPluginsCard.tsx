@@ -30,7 +30,7 @@ import {
  * This is the whole reason the panel was restructured rather than extended.
  * Every early return in `PluginsPanel` used to end the screen — a member saw
  * "only an owner can read this", a bucket with no `.obsidian/` saw "no plugins
- * in this bucket" — and in each of those a context was running five plugins
+ * in this bucket" — and in each of those a context was running four plugins
  * that had no row anywhere. Nothing here depends on reading `.obsidian/`, so
  * nothing here is behind that read.
  *

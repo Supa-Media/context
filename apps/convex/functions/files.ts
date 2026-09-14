@@ -1296,6 +1296,34 @@ type OperationResult =
  * describing the same context differently — the switch the console draws after
  * saving is the same shape it drew before.
  */
+/**
+ * Refuse an operation whose Context plugin is switched off.
+ *
+ * One read of one small object, on the write paths only — the console's reads
+ * are never gated, for the reason on `readImage`: a switch removes a capability
+ * and must never start hiding content that is already there.
+ *
+ * The refusal names the plugin and where to undo it, like the gateway's, because
+ * "that could not be saved" for a setting the reader themself chose is the
+ * refusal with no next step that `report.js` rules out.
+ */
+async function requireContextPlugin(
+  store: FileStore,
+  pluginId: string,
+  pluginName: string,
+): Promise<void> {
+  const resolved = await resolveContextPlugins(store);
+  const entry = resolved.plugins.find((plugin: { manifest: { id: string } }) =>
+    plugin.manifest.id === pluginId,
+  );
+  if (entry && !entry.enabled) {
+    throw new FileOpError(
+      "PLUGIN_OFF",
+      `${pluginName} is turned off in this context. An owner can turn it back on under Settings → Plugins.`,
+    );
+  }
+}
+
 function contextPluginsResult(
   resolved: {
     plugins: Array<{ manifest: Record<string, any>; enabled: boolean }>;
@@ -3120,6 +3148,18 @@ export async function executeOperation(
         return { kind: "written", ...written, forms };
       }
       case "form": {
+        /*
+          The same switch the gateway applies to `submit_form`, applied to the
+          console's own path into the same file.
+
+          Both, or the promise beside the switch is false. The gateway refuses
+          the four form tools when the Markdown forms plugin is off; a console
+          that went on writing rows into the same response file would make
+          "forms are off in this context" a statement about connected AI
+          clients only, which is not what the row says and not what an owner
+          pressing it meant.
+        */
+        await requireContextPlugin(store, "context-forms", "Markdown forms");
         const applied = await runFormAction(store, {
           scope,
           path: operation.path,
@@ -3225,6 +3265,15 @@ export async function executeOperation(
         return { kind: "visibility", ...result };
       }
       case "writeImage": {
+        /*
+          Deliberately NOT gated on the Images plugin, and the reason is worth
+          keeping: the only caller is `shareCard`, which renders the picture an
+          unfurl shows. Nothing a person would call "uploading an image" reaches
+          here. Gating it would have made an owner turning off an agent's
+          `read_image` silently break their own share links — a switch reaching
+          past what its own row promises, which is the failure `plugins.md`
+          spends a section on.
+        */
         const written = await writeImage(store, {
           leaf: operation.leaf,
           bytes: new Uint8Array(operation.bytes),

@@ -134,6 +134,25 @@ export async function runContextPluginChecks(check) {
     "ids are unique",
     new Set(CONTEXT_PLUGIN_IDS).size === CONTEXT_PLUGIN_IDS.length
   );
+  /*
+    The drawings lesson, pinned.
+
+    Drawings was in this catalogue and was taken out: every surface it has is a
+    read of a file that is already there, and gating a read would be the switch
+    hiding content rather than removing a capability — so its switch governed
+    nothing, which is worse than no switch, because the sentence beside it
+    promised something the product did not do.
+
+    A tool is the one surface a switch provably governs, in `toolsForSession`
+    and in `callToolForSession`. A plugin arriving here with none needs a
+    console write path gated on it *and* a check proving that, at which point
+    this assertion is the right thing to make more specific — not the thing to
+    delete.
+  */
+  check(
+    "every Context plugin has a surface its switch actually governs",
+    CONTEXT_PLUGINS.every((plugin) => plugin.context.tools.length > 0)
+  );
   check(
     "a tool resolves to the plugin that declares it",
     pluginForTool("submit_form") === "context-forms" &&
@@ -369,7 +388,7 @@ export async function runContextPluginChecks(check) {
     `list_plugins` answers one question with both halves. The empty-vault report
     is used here on purpose: that is the bucket most customers have, and before
     this the only answer it could give was "no Obsidian plugins found" for a
-    context that was running five plugins at the time.
+    context that was running four plugins at the time.
   */
   const emptyVault = {
     available: true,
@@ -390,7 +409,7 @@ export async function runContextPluginChecks(check) {
   check(
     "an off plugin is reported as off, with what that costs",
     rendered.includes("(context-meetings) — off") &&
-      rendered.includes("The meeting tools disappear")
+      rendered.includes("The two meeting tools disappear")
   );
   check(
     "an on plugin names the tools it is the reason for",

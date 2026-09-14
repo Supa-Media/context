@@ -45,6 +45,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+const FORM_NOTE = "1-projects/feedback.md";
+const RESPONSES = "1-projects/feedback-responses.md";
+
+/** The smallest form that parses, so the switch has something real to refuse. */
+const FORM_BLOCK = [
+  "# Feedback",
+  "",
+  "```form",
+  "id: bugs",
+  `responses: ${RESPONSES}`,
+  "layout: table",
+  "submit: member",
+  "edit_own: true",
+  "votes: named",
+  "fields:",
+  "  - { name: summary, type: line, max: 120, required: true }",
+  "```",
+].join("\n");
+
 interface Fixture {
   t: TestConvex;
   owner: Id<"users">;
@@ -70,6 +89,7 @@ async function fixture(options: MemoryS3Options & { conditionalWrite?: boolean }
   const backend = memoryS3(FAKE_STORAGE.bucket, bucketOptions);
   backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
   backend.seed("index.md", "# Context\n");
+  backend.seed("1-projects/README.md", "# Projects\n");
   vi.stubGlobal("fetch", backend.fetchImpl);
 
   const encryptedSecretAccessKey = await encryptSecret(
@@ -94,7 +114,24 @@ async function fixture(options: MemoryS3Options & { conditionalWrite?: boolean }
       updatedAt: Date.now(),
     }),
   );
-  return { t, owner, member, stranger, workspaceId, backend };
+  const f: Fixture = { t, owner, member, stranger, workspaceId, backend };
+  /*
+    A real form, written by the owner — which is also what creates its response
+    file. `1-projects` has to be team-visible first for the same reason
+    `forms.test.ts` makes it so: a form in a folder a member cannot see is a
+    form they cannot answer.
+  */
+  await asUser(t, owner).action(api.functions.files.setDirectoryVisibility, {
+    workspaceId,
+    path: "1-projects",
+    visibility: "team",
+  });
+  await asUser(t, owner).action(api.functions.files.writeNote, {
+    workspaceId,
+    path: FORM_NOTE,
+    text: FORM_BLOCK,
+  });
+  return f;
 }
 
 function storedSettings(f: Fixture): string | undefined {
@@ -270,11 +307,80 @@ describe("working a switch", () => {
     const f = await fixture({ conditionalWrite: false });
     await asUser(f.t, f.owner).action(api.functions.contextPlugins.setPluginEnabled, {
       workspaceId: f.workspaceId,
-      pluginId: "context-drawings",
+      pluginId: "context-chats",
       enabled: false,
     });
-    expect(parseEnablement(storedSettings(f) ?? "").decisions?.disabled).toEqual([
-      "context-drawings",
-    ]);
+    expect(parseEnablement(storedSettings(f) ?? "").decisions?.disabled).toEqual(["context-chats"]);
+  });
+});
+
+describe("a switched-off plugin is off on every door, not only the gateway's", () => {
+  /*
+    The finding this block exists for, found reading the diff: the gateway
+    refused `submit_form` while the console went on writing rows into the same
+    response file, and the row said "the console refuses a submission too". A
+    sentence beside a switch that the product does not keep is worse than no
+    switch — it is the product lying at the moment somebody is deciding.
+
+    So both doors, and both are checked here because the gateway's own suite
+    cannot see this one.
+  */
+  test("the console refuses a form submission while forms are off", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.contextPlugins.setPluginEnabled, {
+      workspaceId: f.workspaceId,
+      pluginId: "context-forms",
+      enabled: false,
+    });
+    const error = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.forms.submitForm, {
+        workspaceId: f.workspaceId,
+        path: FORM_NOTE,
+        values: [{ field: "summary", value: "anything" }],
+      }),
+    );
+    expect(errorCode(error)).toBe("PLUGIN_OFF");
+    // Named, with the way back — "that could not be saved" for a setting the
+    // reader themself chose is a refusal with no next step.
+    expect(String((error as { data?: { message?: string } })?.data?.message)).toContain(
+      "Markdown forms",
+    );
+  });
+
+  test("with forms on, the console submits exactly as before", async () => {
+    // The positive companion. Without it the gate could widen onto every form
+    // action in every context and still pass the refusal above.
+    const f = await fixture();
+    const submitted = await asUser(f.t, f.owner).action(api.functions.forms.submitForm, {
+      workspaceId: f.workspaceId,
+      path: FORM_NOTE,
+      values: [{ field: "summary", value: "it works" }],
+    });
+    expect(submitted.responseId).toBeTruthy();
+  });
+
+  test("the switch never reaches past what its row promises", async () => {
+    /*
+      Two doors this deliberately does NOT close, each found by reading the diff
+      rather than by a failing test.
+
+      `writeImage` is the share-card renderer, not an upload anybody performs —
+      gating it on the Images plugin would have made an owner turning off an
+      agent's `read_image` silently break their own share links.
+
+      `readImage` is content that is already there. A switch removes a
+      capability; it must never start hiding what a person already has.
+    */
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.contextPlugins.setPluginEnabled, {
+      workspaceId: f.workspaceId,
+      pluginId: "context-images",
+      enabled: false,
+    });
+    const note = await asUser(f.t, f.owner).action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "index.md",
+    });
+    expect(note).toBeTruthy();
   });
 });

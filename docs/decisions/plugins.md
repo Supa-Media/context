@@ -13,16 +13,16 @@ against.** Everything from "The bucket is the vault" down governs how far we go
 towards running them, and what we promise about the ones we do not.
 
 **Context's** are ours, and they were not called plugins at all until this
-file said so. Forms, image uploads, meetings, chat days and drawings were
-features of the app — a tool in the gateway, a widget in the editor, a card in
-the console — with no off switch and no row anywhere, while the word "plugin"
-in this product meant Templater. That split is arbitrary from the customer's
-side: a person looking for "the forms thing" and a person looking for Templater
-are asking the same question of the same screen.
+file said so. Forms, images, meetings and chat days were features of the app —
+a tool in the gateway, a widget in the editor, a card in the console — with no
+off switch and no row anywhere, while the word "plugin" in this product meant
+Templater. That split is arbitrary from the customer's side: a person looking
+for "the forms thing" and a person looking for Templater are asking the same
+question of the same screen.
 
 ## A Context plugin is Obsidian's manifest with one extra key, and no bundle
 
-`apps/mcp/src/plugins/catalog.js` declares five, in Obsidian's own manifest
+`apps/mcp/src/plugins/catalog.js` declares four, in Obsidian's own manifest
 shape — `id`, `name`, `version`, `minAppVersion`, `description`, `author`,
 `authorUrl`, `isDesktopOnly`, spelled the way Obsidian spells them. Everything
 Context needs that Obsidian has no concept of goes under a single `context`
@@ -46,7 +46,7 @@ called `forms`, or a community plugin published under that id, must never be
 able to present itself as the built-in one — the built-in's row carries a switch
 that changes what the gateway serves, and a folder anybody can sync into a
 bucket borrowing that row would be a control surface with an untrusted name on
-it. Reserved is the whole prefix rather than the five ids in use, so a plugin
+it. Reserved is the whole prefix rather than the four ids in use, so a plugin
 added later is not shadowable by a folder that predates it.
 
 **What a simplification costs.** Dropping the prefix check lets a synced folder
@@ -73,7 +73,7 @@ into the customer's bucket` asserts it against the bucket, never against a row.
 absence of an id means off. Copying that exactly would be wrong in the one case
 that matters most — a bucket that has never seen this file, which is every
 bucket today. Under Obsidian's shape an empty file and a missing file both mean
-*everything off*, so shipping it would turn five working features off for every
+*everything off*, so shipping it would turn four working features off for every
 existing customer at once. So the file records **decisions** —
 `{ "version": 1, "enabled": [], "disabled": ["context-meetings"] }` — and an id
 nobody has decided about takes its manifest's default. An id in both lists is
@@ -156,6 +156,44 @@ have no owner and cannot acquire one — and the catalogue refuses to build at a
 if two plugins claim one tool, because a tool whose switch is ambiguous is on
 for one reader and off for another.
 
+### And a switch has to actually do something
+
+The other half of the same rule, learned the expensive way. **Drawings was
+written into the catalogue and taken back out.** Every surface drawings has —
+the description in `read_note`, the console's render, the editor page — is a
+*read* of a file that is already there, and gating a read would be the switch
+hiding content rather than removing a capability. Excalidraw's own write guard
+is unconditional and is not anybody's switch to work. So there was nothing left
+for the control to govern, and a switch that governs nothing is worse than no
+switch: it is a promise printed beside a control, at the moment somebody is
+deciding, that the product does not keep.
+
+Two more entries were over-claimed in the same draft and corrected before they
+shipped, both found by reading the diff rather than by a failing test:
+
+- **"Form blocks stop being drawn"** was false — the gateway refused the four
+  form tools while the console went on writing rows into the same response
+  file. Fixed by closing the second door rather than by softening the sentence:
+  `runFileOperation`'s `form` arm now carries the same check, so "forms are off
+  in this context" is not a statement about AI clients only.
+- **"Notes stop accepting new images"** was false in the other direction:
+  nothing a person would call uploading an image reaches `writeImage` at all —
+  its only caller is the share-card renderer. Gating it would have made an
+  owner turning off an agent's `read_image` silently break their own share
+  links, a switch reaching past what its own row promises. So that entry is
+  read-only and says so, and `writeImage` carries a comment explaining why it
+  is deliberately not gated.
+
+`every Context plugin has a surface its switch actually governs` is the check
+that holds the drawings lesson, and
+`the console refuses a form submission while forms are off` holds the first
+correction. The second is held by `the switch never reaches past what its row
+promises`, which asserts the doors that stay open.
+
+**What a simplification costs.** Adding an entry with no enforceable surface
+puts a decorative control in a settings pane. Gating a read hides somebody's
+content behind a preference.
+
 ## A vault copy and a managed install are one plugin, and the duplicate is not created
 
 Precedence when one id is in both places is **unchanged**: the Context-managed
@@ -202,7 +240,7 @@ working — no bundle to read, no verdict to be unsure about.
 that is structural rather than cosmetic. Each of those states used to *end the
 panel*: a member got "only an owner can read this", a bucket with no
 `.obsidian/` got "no plugins in this bucket" — in a context that was running
-five plugins the whole time. Nothing about the built-ins depends on reading
+four plugins the whole time. Nothing about the built-ins depends on reading
 somebody's plugin directory, so nothing about them sits behind that read. Four
 checks assert it by name rather than in a loop, because a loop over states is
 exactly what a future early return passes silently.
@@ -240,9 +278,12 @@ consequence only on the off state fails two.
 
 - **Third-party Context plugins.** The manifest shape is chosen so they could
   exist, and nothing about the catalogue, the settings file or the panel assumes
-  the five are the only ones — `withDecision` deliberately keeps a decision
+  the four are the only ones — `withDecision` deliberately keeps a decision
   about an id this build does not have. What is missing is the part that
   matters: a runtime, a review, and a grant. None of it is foreclosed.
+- **Drawings as a plugin.** Not "no", but "not yet, and not like this" — see
+  the section above. It belongs in the catalogue the day drawings grows a tool
+  or a write path of its own for the switch to govern.
 - **Per-plugin settings for the built-ins.** `.context/plugins/<id>/data.json`
   already exists for managed installs and is the obvious home, but no built-in
   has a setting worth having yet, and inventing one to justify the screen is how

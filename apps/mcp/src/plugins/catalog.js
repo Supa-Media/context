@@ -3,7 +3,7 @@
  *
  * ## Why these are plugins at all
  *
- * Forms, image uploads, meetings, chat days and drawings were each built as a
+ * Forms, images, meetings and chat days were each built as a
  * feature *of the app* — a tool in the gateway, a widget in the editor, a card
  * in the console — while the only thing this product called a "plugin" was
  * somebody else's Obsidian bundle. That split is arbitrary from the customer's
@@ -91,13 +91,28 @@ function contextPlugin({ id, name, description, tools = [], surfaces, offMeans, 
 }
 
 /**
- * The five, in the order the console lists them: most-used first.
+ * The four, in the order the console lists them: most-used first.
  *
  * A feature belongs here when turning it off removes a *capability* and nothing
  * else. Notes, privacy, search, audit, storage and encryption are deliberately
  * absent and are not candidates: a switch that can stop the privacy engine
  * running is not a plugin, it is a hole, and a switch that hides encrypted
  * notes is a switch that loses somebody's content. See `plugins.md`.
+ *
+ * **Drawings was written into this list and taken back out**, and the reason is
+ * the rule every entry here has to pass: a switch has to *do* something. Every
+ * surface drawings has — the description in `read_note`, the console's render,
+ * the editor page — is a read of a file that is already there, and gating a
+ * read would be the switch hiding content rather than removing a capability.
+ * Excalidraw's own write guard is unconditional and is not anybody's switch to
+ * work. So there was nothing left for the control to govern, and a switch that
+ * governs nothing is worse than no switch: it is a promise the product does not
+ * keep. It belongs here the day drawings grows a tool.
+ *
+ * The same discipline is why each `offMeans` below names the tools and the write
+ * paths and stops there. It is the sentence printed beside the control, so an
+ * over-claim in it is the product lying at the exact moment somebody is
+ * deciding.
  */
 export const CONTEXT_PLUGINS = Object.freeze([
   contextPlugin({
@@ -108,17 +123,24 @@ export const CONTEXT_PLUGINS = Object.freeze([
     tools: ["submit_form", "update_submission", "retract_submission", "vote_form"],
     surfaces: ["Notes", "Editor"],
     offMeans:
-      "Form blocks stop being drawn and the four form tools disappear from connected clients. Every form block and every response file is left exactly as it is, and turning it back on restores them.",
+      "No new answers are taken: the four form tools disappear from connected clients, and the console refuses a submission too. Every form block and every response file is left exactly as it is, and turning it back on takes answers again.",
   }),
   contextPlugin({
     id: "images",
-    name: "Image uploads",
+    name: "Images",
     description:
-      "Pictures pasted or dropped into a note, kept in .context/assets/images/ and readable by a connected client.",
+      "read_image: a connected client opening a picture stored with your notes, in .context/assets/images/.",
     tools: ["read_image"],
-    surfaces: ["Notes", "Editor"],
+    surfaces: ["Notes"],
+    /*
+      Read-only, and the wording says so rather than claiming an upload switch.
+      The first draft of this entry said "notes stop accepting new images", and
+      the only thing that writes to that prefix is the share-card renderer — so
+      the sentence described a control the product does not have, beside a
+      control that did something else.
+    */
     offMeans:
-      "Notes stop accepting new images and read_image disappears. Images already in this context stay in the bucket and still render in Obsidian.",
+      "read_image disappears from connected clients, so an AI client can no longer open a picture from this context. Every image stays exactly where it is, still shows in your notes, and still renders in Obsidian.",
   }),
   contextPlugin({
     id: "meetings",
@@ -127,7 +149,7 @@ export const CONTEXT_PLUGINS = Object.freeze([
     tools: ["list_meetings", "read_meeting"],
     surfaces: ["Console"],
     offMeans:
-      "The meeting tools disappear and the console stops listing meetings. Nothing stops being recorded and no transcript is deleted.",
+      "The two meeting tools disappear from connected clients, so an AI client can no longer list or read them. Nothing stops being recorded, no transcript is deleted, and the console still shows them.",
   }),
   contextPlugin({
     id: "chats",
@@ -136,17 +158,7 @@ export const CONTEXT_PLUGINS = Object.freeze([
     tools: ["list_channel_days", "read_channel_day"],
     surfaces: ["Console"],
     offMeans:
-      "The two channel tools disappear. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
-  }),
-  contextPlugin({
-    id: "drawings",
-    name: "Drawings",
-    description:
-      "Excalidraw .excalidraw.md files, described for an agent, drawn in the console and edited there.",
-    tools: [],
-    surfaces: ["Notes", "Console"],
-    offMeans:
-      "A drawing stops being described or drawn and opens as the file it is. It is still never overwritten with text — that guard is not part of this switch.",
+      "The two channel tools disappear from connected clients, so an AI client can no longer read a day of a channel. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
   }),
 ]);
 

@@ -50,8 +50,8 @@ import {
  *
  * ## Why this is one panel and not two
  *
- * Context ships plugins of its own — forms, image uploads, meetings, chat days,
- * drawings — and a customer's bucket may be a vault full of somebody else's.
+ * Context ships plugins of its own — forms, images, meetings, chat days — and a
+ * customer's bucket may be a vault full of somebody else's.
  * Those were two different screens and two vocabularies for one question: a
  * person looking for "the forms thing" and a person looking for Templater are
  * both asking what this context can do. So: one box, one filter, two blocks
@@ -63,7 +63,7 @@ import {
  * This is the structural change and it is load-bearing rather than tidy. Each
  * of the five states below used to *end the panel* — a member got "only an
  * owner can read this", a bucket with no `.obsidian/` got "no plugins in this
- * bucket" — in a context that was running five plugins the whole time. Nothing
+ * bucket" — in a context that was running four plugins the whole time. Nothing
  * about the built-ins depends on reading somebody's plugin directory, so
  * nothing about them sits behind that read.
  *
