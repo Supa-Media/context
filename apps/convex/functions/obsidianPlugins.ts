@@ -1538,11 +1538,7 @@ export const executePluginRequest = action({
         operation: storageOperation,
       }) as RuntimeStorageResult;
       const response = operation.kind === "metadata.get" && result.kind === "file"
-        ? {
-            path: result.path,
-            etag: result.etag,
-            ...extractFields(result.path!, result.text!),
-          }
+        ? metadataResponse(result.path!, result.etag, result.text!)
         : result;
       if (["vault.create", "vault.modify", "vault.rename", "vault.delete", "settings.save"].includes(operation.kind)) {
         try {
@@ -1571,6 +1567,42 @@ export const executePluginRequest = action({
     }
   },
 });
+
+/**
+ * The answer to `metadata.get`, and nothing else.
+ *
+ * **`metadata:read` is offered to a person as the lesser of two rows**, beside
+ * `vault:read`, and the words on the approval screen are the contract: "Read
+ * links and tags — frontmatter, headings, tags and the links between notes"
+ * against "Read your notes — open the Markdown of any note in this context
+ * that you can see". Somebody who grants the first while declining the second
+ * has said this plugin may not read their notes.
+ *
+ * This used to spread `extractFields` whole. That function exists for the
+ * search indexer, where every field including `body` goes into a shard inside
+ * the customer's own bucket, and `body` there is the entire note minus its
+ * frontmatter and heading lines. Spread into an RPC response it handed the
+ * Markdown to the one grant that had been explicitly refused it — the
+ * operation resolves to a full `read`, so the text was always fetched; what
+ * was missing was the narrowing on the way out.
+ *
+ * So the fields are **listed** rather than spread. A shared helper's return
+ * shape is not a promise to its callers, and a field added to it for the
+ * indexer's sake must not become a field this route discloses; naming them
+ * makes that a decision somebody takes here rather than one that arrives.
+ * `files.test.ts` pins the exact key set for the same reason.
+ */
+function metadataResponse(path: string, etag: string | undefined, text: string) {
+  const fields = extractFields(path, text);
+  return {
+    path,
+    etag,
+    title: fields.title,
+    headings: fields.headings,
+    tags: fields.tags,
+    links: fields.links,
+  };
+}
 
 type RuntimeStorageOperation =
   | { kind: "list"; path: string }
