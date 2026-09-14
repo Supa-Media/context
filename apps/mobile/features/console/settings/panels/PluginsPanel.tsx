@@ -157,15 +157,91 @@ export function PluginsPanel({
 }
 
 /**
- * The vault half: what `.obsidian/plugins/` holds and what each one would do here.
+ * The vault half: the registry you can add from, and what `.obsidian/plugins/`
+ * already holds.
+ *
+ * ## Why the registry card is here rather than inside the scan's states
+ *
+ * It used to be inside them, in two of the six, and that shipped a feature
+ * nobody could reach. `VaultInventory` returns early for `withheld`, `idle`,
+ * `loading` and `failed`, and **`idle` is where a first visit lands** — nobody
+ * has pressed "Read my plugins" yet. So the only way to the community registry
+ * was to have already run a successful scan of your own bucket, and everybody
+ * else saw a panel that searched the built-ins and nothing else. Which is
+ * exactly how it was reported from the shipped app.
+ *
+ * **Browsing the registry is not a read of `.obsidian/`.** It reaches a third
+ * party's list; it does not touch the customer's bucket at all. So it has no
+ * business behind the outcome of a bucket read, any more than the Context
+ * built-ins did — the panel's own header comment made that argument one block
+ * up and this is the same argument, finished.
+ *
+ * One call site rather than six, and that is the point rather than tidiness: a
+ * seventh state added to `VaultInventory` cannot take the registry down with
+ * it, because the registry is not inside it. The same derive-rather-than-repeat
+ * fix `useRuntime` uses for registrations, where a self-review found two of
+ * five call sites already missed.
+ *
+ * `PluginBrowse` decides for itself whether to draw anything: it renders
+ * nothing without `actions`, and `useLifecycle` gives those to owners only. So
+ * `withheld` needs no special case — a non-owner is offered nothing because
+ * they could not install it, which is a better reason than the state they are
+ * looking at.
+ */
+function VaultPlugins({
+  view,
+  grants,
+  browse,
+  runtime,
+  query,
+}: {
+  view: PluginsView;
+  grants: GrantsView;
+  browse: BrowseView;
+  runtime: RuntimeView;
+  query: string;
+}) {
+  return (
+    <>
+      <PluginBrowse
+        view={browse}
+        /*
+          What is already in the bucket, when that is known. Every other state
+          passes an empty list — not a lie, and the honest shape: a scan that
+          has not run cannot say a plugin is installed, so the row says Install
+          rather than claiming a second copy would be made. A scan that then
+          runs corrects it.
+        */
+        installed={view.state === "ready" ? view.inventory.plugins : []}
+        seed={query}
+      />
+      <VaultInventory
+        view={view}
+        grants={grants}
+        /*
+          Still needed below, and for a different thing: a row's uninstall and
+          recover controls are lifecycle actions on a plugin that is already
+          here. Only the registry *search* left this component.
+        */
+        browse={browse}
+        runtime={runtime}
+        query={query}
+      />
+    </>
+  );
+}
+
+/**
+ * What `.obsidian/plugins/` holds and what each one would do here.
  *
  * Unchanged in what it says — every verdict, every named finding and every host
  * still comes from the gateway's read, and the wording for all five states still
  * lives in `../../plugins/plugins.ts`. What changed is that it is a section of a
  * panel rather than the panel, so its refusals and its empty state no longer
- * take the built-ins down with them.
+ * take the built-ins down with them — nor, since the registry card moved out
+ * above it, the one control that adds a plugin.
  */
-function VaultPlugins({
+function VaultInventory({
   view,
   grants,
   browse,
@@ -269,7 +345,6 @@ function VaultPlugins({
             exclude it by default.
           </Text>
         </Card>
-        <PluginBrowse view={browse} installed={[]} />
       </View>
     );
   }
@@ -318,8 +393,6 @@ function VaultPlugins({
           })}
         </View>
       </Card>
-
-      <PluginBrowse view={browse} installed={inventory.plugins} seed={query} />
 
       {filtered && shown.length === 0 ? (
         <Card style={styles.group} testID="plugins-no-match">

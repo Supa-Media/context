@@ -344,3 +344,121 @@ describe("the ready list", () => {
     expect(container.textContent).toContain("Allowed to");
   });
 });
+
+/*
+  REACHING THE REGISTRY IS NOT PART OF READING SOMEBODY'S VAULT.
+
+  Reported from the shipped app: "one of these sessions was supposed to build a
+  place to search through existing obsidian plugins — I only see a way to search
+  context.lc native plugins." The feature was built and merged, and it was
+  unreachable in the state most people are in.
+
+  `PluginBrowse` was rendered in two of the vault section's six outcomes —
+  `found: 0` and `ready`. Every other state returns early, and **`idle` is the
+  default**: nobody has pressed "Read my plugins" yet. So a first visit offered
+  no registry at all, leaving only the panel's own search box, which filters the
+  local lists. That is precisely what was seen.
+
+  The panel's header comment already argued the general form of this — the
+  Context block sits "outside every one of the vault block's states" so that the
+  vault half's "refusals and its empty state no longer take the built-ins down
+  with them". Browsing a third party's list is not a read of `.obsidian/`
+  either, so it was the same mistake left half-done.
+
+  The suite was green throughout, which is the part worth keeping: nothing
+  asserted the affordance was reachable, so nothing failed when it was not.
+*/
+describe("adding a plugin does not depend on the vault scan", () => {
+  const BROWSABLE: BrowseView = {
+    query: "",
+    limit: 20,
+    searching: false,
+    failure: null,
+    actions: {
+      search: async () => {},
+      install: async () => {},
+      uninstall: async () => {},
+      recover: async () => {},
+    },
+  };
+
+  const EMPTY: PluginsView = {
+    state: "ready",
+    inventory: {
+      found: 0,
+      scanned: 0,
+      truncated: false,
+      checkedAt: "2026-09-12T09:41:00.000Z",
+      plugins: [],
+    },
+  };
+
+  const reachable = (view: PluginsView) =>
+    panel(view, undefined, BROWSABLE).querySelector("[data-testid='plugin-browse-closed']") !== null;
+
+  /*
+    `idle` is the one that shipped broken and the one a first visit lands on.
+    The others are here because each was an early return too, and a fix that
+    only covered the default would leave somebody whose scan failed with the
+    same nothing.
+  */
+  test("the default state — nobody has read their vault yet — still offers the registry", () => {
+    expect(reachable({ state: "idle" })).toBe(true);
+  });
+
+  test("a scan in flight does not hide it", () => {
+    expect(reachable({ state: "loading" })).toBe(true);
+  });
+
+  test("a scan that failed does not hide it — the registry is not in that bucket", () => {
+    expect(reachable({ state: "failed", reason: "storage: 403" })).toBe(true);
+  });
+
+  test("a vault with no plugins offers it", () => {
+    expect(reachable(EMPTY)).toBe(true);
+  });
+
+  test("a vault full of plugins offers it", () => {
+    expect(reachable(READY)).toBe(true);
+  });
+
+  /*
+    The one state that shows nothing, and it is `actions` that decides rather
+    than the state. A non-owner cannot install, so `useLifecycle` hands them no
+    actions and `PluginBrowse` draws nothing of its own accord — which is why
+    the fix needs no special case for `withheld`, and why this asserts the
+    real pairing rather than the impossible one (an owner looking at an
+    inventory withheld from them).
+  */
+  test("a non-owner is offered nothing, because they have no actions rather than because of the state", () => {
+    const withheld = panel({ state: "withheld" }, undefined, {
+      query: "", limit: 20, searching: false, failure: null,
+    });
+    expect(withheld.querySelector("[data-testid='plugin-browse-closed']")).toBeNull();
+  });
+
+  /*
+    The top box seeds the registry search, and that has to survive the card
+    moving. Without it the button reads "Browse" in a panel where somebody has
+    already typed what they are looking for.
+  */
+  test("what was typed upstairs still seeds the registry search, from a state that had no card before", () => {
+    const container = panel({ state: "idle" }, undefined, BROWSABLE);
+    const box = container.querySelector("[data-testid='plugins-query']") as HTMLInputElement | null;
+    if (box === null) throw new Error("no search box");
+    /*
+      React tracks an input's value on the node and ignores an event whose value
+      it believes it already set, so the native setter is what makes this a real
+      change rather than a no-op — the idiom `pluginBrowse.test.ts` uses.
+    */
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(box, "kanban");
+      box.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain('Search for "kanban"');
+  });
+});
