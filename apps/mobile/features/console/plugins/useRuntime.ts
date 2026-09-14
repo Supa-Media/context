@@ -10,6 +10,7 @@ import type {
   AppliedPluginNoteWrite,
   CommandOutcome,
   InvokeRequest,
+  PendingCommand,
   PreviewRequest,
   SuggestRequest,
 } from "./runtime";
@@ -17,6 +18,7 @@ import { PREVIEW_LINKS_MAX } from "@context/obsidian-runtime";
 import type { LinkPreview } from "./sandboxTypes";
 import type { PluginGrant } from "./grants";
 import {
+  COMMAND_TIMEOUT_MS,
   PREVIEW_TIMEOUT_MS,
   SUGGEST_TIMEOUT_MS,
   appliedPluginNoteWrite,
@@ -145,6 +147,17 @@ export function useRuntime(options: {
     note opening and waiting eight for every plugin's text. Sharing `suggestSeq`
     would let a preview's slow answer be mistaken for a keystroke's stale one.
   */
+  /*
+    WHAT IS IN FLIGHT, AND THE CLOCK #533 SAID WAS MISSING.
+
+    A press used to set `invoke` and then nothing happened on screen until the
+    guest answered — which, for a wedged or departed frame, was never. The
+    pending row says the press landed; the timer turns a silence into a stated
+    outcome rather than an indefinite blank.
+  */
+  const [pending, setPending] = useState<Record<string, PendingCommand>>({});
+  const commandTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
   const [preview, setPreview] = useState<PreviewRequest | undefined>(undefined);
   const previewSeq = useRef(0);
   const previewing = useRef(new Map<number, {
@@ -206,6 +219,19 @@ export function useRuntime(options: {
       false claim, one step further on.
     */
     setOutcomes(prune);
+    /*
+      And what a departed frame was still being waited on for. A plugin with no
+      frame cannot answer, so leaving it pending would be a spinner nothing is
+      behind — the same stale claim as the reading above, in its most misleading
+      form. The timer goes with it, or it would fire "nothing answered" over a
+      plugin nobody is running any more.
+    */
+    for (const [pluginId, timer] of [...commandTimers.current]) {
+      if (live.has(pluginId)) continue;
+      clearTimeout(timer);
+      commandTimers.current.delete(pluginId);
+    }
+    setPending(prune);
   }, [sandboxes]);
   const resumed = useRef(new Set<string>());
   /*
@@ -335,13 +361,41 @@ export function useRuntime(options: {
     const frame = sandboxes.find((one) => one.bundle.pluginId === pluginId);
     if (frame === undefined) return;
     presses.current += 1;
-    setInvoke({ seq: presses.current, pluginId, nonce: frame.nonce, id });
+    const seq = presses.current;
+    setInvoke({ seq, pluginId, nonce: frame.nonce, id });
     setOutcomes((was) => {
       if (!(pluginId in was)) return was;
       const next = { ...was };
       delete next[pluginId];
       return next;
     });
+    setPending((was) => ({ ...was, [pluginId]: { id, seq } }));
+    /*
+      One timer per plugin, replacing any previous one: a second press
+      supersedes the first, and the first's clock must not fire a "nothing
+      answered" over the second's result.
+    */
+    const running = commandTimers.current.get(pluginId);
+    if (running !== undefined) clearTimeout(running);
+    commandTimers.current.set(
+      pluginId,
+      setTimeout(() => {
+        commandTimers.current.delete(pluginId);
+        setPending((was) => {
+          // Only if this press is still the one outstanding.
+          if (was[pluginId]?.seq !== seq) return was;
+          const next = { ...was };
+          delete next[pluginId];
+          return next;
+        });
+        setOutcomes((was) => ({
+          ...was,
+          // `error: null` on purpose — nothing reported anything, and the card
+          // must not say the plugin did. See `CommandOutcome.timedOut`.
+          [pluginId]: { id, ok: false, error: null, timedOut: true },
+        }));
+      }, COMMAND_TIMEOUT_MS),
+    );
   }, [isOwner, sandboxes]);
 
   /**
@@ -523,6 +577,23 @@ export function useRuntime(options: {
       return;
     }
     if (event.type === "command-result") {
+      /*
+        The answer arrived, so the clock stops whatever it says. A late answer
+        that beat nothing — the timeout already fired — still replaces the
+        timed-out row, because what the plugin actually said is better than the
+        console's guess that it would not say anything.
+      */
+      const running = commandTimers.current.get(pluginId);
+      if (running !== undefined) {
+        clearTimeout(running);
+        commandTimers.current.delete(pluginId);
+      }
+      setPending((was) => {
+        if (!(pluginId in was)) return was;
+        const next = { ...was };
+        delete next[pluginId];
+        return next;
+      });
       setOutcomes((was) => ({
         ...was,
         [pluginId]: { id: event.id, ok: event.ok, error: event.error },
@@ -661,6 +732,7 @@ export function useRuntime(options: {
       : undefined,
     registrations,
     outcomes,
+    pending,
     statusItems,
     /*
       The path only, and only so the card can tell whether an editor command

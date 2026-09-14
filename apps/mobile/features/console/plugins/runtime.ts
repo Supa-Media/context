@@ -83,6 +83,14 @@ export interface RuntimeView {
    */
   outcomes?: Record<string, CommandOutcome>;
   /**
+   * The command each plugin is currently waiting on, keyed by plugin id.
+   *
+   * One per plugin for the same reason `outcomes` is: somebody presses one at a
+   * time. Cleared with the frame, so a plugin that was stopped mid-command is
+   * not left saying it is still running something.
+   */
+  pending?: Record<string, PendingCommand>;
+  /**
    * What each running plugin has in its status bar, keyed by plugin id.
    *
    * Held beside `registrations` and with the same lifetime: this is something a
@@ -170,6 +178,67 @@ export interface CommandOutcome {
   id: string;
   ok: boolean;
   error: string | null;
+  /**
+   * Nothing answered, as opposed to the plugin answering that it failed.
+   *
+   * The guest reports `command-result` either way, and `ok: false` is the
+   * plugin failing *inside* the sandbox and saying so — which the card quotes.
+   * A silence is not that: there is no message to quote, and saying "the plugin
+   * reported" about one would put words in its mouth and send a reader to the
+   * wrong place to look.
+   *
+   * Absent means false, the rule `needsEditor` follows and for the same reason:
+   * a row written before this field existed was an ordinary failure.
+   */
+  timedOut?: boolean;
+}
+
+/**
+ * A command the console has sent and not yet heard back about.
+ *
+ * Held beside `outcomes` rather than inside it because they are different
+ * facts with different lifetimes — one is "still waiting", the other is "here
+ * is how it went" — and a single nullable field would make the card's two
+ * branches read as one.
+ */
+export interface PendingCommand {
+  id: string;
+  /** The press this belongs to, so a late answer cannot clear a newer one. */
+  seq: number;
+}
+
+/**
+ * How long the console waits for a command before saying nothing answered.
+ *
+ * Far longer than `SUGGEST_TIMEOUT_MS` (1.2s) and `PREVIEW_TIMEOUT_MS` (8s),
+ * and the asymmetry is the argument rather than an oversight. Those two are
+ * entered on a keystroke with somebody waiting mid-word, so a wedged guest has
+ * to be indistinguishable from no plugin almost immediately. A command is a
+ * deliberate press whose work may be a network round trip per verse through the
+ * broker — giving up early would report a working plugin as wedged, which is
+ * worse than the silence this replaces.
+ *
+ * #533 named this gap in its own log entry and shipped without it: *"a command
+ * that is slow or never answers shows nothing between the press and the result.
+ * The honest version needs a timeout this change lacks."*
+ */
+export const COMMAND_TIMEOUT_MS = 30000;
+
+/**
+ * The command in flight for this plugin, named, or `null`.
+ *
+ * Resolved against what the **running frame** registered, exactly as
+ * `commandOutcomeFor` is: a press survives a restart in the host's map, and the
+ * replacement frame may register a different set. Naming an id this frame does
+ * not have would put a command on the card that is not there to press.
+ */
+export function commandPendingFor(
+  registered: PluginRegistration[],
+  pending: PendingCommand | undefined,
+): { name: string } | null {
+  if (pending === undefined) return null;
+  const match = registered.find((one) => one.id === pending.id);
+  return match === undefined ? null : { name: match.name };
 }
 
 /**
@@ -378,11 +447,16 @@ export const REGISTRATION_NOTE =
 export function commandOutcomeFor(
   registered: PluginRegistration[],
   outcome: CommandOutcome | undefined,
-): { name: string; ok: boolean; error: string | null } | null {
+): { name: string; ok: boolean; error: string | null; timedOut: boolean } | null {
   if (outcome === undefined) return null;
   const match = registered.find((one) => one.id === outcome.id);
   if (match === undefined) return null;
-  return { name: match.name, ok: outcome.ok, error: outcome.error };
+  return {
+    name: match.name,
+    ok: outcome.ok,
+    error: outcome.error,
+    timedOut: outcome.timedOut === true,
+  };
 }
 
 /**
