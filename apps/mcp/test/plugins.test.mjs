@@ -641,6 +641,16 @@ export async function runPluginChecks(check) {
     `require("child_process")`
   );
   const collisionReport = await inventoryPlugins(new R2Store(collisionBucket));
+  /*
+    The managed release is the row, because it is the only bundle this product
+    can actually run: a fingerprint resolves under `.context/plugins/`, so an
+    inventory that preferred the synced folder would stop a plugin somebody
+    installed and approved here the moment they also installed it in Obsidian.
+
+    The fixture makes the two impossible to confuse — the managed release here
+    is the one that calls `child_process` — so a build that silently switched
+    precedence reports `runs` for a plugin that does not.
+  */
   check(
     "a managed release deterministically replaces the same Obsidian plugin id",
     collisionReport.found === 1 &&
@@ -648,6 +658,31 @@ export async function runPluginChecks(check) {
       collisionReport.plugins[0].source === "context" &&
       collisionReport.plugins[0].version === "2.0.0" &&
       collisionReport.plugins[0].verdict === "wont-run"
+  );
+  /*
+    What changed is that the duplicate is no longer invisible. The row says the
+    vault has a copy too, so somebody updating the wrong one can be told which
+    is which — and the console refuses to create this state in the first place,
+    which is the half that actually fixes it.
+  */
+  check(
+    "and the vault's copy is reported on that row rather than silently dropped",
+    collisionReport.plugins[0].alsoInVault === true
+  );
+  const managedOnlyBucket = makeBucket();
+  managedOnlyBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/current.json`,
+    JSON.stringify({ id: "same-plugin", version: "2.0.0" })
+  );
+  managedOnlyBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/manifest.json`,
+    manifestFor("same-plugin", { version: "2.0.0" })
+  );
+  managedOnlyBucket.seed(`${MANAGED_PLUGIN_PREFIX}same-plugin/releases/2.0.0/main.js`, CLEAN_BUNDLE);
+  const managedOnly = await inventoryPlugins(new R2Store(managedOnlyBucket));
+  check(
+    "a managed install with no vault copy carries no such marker",
+    managedOnly.plugins[0].alsoInVault === undefined
   );
 
   // A backend that ignores the delimiter must produce the same folder list, or

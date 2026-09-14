@@ -21,6 +21,7 @@ import { runSearchV2IntegrationChecks } from "./searchV2Integration.test.mjs";
 import { runStoreFactoryChecks } from "./storeFactory.test.mjs";
 import { runTenancyChecks } from "./tenancy.test.mjs";
 import { runPluginChecks } from "./plugins.test.mjs";
+import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
@@ -484,6 +485,13 @@ check(
   pluginReport?.content?.[0]?.text?.includes("Obsidian Git") &&
     pluginReport.content[0].text.includes("child_process")
 );
+// Both halves through the worker. The unit checks prove the section renders;
+// this proves the tool asks for it, which is the wiring nothing else covers.
+check(
+  "and it reports the Context plugins this context is running in the same answer",
+  pluginReport.content[0].text.includes("CONTEXT PLUGINS") &&
+    pluginReport.content[0].text.includes("context-forms")
+);
 /*
   THIS ASSERTED THE OPPOSITE, AND ITS REASON IS WHAT WAS WRONG.
 
@@ -527,6 +535,77 @@ check(
   "a plugin bundle is never reachable as a note",
   (await call("priv-token", "read_note", { path: ".obsidian/plugins/obsidian-git/main.js" }))
     .isError === true
+);
+
+// -- a Context plugin turned off, through the worker
+//
+// `contextPlugins.test.mjs` covers the file and the catalogue as pure
+// functions. These cover the two places the switch has to reach, which are the
+// two places authority is decided for every other reason as well: the listing
+// and the call. Both, because the listing is cached for a minute and a client
+// remembers a tool name for much longer than that — a switch enforced only in
+// the listing would be a preference an old client could ignore for as long as
+// it liked.
+const enablementKey = ".context/plugins/enabled.json";
+await contextStore.put(
+  enablementKey,
+  JSON.stringify({ version: 1, enabled: [], disabled: ["context-forms"] })
+);
+const listWithFormsOff = await rpc("priv-token", "tools/list");
+check(
+  "a Context plugin turned off takes its tools out of the listing",
+  listWithFormsOff.result?.tools.length === 31 &&
+    !listWithFormsOff.result.tools.some((tool) => tool.name === "submit_form")
+);
+check(
+  "and leaves every tool no plugin owns exactly where it was",
+  ["read_note", "write_note", "search", "list_plugins", "set_visibility"].every((name) =>
+    listWithFormsOff.result.tools.some((tool) => tool.name === name)
+  )
+);
+const refusedForm = await call("priv-token", "vote_form", {
+  path: "1-projects/bugs.md",
+  response_id: "r1",
+});
+/*
+  One check rather than two, and the text is the load-bearing half.
+
+  "`isError` is true" was written first and is not a test of this gate at all:
+  with the gate deleted the call reaches the real handler, which refuses a form
+  on a note that does not exist — so the weaker assertion passes on the broken
+  build. Sabotage-confirmed, which is how the pair became one.
+
+  "unknown tool" is asserted absent for the reason `report.js` gives about
+  refusals generally: that is what a client would otherwise show somebody whose
+  own setting caused it, and it names no way back.
+*/
+check(
+  "a call to a switched-off tool is refused by name, with the way to undo it",
+  refusedForm?.isError === true &&
+    refusedForm.content?.[0]?.text?.includes("Markdown forms") === true &&
+    refusedForm.content[0].text.includes("Plugins") &&
+    lacks(refusedForm.content[0].text, "unknown tool")
+);
+// The switch removes a capability, never a protection. `read_note` and the
+// privacy engine behind it are untouched by any decision in that file, and
+// this is the check that stops a later "while we are in here" from folding a
+// guard into the same lookup.
+check(
+  "turning a plugin off changes nothing about what a note read is allowed to see",
+  succeeded(await call("priv-token", "read_note", { path: "index.md" }))
+);
+// A file nobody can parse means the defaults, and the defaults are on. The
+// opposite failure — a typo in a preferences file taking a workspace's tools
+// away — is the one this fallback exists to prevent.
+await contextStore.put(enablementKey, "{ half a file");
+check(
+  "a settings file that does not parse leaves every tool where it was",
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 35
+);
+await contextStore.delete(enablementKey);
+check(
+  "and removing the file restores the full listing",
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 35
 );
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
@@ -4276,6 +4355,7 @@ await runSearchPacingChecks(check);
 // inventory against its own bucket stubs, and the phrasing of the report. No
 // control plane and no shared fixture, so it runs anywhere in this file.
 await runPluginChecks(check);
+await runContextPluginChecks(check);
 
 // Links between notes, and the rewrite that keeps them pointing at what they
 // name after a move. Pure rules first, then the four move tools against a
