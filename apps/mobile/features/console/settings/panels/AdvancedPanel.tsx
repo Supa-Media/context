@@ -13,6 +13,7 @@ import { relativeTime } from "../../format";
 import {
   auditActionLabel,
   auditActorLabel,
+  auditDetailLine,
   describeKeyExportFailure,
   describeMoveProgress,
   type AdvancedView,
@@ -166,10 +167,50 @@ function AuditCard({ view }: { view: AuditView }) {
                 {event.paths.join(", ")}
               </Text>
             ) : null}
+            {/*
+              The one row whose subject is not already on it. A plugin's
+              network request has no path by construction, so without this the
+              row said only that *some* plugin reached *somewhere* — see
+              `auditDetailLine` for why it is one action and four named keys
+              rather than "render the details".
+
+              `numberOfLines={1}` for the same reason the value is flattened:
+              this is one line of a trail, and third-party text does not get to
+              decide how tall a row is.
+            */}
+            <AuditDetail event={event} styles={styles} />
           </Grow>
         </Row>
       ))}
     </Card>
+  );
+}
+
+/**
+ * A row's allow-listed detail line, drawn only where there is one.
+ *
+ * Its own component so the `null` case is one branch rather than a ternary
+ * inside the map, and so the render test can find it by test id without
+ * matching on the words a plugin chose.
+ */
+function AuditDetail({
+  event,
+  styles,
+}: {
+  event: AuditView["events"][number];
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const line = auditDetailLine(event);
+  if (line === null) return null;
+  return (
+    <Text
+      testID={`audit-detail-${event.eventId}`}
+      variant="rowSub"
+      style={styles.rowSub}
+      numberOfLines={1}
+    >
+      {line}
+    </Text>
   );
 }
 

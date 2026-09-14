@@ -20,11 +20,12 @@ import type { ConsoleFailure } from "../failure";
  * One row of `apps/convex/functions/audit.ts`'s `listEvents`, exactly as the
  * control plane returns it.
  *
- * `details` is not rendered by anything in this console today — that module's
- * own header explains at length why even the allow-listed fields it carries
- * are subtle (a count can be a subtraction, a scope can be a permission) — so
- * this file does not read it, and the type exists only so a future surface can
- * without re-deriving the shape.
+ * `details` is read by exactly one thing in this console — `auditDetailLine`,
+ * for exactly one action — and that narrowness is the point. `audit.ts`'s own
+ * header explains at length why even the allow-listed fields it carries are
+ * subtle: a count can be a subtraction, a scope can be a permission, a
+ * visibility can be an existence oracle. Rendering this map generally would
+ * publish every one of those the day the server added it.
  */
 export interface ConsoleAuditEvent {
   eventId: string;
@@ -140,7 +141,98 @@ const ACTION_LABELS: Readonly<Record<string, string>> = {
   "meetings.folder_set": "Changed where meetings land",
   "encryption.export": "Exported this context's encryption keys",
   "encryption.rekeyed": "Rotated an encryption key",
+  "plugin.network": "A plugin reached the internet",
 };
+
+/**
+ * The one action whose `details` this console renders, and the exact keys.
+ *
+ * ## Why a detail line exists at all, and why only this one
+ *
+ * A plugin's network request is the only audited event whose *subject is not
+ * in the row*. "Edited a note" names the note in `paths`; "Connected an AI
+ * app" names the app in its label. `plugin.network` carries no path by
+ * construction — there is no note involved — so the row read
+ * *"plugin network · you · 2 minutes ago"* and answered none of the three
+ * questions somebody opens an audit trail to ask: **which plugin, reaching
+ * what, and what came back.**
+ *
+ * That is not a cosmetic gap. A grant to reach `www.bible.com` is the most
+ * consequential thing this console hands a plugin, the card promises it is
+ * "brokered, audited and revocable", and the audited half was unreadable. The
+ * control plane has recorded all four fields since the egress service landed
+ * and hands them to an owner already (`readsEveryDetail` in
+ * `apps/convex/functions/audit.ts`); only the drawing was missing.
+ *
+ * ## Why a map of keys rather than "render the details"
+ *
+ * Because the alternative publishes whatever the server adds next, forever,
+ * with nobody re-reading this file. The keys are named here, in order, and a
+ * key that is not named is not drawn — so a `details` that one day carries a
+ * response body, a token, a header or a full URL renders exactly as much as it
+ * does today, which is nothing.
+ *
+ * **What is deliberately absent:** the URL's path and query (the host is the
+ * grant's unit and a path is what the plugin was reading), any request or
+ * response body, and any header. `recordRuntimeAudit` never stores those, and
+ * this list is the second lock rather than a restatement of the first.
+ */
+const RENDERED_DETAILS: Readonly<Record<string, readonly string[]>> = {
+  "plugin.network": ["pluginId", "host", "method", "status"],
+};
+
+/**
+ * How many characters of one detail value reach the screen.
+ *
+ * `method` is the one field of the four a *plugin* supplies — `host` is
+ * re-derived from the parsed URL by the server, `pluginId` comes from the
+ * session, `status` from the broker's own response — so it is bounded hardest.
+ * All four are bounded anyway, for the reason every other piece of third-party
+ * text in this console is: a cap the producer applies to itself is not a cap.
+ */
+const DETAIL_CAPS: Readonly<Record<string, number>> = {
+  pluginId: 60,
+  host: 120,
+  method: 12,
+  status: 6,
+};
+
+/**
+ * The row's own detail line, or `null` when there is nothing to say.
+ *
+ * Reads only the keys `RENDERED_DETAILS` names for this action, in that order,
+ * and only where the value is a string or a finite number. A boolean, a null,
+ * an object or a missing key is dropped rather than printed — `"null"` under a
+ * row is worse than a shorter line, and an object would stringify to
+ * `[object Object]`.
+ *
+ * Whitespace is flattened, because these values become one line among several
+ * in a card and a newline inside one would draw as an extra line of audit
+ * trail that nothing recorded.
+ */
+export function auditDetailLine(event: ConsoleAuditEvent): string | null {
+  const keys = RENDERED_DETAILS[event.action];
+  if (keys === undefined) return null;
+  const details = event.details;
+  if (details === undefined || details === null) return null;
+
+  const parts: string[] = [];
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(details, key)) continue;
+    const value = details[key];
+    const text =
+      typeof value === "string"
+        ? value
+        : typeof value === "number" && Number.isFinite(value)
+          ? String(value)
+          : null;
+    if (text === null) continue;
+    const bounded = text.replace(/\s+/g, " ").trim().slice(0, DETAIL_CAPS[key] ?? 60);
+    if (bounded === "") continue;
+    parts.push(bounded);
+  }
+  return parts.length === 0 ? null : parts.join(" · ");
+}
 
 /**
  * A row's own words, for an action this build recognises, and the server's
