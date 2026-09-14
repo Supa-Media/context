@@ -3719,3 +3719,99 @@ same swap, because it is one control in two places rather than two controls.
 `data-icon` — which is why `Icon.tsx` puts the name in the DOM at all: a drawing
 has no text, so without it "the mark changes when the mode does" is
 unassertable.
+
+### The staff console is shaped for ten customers, and its figures count rows
+
+`/admin` was eleven identical tiles and a credential form in one scroll. Every
+tile was a count of events from `usageDaily`, every tile carried the same visual
+weight, and the only comparison on the page was day-over-day. Read as a UI/UX
+audit against the product it is actually for — a handful of accounts, more
+contexts than people, a $5 subscription per context — six things were wrong, and
+each one is a different mistake:
+
+**A percentage of a single-digit number is not information.** One person opening
+the app twice is `+100%`. `dayOverDay` was already careful to return `null` from
+a zero baseline, which at this size is most days, so the honest half of the tile
+was an em dash. The growth figures now print `+2 — 3 vs 1 before`: the change,
+and both of the numbers it came from, because `+0` from "two and two" and `+0`
+from "nothing and nothing" are entirely different weeks. The event counters keep
+their percentage — tool calls and searches run to hundreds a day, which is a
+denominator big enough to carry something.
+
+**Eleven tiles of equal weight is no hierarchy at all.** "Site visits" read as
+important as "active contexts". Four headline figures now sit above everything
+else, and the rest of the page is not tiles: at n=11 the interesting fact is
+nearly always *out of what*, which is a composition bar, or *who fell out*, which
+is a funnel and a roster.
+
+**None of the questions could be answered.** Contexts were one number with no
+personal/shared split, no managed-versus-customer-owned split, no plan status, no
+provider, no client. Every one of those is a decision someone takes weekly — what
+we are paying Cloudflare for, who to email about a declined card, which AI client
+to test against first.
+
+**There was no revenue anywhere.** The product sells a subscription and the staff
+console did not say how many were paying or what that was worth. MRR is derived
+from `PREMIUM_PRICE_CENTS` rather than restating it, and counts `active` only:
+`past_due` is a declined card, not income.
+
+**At this size the answer is a person, not an aggregate.** Five accounts, two of
+which never connected a bucket, is a morning's work to fix and is invisible on
+any page that only aggregates. Hence the funnel and the roster — and the roster
+is control-plane metadata only: an address, when they arrived, contexts owned,
+whether storage verified, clients, plan. `functions/admin.ts` already forbids
+per-note, per-path and per-query figures, and that card is the thing most likely
+to tempt somebody to break it. No column there may name a note, a folder, or a
+search.
+
+**Rotating a Stripe key and reading a growth figure were the same scroll.** Four
+tabs, because there are four errands.
+
+#### Counting rows, and what it costs
+
+The figures the audit asked for cannot come from `usageDaily`. A counter only
+knows what happened since the day somebody added it, so a growth curve drawn from
+one begins on the day it shipped — and personal-versus-shared, managed-versus-BYO
+and plan status were never counted at all. `censusReport` counts **rows that
+exist now**, bucketed by when they were created, which makes every figure
+retroactive and exact.
+
+Convex has no count API, so that is a table scan, and the trade is stated rather
+than hidden. `CENSUS_CEILING` is 500 rows per table — low, because one census
+spans ten tables including the two widest rows in the schema, and the failure
+mode of guessing high is the one screen whose job is to report growth throwing
+because it did. Past the ceiling every figure is a floor, `truncated` travels to
+the client, and **the growth curves are withheld rather than drawn**: a
+cumulative line missing an arbitrary slice of its rows is a different and wrong
+shape, not a rough one. That is the same rule the note count already follows, and
+it is the point at which counting should be replaced by maintained aggregates —
+a decision somebody takes, not a constant somebody raises. Rows are read
+newest-first so a page that fills drops the oldest, which is the half nobody is
+asking about.
+
+Three pieces of the arithmetic a "simplification" would get wrong, each with a
+test:
+
+- **The cumulative curve counts everything created on or before each day**, not
+  only what landed inside the window. Restarting at the left edge re-founds the
+  company thirty days ago.
+- **Managed storage is told apart by the whole derived bucket name, never the
+  `ctx-` prefix.** A customer's own bucket carrying our prefix and somebody
+  else's id must not be counted as one we pay for — and the name is interpolated
+  rather than taken from `managedBucketName`, which *throws*: correct when
+  provisioning a bucket, wrong in a census, where one unusual row must not take
+  the dashboard down.
+- **The funnel is thresholds, not a staircase, and is deliberately not
+  monotonic.** Somebody with a client connected to a context whose bucket never
+  verified is precisely the customer to go and find; clamping each step to the one
+  above it erases them from the one screen that could have shown them.
+
+One more rule the page inherits from the chart work: a stacked bar lifts any
+non-zero slice to `MIN_SEGMENT_PERCENT` and scales the large ones down to make
+room. The widths are then not proportional, which is the trade — the count beside
+every slice is the truth, and rendering one real paying customer out of four
+hundred as zero pixels is the worse lie.
+
+`usageReport` keeps the event counters and loses its two all-time totals from the
+screen. One number arriving on one page from two different reads, with two
+different ceilings, is how a dashboard starts disagreeing with itself.
