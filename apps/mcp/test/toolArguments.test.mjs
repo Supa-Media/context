@@ -1052,9 +1052,9 @@ export async function runToolArgumentChecks(check) {
 
       **The four names below are deliberately NOT read from `FORM_TOOLS`.** A
       test that imports the set it is checking restates the source and asserts
-      nothing — the defect row 270 was filed for, and the reason its fix made
-      the predicate and the test read ONE exported constant was that they were
-      checking different things. Here they must differ: this is the independent
+      nothing. Where a predicate and a test must agree on one list, the fix is
+      for both to read ONE exported constant — that is the case where they are
+      checking the same thing. Here they must differ: this is the independent
       copy, so adding a fifth name to the gateway reddens this check and
       somebody has to say why.
 

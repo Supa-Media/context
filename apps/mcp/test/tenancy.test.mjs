@@ -1992,6 +1992,76 @@ export async function runTenancyChecks(check) {
     ).status === 200
   );
 
+  /*
+    RFC 7009 §2.1: `token_type_hint` is an OPTIMISATION, and if the server
+    cannot find the token under the hinted type it **MUST extend its search
+    across all of its supported token types**. A client is entitled to send no
+    hint at all.
+
+    The check above this one, and every other revocation check in this file,
+    passes `token_type_hint: "access_token"`. So the hinted path was covered and
+    the unhinted path was not — and unhinted defaults to `"refresh"`, which
+    looks in `by_refresh_token` and stops. An access token presented without a
+    hint was therefore looked up among refresh tokens, missed, and left live.
+
+    **Behind the 200 that §2.2 mandates**, which is exactly the answer that
+    cannot tell the caller their revocation did nothing. `CLAUDE.md` makes
+    per-client revocability the reason MCP access is OAuth rather than a shared
+    token, so a revoke that silently no-ops is that promise failing quietly.
+  */
+  const TOKEN_A_UNHINTED = token("tenant_a_unhinted");
+  await controlPlane.addGrant({
+    accessToken: TOKEN_A_UNHINTED,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_alpha_sibling",
+    userId: "user_a",
+  });
+  check(
+    "the unhinted grant works before it is revoked",
+    (await rpc(env, TOKEN_A_UNHINTED, "ping", {})).body?.result !== undefined
+  );
+  const unhinted = await postForm(env, "/oauth/revoke", {
+    token: TOKEN_A_UNHINTED,
+    client_id: "mcp_client_alpha_sibling",
+  });
+  check("an unhinted revocation answers 200", unhinted.status === 200);
+  check(
+    "...and actually revokes, because the hint is an optimisation and not the lookup",
+    (await rpc(env, TOKEN_A_UNHINTED, "ping", {})).status === 401
+  );
+
+  // The mirror, so the MUST is pinned in both directions rather than for the
+  // one type that happened to be the default. A refresh token presented under
+  // the *wrong* hint has to be found too — and with the fallback in place the
+  // default stops mattering at all, which is the point of it.
+  const TOKEN_A_MISHINTED = token("tenant_a_mishinted");
+  const REFRESH_A_MISHINTED = token("tenant_a_mishinted_refresh");
+  await controlPlane.addGrant({
+    accessToken: TOKEN_A_MISHINTED,
+    refreshToken: REFRESH_A_MISHINTED,
+    workspaceId: "ws_a",
+    role: "owner",
+    scopes: ["context:read", "context:write"],
+    clientId: "mcp_client_alpha_sibling",
+    userId: "user_a",
+  });
+  check(
+    "the mis-hinted grant works before it is revoked",
+    (await rpc(env, TOKEN_A_MISHINTED, "ping", {})).body?.result !== undefined
+  );
+  const mishinted = await postForm(env, "/oauth/revoke", {
+    token: REFRESH_A_MISHINTED,
+    token_type_hint: "access_token",
+    client_id: "mcp_client_alpha_sibling",
+  });
+  check("a refresh token revoked under the wrong hint answers 200", mishinted.status === 200);
+  check(
+    "...and is revoked anyway, which is the other half of RFC 7009 §2.1",
+    (await rpc(env, TOKEN_A_MISHINTED, "ping", {})).status === 401
+  );
+
   /* ------------------- 13. the credential is never cached -------------------- */
 
   const before = controlPlane.calls.filter((c) => c.path === "/gateway/binding").length;
