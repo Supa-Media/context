@@ -1065,9 +1065,27 @@ export async function handleRevoke(request, env, controlPlane) {
   const token = params.get("token");
   if (token) {
     const hint = params.get("token_type_hint");
-    const tokenType = hint === "access_token" ? "access" : "refresh";
+    /*
+      RFC 7009 §2.1: the hint is an OPTIMISATION, and if the server cannot find
+      the token under the hinted type it **MUST extend its search across all of
+      its supported token types**. A client is entitled to send no hint at all.
+
+      This used to search one index and stop. Unhinted lands on `"refresh"`, so
+      an access token presented without a hint was looked up among refresh
+      tokens, missed, and left live — behind the 200 that §2.2 mandates, which
+      is precisely the answer that cannot tell the caller their revocation did
+      nothing. `CLAUDE.md` makes per-client revocability the reason MCP access
+      is OAuth rather than a shared token; a revoke that silently no-ops is that
+      promise failing quietly.
+
+      The second lookup is only reached on a miss, so the ordinary hinted path
+      still costs one call, and the answer is an unconditional 200 either way.
+    */
+    const hinted = hint === "access_token" ? "access" : "refresh";
+    const other = hinted === "access" ? "refresh" : "access";
     try {
-      await controlPlane.revokeGrant(token, tokenType, client.clientId);
+      const revoked = await controlPlane.revokeGrant(token, hinted, client.clientId);
+      if (!revoked) await controlPlane.revokeGrant(token, other, client.clientId);
     } catch {
       // Swallowed deliberately: a failure here must not tell the caller whether
       // the token existed. The control plane logs it.
