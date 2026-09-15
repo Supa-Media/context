@@ -41,6 +41,16 @@
  * 5. **The store factory drops `rootPrefix` for Dropbox.** 4 checks failed
  *    here, because a folder the customer chose is not something the adapter may
  *    lose track of. See `storeFactory.test.mjs` for the rest of that record.
+ * 6. **The loopback exception's host and scheme comparisons**, one at a time.
+ *    Before the two checks added beside the port attack, each failed
+ *    **nothing**; now each fails 1. The host half is the serious one: the
+ *    branch is reached whenever the *registered* URI is loopback, which is
+ *    every CLI client, so without the equality `http://127.0.0.1/callback`
+ *    matches `http://evil.test/callback` and the authorization code goes to
+ *    whoever owns that name. Sabotage 2 above covered the exact-match path and
+ *    this one is the exception carved out of it — the carve-out needed its own
+ *    record, because "ignores the port and nothing else" was a claim about
+ *    three fields with one of them asserted.
  */
 
 import worker from "../src/index.js";
@@ -1493,6 +1503,51 @@ export async function runTenancyChecks(check) {
   check(
     "the loopback exception ignores the port and nothing else",
     loopbackPathAttack.status === 400
+  );
+
+  /*
+    "…and nothing else" is a claim about three fields and the check above tests
+    one of them. Measured: deleting `a.hostname !== b.hostname` from
+    `redirectUriMatches` reddened **nothing**, and so did deleting the protocol
+    comparison. Both are load-bearing.
+
+    The host one is the serious half. The loopback branch is reached whenever
+    the *registered* URI is loopback — which is every CLI client — and with the
+    equality gone the *presented* host is unconstrained, so
+    `http://127.0.0.1/callback` matches `http://evil.test/callback` and the
+    authorization code is handed to whoever owns that name. Verified directly
+    against the weakened function before this was written, rather than reasoned
+    about.
+
+    The protocol one admits a scheme registration would never have stored:
+    `redirectUriIsAcceptable` allows only https and loopback http, but it runs
+    at registration and says nothing about what is presented later.
+  */
+  const loopbackHostAttack = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${nativeClient.client_id}` +
+        `&redirect_uri=${encodeURIComponent("http://evil.test:51763/callback")}` +
+        `&code_challenge=${challengeValue}&code_challenge_method=S256`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "the loopback exception does not let the host be substituted",
+    loopbackHostAttack.status === 400
+  );
+  const loopbackSchemeAttack = await worker.fetch(
+    new Request(
+      `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${nativeClient.client_id}` +
+        `&redirect_uri=${encodeURIComponent("https://127.0.0.1:51763/callback")}` +
+        `&code_challenge=${challengeValue}&code_challenge_method=S256`
+    ),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "...nor the scheme, even to a stricter-looking one",
+    loopbackSchemeAttack.status === 400
   );
 
   /* ---------------------- 10. the token endpoint and PKCE -------------------- */
