@@ -303,11 +303,13 @@ describe("renderPreviewHtml: the tags crawlers actually read", () => {
   });
 });
 
-describe("escapeHtml: injection is impossible even if a literal goes bad", () => {
-  // Nothing user-supplied reaches the template today — every string comes from
-  // the frozen table in preview.ts. This proves the second line of defence
-  // anyway, because "the inputs are all constants" is a property a future edit
-  // could quietly drop.
+describe("escapeHtml: customer-authored text reaches the template, so this is the defence", () => {
+  // Not a second line of defence, which is what this block used to claim. A
+  // note title reaches the card through `previewForNote` and `previewForShare`,
+  // and a display name through `previewFromProfile`; all three land in a
+  // double-quoted `content="…"`. The rendered-output checks further down are
+  // what make that real rather than asserted — they would fail if the escaping
+  // were dropped on the belief that the inputs are all constants.
   it("neutralises the attribute-escape payload", () => {
     expect(escapeHtml('"><script>alert(1)</script>')).toBe(
       "&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;",
