@@ -978,6 +978,57 @@ export async function runToolArgumentChecks(check) {
         "unknown tool: no_such_tool_at_all"
     );
 
+    /*
+      THE SAME TWO PROPERTIES, FOR EVERY MEMBER OF `EXISTENCE_MASKED_TOOLS`.
+
+      The checks above prove it for `export_encryption_keys` alone, and the set
+      has four members. Measured before widening this, the way the traversal
+      matrix in `store.test.mjs` was: deleting `materialize_move` from
+      `EXISTENCE_MASKED_TOOLS` reddened **nothing**, and deleting
+      `migrate_storage_layout` reddened nothing either.
+
+      Those two are not the same case, and pinning both is what showed the
+      difference. **The mask has two readers, not one:** the refusal at the
+      dispatch site, and `toolArgumentRefusal`, which returns `null` for a
+      masked tool so its schema is never read back to a caller who is not
+      supposed to know it exists.
+
+      `materialize_move` has neither reader held: it re-checks the tier itself
+      but answers `permission denied: move materialization requires owner
+      access.`, so the mask is the only thing between a team-tier caller and a
+      sentence confirming the tool is real — and, separately, its argument
+      shape.
+
+      `migrate_storage_layout` re-checks the tier and returns the
+      *byte-identical* `unknown tool: …`, so the message reader really is
+      redundant there. **Its argument reader is not**, which is why removing it
+      from the set still reddens the first check below and not the second: the
+      validator fires and answers "permitted here: …" to a caller the dispatch
+      site would have told nothing. An assertion written only on the no-argument
+      case would have called this tool covered and been wrong.
+    */
+    for (const masked of [
+      "export_encryption_keys",
+      "rotate_encryption_keys",
+      "materialize_move",
+      "migrate_storage_layout",
+    ]) {
+      const withJunk = await callTool(env, TOKEN_TEAM, masked, { workspaceId: WORKSPACE_OTHER });
+      const inventedPeer = await callTool(env, TOKEN_TEAM, `${masked}_x`, {
+        workspaceId: WORKSPACE_OTHER,
+      });
+      check(
+        `${masked} is masked from a team tier, arguments and all`,
+        textOf(withJunk) === `unknown tool: ${masked}` &&
+          JSON.stringify(withJunk) === JSON.stringify(inventedPeer).replaceAll(`${masked}_x`, masked)
+      );
+      check(
+        `...and with no arguments at all it is still an unknown tool, not a denial`,
+        textOf(await callTool(env, TOKEN_TEAM, masked)) === `unknown tool: ${masked}` &&
+          !/permission denied/i.test(textOf(await callTool(env, TOKEN_TEAM, masked)))
+      );
+    }
+
     /* -------------- and all of that on the other protocol era -------------- */
 
     /*
