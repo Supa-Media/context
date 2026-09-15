@@ -315,3 +315,43 @@ describe("switching context re-derives the controls instead of carrying a stale 
     screen.unmount();
   });
 });
+
+/*
+  THE ONE FACT THIS SCREEN TURNS ON, AND WHETHER IT IS ON THE SCREEN.
+
+  Everything else here is a control whose submission the backend re-checks — the
+  header says so, and it is right. The redirect host is the exception: it is not
+  submitted and nothing downstream re-derives it, so it is *only* ever a fact a
+  person reads. If it stopped being rendered, or rendered the wrong thing, no
+  test in this repository failed and no backend check would notice, because
+  approving a grant to the host you registered is exactly what the flow is for.
+
+  `consentState.test.ts` pins what `redirectHost` computes. This pins that the
+  screen shows it, which is a separate claim about a different file — a value
+  with two readers needs two assertions.
+*/
+describe("where the code is going is on the screen", () => {
+  test("the destination host is rendered, not just computed", () => {
+    const screen = mount([OWNED]);
+    expect(screen.text()).toContain("Approving sends it back to");
+    expect(screen.text()).toContain("claude.ai");
+    screen.unmount();
+  });
+
+  test("a name smuggled into the userinfo never reaches the glass", () => {
+    const screen = mount([OWNED], {
+      ...REQUEST,
+      // Registerable today: https, no fragment, inside the length cap. The host
+      // is `evil.test`; `claude.ai` is a username.
+      redirectUri: "https://claude.ai@evil.test/api/mcp/auth_callback",
+      // Deliberately not "Claude" anything: the assertion below is that the
+      // smuggled name is absent from the WHOLE page, so the client's own name
+      // must not supply it.
+      clientName: "Some App",
+    });
+    const text = screen.text();
+    expect(text).toContain("evil.test");
+    expect(text).not.toContain("claude.ai");
+    screen.unmount();
+  });
+});
