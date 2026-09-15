@@ -1550,6 +1550,71 @@ export async function runTenancyChecks(check) {
     loopbackSchemeAttack.status === 400
   );
 
+  /*
+    THE GUARDS AFTER THE REDIRECT CHECK, WHICH REFUSE BY REDIRECTING.
+
+    Everything above this point answers with a 400, because the redirect URI is
+    not yet proven and there is nowhere safe to send an error. Once it matches,
+    `handleAuthorize` switches to `fail()` — a 302 back to the client carrying
+    `error=`. That ordering is the whole confused-deputy defence and it is worth
+    asserting from the outside: these checks pin both the refusal *and* that it
+    arrives as a redirect to the client's own URI rather than as a 400.
+
+    Measured before writing them, each guard removed on its own:
+
+      code_challenge required          -> ALL PASS   (the shape check caught it)
+      code_challenge shape             -> ALL PASS   (the required check caught it)
+      BOTH, together                   -> ALL PASS   (nothing at all)
+      resource indicator must match us -> ALL PASS
+      unknown scope refused            -> 1 FAILURES (already held)
+
+    The first three are the interesting result. Either guard alone covers a
+    missing `code_challenge`, because `test(null)` stringifies to `"null"` and
+    fails the pattern — so removing one is masked by the other and only removing
+    both shows that **nothing pinned PKCE being mandatory at the authorize
+    endpoint**. Fail-closed either way: a code minted without a challenge can
+    never be exchanged, because `verifyPkce` reads `codeChallenge.length` and
+    the control plane's validator refuses a null. No bypass — but the headline
+    protection for public clients deserves better than an accident.
+  */
+  const authorizeWithout = (name) => {
+    const url = new URL(authorizeUrl());
+    url.searchParams.delete(name);
+    return url.toString();
+  };
+  const noChallenge = await worker.fetch(
+    new Request(authorizeWithout("code_challenge")),
+    env,
+    { waitUntil() {} }
+  );
+  const noChallengeLocation = noChallenge.headers.get("Location") || "";
+  check(
+    "PKCE is mandatory: an authorize request with no code_challenge is refused",
+    noChallenge.status === 302 &&
+      noChallengeLocation.startsWith("https://client.test/callback?") &&
+      noChallengeLocation.includes("error=invalid_request")
+  );
+  const shortChallenge = await worker.fetch(
+    new Request(authorizeUrl({ code_challenge: "too-short" })),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "...and a code_challenge that is not a 43-128 character unreserved string is refused",
+    shortChallenge.status === 302 &&
+      (shortChallenge.headers.get("Location") || "").includes("error=invalid_request")
+  );
+  const foreignResource = await worker.fetch(
+    new Request(authorizeUrl({ resource: "https://mcp.somebody-else.test/mcp" })),
+    env,
+    { waitUntil() {} }
+  );
+  check(
+    "a resource indicator naming another server is refused (RFC 8707 §2)",
+    foreignResource.status === 302 &&
+      (foreignResource.headers.get("Location") || "").includes("error=invalid_target")
+  );
+
   /* ---------------------- 10. the token endpoint and PKCE -------------------- */
 
   const authorizationRecord = {
