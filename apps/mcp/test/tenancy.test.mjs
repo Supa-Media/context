@@ -51,6 +51,22 @@
  *    this one is the exception carved out of it — the carve-out needed its own
  *    record, because "ignores the port and nothing else" was a claim about
  *    three fields with one of them asserted.
+ * 7. **`normalizeClientName`, one filter at a time, then both, then the
+ *    character class from both sides.** Dropping the hostile-character strip
+ *    fails **2** and *not* the line-break check, because the whitespace
+ *    collapse catches `\n` as well — two guards over one input, each of which
+ *    reads as covered alone. Dropping the collapse alone fails **1**; dropping
+ *    both fails **4**, which is the number that says what is actually held.
+ *    Capping before the collapse rather than after fails 1, and removing the
+ *    trailing-surrogate trim fails 1 — that last is a defect the function would
+ *    introduce itself, so it is sabotaged like any other.
+ *
+ *    The class is pinned in **both** directions, which is the part worth
+ *    keeping: widening it back to all of `Cf` — the first version of this fix —
+ *    fails **2**, because it takes apart a Persian name and an emoji sequence;
+ *    narrowing it to `Cc` alone also fails **2**, because the bidi overrides and
+ *    the invisible spacers walk through. A normaliser is the kind of function
+ *    that only ever gets tested for doing too little.
  */
 
 import worker from "../src/index.js";
@@ -1037,6 +1053,115 @@ export async function runTenancyChecks(check) {
   check("dynamic client registration returns 201", registration.status === 201);
   check("registration returns a client_id", typeof registered.client_id === "string");
   check("a public client gets no secret", registered.client_secret === undefined);
+
+  /*
+    WHAT A CLIENT MAY CALL ITSELF, GIVEN THAT THE PERSON READS IT.
+
+    `client_name` is client-asserted — registration is unauthenticated by
+    construction — and it is the string the consent screen puts in the sentence
+    somebody reads before pressing Approve, as well as the one the connections
+    list and the audit trail carry. `software_id`, which nothing renders, is
+    already bounded to a boring alphabet so that "nothing that lands in the
+    control plane can carry markup, whitespace tricks, or a paragraph". The
+    field that IS rendered had only `trim()` and a length cap, which remove
+    neither.
+
+    What currently stops a name full of newlines from pushing the redirect host
+    out of the reader's way is a ScrollView that holds the whole page including
+    the buttons — so scrolling to Approve scrolls past the truth. That is a real
+    defence and it is why this is not worse; it is also a layout chosen to make
+    an OAuth flow finishable on a phone, not to bound this. A guard nobody
+    picked is a guard nobody will keep.
+
+    Asserted on what reaches the CONTROL PLANE, not on the echo: the echo is a
+    courtesy to the client, the stored row is what every reader renders.
+  */
+  const registerNamed = async (name) => {
+    const response = await worker.fetch(
+      new Request("https://mcp.context.test/oauth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: name,
+          redirect_uris: ["https://client.test/callback"],
+          token_endpoint_auth_method: "none",
+        }),
+      }),
+      env,
+      { waitUntil() {} }
+    );
+    const json = await response.json();
+    return { echoed: json.client_name, stored: controlPlane.clients.get(json.client_id).clientName };
+  };
+
+  const lineBroken = await registerNamed("Context\n\n\n\n\nAlready approved — press Approve");
+  check(
+    "a client name cannot carry a line break into the sentence somebody reads",
+    !/[\r\n]/.test(lineBroken.stored)
+  );
+  check(
+    "collapsing the break leaves the words, not a run of spaces",
+    lineBroken.stored === "Context Already approved — press Approve"
+  );
+
+  const invisible = await registerNamed("Cont\u200bext\u202eDesktop\u0007\u2066\ufeff");
+  check(
+    "a client name cannot carry a control, a bidi override or an invisible spacer",
+    !/[\p{Cc}\u061C\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/u.test(
+      invisible.stored
+    )
+  );
+
+  /*
+    THE CARVE-OUT, WHICH NEEDS ITS OWN PROOF RATHER THAN THE RULE'S.
+
+    `U+200C`/`U+200D` are `Cf` like the bidi controls, and the first version of
+    the normaliser took the whole category — which silently rewrites any name
+    that is not in English. The non-joiner is orthography in Persian and several
+    Indic scripts, and the joiner is what holds an emoji sequence together, so
+    both are kept on purpose. An exception asserted by nothing is an exception
+    the next tidy-up deletes.
+  */
+  const persian = await registerNamed("\u0645\u06cc\u200c\u0631\u0648\u062f");
+  check(
+    "a zero-width non-joiner survives, because in Persian it is a letter boundary",
+    persian.stored === "\u0645\u06cc\u200c\u0631\u0648\u062f"
+  );
+
+  const emoji = await registerNamed("Context on Seyi's \u{1F468}\u200D\u{1F4BB}");
+  check(
+    "an emoji sequence is not taken apart by the normaliser",
+    emoji.stored === "Context on Seyi's \u{1F468}\u200D\u{1F4BB}"
+  );
+
+  const ordinary = await registerNamed("  Claude Code (v2.1) — Seyi's laptop  ");
+  check(
+    "an ordinary name with punctuation and accents is kept as written",
+    ordinary.stored === "Claude Code (v2.1) — Seyi's laptop"
+  );
+
+  const onlyNoise = await registerNamed("\u200b\u200b\u0000\n\t");
+  check(
+    "a name that is nothing but noise falls back rather than reaching the console empty",
+    onlyNoise.stored === "Unnamed MCP client"
+  );
+
+  const longAfterCollapse = await registerNamed(`${"\n".repeat(200)}${"a".repeat(130)}`);
+  check(
+    "the length cap is applied after the collapse, so padding cannot eat the name",
+    longAfterCollapse.stored === "a".repeat(120)
+  );
+
+  const cutMidPair = await registerNamed(`${"b".repeat(119)}\u{1F600}x`);
+  check(
+    "the cap never cuts a character in half, which only this function could do",
+    !/[\uD800-\uDBFF]$/.test(cutMidPair.stored) && cutMidPair.stored === "b".repeat(119)
+  );
+
+  check(
+    "the client is told what was kept, so a normalised name is not a silent edit",
+    lineBroken.echoed === lineBroken.stored && invisible.echoed === invisible.stored
+  );
 
   /*
     WHAT THE REGISTRATION RATE LIMIT IS KEYED ON, AND THAT IT IS NOT AN ADDRESS.

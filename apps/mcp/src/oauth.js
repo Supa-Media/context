@@ -506,6 +506,62 @@ function redirectUriIsAcceptable(value) {
 }
 
 /**
+ * What a client may call itself, given that a person reads it.
+ *
+ * `client_name` is client-asserted — registration is unauthenticated by
+ * construction — and unlike `software_id`, which nothing renders, this string
+ * is the subject of the sentence on the consent screen, the label in the
+ * connections list, and the name in the audit trail. It arrives from a stranger
+ * and is displayed to somebody making a security decision, so it is bounded
+ * here for the same reason `software_id` is: this is where the bytes land.
+ *
+ * **One line, and nothing that reorders or hides.** Each of these becomes a
+ * space, runs of whitespace then collapse, and what is left is trimmed:
+ *
+ * - `\p{Cc}` — the C0 and C1 controls, which is where `\n`, `\r`, `\t` and
+ *   `\0` live. A newline is the one that matters most: the consent screen puts
+ *   this string in a sentence, and a name that is mostly line breaks is a name
+ *   that pushes the rest of that sentence away from the reader.
+ * - The **bidi controls** (`U+061C`, `U+200E`, `U+200F`, `U+202A`–`U+202E`,
+ *   `U+2066`–`U+2069`). These reorder the characters around them, so a name can
+ *   be made to render as something other than what is stored and compared.
+ * - The **invisible spacers** `U+200B`, `U+2060` and `U+FEFF`, which occupy a
+ *   name without showing anything.
+ *
+ * **`U+200C` and `U+200D` are deliberately kept.** The zero-width non-joiner
+ * and joiner are `Cf` like the rest, and stripping the whole category was the
+ * first version of this function — but they are orthography, not decoration:
+ * Persian and several Indic scripts need them between letters, and an emoji
+ * sequence is held together by `U+200D`, so removing them silently rewrites
+ * names that are simply not in English. Neither reorders text and neither is
+ * invisible padding in the sense above; they are a narrower risk than the
+ * damage removing them does.
+ *
+ * Normalised rather than refused — a stray newline in an otherwise fine name is
+ * not a reason to fail a registration — and the result is echoed in the
+ * response, so a client can see what was kept.
+ *
+ * The cap is applied **after** the collapse, so leading padding cannot eat the
+ * name, and a trailing lone surrogate is dropped: cutting mid-pair is a defect
+ * this function would have introduced itself.
+ */
+const NAME_HOSTILE = /[\p{Cc}\u061C\u200B\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/gu;
+
+function normalizeClientName(value) {
+  if (typeof value !== "string") return "Unnamed MCP client";
+  let name = value
+    .replace(NAME_HOSTILE, " ")
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, MAX_CLIENT_NAME_LENGTH);
+  // A high surrogate with nothing after it is half a character; `slice` is what
+  // would have made it.
+  if (/[\uD800-\uDBFF]$/.test(name)) name = name.slice(0, -1);
+  name = name.trim();
+  return name || "Unnamed MCP client";
+}
+
+/**
  * RFC 7591 dynamic client registration.
  *
  * The current MCP spec marks DCR as MAY and deprecated in favour of client ID
@@ -570,10 +626,7 @@ export async function handleRegister(request, env, controlPlane) {
   // one credential-presentation path is one path to get wrong.
   const normalizedAuthMethod = authMethod === "none" ? "none" : "client_secret_post";
 
-  const clientName =
-    typeof body.client_name === "string" && body.client_name.trim()
-      ? body.client_name.trim().slice(0, MAX_CLIENT_NAME_LENGTH)
-      : "Unnamed MCP client";
+  const clientName = normalizeClientName(body.client_name);
 
   /*
     RFC 7591's `software_id`: what the software *is*, across every installation
