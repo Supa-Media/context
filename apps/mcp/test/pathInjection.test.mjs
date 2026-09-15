@@ -250,6 +250,71 @@ export async function runPathInjectionChecks(check) {
     // documents; the reject is control characters, not tidiness.
     const slashed = await callTool(env, OWNER_TOKEN, "scope_info", { path: "1-projects/" });
     check("a trailing slash is still normalized rather than rejected", /1-projects/.test(slashed));
+
+    /* -- ".." IS A TRAVERSAL SEGMENT, NOT TWO DOTS IN A NAME ---------------- */
+
+    /*
+      `normalizePath` refused any path CONTAINING "..", which is not the same
+      rule as refusing a ".." segment, and the difference is a file the gateway
+      can see and cannot open.
+
+      `v1..v2.md` is an ordinary S3 key. The customer's own bucket is written
+      directly by Obsidian sync, rclone and the provider console — the same
+      three writers `writableAsRule` names when it argues a key is hostile
+      input — so this is a file that exists without the gateway's involvement.
+
+      The control plane's `normalizePath` in `functions/lib/fileOps.ts` already
+      draws the line at the segment, and its docstring says it *mirrors* this
+      one. It did not.
+    */
+    bucket.seed("1-projects/v1..v2.md", "DOTDOT written by something else");
+
+    const dottedList = await callTool(env, OWNER_TOKEN, "list_notes", { prefix: "1-projects" });
+    check(
+      "a note whose NAME contains two dots is listed, so the gateway can see it",
+      dottedList.includes("1-projects/v1..v2.md")
+    );
+    const dottedRead = await callTool(env, OWNER_TOKEN, "read_note", {
+      path: "1-projects/v1..v2.md",
+    });
+    check(
+      "...and it can be opened, rather than being a file only search can show",
+      dottedRead.includes("DOTDOT written by something else")
+    );
+    const dottedVisibility = await callTool(env, OWNER_TOKEN, "set_visibility", {
+      path: "1-projects/v1..v2.md",
+      visibility: "private",
+    });
+    check(
+      "...and its owner can make it private, which is the half that is a privacy gap",
+      !/invalid path/i.test(dottedVisibility)
+    );
+
+    /* -- and every real traversal is still refused, at this door ------------- */
+
+    // One shape for all of them. A caller must not be able to tell from the
+    // answer WHICH layer refused: `%2e%2e` used to get past `normalizePath`,
+    // reach `assertSafeKey`, and come back as a JSON-RPC **internal error**
+    // while its plain twin came back as a tool error.
+    for (const hostile of [
+      "1-projects/../escape.md",
+      "1-projects/./escape.md",
+      "../escape.md",
+      "1-projects/%2e%2e/escape.md",
+      "1-projects/%2E%2E/escape.md",
+      "1-projects/%2e/escape.md",
+    ]) {
+      const refused = await callTool(env, OWNER_TOKEN, "read_note", { path: hostile });
+      check(
+        `a traversal segment is refused as a tool error: ${hostile}`,
+        /invalid path/i.test(refused) && !/internal error/i.test(refused)
+      );
+    }
+
+    check(
+      "...and no traversal created or reached anything",
+      !bucket.keys().some((key) => key.includes("escape.md"))
+    );
   } finally {
     restore?.();
   }

@@ -175,7 +175,16 @@ const MAX_KEY_LENGTH = 1024;
 /** NUL and other control characters, plus the backslash some backends fold to "/". */
 const FORBIDDEN_KEY_CHARS = /[\u0000-\u001f\u007f\\]/;
 
-function decodeSegment(segment) {
+/**
+ * A path segment as the storage layer will finally read it.
+ *
+ * Exported because the gateway's `normalizePath` needs the same answer at its
+ * own door: `encodeRfc3986` leaves "." unencoded, so `%2e%2e` reaches storage
+ * as `..` while containing neither dot literally. The DECODING is the subtle
+ * half and lives here once; each layer still states its own segment rule, so
+ * neither is only covered by the other.
+ */
+export function decodeSegment(segment) {
   if (!segment.includes("%")) return segment;
   try {
     return decodeURIComponent(segment);
