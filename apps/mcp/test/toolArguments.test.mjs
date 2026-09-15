@@ -78,6 +78,17 @@
  *    behavioural test of its own.
  * 12. **`hasOwnProperty.call` becomes a bare `key in properties`** — 2 checks
  *    failed, including `__proto__` sent as bytes over the wire.
+ *
+ * A thirteenth, added with the member-refusal checks below, and the first that
+ * sabotages a *list* rather than a code path:
+ *
+ * 13. **A writing tool is added to `FORM_TOOLS`**, the set exempted from the
+ *    write-scope gate. Before those checks existed: `move_note`,
+ *    `archive_note`, `set_visibility` and `move_folder` each failed
+ *    **nothing** — only `write_note` was held, and by other checks. After,
+ *    each fails 1. An exemption list is the one kind of list where a wrong
+ *    entry grants rather than refuses, so it is worth a check that does not
+ *    read it.
  */
 
 import { readFile } from "node:fs/promises";
@@ -1028,6 +1039,56 @@ export async function runToolArgumentChecks(check) {
           !/permission denied/i.test(textOf(await callTool(env, TOKEN_TEAM, masked)))
       );
     }
+
+    /* ------ every writing tool refuses a member, exemption list pinned ------ */
+
+    /*
+      The write gate exempts the form tools — `FORM_TOOLS.has(name) &&
+      participatesInForms(target)`. That is an *exemption*, so an over-broad
+      entry is a member writing notes in somebody else's context, silently.
+      Measured before writing this: adding `move_note`, `set_visibility` or
+      `archive_note` to `FORM_TOOLS` reddened **nothing**. Only `write_note`
+      was held, and only by the checks above.
+
+      **The four names below are deliberately NOT read from `FORM_TOOLS`.** A
+      test that imports the set it is checking restates the source and asserts
+      nothing — the defect row 270 was filed for, and the reason its fix made
+      the predicate and the test read ONE exported constant was that they were
+      checking different things. Here they must differ: this is the independent
+      copy, so adding a fifth name to the gateway reddens this check and
+      somebody has to say why.
+
+      `TOKEN_OWNER` owns `WORKSPACE_MINE` and is a **member** of
+      `WORKSPACE_SHARED`, so routing the call there is the case that matters:
+      the grant asked for write, the role clamp took it away, and
+      `participatesInForms` is therefore true. A connection that never asked
+      for write cannot reach the exemption at all.
+
+      No arguments, on purpose: the scope gate runs *before* argument
+      validation, so an empty object still reaches it. That makes this a pin on
+      the ordering too — were validation ever moved first, these would fail
+      with an argument complaint instead of a denial.
+    */
+    const FORM_TOOL_NAMES = ["submit_form", "update_submission", "retract_submission", "vote_form"];
+    const writingToolNames = ((await rpc(env, TOKEN_OWNER, "tools/list", {}))?.result?.tools || [])
+      .filter((tool) => tool?.annotations?.readOnlyHint !== true)
+      .map((tool) => tool?.name)
+      .filter((name) => typeof name === "string" && !FORM_TOOL_NAMES.includes(name));
+    const memberLeaks = [];
+    for (const name of writingToolNames) {
+      const refusal = await callTool(env, TOKEN_OWNER, name, { context: "@shared" });
+      if (refusal?.isError !== true || textOf(refusal) !== "permission denied: you have read-only access to @shared.") {
+        memberLeaks.push(`${name} -> ${textOf(refusal)}`);
+      }
+    }
+    check(
+      `a member is refused every writing tool the form exemption does not name (${writingToolNames.length})`,
+      memberLeaks.length === 0
+    );
+    check(
+      "...and the set really was enumerated rather than empty",
+      writingToolNames.length >= 10
+    );
 
     /* -------------- and all of that on the other protocol era -------------- */
 
