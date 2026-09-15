@@ -1615,6 +1615,77 @@ export async function runTenancyChecks(check) {
       (foreignResource.headers.get("Location") || "").includes("error=invalid_target")
   );
 
+  /*
+    THE CONSENT URL MUST BE https, OR LOOPBACK.
+
+    This is the guard that stops the authorize redirect becoming a confused
+    deputy with our name on it, and it exists *because a defect was found*: it
+    previously exempted `control-plane.test` so this very suite could use a
+    plain-http double, which `oauth.js` calls "a permanent cleartext carve-out
+    in a production code path — one that widens the moment anything can
+    influence the consent hostname, and that no deployment can turn off."
+
+    Nothing pinned the fix. Removing the check reddened nothing, because every
+    stub in this file serves https and so never exercised it. The stub now takes
+    a `consentOrigin` separate from the origin it intercepts, which is what lets
+    a test hand the gateway a consent URL it must refuse without also stopping
+    the stub answering the gateway's own calls.
+
+    Both halves, because a carve-out needs its own assertion and not the trust
+    of the rule it was carved out of — the lesson the loopback *redirect*
+    exception taught two hours earlier in this same file.
+  */
+  const consentProbe = async (consentOrigin) => {
+    const plane = createControlPlaneStub({ consentOrigin });
+    const restore = plane.install();
+    try {
+      const registration = await worker.fetch(
+        new Request("https://mcp.context.test/oauth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            client_name: "Consent probe",
+            redirect_uris: ["https://client.test/callback"],
+            token_endpoint_auth_method: "none",
+          }),
+        }),
+        env,
+        { waitUntil() {} }
+      );
+      const probeClient = await registration.json();
+      return await worker.fetch(
+        new Request(
+          `https://mcp.context.test/oauth/authorize?response_type=code&client_id=${probeClient.client_id}` +
+            `&redirect_uri=${encodeURIComponent("https://client.test/callback")}` +
+            `&code_challenge=${challengeValue}&code_challenge_method=S256`
+        ),
+        env,
+        { waitUntil() {} }
+      );
+    } finally {
+      restore();
+    }
+  };
+
+  const cleartextConsent = await consentProbe("http://consent.test");
+  const cleartextLocation = cleartextConsent.headers.get("Location") || "";
+  check(
+    "a consent URL that is neither https nor loopback is refused",
+    cleartextConsent.status === 302 &&
+      cleartextLocation.startsWith("https://client.test/callback?") &&
+      cleartextLocation.includes("error=server_error")
+  );
+  check(
+    "...and the refusal does not name the host it rejected",
+    !cleartextLocation.includes("consent.test")
+  );
+  const loopbackConsent = await consentProbe("http://127.0.0.1:8788");
+  check(
+    "...while a loopback consent URL is still allowed, which is the carve-out",
+    loopbackConsent.status === 302 &&
+      (loopbackConsent.headers.get("Location") || "").startsWith("http://127.0.0.1:8788/")
+  );
+
   /* ---------------------- 10. the token endpoint and PKCE -------------------- */
 
   const authorizationRecord = {
