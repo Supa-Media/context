@@ -534,6 +534,31 @@ describe("preselection and small helpers", () => {
     expect(redirectHost("not a url")).toBe("not a url");
   });
 
+  /*
+    USERINFO SMUGGLING, WHICH IS THE ONE ATTACK ON THIS FUNCTION.
+
+    `https://claude.ai@evil.test/cb` is a perfectly ordinary URL whose host is
+    `evil.test`; the part before the `@` is a username and is not where anything
+    is sent. The gateway's `redirectUriIsAcceptable` accepts it — https, no
+    fragment, under the length cap — so a client CAN register it, and
+    `redirectUriMatches` then matches it against itself exactly.
+
+    Which makes this line the last thing standing between that registration and
+    a person reading "Approving sends it back to claude.ai". `parsed.host` is
+    right and always was; what was missing is anything that fails if somebody
+    replaces it with string surgery — `uri.split("/")[2]`, a "strip the port"
+    tidy-up, a regex — each of which yields the smuggled name.
+  */
+  test("a name smuggled into the userinfo is not the host, and is not shown", () => {
+    expect(redirectHost("https://claude.ai@evil.test/cb")).toBe("evil.test");
+    expect(redirectHost("https://user:pw@evil.test/cb")).toBe("evil.test");
+  });
+
+  test("the port survives, because a loopback client is named by it", () => {
+    expect(redirectHost("https://claude.ai@evil.test:8443/cb")).toBe("evil.test:8443");
+    expect(redirectHost("http://127.0.0.1:53411/cb")).toBe("127.0.0.1:53411");
+  });
+
   test("errorCodeOf reads a ConvexError and shrugs at anything else", () => {
     expect(errorCodeOf(convexError("NOPE"))).toBe("NOPE");
     expect(errorCodeOf(new Error("plain"))).toBe(undefined);
