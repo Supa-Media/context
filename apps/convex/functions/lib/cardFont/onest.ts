@@ -9,15 +9,21 @@
  * shape of failure available. Base64 in a module is the only form guaranteed to
  * arrive.
  *
- * ## This is a copy, and copies drift
+ * ## This was a copy, and the thing it was a copy OF is gone
  *
- * The bytes are `infra/router/src/fonts/Onest.ttf`. Two copies of a font in
- * one repository is exactly the arrangement that ends with two cards that look
- * subtly different depending on which renderer drew them — so
- * `__tests__/cardFont.test.ts` reads the real file, hashes it, and fails if
- * this string is no longer the same font. Regenerate with:
+ * The bytes came from `infra/router/src/fonts/Onest.ttf`, back when the edge
+ * renderer drew the card and two copies of one font was exactly the
+ * arrangement that ends with two cards looking subtly different depending on
+ * which renderer drew them. `#126` moved the drawing into the control plane
+ * and deleted that file, so there is one copy again and nothing to drift from.
  *
- *   node -e "…" > apps/convex/functions/lib/cardFont/onest.ts   (see that test)
+ * `ONEST_SHA256` is kept, aimed at what remains true: it is the digest of the
+ * file this base64 was generated from, so a hand-edited or truncated string
+ * makes the header a lie. `__tests__/cardArt.test.ts` hashes the DECODED bytes
+ * and compares — it says so itself, and it is the test that exists. This
+ * header used to name `__tests__/cardFont.test.ts` and a file neither of which
+ * is there, which is the kind of citation an auditor reads as proof that
+ * something is checked.
  *
  * SHA-256 of the source file: 030d1bae9b38f45a1d821bf9d76006450982b41c3ab96cd0c72960e01e674436
  */
