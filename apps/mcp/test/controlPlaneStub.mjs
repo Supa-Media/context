@@ -39,6 +39,15 @@ export const GATEWAY_SECRET = "test-gateway-secret-not-a-real-one";
 export function createControlPlaneStub(options = {}) {
   const origin = options.origin || CONTROL_PLANE_ORIGIN;
   const secret = options.secret || GATEWAY_SECRET;
+  /**
+   * Where `/gateway/authorize/start` claims the consent screen lives.
+   *
+   * Separate from `origin` — which is what this stub *intercepts* — so a test
+   * can hand the gateway a consent URL it must refuse without also making the
+   * stub stop answering the gateway's own calls. Defaults to `origin`, so every
+   * existing caller is unchanged.
+   */
+  const consentOrigin = options.consentOrigin || origin;
 
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
@@ -336,7 +345,7 @@ export function createControlPlaneStub(options = {}) {
         pendingAuthorizations.set(requestId, body);
         return ok({
           requestId,
-          consentUrl: `${origin}/authorize?request_id=${requestId}`,
+          consentUrl: `${consentOrigin}/authorize?request_id=${requestId}`,
         });
       }
 
