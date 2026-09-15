@@ -529,6 +529,91 @@ export async function runStoreChecks(check, gateway) {
       !traversalError.message.includes("escape.md")
   );
 
+  // The same matrix, through `copy` — which takes TWO caller keys and was in
+  // neither matrix above, on either argument, for any adapter. That is the
+  // third time this matrix has been found short: the key matrix was widened to
+  // cover Dropbox, then the list prefix was, and `copy` was missed by both.
+  //
+  // Measured guard by guard before writing this, the way the two widenings
+  // below were, because "the suite covers copy" is exactly the kind of claim
+  // that is worth six runs rather than one. Removing each `assertSafeKey` in
+  // turn, against the suite AS IT WAS:
+  //
+  //   Dropbox source · Dropbox destination · R2 source · R2 destination ·
+  //   S3 source                                            → all green
+  //   S3 destination                                       → also green
+  //
+  // Five of those six were held by nothing at all. The sixth is different and
+  // the difference is worth stating rather than averaging away: `S3Store.copy`
+  // passes its destination through `urlFor`, which runs `assertSafeKey` again,
+  // so the local call is genuinely redundant and deleting it changes no
+  // behaviour. The checks below still cover that position — with the local
+  // assertion removed they stay green because the key is still refused, one
+  // layer down.
+  //
+  // It matters most on Dropbox for the reason given above: the OAuth token is
+  // scoped to an ACCOUNT, so a key escaping the root escapes into the rest of
+  // the customer's own Dropbox rather than into a bucket nobody else uses.
+  //
+  // **R2 needs a source that EXISTS.** `copy` returns early when it does not,
+  // so a destination-position check against an empty bucket would pass without
+  // ever reaching the guard — green for a reason that has nothing to do with
+  // the thing being asserted. The seeded key is the prefixed one the adapter
+  // actually writes.
+  const COPY_SAFE_KEY = "1-projects/ok.md";
+  const copyBucket = memoryBucket();
+  copyBucket.objects.set(`team-notes/${COPY_SAFE_KEY}`, { body: "x", etag: "m1" });
+  const copyR2 = new R2Store(copyBucket, { rootPrefix: "team-notes" });
+  const copyS3 = s3(
+    () => new Response("<CopyObjectResult><ETag>&quot;copied&quot;</ETag></CopyObjectResult>"),
+    { rootPrefix: "team-notes" }
+  );
+  const copyDropboxCalls = [];
+  const copyDropbox = new DropboxStore({
+    accessToken: "sl.FAKE-not-a-real-token",
+    rootPrefix: "team-notes",
+    sleep: async () => {},
+    fetch: async (...args) => {
+      copyDropboxCalls.push(args);
+      return new Response("{}", { status: 200 });
+    },
+  });
+
+  const copyRejections = [];
+  for (const key of TRAVERSAL_KEYS) {
+    for (const [name, run] of [
+      ["S3Store.copy source", () => copyS3.copy(key, COPY_SAFE_KEY)],
+      ["S3Store.copy destination", () => copyS3.copy(COPY_SAFE_KEY, key)],
+      ["R2Store.copy source", () => copyR2.copy(key, COPY_SAFE_KEY)],
+      ["R2Store.copy destination", () => copyR2.copy(COPY_SAFE_KEY, key)],
+      ["DropboxStore.copy source", () => copyDropbox.copy(key, COPY_SAFE_KEY)],
+      ["DropboxStore.copy destination", () => copyDropbox.copy(COPY_SAFE_KEY, key)],
+    ]) {
+      let threw = null;
+      try {
+        await run();
+      } catch (error) {
+        threw = error;
+      }
+      if (!threw) copyRejections.push(`${name} accepted ${JSON.stringify(key)}`);
+      else if (!/unsafe storage key/.test(threw.message)) {
+        copyRejections.push(`${name} threw the wrong error for ${JSON.stringify(key)}`);
+      }
+    }
+  }
+  check(
+    "a traversal key is rejected in BOTH arguments of copy by every adapter",
+    copyRejections.length === 0
+  );
+  // The seeded source is the only thing that should ever be in that bucket: a
+  // refused destination must not have written a second object under it.
+  check(
+    "a rejected copy never reaches the backend",
+    copyS3.fetchImpl.calls.length === 0 &&
+      copyBucket.objects.size === 1 &&
+      copyDropboxCalls.length === 0
+  );
+
   // The same matrix, on the other argument. This used to be one prefix through
   // one adapter, under a name claiming a list prefix "gets the same treatment
   // as a key" — the key matrix above runs fourteen keys through three backends.
