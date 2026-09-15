@@ -181,10 +181,22 @@ export function previewFor(pathname: string): PreviewMeta {
 /**
  * Escape text for interpolation into an HTML attribute or text node.
  *
- * Every string this file feeds the template is already a literal from the
- * table above, so there is nothing here for an attacker to reach. It is
- * applied anyway, and tested, because "the inputs are all constants" is a
- * property of today's code that a future edit could quietly drop.
+ * **This is a first line of defence, not a second.** The comment here used to
+ * say every string reaching the template was a literal from the frozen table
+ * above — true when it was written, and not true since share cards started
+ * carrying titles. `previewForNote` and `previewForShare` take a note title,
+ * and `previewFromProfile` takes a display name: customer-authored text,
+ * bounded by `boundTitle` for length and *cleaned of format characters*, but
+ * never cleaned of markup. Every one of them lands in a double-quoted
+ * `content="…"`, so the `&quot;` below is the whole of what keeps a title from
+ * closing the attribute and opening a tag.
+ *
+ * `boundTitle` states the rule this belongs to, one screen down: "an edge that
+ * trusts its upstream to have been careful is an edge with no bound at all."
+ * Escaping is the same rule applied to shape rather than to length.
+ *
+ * `&` is replaced first on purpose; doing it last would double-escape the
+ * entities the other four produce.
  */
 export function escapeHtml(value: string): string {
   return value
