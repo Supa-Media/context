@@ -19,6 +19,7 @@ import { createRoot } from "react-dom/client";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { LINKS_NOTE, PluginSettingsPane } from "../features/console/plugins/PluginSettingsPane";
 import type { PluginSettingRow, RuntimeView } from "../features/console/plugins/runtime";
+import { parsePluginSandboxMessage } from "@context/obsidian-runtime";
 
 const METRICS = initialWindowMetrics ?? {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -196,6 +197,61 @@ describe("a plugin's settings pane", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(closed).toHaveBeenCalled();
+  });
+
+  /*
+    BUILT BY THE PARSER, NOT BY HAND.
+
+    Every other case here hands the component a pane object written in this
+    file, so all of them pass against a shape the wire cannot actually produce.
+    `parsePluginSandboxMessage` is what really builds this object, and it was
+    dropping `error` on the open branch — which put back the failure the banner
+    exists to prevent (a pane that stopped part-way looking like a short one)
+    AND drew the banner on every healthy pane, because `undefined === null` is
+    false and the sentence then read "undefined".
+
+    So these two mount what the parser returns.
+  */
+  function paneFromWire(over: Record<string, unknown>): NonNullable<RuntimeView["settingsPane"]> {
+    const parsed = parsePluginSandboxMessage(
+      {
+        source: "context-plugin-sandbox",
+        version: 1,
+        nonce: "n1",
+        type: "settings-pane",
+        open: true,
+        rows: [
+          { kind: "toggle", index: 0, name: "Show Verse Translation", desc: "", value: true },
+        ],
+        ...over,
+      },
+      "n1",
+    ) as { rows: PluginSettingRow[]; error: string | null } | null;
+    if (parsed === null) throw new Error("the parser refused a message this test needs");
+    return { pluginId: "p", nonce: "n1", rows: parsed.rows, error: parsed.error };
+  }
+
+  test("a healthy pane, as the parser really builds it, has no error banner", () => {
+    const body = mount(
+      createElement(PluginSettingsPane, {
+        runtime: view({ settingsPane: paneFromWire({ error: null }) }),
+      }),
+    );
+    expect(body.textContent).toContain("Show Verse Translation");
+    expect(body.textContent).not.toContain("stopped part-way");
+    expect(body.textContent).not.toContain("undefined");
+  });
+
+  test("...and one that stopped part-way carries what it threw, through the parser", () => {
+    const body = mount(
+      createElement(PluginSettingsPane, {
+        runtime: view({
+          settingsPane: paneFromWire({ error: "settingEl.hide is not a function" }),
+        }),
+      }),
+    );
+    expect(body.textContent).toContain("stopped part-way");
+    expect(body.textContent).toContain("settingEl.hide is not a function");
   });
 
   test("a console with no plugin runtime at all draws nothing", () => {

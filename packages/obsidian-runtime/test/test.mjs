@@ -495,4 +495,59 @@ const closed = parsePluginSandboxMessage({
 });
 assert.deepEqual(closed, { type: "settings-pane", open: false, rows: [], error: null });
 
+/*
+  WHAT `display()` THREW HAS TO SURVIVE THE PARSE.
+
+  The guest sends `error` on both branches and the console draws it, because a
+  pane that stopped part-way looks exactly like a plugin with fewer settings —
+  the quieter failure and the worse one, and the one the shim's missing
+  `hide()` actually produced. A parser that drops the field on the OPEN branch
+  puts that failure back: the rows the plugin managed to draw arrive looking
+  like the whole pane.
+
+  The closed branch is asserted just above. This is its twin, and `undefined`
+  is checked for by name rather than by `?? null`, which is what let this
+  through: the browser check reads `last.error ?? null`, so it passed whether
+  the field survived or not.
+*/
+const stopped = parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "settings-pane",
+  open: true,
+  error: "settingEl.hide is not a function",
+  rows: [{ kind: "toggle", index: 0, name: "First", desc: "", value: true }],
+});
+assert.equal(
+  stopped.error,
+  "settingEl.hide is not a function",
+  "what display() threw reaches the console that draws it",
+);
+
+const finished = parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "settings-pane",
+  open: true,
+  error: null,
+  rows: [{ kind: "toggle", index: 0, name: "First", desc: "", value: true }],
+});
+assert.strictEqual(
+  finished.error,
+  null,
+  "a pane that ran to the end says so as null, never as a missing field",
+);
+
+// A guest that sends something other than a string says nothing, rather than
+// putting an object into a sentence a reader is shown.
+const oddError = parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "settings-pane",
+  open: true,
+  error: { toString: "not a string" },
+  rows: [],
+});
+assert.strictEqual(oddError.error, null, "an error that is not a string is no error");
+
 console.log("obsidian runtime protocol: ok");
