@@ -1362,6 +1362,7 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       // one: system audio is the desktop shell's job, and no copy anywhere
       // may imply otherwise.
       systemAudio: false,
+      systemAudioNeedsPicker: false,
       transcribesAt: "cloud",
       unavailableReason: null,
     },

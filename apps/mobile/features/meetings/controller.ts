@@ -202,9 +202,11 @@ export interface StartInput {
    * Record the machine's own audio as well as the microphone.
    *
    * The person's answer from the sheet, and only ever asked where a build can
-   * do it at all — inside the desktop shell, on a signed build. Absent means
-   * "whatever this build can do", which is what pressing Record from a surface
-   * that never offered the choice has to mean.
+   * do it at all — inside the desktop shell on a signed build, or in a browser
+   * that can put a source picker in front of somebody. Absent means "whatever
+   * this build can do **without asking again**", which is what pressing Record
+   * from a surface that never offered the choice has to mean: the shell's
+   * silent tap is taken, the browser's picker is not.
    *
    * The recorder narrows it: a `true` here on a browser or a phone changes
    * nothing, because a recorder reports what it opened rather than echoing
@@ -251,6 +253,7 @@ export const INTERRUPTED_RECORDING_REASON =
 const NO_CAPTURE: MeetingRecorder["capability"] = {
   audio: false,
   systemAudio: false,
+  systemAudioNeedsPicker: false,
   transcribesAt: "nowhere",
   unavailableReason: null,
 };
@@ -624,7 +627,17 @@ export class MeetingsController {
       */
       await config.recorder.start({
         sessionId: id,
-        systemAudio: input.systemAudio ?? config.recorder.capability.systemAudio,
+        /*
+          Absent means "whatever this build can do" — except where doing it
+          costs the person a picker. A browser can mix a shared tab's audio in,
+          and assuming that on a caller's behalf would put a screen-share
+          prompt in front of a meeting nobody asked to share anything for. A
+          capability with a consent step is opted into, never defaulted into.
+        */
+        systemAudio:
+          input.systemAudio ??
+          (config.recorder.capability.systemAudio &&
+            !config.recorder.capability.systemAudioNeedsPicker),
       });
       // Show native recording chrome only after an audio recorder really opens.
       if (

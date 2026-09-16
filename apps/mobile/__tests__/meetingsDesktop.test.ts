@@ -146,7 +146,7 @@ const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { fakeGateway } =
   require("../features/meetings/fakeGateway") as typeof import("../features/meetings/fakeGateway");
-const { DestinationSheet, MIC_ONLY_SENTENCE } =
+const { DestinationSheet, MIC_ONLY_SENTENCE, SYSTEM_AUDIO_SUB, SYSTEM_AUDIO_PICKER_SUB } =
   require("../features/meetings/components/DestinationSheet") as typeof import("../features/meetings/components/DestinationSheet");
 const { ThisMachineCard } =
   require("../features/meetings/components/ThisMachineCard") as typeof import("../features/meetings/components/ThisMachineCard");
@@ -641,14 +641,18 @@ describe("the sheet offers what the machine can do, and nothing else", () => {
     ],
   };
 
-  function sheet(systemAudio: { on: boolean; onToggle: (on: boolean) => void } | null) {
+  function sheet(
+    systemAudio: { on: boolean; onToggle: (on: boolean) => void; needsPicker?: boolean } | null,
+  ) {
     return createElement(DestinationSheet, {
       choice: choice as never,
       selectedIndex: 0,
       onSelect: () => {},
       onStart: () => {},
       onCancel: () => {},
-      systemAudio,
+      // The shell's silent tap unless a case says otherwise: this block is the
+      // desktop's, and the browser's picker wording has its own suite.
+      systemAudio: systemAudio === null ? null : { needsPicker: false, ...systemAudio },
     });
   }
 
@@ -669,6 +673,38 @@ describe("the sheet offers what the machine can do, and nothing else", () => {
     const mounted = mount(sheet({ on: true, onToggle: () => {} }));
     expect(has(document.body, "meeting-system-audio")).toBe(true);
     expect(document.body.textContent).toContain("Record the whole call");
+    expect(document.body.textContent).toContain(SYSTEM_AUDIO_SUB);
+    mounted.unmount();
+  });
+
+  /**
+   * THE SHELL'S SWITCH AND THE BROWSER'S ARE THE SAME CAPABILITY AND NOT THE
+   * SAME OFFER.
+   *
+   * The shell's loopback tap is silent: on means on, and nothing is asked
+   * again. A browser has to put a picker in front of somebody every meeting,
+   * and the one control on it that matters is a checkbox most people have never
+   * read. Saying "this machine can hear the call" there would be a claim about
+   * something nobody has agreed to yet — and a picker that appears unexplained
+   * is a picker people cancel, which is the mic-only recording this whole
+   * feature exists to stop.
+   */
+  test("a browser says a picker is coming, and what to pick", () => {
+    const mounted = mount(sheet({ on: true, onToggle: () => {}, needsPicker: true }));
+    expect(has(document.body, "meeting-system-audio")).toBe(true);
+    expect(document.body.textContent).toContain(SYSTEM_AUDIO_PICKER_SUB);
+    expect(document.body.textContent).not.toContain(SYSTEM_AUDIO_SUB);
+    expect(SYSTEM_AUDIO_PICKER_SUB).toMatch(/share its audio/i);
+    // The picker hands over a video track whether anybody wants one or not, so
+    // what happens to it is said before somebody picks the tab their private
+    // conversation is in. `meetingsCaptureWeb.test.ts` is where it is kept true.
+    expect(SYSTEM_AUDIO_PICKER_SUB).toMatch(/never the picture/i);
+    mounted.unmount();
+  });
+
+  test("...and turning it off says the mic-only sentence, picker or not", () => {
+    const mounted = mount(sheet({ on: false, onToggle: () => {}, needsPicker: true }));
+    expect(document.body.textContent).toContain(MIC_ONLY_SENTENCE);
     mounted.unmount();
   });
 });
