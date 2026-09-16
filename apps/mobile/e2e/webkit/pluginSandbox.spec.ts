@@ -72,6 +72,22 @@ test("a plugin has no ambient authority and reaches notes only through RPC", asy
                 // The direct-egress probe. XMLHttpRequest is deliberately not
                 // shimmed, so this is the frame trying to open a connection on
                 // its own, and the CSP is the only thing standing there.
+                //
+                // WHY THE VIOLATION IS RECORDED AND NOT JUST THE ERROR. An
+                // XMLHttpRequest to another origin fails for more reasons than
+                // the one under test: this frame has an opaque origin, so CORS
+                // refuses every cross-origin read whether or not a CSP exists,
+                // and a runner with no outbound network refuses it too. All
+                // three raise the same error here. Measured: with connect-src
+                // opened to "https: http:" this whole suite still passed, so
+                // the error alone proved nothing about the directive it names.
+                //
+                // A securitypolicyviolation naming connect-src is the one
+                // signal only the CSP produces, so that is what is asserted.
+                let cspRefused = false;
+                document.addEventListener("securitypolicyviolation", (event) => {
+                  if (String(event.violatedDirective || "").startsWith("connect-src")) cspRefused = true;
+                });
                 let directBlocked = false;
                 try {
                   await new Promise((resolve, reject) => {
@@ -87,7 +103,7 @@ test("a plugin has no ambient authority and reaches notes only through RPC", asy
                 try { await fetch("https://example.com/private"); } catch (_) { fetchRefused = true; }
                 const target = { path: "1-projects/proof.md" };
                 const text = await this.app.vault.read(target);
-                new Notice(JSON.stringify({ parentBlocked, directBlocked, fetchRefused, text }));
+                new Notice(JSON.stringify({ parentBlocked, directBlocked, cspRefused, fetchRefused, text }));
               }
             };
           `,
@@ -180,6 +196,10 @@ test("a plugin has no ambient authority and reaches notes only through RPC", asy
     parentBlocked: true,
     // The frame could not open a connection itself…
     directBlocked: true,
+    // …and it was the CSP that stopped it, not CORS and not a runner with no
+    // network. This is the half that can actually fail: remove connect-src
+    // 'none' and no violation is reported, where `directBlocked` stays true.
+    cspRefused: true,
     // …and the one call it was allowed to make was refused by the host.
     fetchRefused: true,
     text: "# Through the broker",
