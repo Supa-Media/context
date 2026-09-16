@@ -271,6 +271,44 @@ describe("keys", () => {
 
     expect(keys.keysForWorkspace(held, "ws1")).toEqual([mine, V0_KEY, V1_NOTE_KEY]);
   });
+
+  test("a context that is no longer in the list loses its bucket copies only", () => {
+    /*
+      The selector behind the departed-context purge, on its own. The set it takes is
+      narrower than `keysForWorkspace` in both directions, and each narrowing is
+      a different promise:
+
+       - **Never somebody's typing.** A `draft` and an `outbox` record exist
+         nowhere but this device, so a purge driven by a list that can arrive
+         late must not be able to touch them. This is the assertion to delete if
+         you want to see "being wrong in the unsafe direction costs somebody's
+         unsent work" stop being a sentence anything checks.
+       - **Never a key this version cannot parse.** `keysForWorkspace` takes the
+         stale set *because* it cannot be attributed to a workspace; here that
+         same fact makes "is it in the list" unanswerable, and guessing would
+         delete an unreadable draft.
+    */
+    const mine = keys.scopedKeyFor("note", "private", "ws1", "a.md");
+    const theirs = keys.scopedKeyFor("note", "private", "ws2", "a.md");
+    const theirListing = keys.scopedKeyFor("listing", "team", "ws2", "1-projects");
+    const theirDraft = keys.keyFor("draft", "ws2", "a.md");
+    const theirOutbox = keys.keyFor("outbox", "ws2");
+    const held = [mine, theirs, theirListing, theirDraft, theirOutbox, V0_KEY, V1_NOTE_KEY];
+
+    expect(keys.keysForDepartedContexts(held, ["ws1"])).toEqual([theirs, theirListing]);
+  });
+
+  test("and a list nobody has filled in yet takes nothing at all", () => {
+    /*
+      The second half of the same guard, stated where it cannot be masked.
+      `forgetDepartedContexts` refuses an empty list before it opens a store, so
+      this line is the only thing standing between "the subscription has not
+      answered" and "purge every context on the device" if that caller is ever
+      changed or another one is added.
+    */
+    const mine = keys.scopedKeyFor("note", "private", "ws1", "a.md");
+    expect(keys.keysForDepartedContexts([mine], [])).toEqual([]);
+  });
 });
 
 /* -------------------------------------------------------------------------- */

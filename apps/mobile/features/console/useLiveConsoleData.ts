@@ -38,7 +38,11 @@ import {
 } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
-import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
+import {
+  forgetContextCopies,
+  forgetDepartedContexts,
+  forgetLocalCopies,
+} from "../offline/forget";
 import { defaultContext } from "./nav";
 import {
   buildConstellation,
@@ -817,6 +821,50 @@ export function useLiveConsoleData(): ConsoleData {
     grants: pluginGrants.grants,
     onNoteWrite: files.applyPluginNoteWrite,
   });
+
+  /*
+    The purge for "removed" belongs next to the purge for "left".
+
+    `leaveContext` below clears a context's local copies on the server's answer,
+    which covers the one ending this device can see. Every other way a
+    membership ends — an owner removing somebody, a shared context deleted, a
+    grant revoked — happens on another machine and produces no event here, so
+    those copies sat on the device until `sweep`'s thirty-day age bound reached
+    them. Thirty days is a cache-hygiene number, not a decision about how long a
+    removal takes to land on somebody's laptop.
+
+    This list is the fix, and it costs no new query: `listMyWorkspaces` returns
+    the memberships that are still live — plus the pinned context, which is
+    reach without a membership row and must count as live too, which is why this
+    reads the raw list rather than `memberOf`. A workspace with copies on this
+    device that is not in it is a context the server would no longer serve this
+    person.
+
+    The guard is the whole safety argument, and `forget.ts` carries it: the list
+    must be *known*. `usable()` answers `undefined` while the subscription is in
+    flight and for a query that failed — both of which produce an empty key here
+    — and `forgetDepartedContexts` refuses an empty list, so a slow or broken
+    subscription purges nothing rather than blanking the cache at the one moment
+    it is earning its keep. What it takes is notes and listings only, never a
+    draft or a queued write, so even a wrong reading of this list cannot cost
+    somebody's typing.
+
+    Keyed by the ids joined rather than by `workspaces`, because that array's
+    identity changes on every tick of any field on any row: a re-render because
+    somebody renamed a context is not a membership change, and the dependency
+    should say so. Splitting the key back apart is sound because a Convex
+    document id is base32 and cannot contain the separator — and if that ever
+    stopped being true, the fragments would match no cached workspace, so the
+    failure is a purged cache for a context the person still has. A cache miss,
+    in the direction this whole function is allowed to be wrong in.
+  */
+  const knownContextKey = (workspaces ?? [])
+    .map((workspace) => workspace.workspaceId)
+    .join(",");
+  useEffect(() => {
+    if (knownContextKey === "") return;
+    void forgetDepartedContexts(knownContextKey.split(","));
+  }, [knownContextKey]);
 
   const viewerUserId = members.members.find((member) => member.isMe)?.userId;
   useEffect(() => {

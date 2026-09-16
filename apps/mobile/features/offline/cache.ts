@@ -2,6 +2,7 @@ import {
   CACHE_SCOPES,
   isStaleVersion,
   keyFor,
+  keysForDepartedContexts,
   keysForWorkspace,
   ownedKeys,
   parseKey,
@@ -392,6 +393,29 @@ export async function forgetWorkspace(
   workspaceId: string,
 ): Promise<void> {
   for (const key of keysForWorkspace(await store.keys(), workspaceId)) {
+    await store.remove(key);
+  }
+}
+
+/**
+ * Forget the contexts that are no longer in the person's list.
+ *
+ * The complement of `forgetWorkspace`: that one takes a context somebody left
+ * on this device, this one takes the ones whose membership ended anywhere else
+ * — an owner removing them, a shared context deleted, a grant revoked. None of
+ * those reach this machine as an event; the context list the console already
+ * subscribes to is the only place they show up, and until now nothing read it
+ * for this.
+ *
+ * The set is `keysForDepartedContexts`, which is narrower than
+ * `keysForWorkspace` in both directions on purpose — bucket answers only, and
+ * stale-version keys left alone. Its docblock carries the argument.
+ */
+export async function forgetDeparted(
+  store: KeyValueStore,
+  known: readonly string[],
+): Promise<void> {
+  for (const key of keysForDepartedContexts(await store.keys(), known)) {
     await store.remove(key);
   }
 }

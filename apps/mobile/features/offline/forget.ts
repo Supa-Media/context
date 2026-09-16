@@ -1,6 +1,11 @@
-import { forgetEverything, forgetWorkspace, waitingOnDevice } from "./cache";
+import {
+  forgetDeparted,
+  forgetEverything,
+  forgetWorkspace,
+  waitingOnDevice,
+} from "./cache";
 import { endSession } from "./epoch";
-import { keysForWorkspace, ownedKeys } from "./keys";
+import { keysForDepartedContexts, keysForWorkspace, ownedKeys } from "./keys";
 import { forgetPlace, placeKeys } from "../console/lastPlace";
 import { forgetAllMeetings } from "../meetings/local";
 import { meetingKeys } from "../meetings/keys";
@@ -262,9 +267,13 @@ async function clearEverything(): Promise<ForgetResult> {
  *  - **Revoked.** An owner removing somebody's membership happens on another
  *    machine. There is no event on this device to hang a clear on, and polling
  *    for one would be the console asking "am I still allowed" on a schedule.
- *    The age bound (`MAX_AGE_MS`) is what bounds it instead, and a revoked
- *    grant already fails closed on every *read*: `isServerRefusal` keeps a
- *    refusal from being served off the device.
+ *    **The half of this that was about *membership* is now wired** — see
+ *    `forgetDepartedContexts`, which needs no poll because the context list the
+ *    console already subscribes to *is* the answer. What is left here is the
+ *    narrower case the paragraph was always right about: a grant revoked while
+ *    the membership stands. The age bound still bounds that one, and it already
+ *    fails closed on every *read* — `isServerRefusal` keeps a refusal from
+ *    being served off the device.
  *  - **Rebound.** A rebind is very often somebody repairing a broken binding,
  *    and `STORAGE_NOT_CONNECTED` / `STORAGE_UNUSABLE` are on the overridable
  *    allow-list precisely so a person whose bucket is unreachable can still
@@ -298,6 +307,83 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
     return { verdict: "cleared" };
   } catch {
     warnStoreUnusable("leave");
+    return { verdict: "unmeasured" };
+  }
+}
+
+/**
+ * Forget every context that is not in the person's list any more.
+ *
+ * `forgetContextCopies` covers the one ending this device witnesses: the person
+ * pressing Leave. The file comment above lists the two it does not — revoked
+ * and rebound — and argues, correctly, that neither can be hung on a local
+ * event. That argument is about *storage bindings and grants*. It is not an
+ * argument about **membership**, and membership is the one this function is
+ * for: an owner removing somebody, or deleting a shared context, ends a
+ * membership on another machine, and this device goes on holding that context's
+ * note bodies until `sweep`'s thirty-day age bound reaches them. Thirty days is
+ * a cache-hygiene number. Nobody chose it as the time it takes for a removal to
+ * take effect on somebody's laptop.
+ *
+ * Nothing has to be polled to fix that, which is what made it worth doing: the
+ * console already subscribes to the person's context list, and that list *is*
+ * the set of live memberships, recomputed server-side on every tick. So the
+ * purge is driven by data the console is already holding, at the moment it
+ * changes, and a removal lands here on the next subscription tick rather than
+ * within a month.
+ *
+ * ## Being wrong in each direction costs something different
+ *
+ * A false positive — purging a context the person is still a member of —
+ * deletes a copy the server will hand back on the next successful read. A false
+ * negative leaves a stale body on a device a month longer. Between those, the
+ * first is cheap *only* because of what is excluded: the set is notes and
+ * listings, never a `draft` or an `outbox` record. Those two are somebody's own
+ * typing and this device is the only place they exist, so a purge that took
+ * them would turn a slow subscription into lost work.
+ *
+ * The residual is the one every clear in this file has and is worth naming
+ * rather than implying: a read already in flight for a context this call just
+ * purged can put its answer back afterwards. `endSession()` is the barrier that
+ * closes that gap on sign-out, and it is deliberately *not* used here — ending
+ * the session would stop the offline layer writing for the contexts the person
+ * still has. So a copy re-added behind this call survives until the console is
+ * mounted again — the caller runs this on mount as well as on every change to
+ * the list — and not, as the paragraph above might be read to say, on the next
+ * tick: a list that does not change again does not re-run anything.
+ *
+ * Which leaves one precondition, and it is the caller's: **the list must be
+ * known.** An empty array is what a caller looks like before its subscription
+ * has answered *and* what an account with no contexts looks like, and only the
+ * second may reach a `remove()`. This function cannot tell them apart, so it
+ * takes the safe reading of an empty list — purge nothing, and report
+ * `unmeasured` rather than claiming a clear it did not attempt.
+ */
+export async function forgetDepartedContexts(
+  known: readonly string[],
+): Promise<ForgetResult> {
+  if (known.length === 0) return { verdict: "unmeasured" };
+  return withDeadline(clearDeparted(known), "departed contexts", () => ({
+    verdict: "unmeasured",
+  }));
+}
+
+async function clearDeparted(known: readonly string[]): Promise<ForgetResult> {
+  try {
+    const store = openStore();
+    await forgetDeparted(store, known);
+    if (!store.durable) return { verdict: "unmeasured" };
+    // Re-listed through the same selector that took them, for the reason
+    // `clearContext` gives: a verification with its own idea of which keys were
+    // in scope reports `cleared` over records nothing looked at.
+    const left = keysForDepartedContexts(await store.keys(), known);
+    if (left.length > 0) {
+      warnLeftBehind("departed contexts", left.length);
+      return { verdict: "left-behind" };
+    }
+    return { verdict: "cleared" };
+  } catch {
+    warnStoreUnusable("departed contexts");
     return { verdict: "unmeasured" };
   }
 }

@@ -266,3 +266,53 @@ export function ownedKeys(keys: readonly string[]): string[] {
 export function keysForWorkspace(keys: readonly string[], workspaceId: string): string[] {
   return keys.filter((key) => isStaleVersion(key) || parseKey(key)?.workspaceId === workspaceId);
 }
+
+/**
+ * The copies whose membership ended somewhere this device never saw.
+ *
+ * `keysForWorkspace` answers "which keys are this context's" for the one
+ * transition the console witnesses — somebody pressing Leave. This answers the
+ * complement: given the set of contexts the server still lists for this person,
+ * which cached *bucket answers* belong to a context that is no longer in it.
+ * Being removed by an owner, a shared context being deleted, a grant revoked —
+ * none of those produce an event on this machine, and the context list is the
+ * only place their consequence shows up.
+ *
+ * Two deliberate narrowings, and neither is caution for its own sake:
+ *
+ *  - **Scoped kinds only.** A `note` or a `listing` is a copy of what the
+ *    bucket said and the server can produce it again; a `draft` or an `outbox`
+ *    record is somebody's own typing, which exists nowhere else. `sweep` is
+ *    forbidden to touch those two for the same reason, and a purge driven by a
+ *    list that can arrive late or short must be more careful than `sweep`, not
+ *    less.
+ *  - **Stale-version keys are left.** `keysForWorkspace` takes them precisely
+ *    because they cannot be attributed to a workspace; here that same fact
+ *    makes "is this one of the contexts in the list" unanswerable, and a purge
+ *    that guesses would delete an unreadable *draft*. `sweep` removes the whole
+ *    stale set unconditionally on the first mount after an upgrade, so nothing
+ *    survives here that anything else was taking.
+ *
+ * An empty `known` returns nothing. A caller that does not yet know the list
+ * and a person who genuinely has no contexts are indistinguishable at this
+ * boundary, so the distinction is made by the caller and the safe answer is the
+ * one this function gives when it is not made.
+ *
+ * Spelled as "has a clearance" rather than as a list of kinds: a `ScopedKind`
+ * added later is by construction another copy of a bucket answer, and this
+ * purge should take it without anybody remembering to come back here. The
+ * kinds that must never be taken are exactly the ones `parseKey` gives a
+ * `null` scope.
+ */
+export function keysForDepartedContexts(
+  keys: readonly string[],
+  known: readonly string[],
+): string[] {
+  if (known.length === 0) return [];
+  const live = new Set(known);
+  return keys.filter((key) => {
+    const parsed = parseKey(key);
+    if (parsed === null || parsed.scope === null) return false;
+    return !live.has(parsed.workspaceId);
+  });
+}
