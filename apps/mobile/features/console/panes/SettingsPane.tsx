@@ -411,13 +411,22 @@ export function SettingsPane({
       {show("plugins") ? (
       <>
       <PanelHead section="plugins" sectioned={section !== undefined}>
-        The Obsidian plugins already in this context&apos;s bucket, and what each one can do
-        here. Context reads <Text variant="mono">.obsidian/</Text> and never writes to it —
-        nothing on this screen changes your vault.
+        {/*
+          It said "the Obsidian plugins already in this context's bucket", which
+          named one of the two places they live and was the top of a screen
+          where every other sentence named the same one. A person whose plugins
+          were all installed through Context read that and concluded Context
+          ignores its own folder — and the panel, which showed nothing until a
+          scan was pressed, gave them no reason to think otherwise.
+        */}
+        The plugins in this context — the ones Context installed, and any your Obsidian vault
+        syncs here. Context reads <Text variant="mono">.obsidian/</Text> and never writes to
+        it, so nothing on this screen changes your vault.
       </PanelHead>
       <PluginsPanel
         view={data.plugins}
         contextPlugins={data.contextPlugins}
+        installs={data.pluginInstalls}
         grants={data.pluginGrants}
         browse={data.pluginBrowse}
         runtime={data.pluginRuntime}

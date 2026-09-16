@@ -41,6 +41,7 @@ import {
   NETWORK_MEMBERS,
   PARTIAL_MEMBERS,
   PLANNED_MEMBERS,
+  SANDBOX_MODULE_EXPORTS,
   SUPPORTED_MEMBERS,
 } from "./capabilities.js";
 
@@ -280,13 +281,26 @@ export function scanBundle(source) {
     outside the sandbox, it reaches for something inside that is not built yet.
   */
   const missingBases = [
-    ...new Set([...source.matchAll(MISSING_BASE_MATCHER)].map((match) => match[1])),
+    ...new Set([
+      ...[...source.matchAll(MISSING_BASE_MATCHER)].map((match) => match[1]),
+      // And the ones no list has ever mentioned, derived from what the shim
+      // exports rather than from what somebody wrote down. See
+      // `undeclaredBases`: this half is what would have caught `Events` and
+      // `Modal`, each of which took a whole plugin down while the card said it
+      // ran.
+      ...undeclaredBases(source),
+    ]),
   ]
     .sort((a, b) => a.localeCompare(b))
     .map((name) => ({
       id: name,
       kind: "member",
-      reason: `used as a base class, and ${ABSENT_MEMBERS[name]}`,
+      reason: Object.hasOwn(ABSENT_MEMBERS, name)
+        ? `used as a base class, and ${ABSENT_MEMBERS[name]}`
+        : // Nothing is claimed about a name we only know we do not have. "Not
+          // built yet" would be a roadmap promise about somebody else's API,
+          // which is the mistake `SUPPORTED_MEMBERS` was split in two to end.
+          "used as a base class, and Context's plugin runtime does not provide it",
     }));
 
   return {
@@ -381,6 +395,66 @@ const MISSING_BASE_MATCHER = new RegExp(
   `\\bextends\\s+(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)*(${Object.keys(ABSENT_MEMBERS).join("|")})\\b`,
   "g"
 );
+
+/**
+ * Which local names the bundle bound `require("obsidian")` to.
+ *
+ * ## Why the list above was not enough, twice
+ *
+ * `MISSING_BASE_MATCHER` can only find a name somebody thought to write down,
+ * and it found `SuggestModal` because somebody had. `Events` and `Modal` were
+ * on no list at all — not supported, not planned, not absent — so a bundle that
+ * extends them scanned clean and was reported as *"runs here: everything these
+ * use, Context implements"* while it could not finish evaluating. Two names, a
+ * verdict that was exactly backwards, and a hand-written list that could not
+ * have found either.
+ *
+ * So this derives the answer instead. Anything reached off the `obsidian`
+ * module and used as a base class is a base class the shim has to have; if it
+ * is not in `SANDBOX_MODULE_EXPORTS` it will be `extends undefined`, whatever
+ * anybody wrote on a list. Adding a member to the shim is what makes it stop
+ * being reported, which is the right direction for that dependency to run.
+ *
+ * **It keys off the module string, not off the identifier.** A minifier renames
+ * the namespace freely — `var eo = require("obsidian")` is real output from the
+ * release this was written for — but it cannot rename the string, and the same
+ * property everything else in this file rests on holds here. Only members
+ * reached through a namespace that provably came from `obsidian` are
+ * considered, so a bundled third-party library's own `foo.Widget` is not
+ * mistaken for one of ours.
+ */
+const OBSIDIAN_NAMESPACE_MATCHER =
+  /(?:^|[^\w$])(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["']obsidian["']\s*\)/g;
+
+/**
+ * Every Obsidian class this bundle extends that the shim does not export.
+ *
+ * Returns names, in source order, deduplicated. A name already caught by
+ * `MISSING_BASE_MATCHER` comes back from both and the caller unions them — the
+ * two overlap on purpose, because the older matcher still catches an
+ * `ABSENT_MEMBERS` name reached without a namespace (a destructured import),
+ * which this one by construction cannot see.
+ */
+export function undeclaredBases(source) {
+  const namespaces = [
+    ...new Set([...source.matchAll(OBSIDIAN_NAMESPACE_MATCHER)].map((match) => match[1])),
+  ];
+  if (namespaces.length === 0) return [];
+  const exported = new Set(SANDBOX_MODULE_EXPORTS);
+  const found = new Set();
+  for (const namespace of namespaces) {
+    // The namespace is an identifier captured from this bundle, so it can carry
+    // no regex syntax — `[A-Za-z_$][\w$]*` is the whole of what matched.
+    const matcher = new RegExp(
+      `\\bextends\\s+${namespace}\\s*\\.\\s*([A-Za-z_$][\\w$]*)\\b`,
+      "g"
+    );
+    for (const match of source.matchAll(matcher)) {
+      if (!exported.has(match[1])) found.add(match[1]);
+    }
+  }
+  return [...found];
+}
 
 const SUPPORTED_MATCHER = alternation(SUPPORTED_MEMBERS);
 const PLANNED_MATCHER = alternation(Object.keys(PLANNED_MEMBERS));

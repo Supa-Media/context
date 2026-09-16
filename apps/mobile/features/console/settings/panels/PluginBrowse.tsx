@@ -65,7 +65,7 @@ export function PluginBrowse({
   seed = "",
 }: {
   view: BrowseView;
-  installed: ConsolePlugin[];
+  installed: Array<Pick<ConsolePlugin, "id" | "source">>;
   /**
    * What the panel's own box currently holds.
    *

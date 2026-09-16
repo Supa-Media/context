@@ -9,6 +9,8 @@ export {
 export {
   PREVIEW_LINKS_MAX,
   PREVIEW_TEXT_MAX,
+  TEXT_MODAL_TEXT_CAP,
+  TEXT_MODAL_TITLE_CAP,
   parsePluginSandboxMessage,
   pluginSandboxDocument,
   sandboxFrameIsOurs,
@@ -19,5 +21,6 @@ export {
   INERT_MEMBERS,
   PARTIAL_MEMBERS,
   PLANNED_MEMBERS,
+  SANDBOX_MODULE_EXPORTS,
   SUPPORTED_MEMBERS,
 } from "./surface.js";
