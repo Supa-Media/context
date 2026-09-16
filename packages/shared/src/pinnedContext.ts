@@ -61,6 +61,17 @@
  * bypass, including for us, which would mean never being able to recreate this
  * workspace after a delete or a migration. What protects a name we hold is
  * holding it.
+ *
+ * **Which means this slug SELECTS the pinned context and does not MAKE one.**
+ * The sentence above is about a handle, and pinning turns the same string into
+ * a trust anchor: whatever row holds it is read by every account and appears in
+ * every MCP session. Anywhere the name is not already held — a self-hosted
+ * control plane, a fresh staging database, this one after a delete frees it —
+ * the first account to claim it would otherwise be pinned into everybody's
+ * rail. So `functions/lib/pinnedContext.ts` additionally requires the row to be
+ * `shared` and to be vouched for by a staff account (`ADMIN_EMAILS`, which
+ * lives in the environment where nothing this codebase executes can write it).
+ * Do not reduce that resolver to the `by_slug` lookup it looks like.
  */
 export const PINNED_CONTEXT_SLUG = "context-lc";
 
