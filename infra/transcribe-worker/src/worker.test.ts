@@ -748,7 +748,9 @@ describe("a body that declares no length", () => {
     const response = await handleRequest(request, envWith(ai.binding));
 
     expect(response.status).toBe(200);
-    expect(ai.calls).toEqual([{ model: TURBO_MODEL, input: { audio: AUDIO } }]);
+    expect(ai.calls).toEqual([
+      { model: TURBO_MODEL, input: { audio: AUDIO, vad_filter: true } },
+    ]);
   });
 });
 
@@ -792,7 +794,9 @@ describe("transcribing a chunk", () => {
       envWith(ai.binding),
     );
     expect(response.status).toBe(200);
-    expect(ai.calls).toEqual([{ model: TURBO_MODEL, input: { audio: AUDIO } }]);
+    expect(ai.calls).toEqual([
+      { model: TURBO_MODEL, input: { audio: AUDIO, vad_filter: true } },
+    ]);
     expect(await response.json()).toEqual({
       text: "Morning.",
       segments: [{ startMs: 0, endMs: 1500, text: "Morning.", confidence: null }],
@@ -814,6 +818,33 @@ describe("transcribing a chunk", () => {
       segments: [{ startMs: 0, endMs: 12_000, text: "hello there", confidence: null }],
       refused: 0,
     });
+  });
+
+  it("asks the turbo model to run its VAD, which is what arms the silence rule", async () => {
+    /*
+      `vad_filter` is off by default on that model, and with it off
+      `duration_after_vad` comes back equal to the duration — so `vadHeardNothing`
+      reads a positive number, has no opinion, and every quiet chunk goes to the
+      decoder to be hallucinated over. Turning it off again turns the refusal
+      written for the 166 words back into a rule that cannot fire.
+    */
+    const ai = fakeAi(TIMED_ANSWER);
+    await handleRequest(post({ audioBase64: AUDIO, mimeType: "audio/webm" }), envWith(ai.binding));
+    expect(ai.calls[0]?.input).toMatchObject({ vad_filter: true });
+  });
+
+  it("does not send the older model a key it does not declare", async () => {
+    /*
+      `@cf/openai/whisper` takes `audio` and nothing else, and reports no
+      `duration_after_vad` to arm anything with. It is also the only path an
+      account without the turbo model has, so an undeclared key here would be a
+      502 on that path bought for nothing.
+    */
+    const ai = fakeAi((model: string) =>
+      model === TURBO_MODEL ? new Error("No such model") : { text: "from the old one" },
+    );
+    await handleRequest(post({ audioBase64: AUDIO, mimeType: "audio/webm" }), envWith(ai.binding));
+    expect(ai.calls[1]).toEqual({ model: FALLBACK_MODEL, input: { audio: AUDIO } });
   });
 
   it("falls back to the older model only when the turbo one does not exist", async () => {

@@ -277,7 +277,11 @@ describe("an owner can edit their context", () => {
       api.functions.files.createDirectory,
       { workspaceId: f.workspaceId, path: "1-projects/plans" },
     );
-    expect(f.backend.snapshot()[created.readme]).toContain("# plans");
+    // The placeholder, named for the prefix it holds open. Its wording is
+    // `fileOps.test.ts`'s to pin; what this end-to-end path checks is that the
+    // action wrote the key at all.
+    expect(created.readme).toBe("1-projects/plans/README.md");
+    expect(f.backend.snapshot()[created.readme]).toContain("Folder placeholder.");
   });
 
   test("pastes a copy at an explicit destination", async () => {
@@ -372,6 +376,71 @@ describe("Obsidian plugin inventory", () => {
     ));
     expect(errorShape(existingError)).toBe(errorShape(missingError));
     expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  /*
+    THE BUG THIS ANSWERS, STATED AS A SCENARIO.
+
+    Install a plugin. Close the app. Open it again. Until this existed the
+    plugins pane rested at "Read the plugins in this bucket" and the registry
+    beside it, with no inventory to compare against, offered Install on the row
+    that was already installed — so it got installed again, and the report that
+    came back was "installs do not persist". They always had; nothing ever read
+    them back without being asked.
+
+    So the property is not "the pointer is in the bucket" — the install test
+    below already proves that. It is that the question can be ANSWERED without
+    running the scan, because the scan is what nobody had run.
+  */
+  test("what is installed can be read back without running a scan", async () => {
+    const f = await fixture();
+    f.backend.seed(
+      ".context/plugins/virtual-linker/current.json",
+      JSON.stringify({ id: "virtual-linker", version: "1.0.0", repository: "example/virtual-linker" }),
+    );
+    f.backend.seed(
+      ".context/plugins/virtual-linker/releases/1.0.0/manifest.json",
+      JSON.stringify({ id: "virtual-linker", name: "Virtual Linker", version: "1.0.0" }),
+    );
+    f.backend.seed(
+      ".context/plugins/virtual-linker/releases/1.0.0/main.js",
+      'const { Plugin } = require("obsidian"); class V extends Plugin {}',
+    );
+    // Somebody else's plugin, in the directory Context reads and never writes.
+    // It is not something Context installed and must not be reported as one.
+    f.backend.seed(
+      ".obsidian/plugins/dataview/manifest.json",
+      JSON.stringify({ id: "dataview", name: "Dataview", version: "0.5.0" }),
+    );
+    f.backend.seed(".obsidian/plugins/dataview/main.js", "module.exports = class {};");
+
+    const installed = await asUser(f.t, f.owner).action(api.functions.files.listManagedPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    expect(installed.available).toBe(true);
+    expect(installed.installs).toEqual([
+      { id: "virtual-linker", version: "1.0.0", repository: "example/virtual-linker" },
+    ]);
+
+    // Owner-only, and a non-member cannot tell this context from one that does
+    // not exist — the same shape `listObsidianPlugins` keeps two tests up.
+    const missingId = await danglingWorkspaceId(f.t);
+    const stranger = asUser(f.t, f.stranger);
+    const existingError = await captureError(() => stranger.action(
+      api.functions.files.listManagedPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    const missingError = await captureError(() => stranger.action(
+      api.functions.files.listManagedPlugins,
+      { workspaceId: missingId },
+    ));
+    expect(errorShape(existingError)).toBe(errorShape(missingError));
+    expect(errorCode(existingError)).toBe("WORKSPACE_NOT_FOUND");
+    const memberError = await captureError(() => asUser(f.t, f.editor).action(
+      api.functions.files.listManagedPlugins,
+      { workspaceId: f.workspaceId },
+    ));
+    expect(errorCode(memberError)).toBe("INSUFFICIENT_ROLE");
   });
 
   test("installs, updates, loads, and uninstalls an official plugin without touching Obsidian", async () => {
@@ -2368,6 +2437,11 @@ describe("a stranger cannot reach another workspace's files", () => {
       // inventory must establish ownership before its fixed read path opens.
       (workspaceId) =>
         as.action(api.functions.files.listObsidianPlugins, { workspaceId }),
+      // The cheap half of the same read, and the same reasoning: it opens keys
+      // under `.context/plugins/`, which no privacy manifest governs, so
+      // ownership is established before the fixed path is built.
+      (workspaceId) =>
+        as.action(api.functions.files.listManagedPlugins, { workspaceId }),
       (workspaceId) =>
         as.action(api.functions.files.readNote, { workspaceId, path: "1-projects/shared.md" }),
       (workspaceId) =>

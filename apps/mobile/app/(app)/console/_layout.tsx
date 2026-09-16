@@ -24,6 +24,8 @@ import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
+import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
+import { PluginSettingsPane } from "../../../features/console/plugins/PluginSettingsPane";
 import { EditorRegion } from "../../../features/console/EditorRegion";
 import { TierChip } from "../../../features/console/ConsoleShell";
 import {
@@ -478,6 +480,8 @@ export default function ConsoleLayout() {
         plugin actually asks.
       */}
       <PluginSuggestDialog runtime={data.pluginRuntime} />
+      <PluginTextDialog runtime={data.pluginRuntime} />
+      <PluginSettingsPane runtime={data.pluginRuntime} />
       <AppFrame
         switcher={
           insideContext ? (

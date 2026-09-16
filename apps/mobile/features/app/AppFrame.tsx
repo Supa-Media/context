@@ -146,8 +146,26 @@ export interface FrameApi {
    * whatever is open, wherever you are"; the boolean is how a caller keeps
    * that promise honest, returning `false` so the browser's own Escape
    * behaviour survives when nothing was open.
+   *
+   * It closes the drawer and the rail sheet — the panels this component
+   * renders — **and** whatever registered itself through `registerDismissable`,
+   * nearest first.
    */
   closeOverlays: () => boolean;
+  /**
+   * Put a panel this frame does not render into Escape's reach, and take it
+   * out again when it unmounts.
+   *
+   * The promise above was only ever true of the two panels below. A find bar
+   * over the note is neither, so ⌘F could open something Escape could not
+   * close as soon as focus left the editor — reported, accurately, as "isn't
+   * dismissable". A closer answers whether it closed anything, so
+   * `closeOverlays` can keep returning an honest boolean.
+   *
+   * Returns the unregistration, which makes it the whole body of an effect:
+   * `useEffect(() => registerDismissable(close), [registerDismissable])`.
+   */
+  registerDismissable: (close: () => boolean) => () => void;
   setExplorerWidth: (width: number) => void;
   /**
    * True on a phone: choosing a note has to dismiss the drawer, because the
@@ -272,6 +290,9 @@ export function useFrame(): FrameApi {
       closeDrawer: noop,
       closeNav: noop,
       closeOverlays: () => false,
+      // Nothing outside a provider has a frame to be closed by, so the
+      // registration is real and the unregistration is a no-op.
+      registerDismissable: () => noop,
       setExplorerWidth: noop,
       closesOnSelect: closesOnSelect(fallbackRegions.explorer),
       contentInsets: NO_CONTENT_INSETS,
@@ -541,6 +562,21 @@ export function AppFrame({
     [],
   );
   /**
+   * The panels this frame does not render, newest registration last.
+   *
+   * A ref rather than state: nothing on screen depends on the list, and a
+   * render per editor mount on the console's most expensive route is a price
+   * for nothing. `closeOverlays` reads it at press time, which is also the only
+   * moment the answer is knowable.
+   */
+  const dismissables = useRef<(() => boolean)[]>([]);
+  const registerDismissable = useCallback((close: () => boolean) => {
+    dismissables.current = [...dismissables.current, close];
+    return () => {
+      dismissables.current = dismissables.current.filter((one) => one !== close);
+    };
+  }, []);
+  /**
    * The scrim covers whichever panel is up, so it dismisses whichever panel is
    * up — and Escape means the same thing.
    *
@@ -551,6 +587,29 @@ export function AppFrame({
    * key.
    */
   const closeOverlays = useCallback(() => {
+    /*
+      Nearest first, which is last registered first: a find bar lies over the
+      note inside the drawer's console, so one Escape must not take both. The
+      loop stops at the first closer that actually closed something — the rest
+      are further away, and a person pressing Escape means the thing in front
+      of them.
+
+      Read into a local first: a closer is free to unmount the thing it closed,
+      which unregisters it, and `registerDismissable` answers that by replacing
+      the array rather than splicing it. Iterating the live `.current` would
+      then walk a different list than it started on, and skip the panel behind
+      the one that just went away.
+    */
+    const registered = dismissables.current;
+    for (let at = registered.length - 1; at >= 0; at -= 1) {
+      if (registered[at]?.() === true) return true;
+    }
+    /*
+      Then the frame's own panels, which are the outermost thing Escape can
+      reach and so genuinely the last resort — including the two the folding
+      side panels added. The peek is over the editor and focus mode has taken
+      both panels away, and Escape is the key everybody tries for either.
+    */
     const wasOpen = state.drawerOpen || state.navOpen || state.explorerPeeking || state.focus;
     if (wasOpen)
       setState((current) => ({
@@ -706,6 +765,7 @@ export function AppFrame({
       closeDrawer,
       closeNav,
       closeOverlays,
+      registerDismissable,
       setExplorerWidth,
       closesOnSelect: closesOnSelect(regions.explorer),
       contentInsets,
@@ -726,6 +786,7 @@ export function AppFrame({
       closeDrawer,
       closeNav,
       closeOverlays,
+      registerDismissable,
       setExplorerWidth,
       contentInsets,
       viewportInsets,

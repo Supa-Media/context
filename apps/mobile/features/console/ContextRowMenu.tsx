@@ -78,6 +78,7 @@ export function RightClickTarget({
 export function ContextRowMenu({
   slug,
   canLeave = false,
+  pinned = false,
   onSelect,
   onLeave,
   onDismiss,
@@ -85,6 +86,8 @@ export function ContextRowMenu({
   slug: string;
   /** True when the viewer is not this context's owner — see `contextMenuItems`. */
   canLeave?: boolean;
+  /** True for the pinned context, which offers Open and nothing else. */
+  pinned?: boolean;
   /** Receives the chosen destination; closing is the caller's move. */
   onSelect: (route: ConsoleRoute) => void;
   /**
@@ -119,7 +122,7 @@ export function ContextRowMenu({
 
   return (
     <View ref={ref} style={styles.menu} accessibilityRole="menu" testID="context-menu">
-      {contextMenuItems(slug, { canLeave }).map((item) => {
+      {contextMenuItems(slug, { canLeave, pinned }).map((item) => {
         if (item.key === "leave") {
           const label = confirmingLeave ? "Press again to leave" : item.label;
           return (

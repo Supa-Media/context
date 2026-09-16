@@ -30,7 +30,17 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+import { defaultGoogleDestinationFolder } from "../functions/googleConnect";
 import { encryptSecret, hashToken, requireKeyset } from "../functions/lib/crypto";
+// The package this default is supposed to agree with, imported so the
+// agreement is asserted rather than eyeballed — see the describe block at the
+// end of this file. These are the two functions that decide the KEY a pass
+// writes when it is handed no folder, which is the thing the default has to
+// match; comparing against a constant would only prove two constants are equal.
+// eslint-disable-next-line import/extensions
+import { channelDayNotePath } from "../../../packages/communications/src/paths.js";
+// eslint-disable-next-line import/extensions
+import { calendarDayNotePath } from "../../../packages/communications/src/calendar/paths.js";
 import { CALENDAR_SCOPES, CHAT_SCOPES, GMAIL_SCOPES } from "../functions/lib/googleOAuth";
 import type { Id } from "../_generated/dataModel";
 
@@ -1634,5 +1644,64 @@ describe("the browser that started a Google connect is the one that may finish i
     });
     const rows = await t.run(async (ctx) => ctx.db.query("googleConnectAttempts").collect());
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("the default destination folder is the package's answer, not a second one", () => {
+  /*
+    The bug this block exists for: Chat's default read
+    "2-areas/communications/daily" while the package wrote `0-inbox/google-chat`
+    whenever a caller passed no folder. Both were reachable — the control plane
+    hands the sync a resolved folder — so which one a customer got depended on
+    whether they had ever opened the destination field, and a Chat connection
+    nobody had configured filed its days outside the Inbox altogether.
+
+    Each assertion below compares this file's answer to the key the package
+    writes with no folder chosen. That is deliberately not a comparison against
+    a constant: two constants agreeing proves they were typed the same day, and
+    what has to hold is that the control plane's default and the sync's own
+    fallback name one folder.
+  */
+  const DAY = "2026-09-07";
+
+  test("gmail defaults to the mailbox folder the package writes into", () => {
+    const folder = defaultGoogleDestinationFolder("gmail", "person-at-example-invalid");
+    expect(`${folder}/${DAY}.md`).toBe(
+      channelDayNotePath({ channel: "email", account: "person-at-example-invalid", date: DAY }, {}),
+    );
+    expect(folder).toBe("0-inbox/email/person-at-example-invalid");
+  });
+
+  test("a connection with no slug yet still lands under the mail folder", () => {
+    // `SLUG_FALLBACK`. Not a real mailbox, but it is inside `0-inbox/email/`,
+    // which is the property that matters: unnamed mail is still mail.
+    expect(defaultGoogleDestinationFolder("gmail", undefined)).toBe("0-inbox/email/mailbox");
+  });
+
+  test("calendar defaults to the folder the calendar package writes into", () => {
+    const folder = defaultGoogleDestinationFolder("calendar", undefined);
+    expect(`${folder}/${DAY}.md`).toBe(calendarDayNotePath({ date: DAY }, {}));
+    expect(folder).toBe("0-inbox/calendar");
+  });
+
+  test("chat defaults to the folder the channel package writes into", () => {
+    const folder = defaultGoogleDestinationFolder("chat", undefined);
+    expect(`${folder}/${DAY}.md`).toBe(
+      channelDayNotePath({ channel: "google-chat", date: DAY }, {}),
+    );
+    expect(folder).toBe("0-inbox/google-chat");
+  });
+
+  test("every default is inside the one inbox root", () => {
+    // `docs/decisions/communications.md`, "A channel lands in `0-inbox`, and
+    // there is no second inbox root" — that decision's own check, applied to
+    // the one function that could file a sync anywhere else.
+    for (const folder of [
+      defaultGoogleDestinationFolder("gmail", "person-at-example-invalid"),
+      defaultGoogleDestinationFolder("calendar", undefined),
+      defaultGoogleDestinationFolder("chat", undefined),
+    ]) {
+      expect(folder.startsWith("0-inbox/")).toBe(true);
+    }
   });
 });

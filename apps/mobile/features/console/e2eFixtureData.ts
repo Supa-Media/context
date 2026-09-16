@@ -34,6 +34,29 @@ export function useE2EFixtureConsoleData(): ConsoleData {
   return {
     ...demo,
     files: { ...demo.files, canEdit: true, canShare: true, canSetVisibility: true },
+    /*
+      One managed install, and the vault scan left where a real first visit
+      leaves it: `idle`, nobody having pressed anything.
+
+      That pair is the bug this fixture exists to hold on to. An install is in
+      the bucket and no scan has run, which is every visit after the one that
+      installed it — and the panel used to name nothing at all in that state, so
+      people installed the same plugin again and reported that installs do not
+      stick. `pluginsInstalled.spec.ts` opens this in a real browser and looks.
+    */
+    pluginInstalls: {
+      state: "ready",
+      truncated: false,
+      read: async () => {},
+      installs: [
+        {
+          id: "obsidian-bible-reference",
+          version: "26.08.07",
+          repository: "tim-hub/obsidian-bible-reference",
+        },
+      ],
+    },
+    plugins: { state: "idle" },
     encryptionWriters,
   };
 }

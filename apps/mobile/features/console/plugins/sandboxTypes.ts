@@ -1,3 +1,5 @@
+import type { PluginSettingRow } from "./runtime";
+
 export interface PluginRuntimeBundle {
   pluginId: string;
   version: string;
@@ -68,6 +70,25 @@ export type SandboxEvent =
       placeholder: string;
       instructions: { command: string; purpose: string }[];
     }
+  /**
+   * A plain dialog the plugin filled in, or closed.
+   *
+   * No query and no pick — a `Modal` shows something rather than asking. The
+   * text arrives again whenever the plugin changes it, because a plugin may
+   * fill it after an await and the one this was built for does.
+   */
+  | { type: "text-modal"; open: boolean; title: string; text: string }
+  /** This plugin registered a settings pane. One bit; it only turns a control on. */
+  | { type: "settings-tab" }
+  /**
+   * The pane, as rows to draw.
+   *
+   * Sent again whenever the plugin redraws it — which the pane this was built
+   * against does from its own event bus, after a toggle. `error` is what
+   * `display()` threw, so a pane that stopped part-way says so instead of
+   * looking like a plugin with fewer settings.
+   */
+  | { type: "settings-pane"; open: boolean; rows: PluginSettingRow[]; error: string | null }
   | { type: "suggest-modal-results"; seq: number; items: { text: string }[] }
   /*
     `reopened` says whether the plugin opened another dialog while handling the
@@ -238,6 +259,11 @@ export interface PluginSandboxProps {
   modalPick?: { seq: number; index: number };
   /** They closed it without choosing, so the plugin's own onClose still runs. */
   modalDismiss?: { seq: number };
+  /** Ask this frame for its settings pane, or close it. */
+  settingsPane?: { seq: number; open: boolean };
+  /** A reader worked a control: which one, and what it now reads. */
+  settingsChange?: { seq: number; index: number; value: boolean | string | number };
+  textModalDismiss?: { seq: number };
   /**
    * The links to preview.
    *

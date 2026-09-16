@@ -894,6 +894,54 @@ more as a verb. Making them agree in either direction loses one of the two
 facts. The visibility *sentence* stays on the folder page — it says what `team`
 means for the notes inside, which is the one thing a padlock cannot.
 
+### A folder's placeholder is not a row
+
+Object storage has no folders, so `createFolder` writes `README.md` to give the
+prefix something to be. That file then appeared as the first row of every folder
+the console drew — above whatever anybody had actually written, on the surface
+with the least room for it, and on a screen whose whole argument is that a
+folder is somewhere you are rather than a settings panel. The owner's report was
+"I don't love that creating a folder puts an overview page in it".
+
+**The console does not list it, and the bucket still holds it.** `listedEntries`
+drops it and both surfaces call that one function — the tree and the folder
+page are one listing shown twice, and a file that is a row on one and absent on
+the other is worse than the row it was hiding. `loadedCounts` skips it for the
+same reason: that line is read against the rows on screen, so counting a row
+nobody can find prints one note more than anybody can go and look at. Obsidian,
+`ls`, rclone and the gateway are unchanged, which is the point — the file exists
+*for* them.
+
+Three boundaries carry the argument, and each is a test:
+
+- **Never at the root.** The root prefix needs no key to exist, so a `README.md`
+  beside `index.md` was put there on purpose — very probably by whoever
+  self-hosted the bucket — and hiding it would be hiding content.
+- **The open note is always drawn.** A placeholder reached from search, from a
+  `[[link]]` or from a restored tab is the thing you are looking at, and a tree
+  that draws a selection it does not contain is worse than one extra row. It
+  goes back to being unlisted when you leave it.
+- **Names, never contents.** A listing carries names; asking the bucket for every
+  README on every expand would be a request per folder to decide a row. The
+  honest cost is that a folder overview somebody really wrote is hidden too.
+  Nothing becomes unreachable — search finds it, a link opens it, Obsidian never
+  hid it — and if that cost turns out to bite, the fix is to render the README as
+  the folder page's own introduction rather than to put the row back.
+
+The body changed with it. It used to be `# <folder name>`: the opening line of a
+note somebody had started, on a file nobody wrote. The only readers left are the
+tools the file exists for, and to them an empty overview page reads like a task,
+so it says what it is instead — `renderFolderPlaceholder`, exported so the copy
+is pinned by a test. `NEW_FOLDER_HINT` still mentions the file at the moment the
+folder is made, because a README turning up in somebody's vault that the app
+never mentioned is worse than one line of explanation.
+
+What is deliberately **not** changed is the share card. `previewChildrenFrom`
+holds at most three names and would waste one on a placeholder, but the argument
+in that function is that it adds no filter the privacy engine did not compute,
+and a presentation rule is a poor first exception to it. It can move later, as
+its own change, with its own test.
+
 ### A phone gets a path bar, which is half of the line that was deleted
 
 `BrowsePane`'s own comment argued the breadcrumb off a phone at length, and the

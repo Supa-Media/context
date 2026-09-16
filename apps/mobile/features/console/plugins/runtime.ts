@@ -114,6 +114,18 @@ export interface RuntimeView {
    * first exactly as it does in the guest.
    */
   modal?: OpenModal | null;
+  /**
+   * The plain dialog a plugin currently has open, or `null`.
+   *
+   * Separate from `modal` rather than folded into it: one asks the reader to
+   * choose and routes an index back, the other only shows them something. One
+   * field for both would make every consumer re-derive which kind it had.
+   */
+  textModal?: OpenTextModal | null;
+  /** The plugin settings pane currently open, or `null`. */
+  settingsPane?: OpenSettingsPane | null;
+  /** Plugin ids that registered a settings pane, so a row can offer to open it. */
+  settingsTabs?: string[];
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
 }
@@ -134,6 +146,76 @@ export interface OpenModal {
   instructions: { command: string; purpose: string }[];
 }
 
+/**
+ * A plain dialog a plugin has open: a title, a body, and who is showing it.
+ *
+ * The text is the guest's `textContent` and nothing else — a plugin cannot put
+ * markup, a link, an image or a script in front of a reader, the same boundary
+ * the suggestion dialog keeps.
+ */
+export interface OpenTextModal {
+  pluginId: string;
+  /** The exact frame, so a dismissal reaches the plugin that opened it. */
+  nonce: string;
+  title: string;
+  text: string;
+}
+
+/**
+ * One row of a plugin's own settings pane, as the console draws it.
+ *
+ * A `heading` or a `note` is the plugin's own words — the walk in the sandbox
+ * reduces whatever it built to text, so a pane that opens with a sponsor iframe
+ * and a tracking image contributes those and nothing else. Everything with an
+ * `index` is a control, and the index is what a change is addressed by.
+ */
+export type PluginSettingRow =
+  | { kind: "heading"; level: number; text: string }
+  | { kind: "note"; text: string }
+  | PluginSettingControl;
+
+/**
+ * One control, with its kind spelled out per member.
+ *
+ * Written as five members rather than one with a union `kind`, and that is not
+ * style: a single member whose `kind` is a union does not discriminate, so
+ * `Extract<PluginSettingRow, { kind: "dropdown" }>` collapses to `never` and
+ * every field read off it is an error. Five members make the union do the work
+ * it exists for — and make `options` a fact about dropdowns rather than an
+ * empty array on everything else.
+ */
+export type PluginSettingControl = PluginSettingBase &
+  (
+    | { kind: "toggle"; value: boolean }
+    | { kind: "text"; value: string }
+    | { kind: "slider"; value: number }
+    | { kind: "button"; value: string }
+    | { kind: "dropdown"; value: string; options: { value: string; label: string }[] }
+  );
+
+interface PluginSettingBase {
+  index: number;
+  name: string;
+  desc: string;
+  label: string;
+  placeholder: string;
+  disabled: boolean;
+}
+
+/**
+ * The settings pane a plugin currently has open, and whose it is.
+ *
+ * `error` is what the plugin's own `display()` threw. It is drawn rather than
+ * swallowed: a pane that stopped part-way looks exactly like a plugin with
+ * fewer settings, which is the quieter and worse failure.
+ */
+export interface OpenSettingsPane {
+  pluginId: string;
+  nonce: string;
+  rows: PluginSettingRow[];
+  error: string | null;
+}
+
 export interface ActiveSandbox {
   bundle: import("./sandboxTypes").PluginRuntimeBundle;
   nonce: string;
@@ -142,6 +224,13 @@ export interface ActiveSandbox {
 
 export interface RuntimeActions {
   start: (pluginId: string, bundleFingerprint: string) => Promise<void>;
+  /** Close the plain dialog, telling the plugin that opened it. */
+  dismissTextModal?: () => void;
+  /** Ask a running plugin to draw its own settings pane. */
+  openSettingsPane?: (pluginId: string) => void;
+  /** Work one of its controls. The index names a row in the pane now on screen. */
+  changeSetting?: (index: number, value: boolean | string | number) => void;
+  closeSettingsPane?: () => void;
   stop: (pluginId: string, bundleFingerprint: string) => Promise<void>;
   /**
    * Ask a running plugin to run one of the commands it registered.

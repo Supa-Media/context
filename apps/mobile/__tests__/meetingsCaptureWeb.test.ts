@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globa
 import type { MeetingRecorder, RecorderError } from "../features/meetings/capture";
 import { segmentSessionId } from "../features/meetings/protocol";
 import { CAPTURE_MESSAGES, audioRecorder } from "../features/meetings/capture/audio.web";
+import { onRecorderLevel } from "../features/meetings/capture/level";
 import {
   MAX_INFLIGHT_CHUNKS,
   SEGMENT_MS,
@@ -103,6 +104,47 @@ import {
  *    themselves opened: `abandon` moves the recorder to `stopped` from inside
  *    `closeChunk`, which `pause` calls, so a pause could put a released stream
  *    back within reach of `resume`.
+ *
+ * ### The share and the meter (59 tests)
+ *
+ *  - the picker moved after the `getUserMedia` call: 1 — **"the picker is
+ *    opened before the microphone prompt"**. In a real browser that is the
+ *    transient activation spent and every share refused.
+ *  - `shareSystemAudio` returning a resolved stream without checking it carries
+ *    audio: 2 — **"the source shared carries no audio: …"** and **"a source
+ *    with no audio is let go rather than held"**.
+ *  - the `SYSTEM_AUDIO_UNSHARED` report dropped: 3 — all three ways the ask
+ *    comes back empty, which is the whole of what stops a mic-only recording
+ *    being presented as a recording of a call.
+ *  - `buildGraph`'s `context.state !== "running"` guard removed: 1 — **"a
+ *    browser that cannot mix records the microphone and says so"**. That one is
+ *    about the *recording*: a suspended context's destination is silence.
+ *  - `releaseStream` no longer stopping the share's tracks: 2 — **"ending a
+ *    meeting turns the sharing indicator off…"** and **"a refused microphone
+ *    hands the share back…"**.
+ *  - `rmsDbfs`'s zero guard removed: 1 — **"a quiet room reads zero, which is
+ *    not the same as no meter"**. `20 * log10(0)` is `-Infinity`, which
+ *    `meterLevel` reads as "no reading" over an open microphone.
+ *  - `stopRotation` no longer stopping the meter: 2 — **"a meeting that ends
+ *    says it has no reading…"** and **"a paused meeting is not listening…"**.
+ *  - `browserCanShareSystemAudio` dropping the `getDisplayMedia` half: 1 —
+ *    **"both halves of the probe, or no offer at all"**.
+ *  - `stream = displayStream ?? micStream` — recording the share itself rather
+ *    than the mix: 3, including **"a shared source is mixed with the
+ *    microphone, and the mix is what records"**, whose video-track assertion is
+ *    what keeps the sheet's "never the picture" true.
+ *  - `buildGraph` building a destination for a single input too: 1 — **"a
+ *    microphone-only meeting records the microphone's own stream"**. A meter
+ *    may not change what lands in somebody's bucket, and nothing else here
+ *    noticed a mic-only recording being resampled through a mixer.
+ *
+ * One of these was a test defect rather than a code one, and it is recorded
+ * because the next person will hit it: asserting stream identity with `toBe`
+ * **crashes jest** rather than failing it. A `FakeTrack` is an `EventTarget`,
+ * the matcher deep-copies both sides to print a diff, and the copy overflows
+ * the stack — so a real regression would have aborted the worker with a V8
+ * trace instead of naming the test. `FakeStream.label` is why the assertions
+ * compare a word.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -163,16 +205,41 @@ const realBlob = globalThis.Blob;
 
 class FakeTrack extends EventTarget {
   stopped = false;
-  readonly kind = "audio";
+  /*
+    A share is a video track with an audio track beside it — never audio alone,
+    which is what `DISPLAY_CONSTRAINTS` is about — so the fake browser has to be
+    able to tell them apart. The microphone's tracks default to audio, which is
+    every `new FakeTrack()` that predates sharing.
+  */
+  constructor(readonly kind: "audio" | "video" = "audio") {
+    super();
+  }
   stop(): void {
     this.stopped = true;
+  }
+  /** What the browser does when the person presses "Stop sharing". */
+  end(): void {
+    this.stopped = true;
+    this.dispatchEvent(new Event("ended"));
   }
 }
 
 class FakeStream {
-  constructor(readonly tracks: FakeTrack[]) {}
+  /**
+   * Which of the three streams this is: `microphone`, `share` or `mix`.
+   *
+   * Identity is what the assertions are really about — was `MediaRecorder`
+   * handed the mixed destination or one of its inputs — and asserting it with
+   * `toBe` cost a crash rather than a failure: a `FakeTrack` is an
+   * `EventTarget`, jest deep-copies both sides to print a diff, and the copy
+   * overflows the stack. So identity is asserted through a printable name.
+   */
+  constructor(
+    readonly tracks: FakeTrack[],
+    readonly label: "microphone" | "share" | "mix" = "microphone",
+  ) {}
   getAudioTracks(): FakeTrack[] {
-    return this.tracks;
+    return this.tracks.filter((track) => track.kind === "audio");
   }
   getTracks(): FakeTrack[] {
     return this.tracks;
@@ -180,6 +247,8 @@ class FakeStream {
 }
 
 interface FakeRecorderInstance {
+  /** What it was told to record, which is the whole of the mixing assertion. */
+  source: unknown;
   mimeType: string;
   state: "inactive" | "recording";
   started: number;
@@ -200,13 +269,15 @@ let denyMicrophone = false;
 
 function installMediaRecorder(): void {
   class FakeMediaRecorder implements FakeRecorderInstance {
+    source: unknown;
     mimeType: string;
     state: "inactive" | "recording" = "inactive";
     started = 0;
     ondataavailable: ((event: { data: Blob }) => void) | null = null;
     onstop: (() => void) | null = null;
 
-    constructor(_stream: unknown, options?: { mimeType?: string }) {
+    constructor(stream: unknown, options?: { mimeType?: string }) {
+      this.source = stream;
       this.mimeType = options?.mimeType ?? "audio/webm";
       instances.push(this);
     }
@@ -230,17 +301,150 @@ function installMediaRecorder(): void {
   (globalThis as Record<string, unknown>).MediaRecorder = FakeMediaRecorder;
 }
 
-function installGetUserMedia(): void {
+/* ------------------------ the share picker, as a fake ---------------------- */
+
+/**
+ * What the browser's own tab/screen picker does when it is opened.
+ *
+ * The four answers a real one gives, and three of them are "no audio" in
+ * different words — which is the point: `getDisplayMedia` resolving is not the
+ * same as getting a source that can be recorded, and the three misses are the
+ * ordinary case rather than the edge one.
+ */
+type PickerAnswer =
+  /** Cancelled, dismissed, refused, or a browser that shares no audio at all. */
+  | "cancelled"
+  /** Resolved, video only — the "share audio" box left unticked. */
+  | "silent"
+  /** Resolved with audio: what the feature is for. */
+  | "audio";
+
+let pickerAnswer: PickerAnswer = "audio";
+let displayTracks: FakeTrack[] = [];
+/** Which prompts were opened, in order. See "the picker goes first". */
+let prompts: string[] = [];
+
+function installGetUserMedia(withPicker = false): void {
   Object.defineProperty(navigator, "mediaDevices", {
     configurable: true,
     value: {
       getUserMedia: async () => {
+        prompts.push("microphone");
         if (denyMicrophone) throw new Error("Permission denied");
         tracks = [new FakeTrack()];
         return new FakeStream(tracks);
       },
+      /*
+        Absent by default, because it is absent in jsdom and in every browser
+        that cannot share — and its absence is one half of the capability probe,
+        so the probe has to be exercised against a genuinely missing global
+        rather than a stub answering `undefined`.
+      */
+      ...(withPicker
+        ? {
+            getDisplayMedia: async () => {
+              prompts.push("picker");
+              if (pickerAnswer === "cancelled") throw new Error("Permission denied");
+              displayTracks =
+                pickerAnswer === "silent"
+                  ? [new FakeTrack("video")]
+                  : [new FakeTrack("video"), new FakeTrack("audio")];
+              return new FakeStream(displayTracks, "share");
+            },
+          }
+        : {}),
     },
   });
+}
+
+/* -------------------------- Web Audio, as a fake -------------------------- */
+
+class FakeAudioNode {
+  readonly connected: unknown[] = [];
+  connect(target: unknown): unknown {
+    this.connected.push(target);
+    return target;
+  }
+}
+
+class FakeAnalyser extends FakeAudioNode {
+  fftSize = 32;
+  getFloatTimeDomainData(samples: Float32Array): void {
+    samples.fill(analyserAmplitude);
+  }
+}
+
+class FakeStreamDestination extends FakeAudioNode {
+  /*
+    Audio and nothing else, which is what a real
+    `MediaStreamAudioDestinationNode` produces — and the whole of why the
+    picture a share hands over cannot reach a recording.
+  */
+  readonly stream = new FakeStream([new FakeTrack()], "mix");
+}
+
+/** What `MediaRecorder` was handed, as a word a failure can print. */
+function recordedStream(): string {
+  const source = instances[0]?.source;
+  return source instanceof FakeStream ? source.label : String(source);
+}
+
+/** What one sample of the fake room reads, as a linear amplitude. */
+let analyserAmplitude = 0;
+/** An `AudioContext` that starts suspended, the way autoplay policy hands one back. */
+let contextStartsSuspended = false;
+/** ...and one that will not come out of it, which is a silent recording. */
+let contextRefusesToResume = false;
+let contexts: FakeAudioContext[] = [];
+
+class FakeAudioContext {
+  state: "suspended" | "running" | "closed" = contextStartsSuspended ? "suspended" : "running";
+  readonly sourced: unknown[] = [];
+  analyser: FakeAnalyser | null = null;
+  destination: FakeStreamDestination | null = null;
+
+  constructor() {
+    contexts.push(this);
+  }
+
+  async resume(): Promise<void> {
+    if (contextRefusesToResume) return;
+    this.state = "running";
+  }
+
+  async close(): Promise<void> {
+    this.state = "closed";
+  }
+
+  createMediaStreamSource(stream: unknown): FakeAudioNode {
+    this.sourced.push(stream);
+    return new FakeAudioNode();
+  }
+
+  createAnalyser(): FakeAnalyser {
+    this.analyser = new FakeAnalyser();
+    return this.analyser;
+  }
+
+  createMediaStreamDestination(): FakeStreamDestination {
+    this.destination = new FakeStreamDestination();
+    return this.destination;
+  }
+}
+
+function installAudioContext(): void {
+  (globalThis as Record<string, unknown>).AudioContext = FakeAudioContext;
+}
+
+function removeAudioContext(): void {
+  delete (globalThis as Record<string, unknown>).AudioContext;
+}
+
+/** A browser that can be asked for the whole call: both halves of the probe. */
+function installSharing(answer: PickerAnswer = "audio"): void {
+  pickerAnswer = answer;
+  installGetUserMedia(true);
+  installAudioContext();
 }
 
 function removeMediaRecorder(): void {
@@ -274,6 +478,8 @@ interface HarnessOptions {
    * what `""` means.
    */
   sessionId?: string;
+  /** What the sheet's switch said. The default is the sheet's own default. */
+  systemAudio?: boolean;
 }
 
 function harness(options: HarnessOptions = {}): Harness {
@@ -294,8 +500,9 @@ function harness(options: HarnessOptions = {}): Harness {
   recorder.onError((error) => errors.push(error));
   const sessionId = options.sessionId ?? TEST_MEETING_ID;
   const realStart = recorder.start.bind(recorder);
+  const systemAudio = options.systemAudio ?? false;
   recorder.start = (given) =>
-    realStart(sessionId === "" ? given : { sessionId, systemAudio: false, ...given });
+    realStart(sessionId === "" ? given : { sessionId, systemAudio, ...given });
   return { recorder, transcriber, errors };
 }
 
@@ -313,6 +520,13 @@ beforeEach(() => {
   denyMicrophone = false;
   refuseStop = false;
   blobConstructionFails = false;
+  pickerAnswer = "audio";
+  displayTracks = [];
+  prompts = [];
+  contexts = [];
+  analyserAmplitude = 0;
+  contextStartsSuspended = false;
+  contextRefusesToResume = false;
   (globalThis as Record<string, unknown>).Blob = FakeBlob;
   installMediaRecorder();
   installGetUserMedia();
@@ -323,6 +537,7 @@ afterEach(() => {
   jest.useRealTimers();
   removeMediaRecorder();
   removeGetUserMedia();
+  removeAudioContext();
   (globalThis as Record<string, unknown>).Blob = realBlob;
 });
 
@@ -361,14 +576,16 @@ describe("the capability, probed rather than assumed", () => {
     expect(recorder.capability).toEqual({
       audio: true,
       /*
-        A browser hears the room and your own side of a call, and never the far
-        side of one on headphones — the sentence this file's header has always
-        made and the capability now states. It is `false` here in the same
-        assertion as `audio: true` deliberately: the pair is the whole claim,
-        and a recorder that reported system audio in a browser would put a
-        switch on the sheet that nothing behind it could honour.
+        A browser with a microphone and nothing else hears the room and your own
+        side of a call, and never the far side of one on headphones. It is
+        `false` here in the same assertion as `audio: true` deliberately: the
+        pair is the whole claim, and a recorder that reported system audio
+        without both halves of the share probe would put a switch on the sheet
+        that nothing behind it could honour. "With both halves" is the block
+        below.
       */
       systemAudio: false,
+      systemAudioNeedsPicker: false,
       transcribesAt: "cloud",
       unavailableReason: null,
     });
@@ -979,6 +1196,385 @@ describe("a chunk nobody spoke in", () => {
     await advance(SEGMENT_MS);
 
     expect(errors).toHaveLength(0);
+    await recorder.stop();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                     the whole call, in a browser                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A browser cannot tap the machine's output. It can ask the person for a source
+ * and mix that source's audio into the recording, which is a real answer to
+ * "the far side of my call is on headphones" — and a different thing to agree
+ * to from the shell's silent loopback tap.
+ *
+ * Everything here is about the difference between *asking* and *getting*.
+ * `getDisplayMedia` resolving is not a source with audio on it, a source with
+ * audio on it is not a recording of both sides, and none of the three misses
+ * may look like success. The claim a recorder makes is the thing this suite
+ * guards: `capability.systemAudio` must not be true where nothing behind it
+ * could honour the switch, and a mic-only recording must never be presented as
+ * a recording of a call.
+ */
+describe("the whole call, where a browser can ask for it", () => {
+  test("both halves of the probe, or no offer at all", () => {
+    // Neither: jsdom's own browser, and the default for every test above.
+    expect(audioRecorder("web").capability.systemAudio).toBe(false);
+
+    // A picker with nothing to mix its audio into would hold a tab captured and
+    // record the microphone anyway, so half the probe is no offer.
+    installGetUserMedia(true);
+    expect(audioRecorder("web").capability.systemAudio).toBe(false);
+
+    // ...and Web Audio with no picker has nothing to mix.
+    installGetUserMedia();
+    installAudioContext();
+    expect(audioRecorder("web").capability.systemAudio).toBe(false);
+
+    installSharing();
+    const capability = audioRecorder("web").capability;
+    expect(capability.systemAudio).toBe(true);
+    /*
+      The second field, and the reason it exists: the sheet has to say a picker
+      is coming. Claiming the shell's silent switch here would be an offer to do
+      something without asking, on the one surface that cannot.
+    */
+    expect(capability.systemAudioNeedsPicker).toBe(true);
+  });
+
+  /**
+   * THE PICKER GOES FIRST, AND THIS IS THE CHECK THAT KEEPS IT THERE.
+   *
+   * `getDisplayMedia` needs transient activation and `getUserMedia` does not. A
+   * microphone prompt sitting on screen while somebody finds Allow spends the
+   * activation the picker needs, so the share would be refused for a reason
+   * that has nothing to do with what anybody chose — and the person would be
+   * told their call is not being recorded because they granted a microphone.
+   */
+  test("the picker is opened before the microphone prompt", async () => {
+    installSharing();
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(prompts).toEqual(["picker", "microphone"]);
+    await recorder.stop();
+  });
+
+  test("nobody is asked to share anything unless they asked for it", async () => {
+    installSharing();
+    const { recorder } = harness({ systemAudio: false });
+    await recorder.start();
+    expect(prompts).toEqual(["microphone"]);
+    await recorder.stop();
+  });
+
+  test("a shared source is mixed with the microphone, and the mix is what records", async () => {
+    installSharing();
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+
+    const context = contexts[0];
+    expect(context).toBeDefined();
+    // Both inputs reached the graph, and the recorder was handed the mix rather
+    // than either half of it.
+    expect(context.sourced).toHaveLength(2);
+    expect(recordedStream()).toBe("mix");
+    /*
+      AND THE PICTURE IS NEVER RECORDED, WHICH IS A PROMISE THE SHEET MAKES.
+
+      The picker is a *screen* picker and there is no way to ask it for audio
+      alone, so a video track genuinely is handed over. What is recorded is the
+      mixing destination's stream, which carries audio and nothing else —
+      somebody sharing the tab a private conversation is in is entitled to that.
+    */
+    const recorded = instances[0]?.source as FakeStream;
+    expect(recorded.getTracks().some((track) => track.kind === "video")).toBe(false);
+    expect(displayTracks.some((track) => track.kind === "video")).toBe(true);
+    await recorder.stop();
+  });
+
+  /**
+   * Nothing is ever connected to `context.destination`, which is the speakers.
+   *
+   * Playing a shared tab back into the room the microphone is in is a feedback
+   * loop on somebody's recording, and the fake has no `destination` property at
+   * all — so a version of `buildGraph` that reached for one would throw and be
+   * caught, and the assertion below is what turns that into a visible failure
+   * rather than a silently mic-only meeting.
+   */
+  test("the call's audio is never played back into the room", async () => {
+    installSharing();
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(contexts[0]?.destination).toBeInstanceOf(FakeStreamDestination);
+    expect(recordedStream()).toBe("mix");
+    await recorder.stop();
+  });
+
+  test.each([
+    ["the picker was cancelled", "cancelled" as PickerAnswer],
+    ["the source shared carries no audio", "silent" as PickerAnswer],
+  ])("%s: a microphone recording, and a sentence saying so", async (_name, answer) => {
+    installSharing(answer);
+    const { recorder, errors } = harness({ systemAudio: true });
+    await recorder.start();
+
+    // The meeting runs. The microphone half is fine and it is the *claim* that
+    // would have been wrong, which is why this is recoverable.
+    expect(recorder.state).toBe("recording");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(true);
+    expect(errors[0].message).toMatch(/only your microphone/i);
+    expect(CAPTURE_MESSAGES).toContain(errors[0].message);
+    await recorder.stop();
+  });
+
+  /**
+   * A share with no audio on it is handed straight back.
+   *
+   * Kept, it would hold a tab captured and the browser's sharing bar lit for a
+   * recording it contributes nothing to — the worst of both: somebody watching
+   * a "sharing" indicator while their call is not in the transcript.
+   */
+  test("a source with no audio is let go rather than held", async () => {
+    installSharing("silent");
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(displayTracks.every((track) => track.stopped)).toBe(true);
+    await recorder.stop();
+  });
+
+  test("a browser that cannot mix records the microphone and says so", async () => {
+    /*
+      Web Audio present enough to pass the probe, and refusing to run: autoplay
+      policy hands back a suspended context, and a suspended context's
+      destination produces a stream of silence — a meeting that records
+      perfectly and contains nothing.
+    */
+    installSharing();
+    contextStartsSuspended = true;
+    contextRefusesToResume = true;
+    const { recorder, errors } = harness({ systemAudio: true });
+    await recorder.start();
+
+    expect(recordedStream()).toBe("microphone");
+    expect(errors.map((error) => error.message)).toEqual([
+      expect.stringMatching(/only your microphone/i),
+    ]);
+    expect(displayTracks.every((track) => track.stopped)).toBe(true);
+    await recorder.stop();
+  });
+
+  test("a context that only needed waking is used", async () => {
+    installSharing();
+    contextStartsSuspended = true;
+    const { recorder, errors } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(recordedStream()).toBe("mix");
+    expect(errors).toHaveLength(0);
+    await recorder.stop();
+  });
+
+  /**
+   * "Stop sharing" is a button about a *screen*, and the cost of pressing it
+   * here is half the call. The recording carries on — the microphone is still
+   * open and the mix is still what `MediaRecorder` holds — so this is a
+   * sentence rather than a failure, and the sentence says what was and was not
+   * captured.
+   */
+  test("a share stopped mid-meeting is said out loud, and the rest is recorded", async () => {
+    installSharing();
+    const { recorder, errors } = harness({ systemAudio: true });
+    await recorder.start();
+    expect(errors).toHaveLength(0);
+
+    displayTracks.find((track) => track.kind === "audio")?.end();
+
+    expect(recorder.state).toBe("recording");
+    expect(errors).toHaveLength(1);
+    expect(errors[0].recoverable).toBe(true);
+    expect(errors[0].message).toMatch(/sharing stopped/i);
+    expect(CAPTURE_MESSAGES).toContain(errors[0].message);
+    // The video track is the one that actually ends the share, and nothing else
+    // will release it now that `releaseStream` has lost its handle on it.
+    expect(displayTracks.every((track) => track.stopped)).toBe(true);
+    await recorder.stop();
+  });
+
+  test("ending a meeting turns the sharing indicator off as well as the recording one", async () => {
+    installSharing();
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+    await recorder.stop();
+
+    expect(tracks.every((track) => track.stopped)).toBe(true);
+    expect(displayTracks.every((track) => track.stopped)).toBe(true);
+    // An `AudioContext` is a hardware resource with a small per-page limit, and
+    // a page that opens one per meeting and closes none stops being able to.
+    expect(contexts[0]?.state).toBe("closed");
+  });
+
+  test("a refused microphone hands the share back rather than leaving it running", async () => {
+    installSharing();
+    denyMicrophone = true;
+    const { recorder } = harness({ systemAudio: true });
+    await expect(recorder.start()).rejects.toThrow(/microphone/i);
+    expect(displayTracks.every((track) => track.stopped)).toBe(true);
+    expect(recorder.state).toBe("idle");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                 the meter                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `MediaRecorder` has no meter, so a browser published nothing and `Waveform`
+ * drew its static silhouette for the length of every meeting — the flat bar
+ * that reads as a dead microphone, which the owner has now lost an evening to
+ * on two surfaces. An `AnalyserNode` over the same inputs being recorded is
+ * what the shell has always done and what this now does.
+ *
+ * The distinction that matters in every case below is `capture/level.ts`'s:
+ * **`null` is not zero.** `0` is "something is listening and the room is
+ * quiet"; `null` is "nothing here can tell you". A browser with no
+ * `AudioContext` is the second, and publishing a zero for it would put the
+ * original defect back one layer down.
+ */
+describe("the meter", () => {
+  function watchLevels(): number[] {
+    const seen: number[] = [];
+    // Never detached: the suite's own subscription for the length of one test,
+    // and `onRecorderLevel`'s set is module state a fresh `harness()` does not
+    // touch. Left attached it would collect another test's readings, so every
+    // caller below reads it and the array dies with the test.
+    onRecorderLevel((level) => seen.push(level ?? -1));
+    return seen;
+  }
+
+  test("a browser with no AudioContext publishes nothing at all", async () => {
+    const { recorder } = harness();
+    const levels = watchLevels();
+    await recorder.start();
+    await advance(500);
+    /*
+      Not "publishes zero". A flat mark drawn from a real zero says the room is
+      quiet, which this browser cannot know — so it never publishes a number at
+      all and `Waveform` draws the silhouette it draws when there is no meter.
+      The `null`s are the polling being started and stopped and are the same
+      answer as saying nothing.
+    */
+    expect(levels.every((level) => level === -1)).toBe(true);
+    await recorder.stop();
+  });
+
+  test("a room with a voice in it moves the mark", async () => {
+    installAudioContext();
+    analyserAmplitude = 0.5;
+    const { recorder } = harness();
+    const levels = watchLevels();
+    await recorder.start();
+    await advance(300);
+
+    // The first entry is the `null` that starting the polling publishes; the
+    // readings are what comes after it.
+    const readings = levels.filter((level) => level >= 0);
+    expect(readings.length).toBeGreaterThanOrEqual(3);
+    // -6 dBFS on a meter floored at -55 is most of the way up it.
+    expect(readings[0]).toBeGreaterThan(0.8);
+    await recorder.stop();
+  });
+
+  /**
+   * Digital silence is zero, and zero is a **reading**.
+   *
+   * `20 * log10(0)` is `-Infinity`, which `meterLevel` reads as "no reading" —
+   * the one answer it must not be here, because something genuinely is
+   * listening. Published as `null` this would draw the static silhouette over
+   * an open microphone, which is the exact bug the meter exists to close.
+   */
+  test("a quiet room reads zero, which is not the same as no meter", async () => {
+    installAudioContext();
+    analyserAmplitude = 0;
+    const { recorder } = harness();
+    const levels = watchLevels();
+    await recorder.start();
+    await advance(300);
+
+    const readings = levels.filter((level) => level >= 0);
+    expect(readings.length).toBeGreaterThanOrEqual(3);
+    expect(readings.every((level) => level === 0)).toBe(true);
+    await recorder.stop();
+  });
+
+  /**
+   * A METER IS A DECORATION AND MAY NOT CHANGE WHAT LANDS IN A BUCKET.
+   *
+   * The analyser is a sink hanging off the side of the microphone's own stream,
+   * not a stage the recording passes through. Routing a mic-only meeting into
+   * the mixing destination "for consistency" would put every browser recording
+   * that ever worked through a `MediaStreamAudioDestinationNode` — resampled,
+   * and silent outright on a context autoplay policy left suspended — to draw
+   * five bars.
+   */
+  test("a microphone-only meeting records the microphone's own stream", async () => {
+    installAudioContext();
+    analyserAmplitude = 0.5;
+    const { recorder } = harness();
+    const levels = watchLevels();
+    await recorder.start();
+    await advance(300);
+
+    expect(recordedStream()).toBe("microphone");
+    expect(contexts[0]?.destination).toBeNull();
+    // ...and the meter still works, which is the point of doing it this way.
+    expect(levels.filter((level) => level > 0).length).toBeGreaterThanOrEqual(3);
+    await recorder.stop();
+  });
+
+  test("a meeting that ends says it has no reading rather than keeping its last", async () => {
+    installAudioContext();
+    analyserAmplitude = 0.5;
+    const { recorder } = harness();
+    const levels = watchLevels();
+    await recorder.start();
+    await advance(300);
+    await recorder.stop();
+
+    // `-1` is this suite's spelling of `null`: a mark holding a loud room over
+    // a meeting that has ended is the same lie as one that never moves.
+    expect(levels[levels.length - 1]).toBe(-1);
+  });
+
+  test("a paused meeting is not listening, and the meter says so", async () => {
+    installAudioContext();
+    analyserAmplitude = 0.5;
+    const { recorder } = harness();
+    const levels = watchLevels();
+    await recorder.start();
+    await advance(300);
+    await recorder.pause();
+    const atPause = levels.length;
+    await advance(500);
+
+    expect(levels[atPause - 1]).toBe(-1);
+    // ...and nothing is published while paused, so the mark stays where it is.
+    expect(levels).toHaveLength(atPause);
+    await recorder.stop();
+  });
+
+  test("the shared source is in the reading, not just the microphone", async () => {
+    installSharing();
+    analyserAmplitude = 0.5;
+    const { recorder } = harness({ systemAudio: true });
+    await recorder.start();
+
+    // One analyser fed by every input: the question the mark answers is about
+    // the recording, and the recording is both of them.
+    const analyser = contexts[0]?.analyser;
+    expect(analyser).toBeDefined();
+    expect(contexts[0]?.sourced).toHaveLength(2);
     await recorder.stop();
   });
 });

@@ -85,6 +85,48 @@ meeting note in every bucket plus a `privacy.md` rule nobody's manifest has,
 and buys a folder name one character shorter. The check is
 `every communications path this package writes begins with 0-inbox/`.
 
+### ...and the default a connection is given is that folder, not a second string
+
+The rule above binds the package. It did not bind the **control plane**, which
+carries its own `defaultGoogleDestinationFolder` — the folder a connection
+syncs into until somebody opens the destination field — and that function
+spelled all three answers out longhand. Gmail's and Calendar's matched. Chat's
+read `2-areas/communications/daily`, and nothing anywhere compared the two, so
+**every Google Chat connection that had never had its destination changed wrote
+its days outside the Inbox**: outside the folder this file decided, unrouted by
+`classifyCommsPath` (the console listed the days as plain files rather than
+drawing a channel), uncollapsed by `classifyCaptureKind` (so a week of
+automated chat paperwork crowded out `orient`'s recency list, which is the
+exact failure *A firehose is not attention* exists to prevent), and — in a
+bucket where an older importer had left a generated `2-areas/communications/contacts/`
+— filed beside a second contacts folder, so the product's own `0-inbox/contacts`
+looked like the duplicate.
+
+A default is not a smaller thing than the layout it defaults to. It is the
+layout, for everybody who never opened the field, which is most people. So the
+three branches are the package's constants now, and the checks compare each
+default to **the key the package writes when a pass is handed no folder**
+(`channelDayNotePath`, `calendarDayNotePath`) rather than to a constant:
+two constants agreeing only proves they were typed on the same day.
+
+**What reversing this costs**: a second spelling of a folder name whose first
+spelling is in `protocol.js`, discovered by a customer reading their own
+bucket, which is how this one was found.
+
+**Changing it moves nothing already written.** A pass that ran under the old
+default leaves its days where they are, exactly as changing the destination in
+the console does — `updateGoogleSyncDestination` patches the row and never
+touches the bucket. The notes are the customer's; relocating a folder of them
+is `move_folder` and their decision, not a migration this product performs on
+its own.
+
+**The tests that fail if this is reversed**: `"the default destination folder
+is the package's answer, not a second one"` in
+`apps/convex/__tests__/googleConnect.test.ts`, `"a chat connection nobody has
+configured files its days in the Inbox"` in `chatProduct.test.ts`, and the two
+end-to-end Chat passes in `googleSyncLoop.test.ts` — five checks, confirmed by
+putting the old string back.
+
 ### There are no `YYYY/MM/` folders, and the date is the filename
 
 The scoping note nests `2026/09/2026-09-07.md`. **That tree was built here
@@ -780,6 +822,49 @@ identity are filtered at the connection boundary. No macOS Contacts permission,
 Google People scope, or second provider crawl is part of this path.
 
 The check is `a name-only match never merges two contacts`.
+
+### And they are read through two tools, because a page nobody can find is a file
+
+For a week after the pages landed there was no way to *ask* for one. A
+connected client could read a contact page if it already knew the path, which
+it only ever would by having been told; "who does this person correspond with"
+had no answer at all, on a surface whose whole claim is that the answer is one
+call away. `list_contacts` and `read_contact` are that pair, built the same way
+`list_channel_days` and `read_channel_day` are — a listing from the folder
+listing and then the notes, never an index, so a page the owner moved out stops
+being listed and stays a note of theirs — and they carry the
+[`context-contacts` plugin](./plugins.md)'s switch.
+
+Three things they do that the channel-day pair does not have to, all from one
+fact: **a contact's key is chosen by whoever sent the user a message.**
+
+- **`isContactNote`, not a successful parse, decides whether a page is ours.**
+  `parseContactView` is lenient by design; pointed at the owner's own note at a
+  contact's key — or at ciphertext — it returns a person with an empty name.
+  The listing labels such a note (`(a note of your own)`, `(encrypted)`) rather
+  than hiding it, and the read hands it to `read_note`, which is the tool that
+  can actually open the sealed one.
+- **Both print the same provenance sentence, from one constant.** The name, the
+  organization and the identifiers on a page are values off inbound mail. A
+  model handed them with nothing said reports them as this context's own claim
+  about a person — so the listing says it where somebody chooses who to read
+  about, and the read says it where they choose what to believe.
+- **The activity list is cut to five** unless `activity: true` asks for it, the
+  same bargain `read_channel_day` strikes with message bodies: a
+  three-year correspondence is a link per message, and a tool call should not
+  spend a model's context on a list nobody asked for.
+
+Ordering is the listing's own `uploaded`, so nothing is read before the slice —
+a contact page is rewritten whenever a sync adds activity, which makes
+"recently written" and "recently in touch" the same answer without opening a
+note to find it.
+
+**What a simplification costs**: gating on the parse turns the owner's own note
+into a person; dropping the provenance line makes a sender's self-description
+indistinguishable from something this context established; sorting on the key
+lists people alphabetically by the address that happened to name their file.
+The checks are `apps/mcp/test/contacts.test.mjs`, with its sabotage record —
+nine edits, every one caught.
 
 ### The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 

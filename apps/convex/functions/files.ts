@@ -69,7 +69,10 @@
 
 import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { matchesDestructiveActionAcknowledgement } from "@context/shared";
+import {
+  PINNED_CONTEXT_ROLE,
+  matchesDestructiveActionAcknowledgement,
+} from "@context/shared";
 import { internal } from "../_generated/api";
 import {
   type ActionCtx,
@@ -83,7 +86,7 @@ import {
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
-import { inventoryPlugins } from "../../mcp/src/plugins/inventory.js";
+import { inventoryPlugins, listManagedInstalls } from "../../mcp/src/plugins/inventory.js";
 import {
   resolveContextPlugins,
   setPluginEnabled,
@@ -216,6 +219,7 @@ import {
   requireWorkspaceAccess,
   requireWorkspaceRole,
 } from "./lib/workspaceAuth";
+import { reachesPinnedContext } from "./lib/pinnedContext";
 import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
@@ -394,6 +398,31 @@ const pluginInventoryValidator = v.object({
   checkedAt: v.string(),
 });
 
+/**
+ * What Context installed in this bucket, without any claim about whether it runs.
+ *
+ * Deliberately a different shape from `pluginInventoryValidator` rather than a
+ * thinner version of it. A row here carries an id, the version that was pinned
+ * and where it came from — three facts read out of a pointer — and nothing
+ * else. There is no verdict field to leave empty and therefore no way for a
+ * console to draw this answer as though a scan had run.
+ */
+const pluginManagedInstallsValidator = v.object({
+  kind: v.literal("pluginManagedInstalls"),
+  available: v.boolean(),
+  reason: v.union(v.string(), v.null()),
+  installs: v.array(
+    v.object({
+      id: v.string(),
+      /** `null` for a pointer that names no release — corrupt, or mid-operation. */
+      version: v.union(v.string(), v.null()),
+      repository: v.union(v.string(), v.null()),
+    }),
+  ),
+  truncated: v.boolean(),
+  checkedAt: v.string(),
+});
+
 const pluginSettingsValidator = v.object({
   kind: v.literal("pluginSettings"),
   json: v.string(),
@@ -492,6 +521,15 @@ type PluginInventory = {
   counts: Record<PluginVerdict, number>;
   found: number;
   scanned: number;
+  truncated: boolean;
+  checkedAt: string;
+};
+
+/** What `listManagedInstalls` answers: the pointers, and no verdict about any of them. */
+type ManagedInstalls = {
+  available: boolean;
+  reason: string | null;
+  installs: Array<{ id: string; version: string | null; repository: string | null }>;
   truncated: boolean;
   checkedAt: string;
 };
@@ -846,6 +884,7 @@ const operationResultValidator = v.union(
   imageWrittenValidator,
   imageValidator,
   pluginInventoryValidator,
+  pluginManagedInstallsValidator,
   contextPluginsValidator,
   pluginSettingsValidator,
   pluginManagedValidator,
@@ -956,6 +995,7 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
+  v.object({ kind: v.literal("pluginManagedList") }),
   v.object({ kind: v.literal("contextPlugins") }),
   v.object({
     kind: v.literal("contextPluginSet"),
@@ -1117,6 +1157,7 @@ type FileOperation =
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
   | { kind: "pluginInventory" }
+  | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
   | { kind: "contextPluginSet"; pluginId: string; enabled: boolean }
   | {
@@ -1189,6 +1230,7 @@ type OperationResult =
     }
   | ({ kind: "searchResults" } & SearchResults)
   | ({ kind: "pluginInventory" } & PluginInventory)
+  | ({ kind: "pluginManagedInstalls" } & ManagedInstalls)
   | { kind: "contextPlugins"; plugins: ContextPluginRow[]; settingsError: string | null }
   | { kind: "pluginSettings"; json: string; etag: string | null }
   | { kind: "pluginManaged"; pluginId: string; version: string }
@@ -1429,6 +1471,34 @@ export function scopeForRole(role: WorkspaceRole): Scope {
  * it from the session — the same arrangement `storage.applyBinding` uses, and
  * safe for the same reason: an internal function is unreachable from any
  * client, so there is nobody who could pass a forged one.
+ *
+ * ## Where the pinned context gets in, and why it is only here
+ *
+ * `@context-lc` is readable by every account without a membership row
+ * (`lib/pinnedContext.ts`). This function is the one door into the bucket for
+ * the console, so it is the one place that needs to know — and the whole of the
+ * grant is the `minimum === "member"` branch below.
+ *
+ * **The `minimum` is what makes this safe, and it is worth being explicit about
+ * why.** Every caller states the least role its operation needs, and the five
+ * that ask for `member` are exactly the five reads: `listFiles`, `readNote`,
+ * `searchContext`, `notePaths`, and the per-context leg of `searchContexts`.
+ * Everything that changes a byte asks for `editor` or `owner` and therefore
+ * goes to `requireWorkspaceRole`, which knows nothing about the pin and throws
+ * `WORKSPACE_NOT_FOUND` for somebody with no row — so a pinned reader is
+ * refused a write here by the same code that refuses a stranger, rather than by
+ * a second check that could be forgotten.
+ *
+ * The scope is `team`, from `scopeForRole("member")` like any other member, so
+ * the pin cannot surface a note held private in that workspace.
+ *
+ * **What this does not open.** `requireWorkspaceAccess` itself is untouched, so
+ * the member list, audit, billing, the storage binding, grants, shares, groups
+ * and invitations all still refuse a pinned reader. Blended search is untouched
+ * too: `searchContexts` only ever authorizes contexts `searchableContextsFor`
+ * already returned, and that is driven off real memberships, so the pinned
+ * context is not swept into everybody's cross-context search — which would have
+ * pointed every account's search at one bucket.
  */
 export const authorizeFileAccess = internalQuery({
   args: {
@@ -1441,6 +1511,18 @@ export const authorizeFileAccess = internalQuery({
     scope: v.union(v.literal("private"), v.literal("team")),
   }),
   handler: async (ctx, args) => {
+    if (args.minimum === "member") {
+      // Tried before the membership read rather than after a caught failure:
+      // `requireWorkspaceAccess` throws the same error for "not a member" and
+      // "no such workspace", so catching it would mean guessing which one this
+      // was. Asking the narrower question first needs no guess.
+      if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+        return {
+          role: PINNED_CONTEXT_ROLE,
+          scope: scopeForRole(PINNED_CONTEXT_ROLE),
+        };
+      }
+    }
     const access =
       args.minimum === "member"
         ? await requireWorkspaceAccess(ctx, args.workspaceId, args.actorUserId)
@@ -2812,6 +2894,19 @@ export async function executeOperation(
         return { kind: "pluginInventory", ...inventory };
       }
       /*
+        The cheap half, and the one the console may run without being asked.
+
+        `pluginInventory` opens every bundle in `.obsidian/plugins/`, which is
+        why it waits for a press. This reads one small pointer per plugin
+        Context installed and writes nothing, so the screen that manages
+        installs can arrive knowing what is installed — which, until this
+        existed, it did not.
+      */
+      case "pluginManagedList": {
+        const managed = await listManagedInstalls(store) as ManagedInstalls;
+        return { kind: "pluginManagedInstalls", ...managed };
+      }
+      /*
         The built-in plugins, resolved against this bucket's settings file.
 
         The catalogue and the resolver are the gateway's — imported here, never
@@ -3554,6 +3649,39 @@ export const listObsidianPlugins = action({
       operation: { kind: "pluginInventory" },
     });
     return result as Extract<OperationResult, { kind: "pluginInventory" }>;
+  },
+});
+
+/**
+ * What Context has installed in this bucket, cheap enough to ask on arrival.
+ *
+ * Owner-only, like `listObsidianPlugins` beside it and for the same reason:
+ * what software a context runs is the owner's to know.
+ *
+ * The console calls this when the plugins pane opens, and it is the only plugin
+ * read that does not wait for a press. It reads one pointer per install, opens
+ * no bundle and writes nothing — `listManagedInstalls` carries the argument for
+ * why that is a different cost from a scan, and what the missing answer cost.
+ */
+export const listManagedPlugins = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: pluginManagedInstallsValidator,
+  handler: async (
+    ctx,
+    args,
+  ): Promise<Extract<OperationResult, { kind: "pluginManagedInstalls" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      operation: { kind: "pluginManagedList" },
+    });
+    return result as Extract<OperationResult, { kind: "pluginManagedInstalls" }>;
   },
 });
 

@@ -455,22 +455,19 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
   {
     route: "/console/connections",
     file: "app/(app)/console/connections.tsx",
-    reachable: true,
-    from: [
-      {
-        surface: "Manage sharing… on a context's own menu",
-        control: {
-          file: "features/console/ContextRowMenu.tsx",
-          contains: ["onPress={() => onSelect(item.route!)}"],
-        },
-        navigation: [
-          { file: "features/console/contextMenu.ts", contains: ['section: "connections"'] },
-          { file: CONSOLE_LAYOUT, contains: ["router.replace(hrefFor(next))"] },
-        ],
-        region: "screen",
-        densities: EVERY_DENSITY,
-      },
-    ],
+    reachable: false,
+    reason:
+      "No door, by decision, and the same decision as the map's below. Its only " +
+      "one was \"Manage sharing…\" on a context's right-click menu — a row that " +
+      "answered a per-context question by navigating out of the context, which " +
+      "is what the owner asked be taken off the menu. Everything on the pane has " +
+      "a home inside settings already, from the same components rather than a " +
+      "copy: `MembersSection` under Settings → People, and the endpoint with the " +
+      "connected AI apps under Settings → AI apps (`settings/AccountSections.tsx`). " +
+      "So this is a duplicate surface losing its last entry, not a capability " +
+      "leaving the product. The route and the pane are untouched and still " +
+      "render: one entry point brings it back.",
+    marker: "Reachable from nowhere, deliberately",
   },
   {
     route: "/console/search",

@@ -16,6 +16,8 @@ import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
+import { PINNED_CONTEXT_ROLE } from "@context/shared";
+import { pinnedContextWorkspace } from "./lib/pinnedContext";
 /*
   The gateway's own gate on this value, not a second one. An offer
   `normalizeMeetingFolder` refuses is an offer the meeting write then rejects,
@@ -100,6 +102,28 @@ const workspaceSummary = v.object({
   meetingsFolder: v.optional(v.string()),
   joinedAt: v.number(),
   createdAt: v.number(),
+  /**
+   * True on the one row that is here because it is **pinned for everybody**
+   * rather than because this person is a member of it — see
+   * `lib/pinnedContext.ts`.
+   *
+   * Optional, and absent is false, so every existing consumer keeps reading
+   * exactly what it read before. It is on the row rather than in a second query
+   * because every consumer that needs it already has the row, and because the
+   * two things that must treat it differently would otherwise have to re-derive
+   * "is this the pinned one" from the slug:
+   *
+   *  - **The console draws it apart** — last in the rail, under a rule, marked
+   *    read-only (`features/console/rail.ts`).
+   *  - **Onboarding must not count it.** The `(app)` gate asks "is there
+   *    anything here for you" off this same list, so without this flag a
+   *    brand-new account would arrive with one reachable context, skip
+   *    `/welcome`, and never claim a name. `standingFrom` filters on it.
+   *
+   * A real membership wins and is reported as an ordinary row: somebody who
+   * owns or edits that workspace sees their real role and no flag.
+   */
+  pinned: v.optional(v.boolean()),
 });
 
 /**
@@ -491,6 +515,25 @@ export const applyStructure = mutation({
  *
  * An authenticated session resolves to a *set* of contexts even while that set
  * has exactly one element today. Clients must not assume `[0]`.
+ *
+ * ## The pinned context, appended after the sort
+ *
+ * One row can be here without a membership backing it: `@context-lc`, which
+ * every account reaches (`lib/pinnedContext.ts`). It carries `pinned: true`,
+ * and two things about where it sits are rules rather than tidiness.
+ *
+ * **After the sort, not in it.** The rest of this list is ordered oldest-first
+ * and the rail's stated rule is that everything after its own pinned top row
+ * "keeps the order the control plane sent". The pinned context is older than
+ * almost every account that will see it, so sorting it in by `createdAt` would
+ * put it *first* — at the head of the list, above the person's own workspace,
+ * on every surface that trusts this order. It belongs at the end.
+ *
+ * **It does not make the query non-empty for somebody with nothing.** That
+ * sounds like a property of this function and is really a property of its
+ * consumers, which is why `pinned` is on the row: `standingFrom` in the app
+ * subtracts it before asking "does this person have anywhere to go", and
+ * `ownedContexts` never counted it anyway (it is `shared`/`member`).
  */
 export const listMyWorkspaces = query({
   args: {},
@@ -519,7 +562,34 @@ export const listMyWorkspaces = query({
         createdAt: workspace.createdAt,
       });
     }
-    return summaries.sort((a, b) => a.createdAt - b.createdAt);
+    summaries.sort((a, b) => a.createdAt - b.createdAt);
+
+    const pinned = await pinnedContextWorkspace(ctx);
+    if (
+      pinned !== null &&
+      !summaries.some((summary) => summary.workspaceId === pinned._id)
+    ) {
+      summaries.push({
+        workspaceId: pinned._id,
+        slug: pinned.slug,
+        displayName: pinned.displayName,
+        kind: pinned.kind,
+        structureTemplate: pinned.structureTemplate,
+        role: PINNED_CONTEXT_ROLE,
+        meetingsFolder: pinned.meetingsFolder,
+        /*
+          Nobody joined, so there is no join time. The workspace's own creation
+          is the only honest date available and is what the field means for a
+          row that has always been there — and it is never read as "when this
+          person joined" for this row, because `pinned` says it was not joined.
+        */
+        joinedAt: pinned.createdAt,
+        createdAt: pinned.createdAt,
+        pinned: true,
+      });
+    }
+
+    return summaries;
   },
 });
 

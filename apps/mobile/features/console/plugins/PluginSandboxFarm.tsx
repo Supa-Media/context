@@ -24,6 +24,9 @@ export function PluginSandboxFarm({
   modalQuery,
   modalPick,
   modalDismiss,
+  textModalDismiss,
+  settingsRequest,
+  settingsChange,
   preview,
   grants,
 }: {
@@ -57,6 +60,15 @@ export function PluginSandboxFarm({
   modalQuery?: { seq: number; pluginId: string; nonce: string; query: string };
   modalPick?: { seq: number; pluginId: string; nonce: string; index: number };
   modalDismiss?: { seq: number; pluginId: string; nonce: string };
+  textModalDismiss?: { seq: number; pluginId: string; nonce: string };
+  settingsRequest?: { seq: number; pluginId: string; nonce: string; open: boolean };
+  settingsChange?: {
+    seq: number;
+    pluginId: string;
+    nonce: string;
+    index: number;
+    value: boolean | string | number;
+  };
   /**
    * The open note's links, aimed at one frame, for its markdown post-processor.
    *
@@ -124,6 +136,27 @@ export function PluginSandboxFarm({
                 ? { seq: modalPick.seq, index: modalPick.index }
                 : undefined
             }
+            settingsPane={
+              settingsRequest !== undefined &&
+              settingsRequest.pluginId === sandbox.bundle.pluginId &&
+              settingsRequest.nonce === sandbox.nonce
+                ? { seq: settingsRequest.seq, open: settingsRequest.open }
+                : undefined
+            }
+            settingsChange={
+              settingsChange !== undefined &&
+              settingsChange.pluginId === sandbox.bundle.pluginId &&
+              settingsChange.nonce === sandbox.nonce
+                ? { seq: settingsChange.seq, index: settingsChange.index, value: settingsChange.value }
+                : undefined
+            }
+            textModalDismiss={
+              textModalDismiss !== undefined &&
+              textModalDismiss.pluginId === sandbox.bundle.pluginId &&
+              textModalDismiss.nonce === sandbox.nonce
+                ? { seq: textModalDismiss.seq }
+                : undefined
+            }
             modalDismiss={
               modalDismiss !== undefined &&
               modalDismiss.pluginId === sandbox.bundle.pluginId &&
@@ -149,6 +182,9 @@ function SandboxSlot({
   modalQuery,
   modalPick,
   modalDismiss,
+  textModalDismiss,
+  settingsPane,
+  settingsChange,
   preview,
 }: {
   sandbox: ActiveSandbox;
@@ -161,6 +197,9 @@ function SandboxSlot({
   modalQuery?: { seq: number; query: string };
   modalPick?: { seq: number; index: number };
   modalDismiss?: { seq: number };
+  textModalDismiss?: { seq: number };
+  settingsPane?: { seq: number; open: boolean };
+  settingsChange?: { seq: number; index: number; value: boolean | string | number };
   preview?: PreviewMessage;
 }) {
   const receive = useCallback(
@@ -180,6 +219,9 @@ function SandboxSlot({
       modalQuery={modalQuery}
       modalPick={modalPick}
       modalDismiss={modalDismiss}
+      textModalDismiss={textModalDismiss}
+      settingsPane={settingsPane}
+      settingsChange={settingsChange}
       preview={preview}
     />
   );

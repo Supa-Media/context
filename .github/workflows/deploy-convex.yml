@@ -37,12 +37,24 @@ on:
     branches: [main]
     paths:
       - "apps/convex/**"
-      # Convex directly bundles the Gmail sync engine from apps/mcp and its
-      # shared communications package. Changes there must redeploy the
-      # scheduler even when no file under apps/convex changed.
-      - "apps/mcp/src/communications/**"
-      - "packages/communications/**"
-      - "packages/shared/**"
+      # `apps/convex` is not self-contained and never has been: `convex deploy`
+      # bundles the storage adapter, the search engine, the forms engine, the
+      # plugin scanner and the sandbox shim straight out of these two trees.
+      #
+      # This used to be four named subdirectories, and the list was a
+      # hand-maintained copy of an import graph that moved. Six trees Convex
+      # bundles ended up outside it, and a change to any of them merged on green
+      # CI while leaving the control plane running the previous copy — the
+      # plugin scan in the console kept answering from month-old code with
+      # today's date printed beside it. One of the changes stranded that way was
+      # a path-traversal fix.
+      #
+      # So these are deliberately whole trees rather than the exact set. An
+      # over-trigger costs an idempotent redeploy; an under-trigger silently
+      # ships nothing, and `scripts/check-convex-deploy-paths.mjs` fails CI if
+      # this filter ever stops covering what is actually bundled.
+      - "apps/mcp/src/**"
+      - "packages/**"
       - ".github/workflows/deploy-convex.yml"
   workflow_dispatch:
 

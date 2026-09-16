@@ -151,19 +151,32 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
   /**
    * Whether the machine's own audio is on offer, and whether it is on.
    *
-   * `capability.systemAudio` is the recorder's answer, which inside the desktop
-   * shell is the shell's answer to `capabilities()` — asked over the bridge,
-   * never inferred from the fact that a shell is present, because a build macOS
-   * has not verified is refused a loopback tap at the same bridge version as
-   * one it has. Everywhere else it is `false` and the sheet says plainly that
-   * the far side of a call is not in the recording.
+   * `capability.systemAudio` is the recorder's answer. Inside the desktop shell
+   * it is the shell's answer to `capabilities()` — asked over the bridge, never
+   * inferred from the fact that a shell is present, because a build macOS has
+   * not verified is refused a loopback tap at the same bridge version as one it
+   * has. In a browser it is `getDisplayMedia` plus something to mix its audio
+   * into, and `systemAudioNeedsPicker` beside it says that the capability costs
+   * the person a source picker. On a phone it is `false` and the sheet says
+   * plainly that the far side of a call is not in the recording.
    *
-   * Default **on**: somebody recording a call on a machine that can hear the
-   * call means the call. The switch is there for the case that is genuinely
-   * different — a conversation in the room while something else is playing.
+   * Default **on where it is free, off where it costs a picker**. On the
+   * desktop shell somebody recording a call on a machine that can hear the call
+   * means the call, and the switch is there for the genuinely different case —
+   * a conversation in the room while something else is playing. In a browser
+   * the same `true` would put a screen-share picker in front of every meeting
+   * anybody ever records, including the in-person ones, which is how a feature
+   * gets switched off wholesale. So the browser asks to be asked.
+   *
+   * `null` is "the person has not said", kept separate from a `false` they
+   * chose: the default has to follow the surface, and a surface can change
+   * under this hook — the desktop shell answers `capabilities()` over IPC after
+   * the first render. Once somebody presses the switch their answer stands.
    */
   const canSystemAudio = snapshot.capture.systemAudio;
-  const [systemAudio, setSystemAudio] = useState(true);
+  const needsPicker = snapshot.capture.systemAudioNeedsPicker;
+  const [chosenSystemAudio, setSystemAudio] = useState<boolean | null>(null);
+  const systemAudio = chosenSystemAudio ?? !needsPicker;
 
   useEffect(() => {
     let live = true;
@@ -234,9 +247,9 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
       await rememberDestination(store, destination);
       setRemembered(destination);
       /*
-        `systemAudio` is passed only where it was asked, so a browser and a
-        phone send nothing and the controller falls back to what the build can
-        do — which is `false` for both. Sending the switch's value from a
+        `systemAudio` is passed only where it was asked, so a phone sends
+        nothing and the controller falls back to what the build can do without
+        asking again — which is `false` there. Sending the switch's value from a
         surface that never drew it would be this layer inventing an answer on
         somebody's behalf.
       */
@@ -287,7 +300,7 @@ export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
           that cannot do what it says.
         */
         systemAudio: canSystemAudio
-          ? { on: systemAudio, onToggle: setSystemAudio }
+          ? { on: systemAudio, onToggle: setSystemAudio, needsPicker }
           : null,
         onClaimName:
           onClaimName === undefined

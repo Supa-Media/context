@@ -22,7 +22,7 @@ question of the same screen.
 
 ## A Context plugin is Obsidian's manifest with one extra key, and no bundle
 
-`apps/mcp/src/plugins/catalog.js` declares four, in Obsidian's own manifest
+`apps/mcp/src/plugins/catalog.js` declares five, in Obsidian's own manifest
 shape — `id`, `name`, `version`, `minAppVersion`, `description`, `author`,
 `authorUrl`, `isDesktopOnly`, spelled the way Obsidian spells them. Everything
 Context needs that Obsidian has no concept of goes under a single `context`
@@ -46,13 +46,56 @@ called `forms`, or a community plugin published under that id, must never be
 able to present itself as the built-in one — the built-in's row carries a switch
 that changes what the gateway serves, and a folder anybody can sync into a
 bucket borrowing that row would be a control surface with an untrusted name on
-it. Reserved is the whole prefix rather than the four ids in use, so a plugin
+it. Reserved is the whole prefix rather than the five ids in use, so a plugin
 added later is not shadowable by a folder that predates it.
 
 **What a simplification costs.** Dropping the prefix check lets a synced folder
 take a built-in's row. Inventing a manifest shape of our own ends the one-row
 claim and makes a future third-party Context plugin unpublishable to either
 catalogue. `a vault folder cannot borrow a built-in id` is the check.
+
+### Contacts is the fifth, and it earned the row by growing tools
+
+Contact pages existed for a week before this, written into `0-inbox/contacts/`
+by the Gmail, Chat and iMessage syncs and reachable only as ordinary notes: a
+connected client could read one if it already knew the path, and had no way to
+ask who the user corresponds with at all. That is the same state **drawings**
+was in when it was written into this list and taken back out — every surface a
+read of a file already there, nothing for a switch to govern — and the
+difference is the one that rule names: `list_contacts` and `read_contact` are
+a capability, so turning them off removes something.
+
+**The switch governs the reading and says so.** The syncs do not consult this
+file and keep writing pages with contacts turned off, so an `offMeans`
+promising that contacts stop being collected would be a promise the product
+does not keep, printed at the moment somebody is deciding. It names the Email
+and Chats connection screens instead, the way Chat history's entry does.
+
+**Both tools carry the provenance line, and that is not decoration.** A
+contact page is the only thing this product writes whose **key was chosen by
+whoever sent the user a message** — the fact the review of `#448` said to hold
+in mind for anything built on contacts next — and its name, organization and
+identifiers are values lifted off inbound mail. A model handed that page with
+nothing said reads it as the context's own claim about a person. `list_contacts`
+prints the sentence under the listing and `read_contact` prints it under the
+page, from one constant, because the listing is where somebody chooses who to
+read about and the read is where they choose what to believe.
+
+**A path under `0-inbox/contacts/` is not proof the note is ours**, for the
+same reason: a sender picked the name. `parseContactView` is lenient by design
+and would happily render somebody's own note — or ciphertext — as a person's
+contact details, so both tools gate on `isContactNote`, the positive
+frontmatter marker `renderContactNote` always emits. The listing names such a
+note rather than hiding it (hiding a visible note from a listing of its own
+folder teaches the caller something false), and the read hands it to
+`read_note` rather than printing fields it never had. *A lenient reader is a
+dangerous gate* is that review's own lesson, applied on the read side.
+
+**What a simplification costs**: dropping the `isContactNote` gate turns a
+note the user wrote at a contact's key into a contact page in the listing and
+in the read. Dropping the provenance line makes a sender's self-description
+indistinguishable from something this context established. The checks are in
+`apps/mcp/test/contacts.test.mjs`.
 
 ## The switch lives in the bucket, in two lists rather than one
 
@@ -1108,3 +1151,190 @@ any same-origin window write to the open drawing. Restoring a fallback for an
 unreadable url re-opens the native side. Comparing with `startsWith` accepts a
 url somebody can serve. `apps/mobile/__tests__/drawingEditor.test.ts` and
 `drawingBridge.test.ts` hold one each, all three sabotage-confirmed.
+
+## A list of what the shim is missing cannot be written by hand
+
+`SuggestModal` was found because somebody had written it down as absent, and
+fixing it uncovered `Events`, and fixing that uncovered `Modal`. Neither of the
+second two was on any list in this repository — not supported, not planned, not
+absent — so the scanner had nothing to say about them, and the real Bible
+Reference release was reported as **"runs here — everything these use, Context
+implements"** while it could not finish evaluating at all.
+
+The shape is always the same: `class X extends <ns>.Something` at module scope
+is evaluated on load, so a missing class is not a missing feature. It is
+`extends undefined` thrown before `onload`, and the whole plugin is gone over a
+class it uses in a flow nobody would call central. Bible Reference's inline
+verse suggester needed nothing that was not already built; it died three times
+on classes it uses somewhere else.
+
+So the question is derived rather than listed. `SANDBOX_MODULE_EXPORTS` declares
+exactly what `require("obsidian")` hands back, `undeclaredBases` finds every
+`extends` reached through a namespace that provably came from that module, and
+anything not in the first is reported. Keyed off the module *string*, which a
+minifier cannot rename, rather than off the identifier, which it does —
+`var eo = require("obsidian")` is real output from the release this was written
+against. A bundled third-party library's own `ui.Widget` is therefore never
+mistaken for ours.
+
+**What a simplification costs.** Going back to a hand-written list of absent
+names re-opens the exact hole: a class nobody thought of scans clean and takes a
+plugin down. Comparing against `SUPPORTED_MEMBERS` instead of
+`SANDBOX_MODULE_EXPORTS` compares against a list of *methods* and fails every
+plugin that extends anything. Matching an unqualified `extends Foo` fails
+plugins over their own local classes.
+`apps/mcp/test/plugins.test.mjs` holds all three, and
+`pluginSandboxGuest.test.ts` holds the declaration against the real shim in both
+directions — a class the shim exports and the list omits fails a working plugin,
+and a class on the list the shim lacks passes a broken one.
+
+## A base class has to be real, and a real dialog is text in one direction
+
+`Modal` could have been an empty class. It would have got the bundle loading,
+which is the whole crash, and then done nothing when somebody pressed the
+command — the "present and inert" trap two sections up, shipped in the name of a
+plugin that still did not work.
+
+So it draws. `contentEl` and `titleEl` are real elements *in the sandbox*, a
+plugin builds into them exactly as it would in Obsidian, and what crosses is
+`textContent` — the same inversion `registerEditorSuggest` and the suggestion
+dialog use, and the same boundary: no markup, no link, no image, no script from
+a plugin in front of a reader.
+
+Two details are load-bearing rather than tidy. The text is pushed on **every
+mutation of the dialog's own DOM**, not once when `open()` returns, because a
+plugin may fill it after `onOpen` has already finished — Bible Reference's verse
+of the day opens the dialog and *then* fetches, and a dialog reported once would
+be reliably empty for the plugin that made it necessary. And a dismissal closes
+the dialog on the console **before** telling the guest, because a reader pressing
+Escape must not be waiting on a wedged plugin.
+
+`Events` needed none of that. It is a map of callbacks inside the sandbox with
+nothing to ask anybody, and it is implemented rather than declared for the same
+reason: a plugin builds its own bus out of it at module scope.
+
+**What a simplification costs.** An inert `Modal` loads plugins and silently
+does nothing. Sending `innerHTML` instead of `textContent` puts a plugin's
+markup in the trusted realm. Dropping the observer empties every dialog filled
+asynchronously, with no error anywhere. Waiting for the guest to confirm a
+dismissal hands a plugin the power to keep a dialog on screen.
+`pluginSandboxGuest.test.ts` and `pluginTextDialog.test.ts` hold one each, all
+sabotage-confirmed — the observer one after a first version survived its
+sabotage by testing the awaited path instead.
+
+## The only check that has ever caught a plugin not loading
+
+Every other check on the shim asks whether a member exists and behaves. Three
+times now the answer to *"does the plugin a person installed actually run"* was
+no while every unit suite was green.
+
+`apps/mobile/e2e/webkit/pluginBundles.spec.ts` loads a real community release
+into the real sandbox document in a real browser and asserts it reaches
+`loaded`. It asserts `pageerror` is empty as well, and that is not belt and
+braces: the shim evaluates a bundle in a `<script>` element, a `<script>` that
+throws reports to `window.onerror` rather than to the `try` around
+`appendChild`, and the frame is cross-origin — so every genuine load failure
+arrives at the console as the same sentence, *"Plugin bundle did not export a
+plugin class"*, whatever actually went wrong. Playwright sees those errors for
+every frame and is the only place the real cause is readable.
+
+The releases are fetched by `e2e/webkit/fetch-bundles.mjs` and pinned by
+version, never committed: megabytes of third-party minified code do not belong
+in a public repository, and a floating "latest" would make a green run mean
+"this morning's release happens to load".
+
+## What is installed is a different question from what runs, and a cheaper one
+
+The inventory waits to be asked because it opens every bundle in somebody's
+vault. That was right for a scan and wrong for the screen, and the difference
+cost more than the reads would have: the panel that installs plugins could not
+name one it had installed, so a person came back the next day, saw *"read the
+plugins in this bucket"* and an empty panel, and drew the obvious conclusion —
+the install had not stuck. It had. Nothing had ever read it back. The registry
+beside it, with no inventory to compare against, then offered **Install** on the
+row that was already installed, and it got installed again.
+
+`listManagedInstalls` answers the cheap question for a listing and one small
+pointer per install: no manifest, no bundle, no stylesheet, no verdict. It is
+Context's own directory rather than `.obsidian/`, so the "another program's
+files" argument does not apply either. The console reads it on mount, like
+`useContextPlugins` and unlike `usePlugins`.
+
+It deliberately cannot say whether any of them runs. That is the scan's answer
+and stays behind the press, because it is the expensive half and the half a
+stale answer would misreport.
+
+The copy moved with it. Every sentence on that panel named `.obsidian/` and only
+`.obsidian/`, which is why the missing list was read as *"Context ignores its own
+plugins folder"* — a reasonable reading of a screen that showed nothing and
+talked about one directory.
+
+**What a simplification costs.** Folding this into the inventory puts it behind
+the press again and restores the bug exactly. Returning an empty list when the
+listing fails prints "you have installed nothing" for a storage error, which is
+the same false statement in a new place. Giving these rows a verdict claims
+something about third-party code nobody checked.
+`apps/mcp/test/plugins.test.mjs`, `apps/convex/__tests__/files.test.ts`,
+`apps/mobile/__tests__/pluginsPanel.test.ts` and
+`apps/mobile/e2e/webkit/pluginsInstalled.spec.ts` hold these, the last in a real
+browser in the state a first visit is actually in.
+
+## A settings pane is described, never forwarded
+
+`display()` is the most hostile thing a plugin runs on Context's behalf, and
+that is not a hypothetical: the real Bible Reference pane opens with a **sponsor
+iframe** and a **tracking image**, both set through `innerHTML`, before it
+reaches a single control. Forwarding what a plugin builds would mean Context
+serving somebody else's ads and somebody else's analytics from inside a
+customer's console.
+
+So the same inversion as the suggestion dialog and `Modal`, applied where it
+matters most. `display()` runs in the sandbox against a real `containerEl`; the
+guest walks that element and sends a **description** — a kind, a name, a
+sentence, a value, a list of options; the console draws its own controls; a
+change crosses back as an index and the plugin's own `onChange` runs in the
+sandbox.
+
+Order is document order from the plugin's own container, so a heading it wrote
+between two settings lands between them. Nothing is re-sorted: this is somebody
+else's pane, and rearranging it makes their documentation wrong.
+
+**A hidden control is not offered.** Obsidian augments `HTMLElement` with
+`hide()`/`show()`, and this pane builds every control up front then hides the
+ones that do not apply. Two things followed from adding them: the shim stopped
+throwing (see below), and `describePane` skips a hidden row — drawing it would
+offer a setting the plugin's own author refuses to show.
+
+**A `display()` that throws part-way is reported, not swallowed.** The shim was
+missing `hide()`, so `display()` threw on the fourth of twenty-one rows and the
+error was caught and dropped. The reader got a pane silently missing seventeen
+settings, which looks exactly like a plugin that has four — the quieter failure
+and the worse one. The pane now carries what it threw and says so above the rows
+it did manage to draw.
+
+**Links do not survive, and the pane says so once.** An anchor is markup; only
+text crosses. A plugin's settings routinely link to its documentation, its
+repository and its author, and all of them arrive as plain words. Silence there
+reads as a broken pane, so `LINKS_NOTE` states the rule at the foot — a refusal
+carrying its route out, like every other refusal in this feature.
+
+**The index is checked on the trusted side.** It is what a reader's press is
+addressed by, so a guest that renumbered its rows could point a toggle at a
+different setting than the one on screen. The parser accepts a control only when
+its claimed index equals its position in the accepted list, and drops it
+otherwise. The real guest emits dense indices and can never exercise that
+branch, which is exactly why it has its own check in
+`packages/obsidian-runtime/test/test.mjs`.
+
+**What a simplification costs.** Forwarding the plugin's DOM puts an iframe and
+a tracking pixel in the trusted realm. Drawing hidden rows offers settings the
+plugin refuses to show. Swallowing the `display()` error restores a pane that
+lies about how many settings a plugin has. Trusting the index lets a guest
+redirect a press. `pluginSandboxGuest.test.ts`, `pluginSettingsPane.test.ts`,
+`packages/obsidian-runtime/test/test.mjs` and
+`e2e/webkit/pluginSettings.spec.ts` hold these, the last against the real
+release — which is the only check that caught the missing `hide()`.
+
+`addSettingTab` moved from `INERT_MEMBERS` to `SUPPORTED_MEMBERS` with this.
+That is the direction an entry on that list is supposed to travel, and it had
+been "accepted and not drawn yet" for months.
