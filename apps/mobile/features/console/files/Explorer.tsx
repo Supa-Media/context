@@ -25,8 +25,10 @@ import { consoleOrigin } from "./shareOrigin";
 import { sharesBreakingWarning } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
-import { itemsFor, type MenuActionId } from "./menu";
-import { baseName, parentPath, restoreTargetFor } from "./paths";
+import { itemsFor, type MenuActionId, type MenuTarget } from "./menu";
+import { runMenuAction, type ActionContext, type Dialog } from "./actions";
+import { useBackgroundMenu } from "./backgroundMenu";
+import { baseName, parentPath } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
 import type { AccessMember, AccessRow, RemovalRoute } from "./access";
@@ -277,10 +279,10 @@ export function Explorer({
    */
   const platform = "web" as const;
 
-  const openMenu = useCallback(
-    (row: TreeRow, anchor: { x: number; y: number }) => {
+  const openTarget = useCallback(
+    (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
       const items = itemsFor({
-        target: { kind: "row", row },
+        target,
         canEdit: files.canEdit,
         canSetVisibility: files.canSetVisibility,
         canShare: files.canShare,
@@ -289,11 +291,18 @@ export function Explorer({
         // Read, never assumed. `menu.ts` defaults this to Apple, which prints
         // `⌘⇧M` on Windows beside a row whose chord is actually `Ctrl+Shift+M`.
         apple: isApplePlatform(),
+        // What the row would be visible to with no setting of its own, so the
+        // visibility submenu can say what "use the folder's setting" means
+        // rather than leaving it as a verb with an invisible outcome.
+        ...(target.kind === "row"
+          ? { inherited: inheritedOf(files, target.row.path) }
+          : {}),
       });
       // An empty menu is not an empty menu — it is no menu. Opening a bordered
       // rectangle with nothing in it reads as a bug.
-      if (items.length === 0) return;
-      setMenu({ row, anchor, items });
+      if (items.length === 0) return false;
+      setMenu({ target, title, anchor, items });
+      return true;
     },
     // `files.canSetVisibility` is read above and belongs here. It is
     // `canEdit && isOwner`, so it moves independently of the other three — and
@@ -308,109 +317,59 @@ export function Explorer({
     // independently of `canEdit`, and a stale copy offers an owner-only control
     // to somebody the server refuses. `explorerMenuStaleGate.test.ts` is what
     // holds both.
-    [files.canEdit, files.canSetVisibility, files.canShare, files.clipboard, platform],
+    [files, platform],
+  );
+
+  /** What `FileTree` hands up: a row and where the pointer was. */
+  const openMenu = useCallback(
+    (row: TreeRow, anchor: { x: number; y: number }) =>
+      openTarget({ kind: "row", row }, baseName(row.path), anchor),
+    [openTarget],
+  );
+
+  /**
+   * The tree's own empty space, below the last row.
+   *
+   * It is the context root that a creation lands in, because that is the folder
+   * this column is a listing of. `menu.ts` returns nothing at all for a
+   * read-only console, and `openTarget` declines to open an empty popover, so
+   * the gesture falls through to the browser there — which is the right answer
+   * when the application has nothing to offer.
+   */
+  const openBackgroundMenu = useCallback(
+    (anchor: { x: number; y: number }) =>
+      openTarget({ kind: "background", folder: "" }, contextLabel, anchor),
+    [openTarget, contextLabel],
+  );
+
+  const background = useBackgroundMenu(files.canEdit ? openBackgroundMenu : undefined);
+
+  /**
+   * The dispatcher's world, assembled once.
+   *
+   * Every arm of `runMenuAction` is a `FileBrowser` call, a dialog or one of
+   * these callbacks, and this region supplies the three it can: opening a path,
+   * raising a dialog, and pinning a tab. It supplies no `reveal` and no
+   * `closeTabs` — the tree *is* what reveal reveals into, and the tab strip is
+   * a different region — which is why `menu.ts` offers neither item on a tree
+   * row.
+   */
+  const menuActions = useMemo<ActionContext>(
+    () => ({
+      files,
+      contextLabel,
+      select,
+      setDialog,
+      writeClipboard: (text) => void writeClipboard(text),
+      ...(onOpenPinned === undefined ? {} : { openPinned: onOpenPinned }),
+      inheritedOf: (path) => inheritedOf(files, path),
+    }),
+    [files, contextLabel, select, onOpenPinned],
   );
 
   const runAction = useCallback(
-    (id: MenuActionId, row: TreeRow) => {
-      const path = row.path;
-      const folder = row.kind === "folder" ? path : parentPath(path);
-      const kind = row.kind === "folder" ? ("folder" as const) : ("file" as const);
-
-      switch (id) {
-        case "open":
-          select(path);
-          return;
-        case "openInNewTab":
-          // A plain open leaves a preview tab that the next click replaces;
-          // this is the one that keeps it. Falls back to a plain open where
-          // there are no tabs rather than doing nothing.
-          if (onOpenPinned !== undefined) onOpenPinned(path);
-          else select(path);
-          return;
-        case "newNote":
-          setDialog({ kind: "newNote", folder });
-          return;
-        case "newDrawing":
-          setDialog({ kind: "newDrawing", folder });
-          return;
-        case "newFolder":
-          setDialog({ kind: "newFolder", folder });
-          return;
-        case "rename":
-          setDialog({ kind: "rename", path });
-          return;
-        case "moveTo":
-          setDialog({ kind: "move", path });
-          return;
-        case "archive":
-          setDialog({ kind: "archive", path });
-          return;
-        case "delete":
-          files.destroy(path);
-          return;
-        case "share":
-          setDialog({ kind: "share", path });
-          return;
-        case "duplicate":
-          files.duplicate(path);
-          return;
-        case "copy":
-          files.copy(path);
-          return;
-        case "cut":
-          files.cut(path);
-          return;
-        case "paste":
-          files.paste(folder);
-          return;
-        case "restore": {
-          // `paths.ts` owns the archive-path arithmetic; `menu.ts` uses the
-          // same function to decide whether to offer this at all, so the two
-          // cannot disagree about what is restorable.
-          const original = restoreTargetFor(path);
-          if (original !== null) files.move(path, parentPath(original));
-          return;
-        }
-        case "copyPath":
-          void writeClipboard(path);
-          return;
-        case "copyAtPath":
-          // The product's addressable form. Dragging a note out of the app
-          // produces the same string, so the two ways of taking a reference
-          // agree.
-          void writeClipboard(`${contextLabel}/${path}`);
-          return;
-        case "visibilityPrivate":
-          files.setVisibility(path, kind, "private");
-          return;
-        case "visibilityTeam":
-          files.setVisibility(path, kind, "team");
-          return;
-        case "visibilityFollow":
-          // Setting a note to its folder's default *removes* the exception
-          // rather than writing a redundant line — see `setVisibility` in
-          // `functions/lib/fileOps.ts`. So "follow folder" is expressible with
-          // the interface as it stands, and there is nothing to add.
-          {
-            // A folder whose rule names a group has no "follow" this control
-            // can express: `setVisibility` takes the two tiers, and writing
-            // `private` or `team` here would change what the note reaches
-            // rather than make it follow. Doing nothing is the honest answer
-            // until the group controls land.
-            const inherited = inheritedOf(files, path);
-            if (inherited === "private" || inherited === "team") {
-              files.setVisibility(path, kind, inherited);
-            }
-          }
-          return;
-        case "visibility":
-          // The submenu's parent. It opens a submenu and dispatches nothing;
-          // firing an id here would set a visibility nobody asked for.
-          return;
-      }
-    },
-    [files, contextLabel, select, onOpenPinned],
+    (id: MenuActionId, target: MenuTarget) => runMenuAction(id, target, menuActions),
+    [menuActions],
   );
 
   /* ---------------------------------------------------------------------- */
@@ -623,6 +582,24 @@ export function Explorer({
             dropTarget={dropTarget}
           />
         )}
+
+        {/*
+          The empty space under the last row, as a target rather than as dead
+          pixels.
+
+          It is the largest area of this column on any context that does not
+          fill the window, and right-clicking it had no answer at all — so the
+          browser's menu opened over the file tree, offering Save As and
+          Translate to Page on a listing of somebody's notes.
+
+          It is a filler rather than a listener on the scroll view because the
+          rows must keep their own gesture: this sits *behind* them and a row's
+          handler stops propagation before it ever reaches here. `flexGrow` is
+          what makes it the rest of the column rather than a strip; there is no
+          minimum, because on a tree that already fills the height there is
+          genuinely no background to click.
+        */}
+        <View style={styles.background} ref={background.ref} collapsable={false} />
       </ScrollView>
 
       {/*
@@ -674,11 +651,11 @@ export function Explorer({
         <Menu
           items={menu.items}
           anchor={menu.anchor}
-          title={baseName(menu.row.path)}
+          title={menu.title}
           onSelect={(id) => {
-            const row = menu.row;
+            const target = menu.target;
             setMenu(null);
-            runAction(id, row);
+            runAction(id, target);
           }}
           onDismiss={() => setMenu(null)}
         />
@@ -695,28 +672,30 @@ export function Explorer({
 }
 
 interface MenuOpen {
-  row: TreeRow;
+  /**
+   * What the menu was opened on, kept whole.
+   *
+   * It used to be the `TreeRow` alone, which was enough while a row was the
+   * only thing in the console that had a menu. The dispatcher now takes a
+   * `MenuTarget`, and storing the target rather than re-deriving one on
+   * selection is what keeps "what was offered" and "what runs" the same
+   * object — a menu built for the background and dispatched against a row is
+   * a paste into the wrong folder.
+   */
+  target: MenuTarget;
+  /** For the popover's title. Absent where the target has no single name. */
+  title: string;
   anchor: { x: number; y: number };
   items: ReturnType<typeof itemsFor>;
 }
 type MenuState = MenuOpen | null;
 
-export type Dialog =
-  /**
-   * "Something goes in this folder" — which of the two it is has not been asked
-   * yet. Raised by the phone's `+`, which is one key for both; see
-   * `CreatePrompt`. The explorer's own toolbar has room for a button each and
-   * raises the two below directly.
-   */
-  | { kind: "create"; folder: string }
-  | { kind: "newNote"; folder: string }
-  | { kind: "newDrawing"; folder: string }
-  | { kind: "newFolder"; folder: string }
-  | { kind: "rename"; path: string }
-  | { kind: "move"; path: string }
-  | { kind: "archive"; path: string }
-  | { kind: "share"; path: string }
-  | null;
+/**
+ * Re-exported, not declared. The union moved to `actions.ts`, beside the
+ * dispatcher whose output it is; every existing importer of
+ * `files/Explorer` keeps working unchanged.
+ */
+export type { Dialog } from "./actions";
 
 /**
  * The dialogs the tree can raise.
@@ -1069,7 +1048,15 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   iconButtonHover: { borderColor: colors.lineStrong },
 
   scroll: { flex: 1, minHeight: 0 },
-  scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6 },
+  /**
+   * `flexGrow` so the background filler below the rows can take the rest of
+   * the column. Without it the content container is exactly as tall as its
+   * rows and the filler is zero-height — which is a right-click target that
+   * exists in the tree and not on the screen.
+   */
+  scrollContent: { paddingVertical: space.x2, paddingHorizontal: 6, flexGrow: 1 },
+  /** See the filler's own comment in the render. */
+  background: { flexGrow: 1 },
   status: { paddingHorizontal: space.x2, paddingVertical: space.x2 },
 
   match: {
