@@ -29,7 +29,7 @@
  * the world is unchanged.
  */
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { PINNED_CONTEXT_SLUG } from "@context/shared";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
@@ -45,14 +45,26 @@ import {
 
 type TestConvex = ReturnType<typeof setupTest>;
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 /**
- * The pinned workspace, created the way it really is: by somebody, as an
- * ordinary shared context. Nothing about it is special in the database — the
- * slug is the whole of what marks it.
+ * The pinned workspace, created the way it really is: by staff, as an ordinary
+ * shared context.
+ *
+ * **Two of those words are load-bearing, and the slug is not one of them.** The
+ * name is claimable by anybody, so it selects the row and cannot be what marks
+ * it — see the block at the end of this file, and `lib/pinnedContext.ts`. What
+ * marks it is that the workspace is `shared` and that somebody this deployment
+ * already trusts stands behind it, which here means the creator's address is in
+ * `ADMIN_EMAILS`. Stub it before the row is written, the way a real deployment
+ * has it set before anybody signs in.
  */
 async function seedPinnedContext(
   t: TestConvex,
 ): Promise<{ staff: Id<"users">; pinnedId: Id<"workspaces"> }> {
+  vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
   const staff = await createUser(t, "staff@example.invalid");
   await createWorkspace(t, staff, "staff-personal");
   const pinnedId = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, {
@@ -524,5 +536,143 @@ describe("a deployment that has no such workspace", () => {
     );
     expect(session!.workspaces).toHaveLength(1);
     expect(session!.workspaces[0]!.workspaceId).toBe(workspaceId);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*              a workspace nobody at this deployment vouches for             */
+/* -------------------------------------------------------------------------- */
+
+describe("the slug selects the pinned context; it does not make one", () => {
+  /*
+    THE NAME IS AN ADDRESS, NOT A CREDENTIAL.
+
+    `context-lc` is deliberately claimable — `lib/names.ts` reserves its
+    lookalikes and says of the name itself that *"what protects a name we hold
+    is holding it"*, because a reserved name is refused for everyone including
+    us, and we would never be able to recreate this workspace after a delete.
+    That reasoning is sound for a **handle**, and this feature is what turns the
+    same string into a **trust anchor**: whatever row holds it is read by every
+    account on the deployment and writes into every MCP session.
+
+    Everywhere the row is not held — a self-hosted control plane, a fresh
+    staging database, or this one after a delete frees the name — the first
+    account to create a workspace called `context-lc` would be pinned into
+    everybody's rail and every session. That is an author's notes reaching every
+    user's agent under a handle that reads as ours, and, because
+    `participatesInForms` needs only a write-scoped grant and a **non-empty**
+    role, a form of theirs taking submissions from any user's client.
+
+    So the pin asks for something an account cannot give itself: the workspace
+    is `shared`, and somebody this deployment already trusts stands behind it —
+    `ADMIN_EMAILS`, which lives in the Convex environment precisely because
+    nothing this codebase executes can write it (`lib/admin.ts`). On a
+    deployment with no staff configured there is no pinned context, which is the
+    same answer a self-hoster already got and the one they should keep.
+  */
+  test("a stranger who claims the name is pinned for nobody", async () => {
+    const t = setupTest();
+    // No ADMIN_EMAILS: nobody at this deployment is staff, so nobody can
+    // vouch for this row — exactly a self-hosted control plane.
+    const squatter = await createUser(t, "squatter@example.invalid");
+    await createWorkspace(t, squatter, PINNED_CONTEXT_SLUG, {
+      kind: "shared",
+      displayName: "Context",
+    });
+    const sayo = await createUser(t, "sayo@example.invalid");
+    await createWorkspace(t, sayo, "sayo");
+
+    const listed = await asUser(t, sayo).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    expect(listed.map((w) => w.slug)).toEqual(["sayo"]);
+  });
+
+  test("...and cannot be read through the file path either", async () => {
+    const t = setupTest();
+    const squatter = await createUser(t, "squatter@example.invalid");
+    const pinnedId = await createWorkspace(t, squatter, PINNED_CONTEXT_SLUG, {
+      kind: "shared",
+      displayName: "Context",
+    });
+    const sayo = await createUser(t, "sayo@example.invalid");
+    await createWorkspace(t, sayo, "sayo");
+
+    const error = await captureError(() =>
+      t.query(internal.functions.files.authorizeFileAccess, {
+        workspaceId: pinnedId,
+        actorUserId: sayo,
+        minimum: "member" as const,
+      }),
+    );
+    expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
+  });
+
+  test("...and does not reach an MCP session", async () => {
+    const t = setupTest();
+    const squatter = await createUser(t, "squatter@example.invalid");
+    await createWorkspace(t, squatter, PINNED_CONTEXT_SLUG, {
+      kind: "shared",
+      displayName: "Context",
+    });
+    await customerWithGrant(t, {
+      email: "sayo@example.invalid",
+      slug: "sayo",
+      token: "a",
+    });
+
+    const session = await t.query(
+      internal.functions.controlPlane.resolveGrantByAccessToken,
+      { hashedAccessToken: hashed("a") },
+    );
+    expect(session!.workspaces).toHaveLength(1);
+    expect(session!.workspaces[0]!.slug).toBe("sayo");
+  });
+
+  test("an unverified staff address vouches for nothing", async () => {
+    /*
+      `requireAdmin` carries this line with the reason spelled out — an
+      unverified address proves nothing about who holds the mailbox, so without
+      it, signing up AS an allowlisted address is enough to become staff. The
+      copy in `userIsStaff` needs the same guard and, measured, nothing else in
+      this suite reddens when it is removed.
+    */
+    const t = setupTest();
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const unverified = await t.run((ctx) =>
+      ctx.db.insert("users", { email: "staff@example.invalid", createdAt: Date.now() }),
+    );
+    await createWorkspace(t, unverified, PINNED_CONTEXT_SLUG, {
+      kind: "shared",
+      displayName: "Context",
+    });
+    const sayo = await createUser(t, "sayo@example.invalid");
+    await createWorkspace(t, sayo, "sayo");
+
+    const listed = await asUser(t, sayo).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    expect(listed.map((w) => w.slug)).toEqual(["sayo"]);
+  });
+
+  test("a PERSONAL workspace holding the name is not a shared context to pin", async () => {
+    // Belt for the same buckle: `pinnedContextRow` reports the row's own
+    // `kind`, so without this a personal context — somebody's own, with their
+    // own mailbox and their own ingestion alias — could be pinned into every
+    // account's list as though it were a shared one.
+    const t = setupTest();
+    const staff = await createUser(t, "staff@example.invalid");
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    await createWorkspace(t, staff, PINNED_CONTEXT_SLUG);
+    const sayo = await createUser(t, "sayo@example.invalid");
+    await createWorkspace(t, sayo, "sayo");
+
+    const listed = await asUser(t, sayo).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    expect(listed.map((w) => w.slug)).toEqual(["sayo"]);
   });
 });
