@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { AUTO_EXPAND_MS, type DragModifier } from "./dnd";
+import { anchorUnder, isMenuKey } from "./menuKey";
 import type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
 
 export type { RowInteractionOptions, RowInteractions } from "./rowInteractionContract";
@@ -169,6 +170,24 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         onMenu({ x: event.clientX, y: event.clientY });
       };
 
+      /**
+       * The keyboard's way into the same menu. See `menuKey.ts`.
+       *
+       * On the row's own node rather than on the document: `keydown` bubbles
+       * from the focused pressable inside, so this hears it exactly when this
+       * row is the one focused — and a document listener would have to work out
+       * *which* row the menu is about, which is the question focus has already
+       * answered.
+       */
+      const onKeyDown = (event: KeyboardEvent) => {
+        const onMenu = latest.current.onMenu;
+        // Decide before suppressing, the same rule the pointer path follows.
+        if (onMenu === undefined || !isMenuKey(event)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        onMenu(anchorUnder(element));
+      };
+
       const onDragStart = (event: DragEvent) => {
         const current = latest.current;
         if (!current.canDrag) {
@@ -242,6 +261,7 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
        */
       const listeners: [string, EventListener][] = [
         ["contextmenu", onContextMenu as EventListener],
+        ["keydown", onKeyDown as EventListener],
         ["dragstart", onDragStart as EventListener],
         ["dragenter", onDragEnter as EventListener],
         ["dragover", onDragOver as EventListener],

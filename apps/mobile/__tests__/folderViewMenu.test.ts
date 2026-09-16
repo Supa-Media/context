@@ -367,3 +367,82 @@ describe("the breadcrumb's folder segments", () => {
     expect(event.defaultPrevented).toBe(false);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                               from the keyboard                            */
+/* -------------------------------------------------------------------------- */
+
+const menuKey = (over: KeyboardEventInit = {}) =>
+  new KeyboardEvent("keydown", {
+    key: "ContextMenu",
+    bubbles: true,
+    cancelable: true,
+    ...over,
+  });
+
+describe("the keyboard reaches the listing's menu too", () => {
+  /**
+   * Otherwise every verb this menu holds is mouse-only — and several have no
+   * chord at all. Worse here than in the tree: the folder listing is the only
+   * browse surface on a phone, so a keyboard-only person would have no route to
+   * a note's visibility at all.
+   */
+  function withBox(node: HTMLElement) {
+    node.getBoundingClientRect = () =>
+      ({ left: 24, top: 120, bottom: 156, right: 300, width: 276, height: 36, x: 24, y: 120 }) as DOMRect;
+  }
+
+  test("Shift+F10 on a row opens its menu", () => {
+    const seen: string[] = [];
+    const view = mount({ onRow: (e) => (seen.push(e.path), true), onBackground: () => false });
+    const row = view.rowFor("journal");
+    withBox(row);
+
+    act(() => {
+      row.dispatchEvent(menuKey({ key: "F10", shiftKey: true }));
+    });
+
+    expect(seen).toEqual(["2-areas/journal.md"]);
+  });
+
+  test("and it anchors under the row rather than at the pointer", () => {
+    let anchor: { x: number; y: number } | null = null;
+    const view = mount({ onRow: (_e, a) => ((anchor = a), true), onBackground: () => false });
+    const row = view.rowFor("journal");
+    withBox(row);
+
+    act(() => {
+      row.dispatchEvent(menuKey());
+    });
+
+    expect(anchor).toEqual({ x: 24, y: 156 });
+  });
+
+  test("a bare F10 belongs to the browser", () => {
+    const seen: string[] = [];
+    const view = mount({ onRow: (e) => (seen.push(e.path), true), onBackground: () => false });
+    const row = view.rowFor("journal");
+    withBox(row);
+    const event = menuKey({ key: "F10" });
+
+    act(() => {
+      row.dispatchEvent(event);
+    });
+
+    expect(seen).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("a handler that declines does not swallow the key", () => {
+    const view = mount(noMenu());
+    const row = view.rowFor("journal");
+    withBox(row);
+    const event = menuKey();
+
+    act(() => {
+      row.dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+});

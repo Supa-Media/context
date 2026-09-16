@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import { anchorUnder, isMenuKey } from "./menuKey";
 import type { RightClick } from "./rightClick";
 
 export type { RightClick } from "./rightClick";
@@ -37,6 +38,14 @@ export type { RightClick } from "./rightClick";
  * `onMenu` reports back: it returns `true` when it opened a menu, and only then
  * is the platform's suppressed. The call is still inside the handler, so
  * `preventDefault` is in time.
+ *
+ * ## The keyboard reaches the same menu
+ *
+ * `Shift+F10` and the Menu key, anchored under the element rather than at the
+ * pointer — see `menuKey.ts`. Without it a folder row in the listing and a
+ * breadcrumb segment would hold verbs that no keyboard could reach, which is
+ * the same dead end the tree had before this and worse, because the listing is
+ * the only browse surface on a phone.
  */
 export function useRightClick(
   onMenu?: (anchor: { x: number; y: number }) => boolean,
@@ -67,12 +76,23 @@ export function useRightClick(
       event.stopPropagation();
     };
 
+    const onKeyDown = (event: KeyboardEvent) => {
+      const handler = latest.current;
+      if (handler === undefined || !isMenuKey(event)) return;
+      // Decide before suppressing, exactly as the pointer path does.
+      if (!handler(anchorUnder(element))) return;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     element.addEventListener("contextmenu", onContextMenu as EventListener);
+    element.addEventListener("keydown", onKeyDown as EventListener);
 
     const detach = () => {
       if (release.current !== detach) return;
       release.current = null;
       element.removeEventListener("contextmenu", onContextMenu as EventListener);
+      element.removeEventListener("keydown", onKeyDown as EventListener);
     };
     release.current = detach;
     return detach;
