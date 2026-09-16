@@ -569,6 +569,37 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     // honestly recomputed to empty — same rule as Gmail's, not a special case.
     expect(row?.calendar?.scopes).toEqual([]);
   });
+
+  test("a chat connection nobody has configured files its days in the Inbox", async () => {
+    /*
+      The console reads the destination off `listGoogleConnections`, which
+      resolves `chat.destinationFolder ?? defaultGoogleDestinationFolder`. A
+      first connect stores no folder — `applyChatConnectionBinding` carries
+      `existing?.chat?.destinationFolder` forward and there is no existing —
+      so this query IS the answer a customer gets, and it read
+      `2-areas/communications/daily/YYYY-MM-DD.md` for every Chat connection
+      that had never had the field opened. `0-inbox/google-chat` is the folder
+      `docs/decisions/communications.md` decided and the one the console's own
+      channel view routes; a day written anywhere else is a day that shows up
+      as a plain file in a folder browser.
+    */
+    const { t, owner, workspaceId } = await personalScenario();
+    const keyset = requireKeyset();
+    const context = { workspaceId: workspaceId as string };
+    await t.mutation(internal.functions.chatProduct.applyChatConnectionBinding, {
+      workspaceId,
+      boundBy: owner,
+      ...chatBindingArgs({}),
+      encryptedRefreshToken: await encryptSecret("refresh-1", keyset, context),
+      encryptedAccessToken: await encryptSecret("access-1", keyset, context),
+    });
+
+    const [view] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
+      workspaceId,
+    });
+    expect(view?.chat?.destinationFolder).toBe("0-inbox/google-chat");
+    expect(view?.chat?.destinationPath).toBe("0-inbox/google-chat/YYYY-MM-DD.md");
+  });
 });
 
 describe("startChatConnect requests the union of an existing connection's products", () => {
