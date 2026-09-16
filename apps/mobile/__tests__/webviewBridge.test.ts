@@ -571,8 +571,15 @@ describe("the accessory bar's commands", () => {
     expect(frontmatter + body).toBe(NOTE);
 
     const w = connect({ doc: body, editable: true });
-    const at = body.indexOf("bold");
-    w.view.dispatch({ selection: { anchor: at, head: at + "bold".length } });
+    /*
+      `body`, not `bold`. The fixture's `bold` is already inside a pair of
+      asterisks, and `wrap` is a **toggle** now (`markdownFormat.ts`) — pressing
+      Bold on an already-bold word takes the markers off, which is the point of
+      the change and the wrong thing for a test about the round trip to be
+      measuring. The toggle's own behaviour is asserted just below.
+    */
+    const at = body.indexOf("body");
+    w.view.dispatch({ selection: { anchor: at, head: at + "body".length } });
 
     w.host.run({ name: "wrap", before: "**", after: "**" });
     w.flush();
@@ -580,10 +587,33 @@ describe("the accessory bar's commands", () => {
     expect(w.changes).toHaveLength(1);
     const saved = frontmatter + w.changes[0]!;
     expect(saved).toBe(
-      `${NOTE.slice(0, NOTE.indexOf("bold"))}**bold**${NOTE.slice(NOTE.indexOf("bold") + 4)}`,
+      `${NOTE.slice(0, NOTE.indexOf("body"))}**body**${NOTE.slice(NOTE.indexOf("body") + 4)}`,
     );
     // Fence to fence, including the newline the closing fence sits on.
     expect(saved.startsWith(frontmatter)).toBe(true);
+    w.destroy();
+  });
+
+  /**
+   * The bar's Bold key means what ⌘B means, across the bridge.
+   *
+   * It used to insert a pair and nothing took one off, so a second press on the
+   * same word produced `****word****`. The guest runs `runCommand`, which runs
+   * the same `toggleWrap` the desktop keymap runs, so this is the one place
+   * that can prove the phone got the same verb rather than a lookalike.
+   */
+  test("and pressing the same key again takes the markers off, over the bridge", () => {
+    const w = connect({ doc: "Some **bold** body.\n", editable: true });
+    const at = "Some **".length;
+    w.view.dispatch({ selection: { anchor: at, head: at + "bold".length } });
+
+    w.host.run({ name: "wrap", before: "**", after: "**" });
+    w.flush();
+    expect(w.view.state.doc.toString()).toBe("Some bold body.\n");
+
+    w.host.run({ name: "wrap", before: "**", after: "**" });
+    w.flush();
+    expect(w.view.state.doc.toString()).toBe("Some **bold** body.\n");
     w.destroy();
   });
 

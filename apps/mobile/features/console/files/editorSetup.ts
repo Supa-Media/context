@@ -32,6 +32,7 @@ import { startCompletion, type CompletionSource } from "@codemirror/autocomplete
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
+import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
@@ -167,29 +168,22 @@ export function editability(editable: boolean): Extension {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Bold, italic — the pair of markers around whatever is selected.
+ * Bold, italic — the pair of markers around whatever is selected, **and off
+ * again**.
  *
- * `changeByRange` rather than one dispatch per marker, because a document with
- * more than one cursor in it is an ordinary CodeMirror document and two
- * separate dispatches would apply the second against positions the first has
- * already moved. The returned range spans the original selection shifted by the
- * opening marker, so wrapping a word leaves the word selected and wrapping
- * nothing leaves the caret between the two markers — which is the behaviour
- * that makes `**` on an empty line worth pressing at all.
+ * One line now, because the verb moved to `markdownFormat.ts` the day a second
+ * and a third surface wanted it: ⌘B/⌘I below, and the web console's right-click
+ * menu. The argument for `changeByRange`, for the range it returns, and for why
+ * a multi-cursor document is an ordinary one, is there rather than deleted.
+ *
+ * **What changed under the accessory bar, which did not ask for it.** This used
+ * to insert a pair and nothing took one off, so pressing Bold twice on the same
+ * word produced `****word****`. It toggles now, because ⌘B is the chord people
+ * press twice and the bar must not mean something different by Bold than the
+ * keyboard does — the whole reason this configuration is one file and not two.
  */
 function wrapSelection(view: EditorView, before: string, after: string): void {
-  view.dispatch(
-    view.state.update(
-      view.state.changeByRange((range) => ({
-        changes: [
-          { from: range.from, insert: before },
-          { from: range.to, insert: after },
-        ],
-        range: EditorSelection.range(range.from + before.length, range.to + before.length),
-      })),
-      { scrollIntoView: true, userEvent: "input" },
-    ),
-  );
+  toggleWrap(view, before, after);
 }
 
 /**
@@ -380,6 +374,48 @@ function listIndent(direction: 1 | -1) {
 }
 
 /**
+ * ⌘B, ⌘I and ⌘⇧X, bound to the same toggles every other surface runs.
+ *
+ * ## Why every arm returns `true`
+ *
+ * The same reason `Mod-s` does, and it is not theoretical: **Ctrl-B and Ctrl-I
+ * are live browser chords in Firefox** — the bookmarks sidebar and the page
+ * info window. A binding that returned `false` on a note somebody may only
+ * read would answer ⌘B by opening a sidebar over their note, which is a worse
+ * outcome than the key doing nothing. CodeMirror calls `preventDefault()` only
+ * on a truthy return, so `false` here is a real browser action rather than a
+ * nicety.
+ *
+ * The read-only branch is therefore *inert*, not merely harmless: it refuses
+ * before dispatching, for the reason `runCommand` gives at length — a refused
+ * transaction is still a transaction, and `editability`'s `changeFilter`
+ * dropping the changes would still have moved the selection and written the
+ * undo history.
+ *
+ * ## Why there is no chord for an inline code span
+ *
+ * Every obvious one is taken by something that already works: ⌘E is
+ * `togglePreview`, and ⌘⇧C is the element inspector in Chrome and Edge, which
+ * this app cannot take and should not try to. Inline code is on the right-click
+ * menu with no shortcut printed beside it, which `describeBinding` already
+ * treats as a legitimate state rather than an error.
+ */
+const markerKeymap = (
+  [
+    ["Mod-b", "bold"],
+    ["Mod-i", "italic"],
+    ["Mod-Shift-x", "strikethrough"],
+  ] as const satisfies readonly (readonly [string, MarkerName])[]
+).map(([key, name]) => ({
+  key,
+  run: (view: EditorView): boolean => {
+    if (view.state.readOnly) return true;
+    toggleWrap(view, MARKERS[name].before, MARKERS[name].after);
+    return true;
+  },
+}));
+
+/**
  * Everything the editor is, minus where it is drawn.
  *
  * `editableCompartment` is passed in rather than made here because the host
@@ -493,6 +529,28 @@ export function editorExtensions(options: {
           return true;
         },
       },
+      /*
+        THE FORMATTING CHORDS — ⌘B, ⌘I, ⌘⇧X.
+
+        Here rather than in the web half, even though the web console is what
+        asked for them and a phone has no keyboard, because an iPad with a
+        hardware keyboard runs the native editor and a ⌘B that bolds in one
+        host and does nothing in the other is exactly the drift this file
+        exists to prevent. `markerKeymap` is four lines; a second
+        implementation on the other side of a bridge is not.
+
+        The pairs come from `MARKERS` rather than being spelled here, so the
+        bar's Bold key and this chord cannot disagree about what bold is.
+
+        Declared in `features/design/keymap.ts` as well, and that is not a
+        duplicate binding: nothing in the console's `Shortcuts` switch answers
+        `bold`, so the app-level listener resolves the chord, finds no handler
+        and leaves it alone. What the declaration buys is the two things a
+        binding written only here cannot give — the menu prints the real chord
+        through `describeBinding`, and ⌘B stops toggling the rail while the
+        caret is in a note. See that file's scope-precedence rule.
+      */
+      ...markerKeymap,
       /*
         K1 in the sweep: with no indent/outdent binding at all, nesting a list
         meant typing spaces by hand — CM6 deliberately keeps `indentWithTab`
