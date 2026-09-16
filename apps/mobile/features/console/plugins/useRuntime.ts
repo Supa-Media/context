@@ -177,6 +177,20 @@ export function useRuntime(options: {
     { seq: number; pluginId: string; nonce: string } | undefined
   >(undefined);
   /*
+    Whose dialog is on screen, held in a ref rather than read off state inside
+    `onEvent`.
+
+    The reason is the one the suggestion dialog's `modalWaiting` states two
+    hundred lines below: `onEvent` is a `useCallback` whose dependency list does
+    not name this, so a state read inside it is fresh only while some *other*
+    dependency keeps the callback unstable. That is true today and it is not a
+    property anybody is holding — and the two failure directions are not equal.
+    A stale `settingsPane` fails CLOSED: the pane stops opening, somebody
+    notices within a day. A stale owner here would fail OPEN, silently, and the
+    check would go on looking exactly like a check.
+  */
+  const textModalOwner = useRef<{ pluginId: string; nonce: string } | null>(null);
+  /*
     A plugin's own settings pane, and which plugins have one to offer.
 
     `settingsTabs` is a set rather than a list because `addSettingTab` is
@@ -577,6 +591,10 @@ export function useRuntime(options: {
       pluginId: textModal.pluginId,
       nonce: textModal.nonce,
     });
+    // Released here as well as in the handler: a reader closing the dialog ends
+    // the owner's claim on it, or the next plugin to open one would be refused
+    // by a frame that no longer has anything on screen.
+    textModalOwner.current = null;
     setTextModal(null);
   }, [textModal]);
 
@@ -797,7 +815,25 @@ export function useRuntime(options: {
         An update to a dialog already open replaces it in place — the guest
         re-sends on every change to its own content, which is how an async
         `onOpen` arrives at all.
+
+        WHICH IS WHY A DIALOG ALREADY OPEN ONLY TAKES MESSAGES FROM ITS OWNER.
+        Every running frame can send this unprompted, so without the check below
+        a second plugin could close somebody else's dialog — the reader's panel
+        vanishing while the plugin that opened it is never told, since
+        `dismissTextModal` addresses whoever owns the dialog *now* — or replace
+        what a reader is part-way through reading, and take their Close with it.
+        Neither is impersonation: `pluginId` comes from the sending frame, so
+        the panel always names whose words are in it. It is the surface that was
+        unowned. Same rule as `suggest-modal-results` below and the settings
+        pane above; this handler was the one that stated it and did not check
+        it.
+
+        Nothing is open ⇒ anyone may open one, which is the documented edge: a
+        plugin's own dialog is its to raise, and the panel says whose it is.
       */
+      const owner = textModalOwner.current;
+      if (owner !== null && (owner.pluginId !== pluginId || owner.nonce !== sandbox.nonce)) return;
+      textModalOwner.current = event.open ? { pluginId, nonce: sandbox.nonce } : null;
       setTextModal(
         event.open
           ? { pluginId, nonce: sandbox.nonce, title: event.title, text: event.text }
