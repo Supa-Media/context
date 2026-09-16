@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { MenuActionId, MenuItem } from "../../console/files/menu";
 import { layout, radii, space } from "../tokens";
+import { MARGIN, place, type Box } from "./popoverPlacement";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../theme";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -134,9 +135,6 @@ const TOUCH_ROW_MIN_HEIGHT = 44;
 const SEPARATOR_BLOCK = 1 + space.x1 * 2;
 const PADDING = 6;
 const BORDER = 1;
-/** Never closer to the edge of the window than this. */
-const MARGIN = 8;
-
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 340;
 /**
@@ -197,48 +195,6 @@ function offsetOfRow(items: readonly MenuItem<string>[], index: number): number 
   }
   if (items[index]?.separatorBefore === true) offset += SEPARATOR_BLOCK;
   return offset;
-}
-
-interface Box {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-interface Viewport {
-  width: number;
-  height: number;
-}
-
-/**
- * Place a box of `size` at `x, y`, flipping rather than clipping.
- *
- * `preferLeft` / `preferAbove` are for a submenu, which does not start at the
- * pointer: its natural place is *beside* its parent, so when it flips it must
- * flip back across the parent's whole width rather than across a point. The
- * caller passes that width as `across`.
- */
-function place(
-  x: number,
-  y: number,
-  size: { width: number; height: number },
-  view: Viewport,
-  across = 0,
-): Box {
-  const height = Math.min(size.height, Math.max(ROW_HEIGHT, view.height - MARGIN * 2));
-
-  let left = x;
-  if (left + size.width > view.width - MARGIN) left = x - size.width - across;
-  // A window narrower than the menu has no side that fits; sit against the
-  // left edge rather than off either one.
-  if (left < MARGIN) left = Math.max(MARGIN, Math.min(x, view.width - MARGIN - size.width));
-
-  let top = y;
-  if (top + height > view.height - MARGIN) top = y - height;
-  if (top < MARGIN) top = MARGIN;
-
-  return { left, top, width: size.width, height };
 }
 
 /** `position: fixed` is web-only and absent from React Native's style type. */
@@ -597,10 +553,13 @@ function Popover<Id extends string = MenuActionId>({
   const parent = openIndex === -1 ? null : items[openIndex];
   const children = parent?.items ?? [];
 
-  const root = place(anchor?.x ?? MARGIN, anchor?.y ?? MARGIN, {
-    width: widthFor(items),
-    height: heightFor(items),
-  }, view);
+  const root = place(
+    anchor?.x ?? MARGIN,
+    anchor?.y ?? MARGIN,
+    { width: widthFor(items), height: heightFor(items) },
+    view,
+    { minHeight: ROW_HEIGHT },
+  );
 
   const sub =
     parent === null
@@ -610,7 +569,7 @@ function Popover<Id extends string = MenuActionId>({
           root.top + offsetOfRow(items, openIndex) - PADDING,
           { width: widthFor(children), height: heightFor(children) },
           view,
-          root.width,
+          { across: root.width, minHeight: ROW_HEIGHT },
         );
 
   const close = (id: Id) => {
