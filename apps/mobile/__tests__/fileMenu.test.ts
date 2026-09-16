@@ -923,3 +923,291 @@ describe("share", () => {
     );
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                     the visibility submenu says what is                    */
+/* -------------------------------------------------------------------------- */
+
+describe("the visibility submenu marks the setting that is in force", () => {
+  /**
+   * Two unlabelled verbs and no state was an experiment you had to run on
+   * somebody's access to get the answer to.
+   *
+   * `team` here means named people the owner granted access to — never the
+   * internet — and this submenu is where most people will actually build that
+   * model, so it has to state what is true before it offers to change it. The
+   * mark is `checked`, which is the state a radio group already has a
+   * convention for; the *value* behind "use the folder's setting" is the one
+   * fact the row cannot carry in a verb, so it goes in `detail`.
+   *
+   * `marker` is the whole input, and it means what `markerFor` made it mean: on
+   * a file it is set exactly when the note carries an exception, and absent
+   * when the note follows its folder.
+   */
+  test("a note following its folder has the follow item checked and neither other", () => {
+    const submenu = find(menu({ kind: "row", row: note("1-projects/plan.md") }), "visibility");
+    const items = submenu?.items ?? [];
+    expect(find(items, "visibilityFollow")?.checked).toBe(true);
+    expect(find(items, "visibilityPrivate")?.checked).toBe(false);
+    expect(find(items, "visibilityTeam")?.checked).toBe(false);
+  });
+
+  test("a note held back has private checked", () => {
+    const row = note("1-projects/plan.md", { marker: "private" });
+    const items = find(menu({ kind: "row", row }), "visibility")?.items ?? [];
+    expect(find(items, "visibilityPrivate")?.checked).toBe(true);
+    expect(find(items, "visibilityFollow")?.checked).toBe(false);
+  });
+
+  test("a note shared as an exception has team checked", () => {
+    const row = note("1-projects/plan.md", { marker: "team" });
+    const items = find(menu({ kind: "row", row }), "visibility")?.items ?? [];
+    expect(find(items, "visibilityTeam")?.checked).toBe(true);
+    expect(find(items, "visibilityFollow")?.checked).toBe(false);
+  });
+
+  /**
+   * A group rule is none of the three, and saying so by checking nothing is the
+   * honest answer. Checking "private" because it is not `team` would be the
+   * overstatement the privacy copy rules forbid — `@design` is not "yours
+   * alone".
+   */
+  test("a note held by a group checks none of the three", () => {
+    const row = note("1-projects/plan.md", { marker: "@design" });
+    const items = find(menu({ kind: "row", row }), "visibility")?.items ?? [];
+    for (const item of items) expect(item.checked).toBe(false);
+  });
+
+  /**
+   * A folder's two items are a bulk write over its contents, not a setting the
+   * folder is currently in, so there is nothing for a check to be true of.
+   */
+  test("a folder's bulk items are an action, not a state, so none is checked", () => {
+    const items = find(menu({ kind: "row", row: dir("1-projects") }), "visibility")?.items ?? [];
+    expect(items.length).toBe(2);
+    for (const item of items) expect(item.checked).toBeUndefined();
+  });
+
+  test("a selection has no single state to mark", () => {
+    const items =
+      find(
+        menu({ kind: "selection", rows: [note("a.md"), note("b.md", { marker: "team" })] }),
+        "visibility",
+      )?.items ?? [];
+    for (const item of items) expect(item.checked).toBeUndefined();
+  });
+});
+
+describe("what a note follows is named, because a verb cannot carry it", () => {
+  /**
+   * "Use the folder's setting" is the only item in this menu whose outcome is
+   * invisible from the row: the other two name the value they write, and this
+   * one names a value that lives somewhere else. Knowing the note follows its
+   * folder without knowing what the folder *says* is not knowing who can read
+   * it.
+   *
+   * It is supplied rather than derived. `menu.ts` cannot see the listings, so
+   * a caller that does not know passes nothing and gets the check alone — the
+   * menu never invents a visibility it was not told.
+   */
+  test("the follow item names the value and the folder it comes from", () => {
+    const submenu = find(
+      menu({ kind: "row", row: note("1-projects/plan.md") }, { inherited: "team" }),
+      "visibility",
+    );
+    expect(find(submenu?.items ?? [], "visibilityFollow")?.detail).toBe(
+      "Currently team — from 1-projects.",
+    );
+  });
+
+  test("a note at the root follows the context rather than a folder", () => {
+    const submenu = find(
+      menu({ kind: "row", row: note("index.md") }, { inherited: "private" }),
+      "visibility",
+    );
+    expect(find(submenu?.items ?? [], "visibilityFollow")?.detail).toBe(
+      "Currently private — from this context.",
+    );
+  });
+
+  test("a group rule is named as itself", () => {
+    const submenu = find(
+      menu({ kind: "row", row: note("1-projects/plan.md") }, { inherited: "@design" }),
+      "visibility",
+    );
+    expect(find(submenu?.items ?? [], "visibilityFollow")?.detail).toBe(
+      "Currently @design — from 1-projects.",
+    );
+  });
+
+  /** Only the row that is true now earns the line. */
+  test("a note with its own setting gets no line on the follow item", () => {
+    const submenu = find(
+      menu({ kind: "row", row: note("1-projects/plan.md", { marker: "private" }) }, {
+        inherited: "team",
+      }),
+      "visibility",
+    );
+    for (const item of submenu?.items ?? []) expect(item.detail).toBeUndefined();
+  });
+
+  test("and a caller that supplies nothing gets no line either", () => {
+    const submenu = find(menu({ kind: "row", row: note("1-projects/plan.md") }), "visibility");
+    for (const item of submenu?.items ?? []) expect(item.detail).toBeUndefined();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                   a tab                                    */
+/* -------------------------------------------------------------------------- */
+
+describe("a tab is a view onto a note, not the note", () => {
+  /**
+   * So its menu is about the tab: closing it, closing its neighbours, and
+   * getting from it back to the thing it shows.
+   *
+   * Archive, trash and visibility are deliberately absent. They act on the
+   * *note*, which is reachable by right-clicking it in the tree, and a "Move to
+   * trash" on a tab is a control whose target is one indirection away from what
+   * the pointer is on — which is exactly how somebody deletes a file meaning to
+   * close a tab.
+   */
+  const tab = (over: Partial<Extract<MenuTarget, { kind: "tab" }>> = {}) =>
+    menu({ kind: "tab", path: "1-projects/plan.md", others: true, toRight: true, ...over });
+
+  test("closing, addressing, and getting back to the tree", () => {
+    expect(ids(tab())).toEqual([
+      "closeTab",
+      "closeOtherTabs",
+      "closeTabsToRight",
+      "copyPath",
+      "copyAtPath",
+      "revealInTree",
+    ]);
+  });
+
+  test("it never offers anything that changes the note", () => {
+    const list = ids(tab());
+    for (const id of ["archive", "delete", "visibility", "rename", "moveTo"] as MenuActionId[]) {
+      expect(list).not.toContain(id);
+    }
+  });
+
+  /** An item that would close nothing is absent, not present and inert. */
+  test("the only tab open offers neither of the bulk closes", () => {
+    expect(ids(tab({ others: false, toRight: false }))).toEqual([
+      "closeTab",
+      "copyPath",
+      "copyAtPath",
+      "revealInTree",
+    ]);
+  });
+
+  test("the last tab of several can still close the others", () => {
+    expect(ids(tab({ others: true, toRight: false }))).toContain("closeOtherTabs");
+    expect(ids(tab({ others: true, toRight: false }))).not.toContain("closeTabsToRight");
+  });
+
+  test("close prints the chord the console actually binds", () => {
+    expect(find(tab(), "closeTab")?.shortcut).toBe(describeBinding("closeTab", true));
+  });
+
+  /** A read-only console still closes tabs: closing changes nothing on disk. */
+  test("a member can still close and address a tab", () => {
+    expect(ids(tab()).length).toBeGreaterThan(0);
+    expect(ids(menu({ kind: "tab", path: "a.md", others: true, toRight: true }, {
+      canEdit: false,
+    }))).toEqual(["closeTab", "closeOtherTabs", "closeTabsToRight", "copyPath", "copyAtPath", "revealInTree"]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                            a breadcrumb segment                            */
+/* -------------------------------------------------------------------------- */
+
+describe("a breadcrumb segment is the folder you are standing in", () => {
+  /**
+   * The fastest route to a parent folder's actions, and it offered none.
+   *
+   * What it deliberately does **not** offer is renaming, moving, archiving or
+   * trashing that folder. You are inside it; a control that deletes the ground
+   * under the view you are looking at is a footgun, and the tree is one click
+   * away for anybody who means it.
+   */
+  const crumb = (folder: string, over: Partial<Omit<MenuContext, "target">> = {}) =>
+    menu({ kind: "crumb", folder }, over);
+
+  test("open it, create in it, address it, set what it shares", () => {
+    expect(ids(crumb("1-projects"))).toEqual([
+      "open",
+      "revealInTree",
+      "newNote",
+      "newDrawing",
+      "newFolder",
+      "copyPath",
+      "copyAtPath",
+      "visibility",
+    ]);
+  });
+
+  test("the create items say they mean inside this folder", () => {
+    expect(labels(crumb("1-projects")).slice(2, 5)).toEqual([
+      "New note here",
+      "New drawing here",
+      "New folder here",
+    ]);
+  });
+
+  test("it never offers to destroy the folder you are inside", () => {
+    const list = ids(crumb("1-projects"));
+    for (const id of ["rename", "moveTo", "archive", "delete", "duplicate"] as MenuActionId[]) {
+      expect(list).not.toContain(id);
+    }
+  });
+
+  /**
+   * The root is the context itself. It has no path worth copying — `""` is not
+   * an address anybody can paste — so the two address items are absent rather
+   * than copying an empty string.
+   */
+  test("the context root creates and sets visibility but has no path to copy", () => {
+    expect(ids(crumb(""))).toEqual([
+      "open",
+      "revealInTree",
+      "newNote",
+      "newDrawing",
+      "newFolder",
+      "visibility",
+    ]);
+  });
+
+  test("a read-only console gets the two that change nothing", () => {
+    expect(ids(crumb("1-projects", { canEdit: false }))).toEqual([
+      "open",
+      "revealInTree",
+      "copyPath",
+      "copyAtPath",
+    ]);
+  });
+
+  test("visibility is the owner's, here as everywhere", () => {
+    expect(ids(crumb("1-projects", { canSetVisibility: false }))).not.toContain("visibility");
+  });
+
+  test("it gets the folder pair, not a note's three", () => {
+    expect(labels(find(crumb("1-projects"), "visibility")?.items ?? [])).toEqual([
+      "Make everything here private",
+      "Share everything here with the team",
+    ]);
+  });
+
+  test("something on the clipboard can land in it", () => {
+    const list = ids(crumb("1-projects", { clipboard: put("copy", "2-areas/health.md") }));
+    expect(list).toContain("paste");
+  });
+
+  test("but not the folder itself, which cannot be pasted into itself", () => {
+    const list = ids(crumb("1-projects", { clipboard: put("copy", "1-projects") }));
+    expect(list).not.toContain("paste");
+  });
+});
