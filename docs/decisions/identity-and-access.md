@@ -570,6 +570,30 @@ fresh deployment none does — `pinnedContextWorkspace` answers `null` and the
 feature is simply absent, which is the right answer for somebody who has no
 reason to want our bug tracker in their rail.
 
+**But the slug SELECTS that row and does not MAKE it the pinned context.**
+`functions/lib/names.ts` reserves this name's lookalikes and deliberately not
+the name itself — *"what protects a name we hold is holding it"* — because a
+reserved name is refused for everyone including us, and we could then never
+recreate this workspace after a delete. That argument is about a **handle**, and
+it stands; pinning is what turns the same string into a **trust anchor**, which
+is a different question that the first decision did not answer. Anywhere the
+name is not already held — a self-hosted control plane, a fresh staging
+database, this one after a delete frees it — the first account to claim
+`context-lc` would be pinned into every rail and every session: their notes
+reaching every user's agent under a handle that reads as ours, and, because
+`participatesInForms` asks only for a write-scoped grant and a non-empty role, a
+form of theirs taking submissions from any user's client.
+
+So the resolver asks for two things the account claiming a name cannot give
+itself. The workspace must be **`shared`** — a personal context has a mailbox,
+an ingestion alias and an owner it is deleted with, and `pinnedContextRow`
+reports the row's own kind. And somebody this deployment already trusts must
+stand behind it: a **staff** creator or owner, by `ADMIN_EMAILS`, which lives in
+the Convex environment exactly because nothing this codebase executes can write
+it, and which unset means nobody. Neither is new configuration where this
+already works, and both fail in the direction that leaves a self-hoster with no
+pinned context rather than with somebody else's.
+
 **What the console had to be told.** A row nobody joined breaks rules that were
 correct while every row was the reader's own. `needsOnboarding` counts
 `listMyWorkspaces` to ask "is there anything here for you", so the pin made that

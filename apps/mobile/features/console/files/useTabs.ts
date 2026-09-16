@@ -61,6 +61,8 @@ export function useTabs(
   pin: (path: string) => void;
   close: (path: string) => void;
   closeOthers: (path: string) => void;
+  /** Close everything after this tab, keeping it and everything before it. */
+  closeToRight: (path: string) => void;
   reopen: () => void;
 } {
   const [state, dispatch] = useReducer(tabsReducer, emptyTabs);
@@ -177,6 +179,10 @@ export function useTabs(
     dispatch({ type: "closedOthers", path });
   }, []);
 
+  const closeToRight = useCallback((path: string) => {
+    dispatch({ type: "closedToRight", path });
+  }, []);
+
   const reopen = useCallback(() => dispatch({ type: "reopened" }), []);
 
   /**
@@ -237,5 +243,5 @@ export function useTabs(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.tabs.length]);
 
-  return { state, activate, pin, close, closeOthers, reopen };
+  return { state, activate, pin, close, closeOthers, closeToRight, reopen };
 }

@@ -12,6 +12,7 @@ import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
+import { useRightClick } from "./rightClick";
 import { crumbsFor, type Crumb } from "./crumbs";
 import { isGroupVisibility, type Visibility } from "./types";
 
@@ -131,6 +132,7 @@ export function Breadcrumb({
   exception,
   readOnly,
   onSelectFolder,
+  onFolderMenu,
   pathOnly,
 }: {
   path: string;
@@ -160,6 +162,19 @@ export function Breadcrumb({
   exception: boolean;
   readOnly: boolean;
   onSelectFolder?: (folder: string) => void;
+  /**
+   * Right-click on a folder segment.
+   *
+   * The breadcrumb is the fastest route to a parent folder's verbs and offered
+   * none of them — the tree is the only place a folder could be created in,
+   * addressed or have its visibility set, and the crumb naming that very folder
+   * was inert to the second mouse button.
+   *
+   * Folder segments only. The leaf is not a control here (pressing it would
+   * re-select what is already open) and giving it a menu would make it one
+   * halfway. Returns whether a menu opened — see `rightClick.web.ts`.
+   */
+  onFolderMenu?: (folder: string, anchor: { x: number; y: number }) => boolean;
   /**
    * Draw the path and nothing else — see the header. The phone's shape.
    *
@@ -202,6 +217,7 @@ export function Breadcrumb({
             <Segment
               crumb={crumb}
               onSelectFolder={onSelectFolder}
+              onFolderMenu={onFolderMenu}
               /*
                 The leaf is the only thing on a phone naming what is open once
                 the document has scrolled, so it carries the weight — and the
@@ -245,6 +261,7 @@ export function Breadcrumb({
           <Segment
             crumb={crumb}
             onSelectFolder={onSelectFolder}
+            onFolderMenu={onFolderMenu}
             leafStyle={[styles.leaf, compact && styles.leafCompact]}
             titled={title !== undefined}
           />
@@ -302,12 +319,15 @@ function keyFor(crumb: Crumb): string {
 function Segment({
   crumb,
   onSelectFolder,
+  onFolderMenu,
   leafStyle,
   folderStyle,
   titled,
 }: {
   crumb: Crumb;
   onSelectFolder?: (folder: string) => void;
+  /** Right-click, on a folder segment. See `Breadcrumb`'s own prop. */
+  onFolderMenu?: (folder: string, anchor: { x: number; y: number }) => boolean;
   leafStyle: StyleProp<TextStyle>;
   /**
    * Extra layout on top of `segment`, for the caller that needs the folder
@@ -327,6 +347,18 @@ function Segment({
   titled: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    A wrapper, for the reason `FolderView`'s rows use one: react-native-web
+    forwards no `onContextMenu`, so the real node is reached through a plain
+    `View`. Declared before the leaf's early return because hooks are not
+    conditional — the leaf simply never attaches it, which is the same answer
+    `useRightClick(undefined)` gives.
+  */
+  const rightClick = useRightClick(
+    onFolderMenu === undefined || crumb.kind === "leaf"
+      ? undefined
+      : (anchor) => onFolderMenu(crumb.path, anchor),
+  );
 
   if (crumb.kind === "leaf") {
     return (
@@ -348,18 +380,20 @@ function Segment({
   }
 
   return (
-    <PressRow
-      accessibilityLabel={`Open ${crumb.path}`}
-      onPress={() => onSelectFolder?.(crumb.path)}
-      radius={radii.xs}
-      style={[styles.segment, folderStyle]}
-      hoverStyle={styles.segmentHover}
-      testID={`breadcrumb-folder-${crumb.path}`}
-    >
-      <Text variant="mono" style={styles.folder} numberOfLines={1}>
-        {crumb.label}
-      </Text>
-    </PressRow>
+    <View ref={rightClick.ref} collapsable={false}>
+      <PressRow
+        accessibilityLabel={`Open ${crumb.path}`}
+        onPress={() => onSelectFolder?.(crumb.path)}
+        radius={radii.xs}
+        style={[styles.segment, folderStyle]}
+        hoverStyle={styles.segmentHover}
+        testID={`breadcrumb-folder-${crumb.path}`}
+      >
+        <Text variant="mono" style={styles.folder} numberOfLines={1}>
+          {crumb.label}
+        </Text>
+      </PressRow>
+    </View>
   );
 }
 

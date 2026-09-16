@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -11,13 +10,33 @@ import {
   type NativeSyntheticEvent,
   type ViewProps,
 } from "react-native";
-import { PressRow } from "../../design/components/Button";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { Menu } from "../../design/components/Menu";
+import { describeBinding, type Command } from "../../design/keymap";
+import { isApplePlatform } from "../../design/applePlatform";
+import { joinGroups, type MenuItem } from "./menu";
 import { tabLabel, type Tab, type TabsState } from "./tabs";
+
+/**
+ * What a right-click on a tab offers — **its own id union**, not `MenuActionId`.
+ *
+ * This is what the `TODO(menu)` that used to sit on `TabMenu` was waiting for,
+ * and it is not the fix that TODO proposed. It suggested widening
+ * `MenuActionId` to fit three tab verbs; `MenuItem`'s own doc argues the
+ * opposite and is right: `Menu` is a *disclosure menu component* generic in its
+ * id, and `Explorer`'s dispatcher switches on every member of `MenuActionId`,
+ * so a `closeTab` in there is a case that dispatcher must go on not
+ * mishandling, forever, for a menu it never draws. The account menu already
+ * draws with this same component against a two-item union of its own.
+ *
+ * So the file menu answers "what can I do with this file?" and this answers
+ * "what can I do with this tab?", and neither has to know about the other.
+ */
+type TabMenuId = "close" | "closeOthers" | "closeToRight" | "reopen";
 
 /**
  * The tab strip: the pointer half of `tabs.ts`.
@@ -65,6 +84,8 @@ export interface TabStripProps {
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
   onCloseOthers: (path: string) => void;
+  /** Close everything after this tab, keeping it and everything before it. */
+  onCloseToRight: (path: string) => void;
   onReopen: () => void;
 }
 
@@ -130,6 +151,54 @@ function mouseButtonProps(handlers: {
   } as unknown as ViewProps;
 }
 
+/**
+ * The tab menu, as data — the same shape `menu.ts` produces for a file, so the
+ * shared `Menu` can draw it.
+ *
+ * `others` and `toRight` are absent rather than inert when there is nothing for
+ * them to close, which is `menu.ts`'s rule and right here for the same reason:
+ * "Close others" on the only open tab is not a thing you are temporarily unable
+ * to do, it is a thing that does not apply. "Reopen closed" is the documented
+ * exception — see `MenuItem.disabled`.
+ */
+export function tabMenuItems(state: TabsState, path: string): MenuItem<TabMenuId>[] {
+  const at = state.tabs.findIndex((tab) => tab.path === path);
+  const apple = isApplePlatform();
+  return joinGroups<TabMenuId>([
+    [
+      {
+        id: "close",
+        label: "Close",
+        ...chord("closeTab", apple),
+      },
+      ...(state.tabs.length > 1 ? [{ id: "closeOthers" as const, label: "Close others" }] : []),
+      ...(at !== -1 && at < state.tabs.length - 1
+        ? [{ id: "closeToRight" as const, label: "Close to the right" }]
+        : []),
+    ],
+    [
+      {
+        id: "reopen",
+        label: "Reopen closed",
+        ...(state.closed.length > 0 ? {} : { disabled: true }),
+        ...chord("reopenTab", apple),
+      },
+    ],
+  ]);
+}
+
+/**
+ * The chord, or nothing — never a literal.
+ *
+ * `keymap.ts` is the one place that knows what is bound, and a menu that prints
+ * a keystroke nothing binds is worse than one that prints none. Same rule
+ * `menu.ts`'s `COMMANDS` table follows, and the same reason.
+ */
+function chord(command: Command, apple: boolean): { shortcut?: string } {
+  const printed = describeBinding(command, apple);
+  return printed === null ? {} : { shortcut: printed };
+}
+
 /* -------------------------------------------------------------------------- */
 
 interface MenuAt {
@@ -143,6 +212,7 @@ export function TabStrip({
   onActivate,
   onClose,
   onCloseOthers,
+  onCloseToRight,
   onReopen,
 }: TabStripProps) {
   const styles = useThemedStyles(makeStyles);
@@ -232,20 +302,20 @@ export function TabStrip({
       </ScrollView>
 
       {menu === null ? null : (
-        <TabMenu
-          at={menu}
-          canReopen={state.closed.length > 0}
-          onClose={() => {
-            onClose(menu.path);
+        <Menu<TabMenuId>
+          items={tabMenuItems(state, menu.path)}
+          anchor={{ x: menu.x, y: menu.y }}
+          title={tabLabel(state, menu.path)}
+          onSelect={(id) => {
+            const path = menu.path;
             closeMenu();
-          }}
-          onCloseOthers={() => {
-            onCloseOthers(menu.path);
-            closeMenu();
-          }}
-          onReopen={() => {
-            onReopen();
-            closeMenu();
+            // The tab that was *clicked*, never the active one. Right-clicking
+            // an inactive tab and closing the one you were reading is the bug
+            // this argument exists to prevent.
+            if (id === "close") onClose(path);
+            else if (id === "closeOthers") onCloseOthers(path);
+            else if (id === "closeToRight") onCloseToRight(path);
+            else onReopen();
           }}
           onDismiss={closeMenu}
         />
@@ -360,102 +430,6 @@ function TabItem({
   );
 }
 
-/**
- * TODO(menu): fold into the shared `design/components/Menu`.
- *
- * This is a plain popover, written to be thrown away: it hard-codes its own
- * card, its own scrim and its own rows, none of which should exist twice in the
- * app. `Menu` (and its `.web` sibling) now exists and is the right home — it
- * already has the popover-at-the-pointer and sheet-under-the-thumb pair this
- * would otherwise grow itself.
- *
- * What stands in the way is one type, not a design disagreement: `MenuItem.id`
- * is `MenuActionId`, the file-tree action union, and there is no `close`,
- * `closeOthers` or `reopen` in it. Three tab items therefore cannot be
- * expressed as `MenuItem[]` without widening that union — which is a decision
- * about what `menu.ts` is *for* (it is currently "what can I do with this
- * file?", and these are "what can I do with this tab?"), and belongs in the
- * change that widens it rather than smuggled in here.
- *
- * It is a `Modal` rather than an absolutely-positioned sibling for one
- * non-cosmetic reason: the strip is a horizontal scroll view a few dozen pixels
- * tall, so anything drawn inside it is clipped by the scroller. A modal escapes
- * the clip and brings a dismiss-on-outside-press surface with it.
- */
-function TabMenu({
-  at,
-  canReopen,
-  onClose,
-  onCloseOthers,
-  onReopen,
-  onDismiss,
-}: {
-  at: MenuAt;
-  canReopen: boolean;
-  onClose: () => void;
-  onCloseOthers: () => void;
-  onReopen: () => void;
-  onDismiss: () => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <Modal transparent animationType="none" visible onRequestClose={onDismiss}>
-      <Pressable style={styles.scrim} accessibilityLabel="Dismiss menu" onPress={onDismiss}>
-        {/* Swallow presses on the card so only the scrim dismisses. */}
-        <Pressable
-          style={[styles.menu, { left: at.x, top: at.y }]}
-          onPress={() => {}}
-          accessibilityLabel="Tab actions"
-          testID="tab-menu"
-        >
-          <MenuRow label="Close" onPress={onClose} testID="tab-menu-close" />
-          <MenuRow label="Close others" onPress={onCloseOthers} testID="tab-menu-others" />
-          {/*
-            Present and disabled rather than absent, which is the opposite of
-            what `menu.ts` does for the file tree — and for a different reason.
-            There, absence tells the truth about a read-only context. Here the
-            item is one ⌘W away from being available again, and a menu whose
-            rows move between openings is a menu you cannot learn.
-          */}
-          <MenuRow
-            label="Reopen closed"
-            onPress={canReopen ? onReopen : undefined}
-            disabled={!canReopen}
-            testID="tab-menu-reopen"
-          />
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
-function MenuRow({
-  label,
-  onPress,
-  disabled = false,
-  testID,
-}: {
-  label: string;
-  onPress?: () => void;
-  disabled?: boolean;
-  testID: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  return (
-    <PressRow
-      accessibilityLabel={label}
-      onPress={disabled ? undefined : onPress}
-      style={styles.menuRow}
-      hoverStyle={styles.menuRowHover}
-      radius={radii.xs}
-      testID={testID}
-    >
-      <Text variant="rail" style={disabled ? styles.menuRowOff : undefined}>
-        {label}
-      </Text>
-    </PressRow>
-  );
-}
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   strip: {
@@ -542,35 +516,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.accent,
   },
 
-  scrim: {
-    flexGrow: 1,
-  },
 
-  menu: {
-    position: "absolute",
-    minWidth: 180,
-    paddingVertical: 5,
-    paddingHorizontal: 5,
-    gap: 1,
-    borderRadius: radii.lg,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    backgroundColor: colors.surface3,
-    boxShadow: "0 18px 44px -18px rgba(0,0,0,.7)",
-  },
 
-  menuRow: {
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    borderRadius: radii.xs,
-  },
 
-  menuRowHover: {
-    backgroundColor: colors.accentDim,
-  },
 
-  menuRowOff: {
-    color: colors.muted,
-    opacity: 0.6,
-  },
 });

@@ -303,6 +303,7 @@ export function PressRow({
   testID,
   ariaExpanded,
   ariaHasPopup,
+  ariaChecked,
 }: {
   children: ReactNode;
   onPress?: () => void;
@@ -346,6 +347,24 @@ export function PressRow({
    * attribute the platform supports ahead of its own types.
    */
   ariaHasPopup?: "menu";
+  /**
+   * `menuitemradio`, spelled the way this component spells everything else.
+   *
+   * The action menu's visibility items are three mutually exclusive states, and
+   * the sheet is the *only* presentation of them on a phone — so leaving the
+   * state out of the accessible tree would make "which visibility is this note
+   * actually on" a question the pointer layout answers and the phone does not.
+   *
+   * A pass-through like the two above rather than derived from `selected`:
+   * `selected` already means `aria-selected` on a tab here, and the two are
+   * different claims — one is "this is the tab you are looking at", the other
+   * is "this is the setting in force".
+   *
+   * The role travels with it because the pair is only valid together: ARIA has
+   * no `aria-checked` on a plain button, and `role` here is deliberately a
+   * three-value union rather than the whole ARIA vocabulary.
+   */
+  ariaChecked?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -362,6 +381,11 @@ export function PressRow({
       // the prop was passed would still have gone green.
       aria-selected={role === "tab" ? selected : undefined}
       aria-expanded={ariaExpanded}
+      {...(ariaChecked === undefined
+        ? {}
+        : ({ role: "menuitemradio", "aria-checked": ariaChecked } as unknown as {
+            role: undefined;
+          }))}
       {...(ariaHasPopup === undefined
         ? {}
         : ({ "aria-haspopup": ariaHasPopup } as unknown as { "aria-haspopup": string }))}

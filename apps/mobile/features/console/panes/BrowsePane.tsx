@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FrameIconButton } from "../../app/AppFrame";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
@@ -8,6 +8,14 @@ import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { NavBand } from "../NavBand";
+import { Menu } from "../../design/components/Menu";
+import { isApplePlatform } from "../../design/applePlatform";
+import { writeClipboard } from "../../design/clipboard";
+import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
+import { ExplorerDialogs } from "../files/Explorer";
+import { itemsFor, type MenuTarget } from "../files/menu";
+import { ancestorsOf, baseName } from "../files/paths";
+import type { FolderMenu } from "../files/FolderView";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
@@ -27,7 +35,7 @@ import {
 import { ShareDialog } from "../files/ShareDialog";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
-import { entryAt } from "../files/tree";
+import { entryAt, findEntry, treeRowFor } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
 import { tierSentence } from "../visibility";
@@ -183,6 +191,22 @@ export function BrowsePane({
   const reading = useReadMode();
   const [sharing, setSharing] = useState<string | null>(null);
 
+  /* ------------------------------------------------------------------ */
+  /*                   the folder listing's right-click                  */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * The menu `FolderView` raises, and the dialogs it leads to.
+   *
+   * This pane owns both because `FolderView` is a drawing of a folder and
+   * knows nothing about a `FileBrowser` — the same split `Explorer` makes with
+   * `FileTree`. What was here before was nothing at all: the listing bound no
+   * pointer gesture, so a right-click on the largest surface in the console
+   * reached the document and opened the *browser's* menu over somebody's notes.
+   */
+  const [folderMenu, setFolderMenu] = useState<FolderMenuState>(null);
+  const [folderDialog, setFolderDialog] = useState<Dialog>(null);
+
   /**
    * The passphrase machinery for this context, and nowhere else.
    *
@@ -225,6 +249,140 @@ export function BrowsePane({
     words in the before shot.
   */
   const compact = densityFor(useWindowDimensions().width) === "compact";
+
+  /**
+   * Build the menu for one target, or decline.
+   *
+   * Returns whether it opened — `rightClick.web.ts` suppresses the browser's
+   * own menu only on a `true`, so an empty list here leaves the platform menu
+   * alone rather than eating the gesture and showing nothing.
+   */
+  const openFolderTarget = useCallback(
+    (target: MenuTarget, title: string, anchor: { x: number; y: number }) => {
+      const items = itemsFor({
+        target,
+        canEdit: files.canEdit,
+        canSetVisibility: files.canSetVisibility,
+        /*
+          Deliberately false, and this is the one item the listing offers less
+          of than the tree does.
+
+          Sharing a note opens a dialog about *that note's* access, and the
+          members, groups and removal routes it needs are assembled in this
+          pane for the **selected** note — a row you have right-clicked in a
+          listing is not that. `ExplorerDialogs` would happily draw the dialog
+          without them, and a share sheet that cannot show who currently has
+          access is worse than no share sheet in a product where `team` means
+          named people. So the item is absent rather than half-working, and
+          sharing stays where it already is: open the note, use the frame's
+          own share control.
+        */
+        canShare: false,
+        clipboard: files.clipboard,
+        /*
+          The `touch` arm's first real caller, and exactly what it was kept for.
+
+          This pane *is* the phone's browse surface — there is no file tree at
+          compact density (`frame.ts`) and no tab strip either — so a menu here
+          must print no keyboard chords and must not offer "Open in new tab".
+          A phone browser raises `contextmenu` on a long press, so the gesture
+          genuinely arrives; without this it would arrive at a pointer menu.
+        */
+        platform: compact ? "touch" : "web",
+        apple: isApplePlatform(),
+        // What the row would be visible to with no setting of its own, so
+        // "use the folder's setting" can say what it means.
+        ...(target.kind === "row"
+          ? { inherited: findEntry(files.listings, target.row.path)?.inherited }
+          : {}),
+      });
+      if (items.length === 0) return false;
+      setFolderMenu({ target, title, anchor, items });
+      return true;
+    },
+    [files, compact],
+  );
+
+  /**
+   * The dispatcher's world for this pane.
+   *
+   * No `openPinned`, no `reveal`, no `closeTabs`: the tab strip and the file
+   * tree are other regions, and `menu.ts` withholds every item that would need
+   * one. `runMenuAction` degrades rather than throwing if that ever stops being
+   * true, and `menuActions.test.ts` holds it to that.
+   */
+  const menuActions = useMemo<ActionContext>(
+    () => ({
+      files,
+      contextLabel,
+      select: files.select,
+      setDialog: setFolderDialog,
+      writeClipboard: (text) => void writeClipboard(text),
+      /**
+       * Put the tree on a folder: open every ancestor, then select it.
+       *
+       * `toggleFolder` *toggles*, so an ancestor that is already open would be
+       * closed by a blind call — the check is what makes this "reveal" rather
+       * than "flip everything on the way down". `ancestorsOf` owns the path
+       * arithmetic, as it does for every other caller.
+       *
+       * Select last, so the row it lands on is one the tree has been told to
+       * draw.
+       */
+      reveal: (path) => {
+        for (const ancestor of ancestorsOf(path)) {
+          if (!files.expanded.has(ancestor)) files.toggleFolder(ancestor);
+        }
+        files.select(path);
+      },
+      inheritedOf: (path) => findEntry(files.listings, path)?.inherited ?? "private",
+    }),
+    [files, contextLabel],
+  );
+
+  /**
+   * Right-click on a breadcrumb segment.
+   *
+   * The fastest route to a parent folder's verbs, and it offered none of them.
+   * Same menu the tree gives that folder, minus what you must not do to the
+   * ground you are standing on — see `crumbItems` in `menu.ts`.
+   */
+  const openCrumbMenu = useCallback(
+    (folder: string, anchor: { x: number; y: number }) =>
+      openFolderTarget({ kind: "crumb", folder }, baseName(folder) || contextLabel, anchor),
+    [openFolderTarget, contextLabel],
+  );
+
+  /**
+   * The pair of handlers one folder's listing needs.
+   *
+   * Built per folder rather than once, because "where does a new note go" is
+   * the folder being *drawn* — the landing page draws the root, a selected
+   * folder draws itself, and a single shared handler would have to guess which.
+   */
+  const folderMenuFor = useCallback(
+    (folder: string): FolderMenu => ({
+      onRow: (entry, anchor) =>
+        openFolderTarget(
+          {
+            kind: "row",
+            // The listing's own default, so the row's marker — which is what
+            // `menu.ts` reads to decide which visibility is in force — is the
+            // same one the tree would have computed for it.
+            row: treeRowFor(entry, files.listings[folder]?.folderDefault ?? "private"),
+          },
+          baseName(entry.path),
+          anchor,
+        ),
+      onBackground: (anchor) =>
+        openFolderTarget(
+          { kind: "background", folder },
+          baseName(folder) || contextLabel,
+          anchor,
+        ),
+    }),
+    [openFolderTarget, files.listings, contextLabel],
+  );
   /*
     The two bands the floating chrome occupies, spent as content padding at
     both ends.
@@ -554,6 +712,7 @@ export function BrowsePane({
             exception={selected.exception}
             readOnly={selected.readOnly}
             onSelectFolder={files.select}
+            onFolderMenu={openCrumbMenu}
           />
         )
       }
@@ -672,6 +831,7 @@ export function BrowsePane({
             contextLabel={contextLabel}
             foot={contextFoot}
             onSelect={files.select}
+            menu={folderMenuFor("")}
           />
         )
       ) : null
@@ -710,6 +870,7 @@ export function BrowsePane({
         // `FolderView`'s header.
         foot={contextFoot}
         onSelect={files.select}
+        menu={folderMenuFor(selected.path)}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
@@ -873,6 +1034,7 @@ export function BrowsePane({
               exception={selected.exception}
               readOnly={selected.readOnly}
               onSelectFolder={files.select}
+              onFolderMenu={openCrumbMenu}
             />
           </View>
           {/*
@@ -1235,9 +1397,58 @@ export function BrowsePane({
           <View style={styles.body}>{openDocument}</View>
         </>
       )}
+
+      {/*
+        The listing's menu and the questions it leads to.
+
+        At the end of the region rather than inside the scroller: the popover is
+        positioned against the viewport (`Menu.web.tsx` measures and flips), so
+        a parent that scrolls would carry it away from the pointer.
+
+        A second `ExplorerDialogs` beside the console layout's own is the
+        established shape here rather than a smell — `Explorer` renders one for
+        the tree's `+` and the layout renders one for the toolbar's, each
+        driven by its own state, because a dialog belongs to the surface that
+        raised it.
+      */}
+      {folderMenu !== null ? (
+        <Menu
+          items={folderMenu.items}
+          anchor={folderMenu.anchor}
+          title={folderMenu.title}
+          onSelect={(id) => {
+            const target = folderMenu.target;
+            setFolderMenu(null);
+            runMenuAction(id, target, menuActions);
+          }}
+          onDismiss={() => setFolderMenu(null)}
+        />
+      ) : null}
+
+      <ExplorerDialogs
+        files={files}
+        dialog={folderDialog}
+        onClose={() => setFolderDialog(null)}
+      />
     </View>
   );
 }
+
+/**
+ * An open listing menu: what it was opened on, kept whole.
+ *
+ * The target rather than a path, for the reason `Explorer`'s own `MenuOpen`
+ * gives: a menu built for one target and dispatched against another is a paste
+ * into the wrong folder, and storing the object that was offered makes that
+ * unrepresentable.
+ */
+interface FolderMenuOpen {
+  target: MenuTarget;
+  title: string;
+  anchor: { x: number; y: number };
+  items: ReturnType<typeof itemsFor>;
+}
+type FolderMenuState = FolderMenuOpen | null;
 
 /**
  * Nothing open.
