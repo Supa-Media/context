@@ -165,6 +165,30 @@ export function useKeymap(options: KeymapOptions): void {
        */
       if (event.isComposing || event.keyCode === 229) return;
 
+      /**
+       * A keystroke a focused widget has already consumed is not a command.
+       *
+       * This listener is on `document` and bubbles, so anything with its own
+       * keymap — CodeMirror in the note editor, above all — has already run and
+       * has already called `preventDefault()` on the chords it handled. Without
+       * this line the same press runs twice: once in the widget and once here,
+       * against whatever this table says the chord means *somewhere else*.
+       *
+       * It is not hypothetical in either direction. ⌘B bolds the selection in
+       * the note and toggles the rail everywhere else, and before this it did
+       * both at once. And ⌘S is bound in `editorSetup.ts` *and* is `save` here,
+       * so the day `readFocus` learns to see a contenteditable — the Live
+       * Preview editor is a `div`, not a `textarea`, so the `editor` scope does
+       * not currently resolve for it — the note would be written twice from one
+       * press, the second write conditional on an etag the first had already
+       * moved: a conflict dialog over somebody's own keystroke.
+       *
+       * The guard is `preventDefault`, not "was the editor focused", because
+       * the question is whether the keystroke was *answered*, and the widget
+       * that answered it is the only thing that knows.
+       */
+      if (event.defaultPrevented) return;
+
       const command = resolve(
         {
           key: event.key,

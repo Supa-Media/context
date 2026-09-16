@@ -473,6 +473,53 @@ describe("the browser keeps its own behaviour unless we handled the key", () => 
 /*                          registration and lifetime                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A keystroke a focused widget has already answered is not a command.
+ *
+ * This listener is on `document` and bubbles, so CodeMirror — which binds ⌘S,
+ * ⌘F, Tab and now ⌘B/⌘I/⌘⇧X on the note's own content element — has already run
+ * and has already called `preventDefault()` on whatever it handled. Without the
+ * guard the same press runs twice: once in the editor, once here, against
+ * whatever this table says the chord means *somewhere else*.
+ *
+ * ⌘B is the live case — bold in a note, the rail everywhere else — and ⌘S is
+ * the one that would cost somebody something: `save` here plus `editorSetup`'s
+ * own `Mod-s` is two conditional writes from one press, the second against an
+ * etag the first has already moved.
+ */
+describe("a keystroke something else already handled is left alone", () => {
+  test("a prevented event never reaches the handler", () => {
+    const restore = APPLE();
+    const seen = recorder();
+    mount({ scope: "global", ...seen });
+
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    event.preventDefault();
+    act(() => {
+      document.dispatchEvent(event);
+    });
+
+    expect(seen.commands).toEqual([]);
+    restore();
+  });
+
+  test("and the same chord fires when nothing answered it", () => {
+    const restore = APPLE();
+    const seen = recorder();
+    mount({ scope: "global", ...seen });
+
+    press({ key: "k", meta: true });
+
+    expect(seen.commands).toEqual(["palette"]);
+    restore();
+  });
+});
+
 describe("the listener's lifetime", () => {
   test("nothing fires after unmount", () => {
     const restore = APPLE();

@@ -96,6 +96,32 @@ export type Command =
   | "deleteForever"
   | "save"
   | "togglePreview"
+  /**
+   * The three marker chords the note editor binds for itself.
+   *
+   * They are declared here and **dispatched nowhere** — the console's
+   * `Shortcuts` switch has no arm for them, exactly as it has none for
+   * `findInNote`. `editorSetup.ts` binds them inside CodeMirror, against the
+   * live selection, which is the only place that knows what "the selection" is.
+   *
+   * What the declaration is for is the other half of this module's job: the
+   * editor's right-click menu prints `⌘B` beside Bold through
+   * `describeBinding`, and printing it from here rather than from a literal is
+   * what stops the menu advertising a chord nothing binds (see `menu.ts`, which
+   * has already had that bug). It is also the record of which chords are spoken
+   * for: `toggleRail` is ⌘B, and the reason that is not a collision is that the
+   * note editor answers the press and `useKeymap.web.ts` leaves an answered
+   * keystroke alone.
+   *
+   * Both are also on the accessory bar, which is the rule at the top of this
+   * file: no command here may be the only way to do something on a phone.
+   * Strikethrough is the exception and is a stated gap — the bar is at its
+   * width limit (`NoteAccessory.tsx`), and the right-click menu that carries it
+   * is web-only. See `docs/decisions/app-and-console.md`.
+   */
+  | "bold"
+  | "italic"
+  | "strikethrough"
   | "closeTab"
   | "reopenTab"
   | "toggleRail"
@@ -186,6 +212,8 @@ export const BINDINGS: readonly Binding[] = [
   /* The editor. */
   { command: "save", key: "s", mod: true, scopes: EDITOR },
   { command: "togglePreview", key: "e", mod: true, scopes: EDITOR },
+  /* The note's three marker chords are editor-scoped too, and sit at the
+     bottom of this table on purpose. See the group down there. */
 
   /* Tabs and chrome. */
   { command: "closeTab", key: "w", mod: true, scopes: GLOBAL },
@@ -209,6 +237,25 @@ export const BINDINGS: readonly Binding[] = [
   { command: "treeCollapse", key: "arrowleft", scopes: TREE },
   { command: "treeExpand", key: "arrowright", scopes: TREE },
   { command: "treeOpen", key: "enter", scopes: TREE_AND_OVERLAY },
+
+  /*
+    THE NOTE'S MARKER CHORDS, AND THEY ARE DOWN HERE DELIBERATELY.
+
+    ⌘B is `toggleRail` above and bold in a note, which `resolve` settles by
+    scope: a binding that *names* a scope beats one that only reaches it as
+    `global`. Put these up in "The editor" beside their siblings and
+    first-match-wins would answer `bold` in the editor by coincidence of
+    position — the rule would be untested, and `keymap.test.ts` would go green
+    against a resolver that had never learned it. Below `toggleRail`, the
+    coincidence runs the other way and the test has something to catch.
+
+    `editorSetup.ts` binds all three inside CodeMirror; nothing dispatches them
+    from here. What this table gives them is the printed chord in the editor's
+    right-click menu and a place in the collision guard.
+  */
+  { command: "bold", key: "b", mod: true, scopes: EDITOR },
+  { command: "italic", key: "i", mod: true, scopes: EDITOR },
+  { command: "strikethrough", key: "x", mod: true, shift: true, scopes: EDITOR },
 
   /* Escape closes whatever is open, wherever you are. */
   { command: "dismiss", key: "escape", scopes: ["global", "overlay"] },
@@ -234,8 +281,13 @@ function normalizeKey(key: string): string {
  * open overlay may fire, so the escalation stops at the modal boundary.
  */
 function firesIn(binding: Binding, scope: Scope): boolean {
-  if (binding.scopes.includes(scope)) return true;
+  if (namesScope(binding, scope)) return true;
   return scope !== "overlay" && binding.scopes.includes("global");
+}
+
+/** The binding asked for this scope by name, rather than reaching it as global. */
+function namesScope(binding: Binding, scope: Scope): boolean {
+  return binding.scopes.includes(scope);
 }
 
 /** A binding with no ⌘/Ctrl and no ⌥ is a key somebody could be typing. */
@@ -266,12 +318,36 @@ export function resolve(event: KeyEvent, scope: Scope, apple: boolean): Command 
   // Everywhere else, a bare key in a text field is typing and nothing else.
   const suppressBare = event.inTextField && scope !== "overlay";
 
+  const matches = (binding: Binding): boolean => {
+    if (binding.key !== key) return false;
+    if (suppressBare && isBareChord(binding)) return false;
+    return modifiersMatch(binding, event, apple);
+  };
+
+  /*
+    A BINDING THAT NAMES THIS SCOPE BEATS ONE THAT ONLY REACHES IT AS GLOBAL.
+
+    The rule arrived with ⌘B and it is general. `toggleRail` is a global
+    command, so before this it was also the answer inside a note — and ⌘B
+    inside a note is bold in every editor anybody has ever used. The two are
+    not really competing for one chord: they are the same chord meaning the
+    obvious thing in each of the two places it can be pressed, which is what
+    scopes are for and what a flat first-match-wins table could not express.
+
+    Order in `BINDINGS` deliberately does not decide it. Grouping the table by
+    subject is what makes it readable, and a rule that depended on where a row
+    happened to sit is a rule the next person reorganising the table breaks
+    without knowing they have. `keymap.test.ts`'s collision guard — "each
+    binding's chord resolves to itself or to nothing, everywhere" — is what
+    holds this, and it is the test that failed when ⌘B was added.
+  */
   for (const binding of BINDINGS) {
-    if (binding.key !== key) continue;
-    if (!firesIn(binding, scope)) continue;
-    if (suppressBare && isBareChord(binding)) continue;
-    if (!modifiersMatch(binding, event, apple)) continue;
-    return binding.command;
+    if (namesScope(binding, scope) && matches(binding)) return binding.command;
+  }
+  for (const binding of BINDINGS) {
+    if (!namesScope(binding, scope) && firesIn(binding, scope) && matches(binding)) {
+      return binding.command;
+    }
   }
   return null;
 }
