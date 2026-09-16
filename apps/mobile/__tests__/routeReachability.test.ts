@@ -444,6 +444,15 @@ describe("every route is reachable, or says why not", () => {
       "/connect/dropbox",
       "/connect/google",
       /*
+        Connections, whose last door was "Manage sharing…" on a context's
+        right-click menu — a row that answered a per-context question by
+        navigating out of the context, and the owner's call was to take it off.
+        It is a duplicate surface rather than a lost one: `MembersSection` is
+        mounted under Settings → People and the endpoint and connected apps
+        under Settings → AI apps, from the same components.
+      */
+      "/console/connections",
+      /*
         The map, whose last door was the "Elsewhere in the console" card at the
         foot of settings — three destinations repeated under all nineteen
         sections, drawn unconditionally *because* taking it off any one section

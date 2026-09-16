@@ -23,11 +23,19 @@ import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
 import { usePlugins } from "./plugins/usePlugins";
 import { useContextPlugins } from "./plugins/useContextPlugins";
+import { useManagedInstalls } from "./plugins/useManagedInstalls";
 import { useGrants } from "./plugins/useGrants";
 import { useLifecycle } from "./plugins/useLifecycle";
 import { useRuntime } from "./plugins/useRuntime";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
-import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
+import {
+  atName,
+  contextToneFor,
+  describeScopes,
+  formatCount,
+  grantTone,
+  lastUsedLabel,
+} from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
 import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
@@ -87,6 +95,27 @@ interface WorkspaceSummary {
   role: string;
   /** Where meetings land here, when the owner has chosen. Absent is the default. */
   meetingsFolder?: string;
+  /** The pinned context. See `ConsoleContext.pinned` for what it changes here. */
+  pinned?: boolean;
+}
+
+/**
+ * The workspaces this account is actually *in*.
+ *
+ * Everything that subscribes per workspace has to be driven off this rather
+ * than off the raw list, because the pinned context is reach without a
+ * membership row: `listGrants`, `getStorageBinding` and
+ * `listGoogleConnections` all go through `requireWorkspaceAccess` and throw
+ * `WORKSPACE_NOT_FOUND` for it. Subscribing anyway would not break the console
+ * — `usable()` turns a failed query into `undefined` — which is exactly why it
+ * is worth naming: the damage would be three silently failing subscriptions per
+ * paint, and a storage pip that reads "unknown" because the query errored
+ * rather than because the bucket is quiet.
+ */
+function memberOf(
+  workspaces: readonly WorkspaceSummary[] | undefined,
+): WorkspaceSummary[] {
+  return (workspaces ?? []).filter((workspace) => workspace.pinned !== true);
 }
 
 interface StorageBinding {
@@ -319,9 +348,10 @@ export function useLiveConsoleData(): ConsoleData {
   const queries = useMemo<RequestForQueries>(() => {
     // An account with no contexts subscribes to nothing, and says so with the
     // shared constant rather than a fresh `{}`.
-    if ((workspaces ?? []).length === 0) return EMPTY_QUERY_SPEC;
+    const joined = memberOf(workspaces);
+    if (joined.length === 0) return EMPTY_QUERY_SPEC;
     const spec: RequestForQueries = {};
-    for (const workspace of workspaces ?? []) {
+    for (const workspace of joined) {
       spec[`grants:${workspace.workspaceId}`] = {
         query: api.functions.grants.listGrants,
         args: { workspaceId: workspace.workspaceId },
@@ -382,10 +412,21 @@ export function useLiveConsoleData(): ConsoleData {
     displayName: workspace.displayName,
     role: workspace.role,
     kind: workspace.kind,
-    status: contextTone(
-      usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`])?.status,
-    ),
+    /*
+      `contextToneFor`, not `contextTone`: the pinned context has no storage
+      subscription behind it (see `memberOf`), and `contextTone` reads that
+      silence as a missing binding and answers `warn` — a permanent amber alarm
+      about somebody else's bucket, on every account's rail. The distinction is
+      argued in full where the function lives.
+    */
+    status: contextToneFor({
+      storageStatus: usable<StorageBinding | null>(
+        results[`storage:${workspace.workspaceId}`],
+      )?.status,
+      pinned: workspace.pinned,
+    }),
     meetingsFolder: workspace.meetingsFolder,
+    pinned: workspace.pinned,
   }));
 
   // One entry per reachable context, and all three cases kept apart: the
@@ -394,14 +435,17 @@ export function useLiveConsoleData(): ConsoleData {
   // still-loading context as bucketless, so the first paint printed an exact
   // total missing a whole bucket's notes. See `noteTotals.ts`.
   const notes = totalNotes(
-    (workspaces ?? []).map((workspace) => {
+    // Contexts this person is in. Counting our notes into somebody's own total
+    // would be wrong twice over: they are not theirs, and the console has no
+    // binding subscription for that row to count them from.
+    memberOf(workspaces).map((workspace) => {
       const result = results[`storage:${workspace.workspaceId}`];
       if (result === undefined || result instanceof Error) return undefined;
       return (result as StorageBinding | null) ?? null;
     }),
   );
 
-  const activeGrants: GrantSummary[] = (workspaces ?? []).flatMap((workspace) =>
+  const activeGrants: GrantSummary[] = memberOf(workspaces).flatMap((workspace) =>
     (usable<GrantSummary[]>(results[`grants:${workspace.workspaceId}`]) ?? []).filter(
       (grant) => grant.status === "active",
     ),
@@ -410,7 +454,13 @@ export function useLiveConsoleData(): ConsoleData {
   // The map is laid out from ids and labels only, so it should not be recomputed
   // when an unrelated field (a `lastUsedAt` tick) changes.
   const graphKey = JSON.stringify([
-    (workspaces ?? []).map((w) => [w.workspaceId, w.slug, w.role, w.kind]),
+    /*
+      The map is this person's own estate — their contexts and the clients
+      connected to them — so the pinned context is not a node on it. Drawing one
+      would put a workspace with none of their clients attached in the middle of
+      a picture whose whole subject is what they have connected where.
+    */
+    memberOf(workspaces).map((w) => [w.workspaceId, w.slug, w.role, w.kind]),
     activeGrants.map((g) => [g.grantId, g.workspaceId, g.clientName ?? g.clientId]),
   ]);
 
@@ -500,6 +550,29 @@ export function useLiveConsoleData(): ConsoleData {
         };
 
   const selected = contexts.find((c) => c.id === selectedContextId) ?? null;
+
+  /*
+    The selected context, for everything that needs a membership row behind it.
+
+    `null` for the pinned context, which every account reaches and nobody
+    joined, and `null` is the value every one of these hooks already skips on —
+    it is what they see when nothing is selected at all. So one derivation turns
+    off the member list, fast-search status, the plugin inventory and switches,
+    plugin grants and lifecycle, shares, groups, the advanced pane, ingestion
+    and the plugin runtime, all of which go through `requireWorkspaceAccess` and
+    would answer `WORKSPACE_NOT_FOUND` for a pinned reader.
+
+    **`useFileBrowser` deliberately keeps the real id.** Reading notes is the
+    one thing the pin opens — `authorizeFileAccess` grants it at `member`,
+    `team` — and it is the only reason to have the context in the list at all.
+
+    One lever rather than a `pinned` argument threaded through eleven hooks: a
+    hook that needs the row and was not told about the flag is a failing
+    subscription nobody notices, because `usable()` turns a failed query into
+    `undefined` and every one of these renders `undefined` as "still loading".
+  */
+  const membershipContextId: Id<"workspaces"> | null =
+    selected?.pinned === true ? null : selectedContextId;
   const googleConnections: GoogleConnection[] =
     selectedContextId === null
       ? []
@@ -567,13 +640,13 @@ export function useLiveConsoleData(): ConsoleData {
   // personal context has a capture address at all, so a shared one is handed a
   // state that says so rather than a form for an inbox it does not have.
   const ingestion = useIngestionSettings({
-    workspaceId: selectedContextId,
+    workspaceId: membershipContextId,
     availability: ingestionAvailabilityFor(selected?.kind),
     canEdit: isOwner,
   });
 
   const members = useMembers({
-    workspaceId: selectedContextId,
+    workspaceId: membershipContextId,
     role: selected?.role,
   });
 
@@ -582,14 +655,14 @@ export function useLiveConsoleData(): ConsoleData {
   // the hook's own rule rather than this file's, so `isOwner` is deliberately
   // not passed: `status` answers the authorization question with the server's
   // answer, and a second one derived here could disagree with it.
-  const fastSearch = useFastSearch({ workspaceId: selectedContextId });
+  const fastSearch = useFastSearch({ workspaceId: membershipContextId });
   /*
     Owner-only, and a scan rather than a subscription — see `usePlugins`. The
     read itself takes no path argument, because the gateway's own read takes
     none: `list_plugins` cannot be aimed, which is what keeps a tool reading
     outside the privacy manifest's reach from becoming a way to read around it.
   */
-  const plugins = usePlugins({ workspaceId: selectedContextId, role: selected?.role });
+  const plugins = usePlugins({ workspaceId: membershipContextId, role: selected?.role });
   /*
     The built-ins, which are not a scan and not owner-only. No `role` is passed:
     every member may see which features their context has — a member who cannot
@@ -597,10 +670,10 @@ export function useLiveConsoleData(): ConsoleData {
     work the switches comes back from the server as `canManage` rather than
     being decided twice. See `useContextPlugins`.
   */
-  const contextPlugins = useContextPlugins({ workspaceId: selectedContextId });
+  const contextPlugins = useContextPlugins({ workspaceId: membershipContextId });
   // A live subscription, unlike the inventory above — a Revoke pressed here has
   // to stop reading as "Approved" in the same frame. See `useGrants`.
-  const pluginGrants = useGrants({ workspaceId: selectedContextId, role: selected?.role });
+  const pluginGrants = useGrants({ workspaceId: membershipContextId, role: selected?.role });
   /*
     `onChanged` is the inventory's own re-read. Installing or removing a plugin
     leaves the list on screen describing a bucket that no longer exists, and the
@@ -613,22 +686,44 @@ export function useLiveConsoleData(): ConsoleData {
     plugins.state === "loading" || plugins.state === "withheld"
       ? undefined
       : plugins.actions?.read;
-  const pluginBrowse = useLifecycle({
+  /*
+    What Context installed, read on arrival rather than on a press — see
+    `useManagedInstalls` for why that is a different cost from the scan above,
+    and for what the missing answer cost.
+  */
+  const managedInstalls = useManagedInstalls({
     workspaceId: selectedContextId,
     role: selected?.role,
-    onChanged: rereadPlugins,
+  });
+  /*
+    Both reads follow an install, and both are needed.
+
+    The scan is the only thing that knows whether the new plugin runs; the
+    pointer read is the only one that answers at all when no scan has been run,
+    which is the state a first visit is in. Refreshing only the scan would leave
+    the registry still offering Install for what was just installed — the bug
+    this pair exists to close.
+  */
+  const rereadInstalls = managedInstalls.state === "withheld" ? undefined : managedInstalls.read;
+  const afterLifecycleChange = useCallback(async () => {
+    await Promise.all([rereadInstalls?.(), rereadPlugins?.()]);
+  }, [rereadInstalls, rereadPlugins]);
+  const pluginBrowse = useLifecycle({
+    workspaceId: membershipContextId,
+    role: selected?.role,
+    onChanged: afterLifecycleChange,
   });
 
   // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
   // this hook decides for itself, from `role`, whether to subscribe at all.
   // See `useShares` for why that is stricter than `useMembers`'s own gate.
-  const shares = useShares({ workspaceId: selectedContextId, role: selected?.role });
-  const groups = useGroups({ workspaceId: selectedContextId, role: selected?.role });
+  const shares = useShares({ workspaceId: membershipContextId, role: selected?.role });
+  const groups = useGroups({ workspaceId: membershipContextId, role: selected?.role });
 
   // Both halves are owner-only in the console — see `useAdvanced` for why the
   // audit trail is stricter here than `listEvents` allows on the backend.
   const advanced = useAdvanced({
-    workspaceId: selectedContextId,
+    workspaceId: membershipContextId,
     role: selected?.role,
     // For the deletion card only: a personal workspace is not deletable from a settings
     // panel, and the name is what confirms the deletion.
@@ -651,10 +746,26 @@ export function useLiveConsoleData(): ConsoleData {
     // `storageActions`, and the same reason — the control is absent rather than
     // present and refused.
     isOwner,
+    /*
+      Two read-only sentences, because there are two reasons and the advice
+      differs. "Ask an owner for editor access" is right for a context somebody
+      put you in and wrong for the pinned one — nobody put you in it, there is
+      no owner of it you know, and asking us for write access to our own docs is
+      not a thing the product does.
+
+      So the pinned context says what it *is* instead, and names the thing a
+      viewer can do rather than the thing they cannot: the bug form is the whole
+      reason the context is in their rail. `participatesInForms` in the gateway
+      carves out exactly that write for a `member`, explicitly so that a
+      view-only workspace is not "useless for collecting a bug report".
+    */
     readOnlyReason:
       selected === null
         ? undefined
-        : "You have read-only access to this context. Ask an owner for editor access to change anything.",
+        : selected.pinned === true
+          ? "This is Context's own workspace, not yours — read anything here, and " +
+            "use a form to file a bug or a request. Your own notes are never in it."
+          : "You have read-only access to this context. Ask an owner for editor access to change anything.",
     // From the connect-time probe, through the binding query this hook already
     // subscribes to. A second subscription would be a second answer that could
     // disagree with the one the settings pane and the status bar draw from.
@@ -697,7 +808,7 @@ export function useLiveConsoleData(): ConsoleData {
     [files.editor.etag, files.editor.path],
   );
   const pluginRuntime = useRuntime({
-    workspaceId: selectedContextId,
+    workspaceId: membershipContextId,
     role: selected?.role,
     activeFile,
     // Who may be told a path at all. See `maySeePaths`: a plugin approved for
@@ -826,6 +937,7 @@ export function useLiveConsoleData(): ConsoleData {
     advanced,
     plugins,
     contextPlugins,
+    pluginInstalls: managedInstalls,
     pluginGrants,
     pluginBrowse,
     pluginRuntime,

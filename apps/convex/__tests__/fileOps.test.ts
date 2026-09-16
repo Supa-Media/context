@@ -40,6 +40,7 @@ import {
   movePath,
   readFile,
   removeNoteEncryption,
+  renderFolderPlaceholder,
   restoreTrashedPath,
   resetPrivacyManifest,
   setFolderVisibility,
@@ -802,9 +803,38 @@ describe("creating a folder", () => {
       now: NOW,
     });
     expect(created.readme).toBe("1-projects/new-thing/README.md");
-    expect(store.snapshot()[created.readme]).toContain("# new-thing");
     const listing = await listFolder(store, { path: "1-projects", scope: "private" });
     expect(names(listing.entries)).toContain("new-thing");
+  });
+
+  /**
+   * What is in it, and why it is not `# new-thing`.
+   *
+   * That was the old body: the opening line of a note somebody had started, on a
+   * file nobody wrote, at the top of every folder they made. The console hides
+   * it now (`isFolderPlaceholder`), so the only readers left are Obsidian and
+   * whatever else opens the bucket — and to them an empty overview page reads
+   * like a task. It says what it is instead.
+   *
+   * SABOTAGE: putting the heading back fails this; dropping the folder's name
+   * from the sentence fails the second assertion and leaves a reader in Obsidian
+   * with no way to tell which prefix the file is holding open.
+   */
+  test("the README says it is a placeholder rather than starting a note nobody wrote", async () => {
+    const store = bucket();
+    const created = await createFolder(store, {
+      path: "1-projects/new-thing",
+      scope: "private",
+      now: NOW,
+    });
+    const body = store.snapshot()[created.readme];
+    expect(body).toContain("Folder placeholder.");
+    // It names the prefix it is holding open, so a reader in Obsidian knows
+    // which folder they are looking at the mechanics of.
+    expect(body).toContain("1-projects/new-thing/");
+    // No heading: a `#` line is what made it look like an unfinished note.
+    expect(body.startsWith("#")).toBe(false);
+    expect(renderFolderPlaceholder("1-projects/new-thing")).toBe(body);
   });
 
   test("creating one twice is refused rather than silently reused", async () => {

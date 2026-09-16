@@ -18,6 +18,13 @@ import type { RuntimeView } from "../../plugins/runtime";
 import type { BrowseView } from "../../plugins/lifecycle";
 import type { GrantsView } from "../../plugins/grants";
 import {
+  INSTALLED_NOTE,
+  installLabel,
+  installedRows,
+  installsFailureNote,
+  type ManagedInstallsView,
+} from "../../plugins/managedInstalls";
+import {
   PLUGIN_FILTERS,
   matchesVaultQuery,
   showsContext,
@@ -86,12 +93,22 @@ import {
 export function PluginsPanel({
   view,
   contextPlugins,
+  installs,
   grants,
   browse,
   runtime,
 }: {
   view: PluginsView;
   contextPlugins: ContextPluginsView;
+  /**
+   * What Context has installed here, read on arrival rather than on a press.
+   *
+   * Separate from `view` because it is a different question with a different
+   * price — see `managedInstalls.ts`. It is what lets this panel answer "what
+   * have I got" before anybody has scanned anything, which is the state every
+   * first visit is in and the state in which this screen used to say nothing.
+   */
+  installs: ManagedInstallsView;
   grants: GrantsView;
   browse: BrowseView;
   runtime: RuntimeView;
@@ -147,6 +164,7 @@ export function PluginsPanel({
         <View testID="plugins-vault">
           <VaultPlugins
             view={view}
+            installs={installs}
             grants={grants}
             browse={browse}
             runtime={runtime}
@@ -192,12 +210,14 @@ export function PluginsPanel({
  */
 function VaultPlugins({
   view,
+  installs,
   grants,
   browse,
   runtime,
   query,
 }: {
   view: PluginsView;
+  installs: ManagedInstallsView;
   grants: GrantsView;
   browse: BrowseView;
   runtime: RuntimeView;
@@ -208,15 +228,27 @@ function VaultPlugins({
       <PluginBrowse
         view={browse}
         /*
-          What is already in the bucket, when that is known. Every other state
-          passes an empty list — not a lie, and the honest shape: a scan that
-          has not run cannot say a plugin is installed, so the row says Install
-          rather than claiming a second copy would be made. A scan that then
-          runs corrects it.
+          What is already in the bucket, from whichever read has an answer.
+
+          The scan knows about both places and is preferred where it has run.
+          Where it has not — every first visit — the pointer read still knows
+          what Context installed, and that is the half this list has to get
+          right: a registry row for a plugin already installed here said
+          "Install" and installed it again. It cannot speak for `.obsidian/`,
+          and does not: an unscanned vault plugin still reads as new, which is
+          the honest shape of not having looked.
         */
-        installed={view.state === "ready" ? view.inventory.plugins : []}
+        installed={
+          view.state === "ready" ? view.inventory.plugins : installedRows(installs)
+        }
         seed={query}
       />
+      {/*
+        Drawn only while the scan has nothing to show. Once it is ready every
+        install is in the list below with a verdict beside it, and this card
+        would be the same names twice.
+      */}
+      {view.state === "ready" ? null : <InstalledPlugins view={installs} query={query} />}
       <VaultInventory
         view={view}
         grants={grants}
@@ -230,6 +262,87 @@ function VaultPlugins({
         query={query}
       />
     </>
+  );
+}
+
+/**
+ * What Context has installed here, named before anything is scanned.
+ *
+ * ## Why this card exists
+ *
+ * Everything below it waits for a press, for a good reason: a scan opens every
+ * bundle in somebody's vault. The cost of that rule was that the screen which
+ * installs plugins could not name one it had installed. A person came back the
+ * next day, saw "Read the plugins in this bucket" and an empty panel, and drew
+ * the obvious conclusion — the install did not stick. It had; nothing read it
+ * back. Some of them reasonably concluded Context only ever looks in
+ * `.obsidian/`, which the wording all around this did nothing to dispel.
+ *
+ * So this says what is installed and, deliberately, nothing about whether any
+ * of it runs. A verdict is the scan's to give, and one printed from a pointer
+ * would be a claim about third-party code nobody checked.
+ */
+function InstalledPlugins({ view, query }: { view: ManagedInstallsView; query: string }) {
+  const styles = useThemedStyles(makeStyles);
+
+  // Nobody who cannot install needs to be told what is installed, and while the
+  // first read is out there is nothing true to say yet.
+  if (view.state === "withheld" || view.state === "loading") return null;
+
+  if (view.state === "failed") {
+    return (
+      <Card style={styles.group} testID="plugins-installed-failed">
+        <Text variant="rowTitle">Couldn&apos;t read what Context installed</Text>
+        <Text variant="rowSub" style={styles.lead}>
+          {installsFailureNote(view.reason)}
+        </Text>
+      </Card>
+    );
+  }
+
+  // A bucket with nothing installed says so below, in the state that also
+  // offers the scan. Two empty cards for one empty answer is one too many.
+  if (view.installs.length === 0) return null;
+
+  const shown = view.installs.filter((install) =>
+    matchesVaultQuery({ id: install.id, name: install.id }, query),
+  );
+
+  return (
+    <Card style={styles.group} testID="plugins-installed">
+      <Row style={styles.head}>
+        <Grow>
+          <Text variant="rowTitle">
+            {`${view.installs.length} installed by Context`}
+          </Text>
+          <Text variant="rowSub">{INSTALLED_NOTE}</Text>
+        </Grow>
+      </Row>
+      {shown.length === 0 ? (
+        <Text variant="rowSub" style={styles.lead} testID="plugins-installed-no-match">
+          {`None of them match "${query.trim()}".`}
+        </Text>
+      ) : (
+        shown.map((install) => (
+          <Row key={install.id} style={styles.installRow}>
+            <Grow>
+              <Text variant="rowTitle">{installLabel(install)}</Text>
+            </Grow>
+            {install.version === null ? (
+              /*
+                A pointer with no release is an install part-way through, or one
+                whose pointer will not parse. Both are worth seeing and neither
+                is a version — `recoverPluginLifecycle` is the way out and lives
+                on the row below once a scan has run.
+              */
+              <Pill tone="warn" dashed>
+                Unfinished
+              </Pill>
+            ) : null}
+          </Row>
+        ))
+      )}
+    </Card>
   );
 }
 
@@ -277,16 +390,17 @@ function VaultInventory({
     return (
       <View testID="plugins-idle">
         <Card>
-          <Text variant="rowTitle">Read the plugins in this bucket</Text>
+          <Text variant="rowTitle">Check what these plugins can do here</Text>
           <Text variant="rowSub" style={styles.lead}>
-            Context opens each plugin&apos;s manifest and bundle in{" "}
-            <Text variant="mono">.obsidian/plugins/</Text> and tells you what it would be able to
-            do here. Nothing is executed, and nothing is written — the answer carries the date it
-            was read, so you ask again after you update a plugin rather than on every visit.
+            Context opens each plugin&apos;s manifest and bundle — the ones it installed under{" "}
+            <Text variant="mono">.context/plugins/</Text> and any your vault syncs into{" "}
+            <Text variant="mono">.obsidian/plugins/</Text> — and tells you what each would be able
+            to do here. Nothing is executed, and nothing is written; the answer carries the date it
+            was read, so you ask again after an update rather than on every visit.
           </Text>
           <View style={styles.action}>
             <Button
-              label="Read my plugins"
+              label="Check my plugins"
               onPress={view.actions?.read}
               disabled={view.actions === undefined}
             />
@@ -320,14 +434,14 @@ function VaultInventory({
     return (
       <View testID="plugins-failed">
         <FormError
-          headline="Couldn't read .obsidian/plugins/ in this bucket"
+          headline="Couldn't read the plugins in this bucket"
           /*
             The provider's own reason, quoted rather than paraphrased, and then
             the sentence that bounds it. `report.js` makes the same move for
             the same purpose: this is a report about somebody's Obsidian setup,
             and a storage error here says nothing about their notes.
           */
-          next={`${view.reason} — this is a report about your Obsidian setup, not about your notes; nothing else is affected.`}
+          next={`${view.reason} — this is a report about your plugins, not about your notes; nothing else is affected.`}
         />
       </View>
     );
@@ -339,12 +453,13 @@ function VaultInventory({
     return (
       <View testID="plugins-empty">
         <Card>
-          <Text variant="rowTitle">No Obsidian plugins in this bucket</Text>
+          <Text variant="rowTitle">No plugins in this bucket</Text>
           <Text variant="rowSub" style={styles.lead}>
-            Context looks in <Text variant="mono">.obsidian/plugins/</Text>, which is where
-            Obsidian keeps them. If your vault syncs here and you expected plugins, check that
-            your sync includes the <Text variant="mono">.obsidian</Text> folder — some sync tools
-            exclude it by default.
+            Context looked in both places it keeps them:{" "}
+            <Text variant="mono">.context/plugins/</Text>, where it installs, and{" "}
+            <Text variant="mono">.obsidian/plugins/</Text>, where Obsidian does. If your vault
+            syncs here and you expected plugins, check that your sync includes the{" "}
+            <Text variant="mono">.obsidian</Text> folder — some sync tools exclude it by default.
           </Text>
         </Card>
       </View>
@@ -570,6 +685,7 @@ function PluginRow({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   lead: { marginTop: 6 },
+  installRow: { alignItems: "center", gap: space.x2, paddingVertical: space.x1 },
   // Wrapping rather than a fixed row: three chips and their gaps can exceed a
   // phone's width, and wrapping is what keeps this a settings row instead of a
   // horizontal scroller.

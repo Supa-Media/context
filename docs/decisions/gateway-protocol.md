@@ -292,3 +292,85 @@ figure a future schema moves: an array with a larger `maxItems`, or an element
 schema with more properties, changes the ceiling and leaves the typical-write
 figure exactly where it was. Both are asserted in the suite. Neither is measured
 under `workerd`.
+
+### Reach is described from the clamp that will decide it, on both surfaces
+
+A connected ChatGPT was asked to file a note in `@public-worship`, a workspace
+its user owns. It had `write_note`, it had the `context` argument on it, and
+the grant covered that context. It refused three times — "the write action
+exposed to me only targets the default workspace and doesn't expose the
+workspace selector" — and nothing was written. The capability was complete and
+the description of it was not, in two separate places.
+
+**`orient` described the other contexts from the role alone, which is half of
+the answer and wrong in both directions.** `accessSentence(role)` said "yours,
+and you see private notes there" for an owner: three facts about reading and
+not one word about writing, followed by a closing line — "what you may do in
+another is decided by your role there" — that invites a model to go looking for
+a permission the row never granted. That is the too-mean direction, and it is
+the one a person hit. The too-generous one was in the same function: an
+`editor` on a read-only grant was announced as able to "read and write team
+notes there", which spends an agent's turn on a refusal the sentence could have
+prevented, and an `owner` on a grant carrying no `context:private` was promised
+private notes it reads at `team`.
+
+The row is now `reachForRole(session, role)` — `effectiveScopes(grantScopes,
+role)` and `visibilityTierForGrant` over the result, which is exactly what
+`sessionForContext` computes when the call actually arrives. Three properties
+are load-bearing:
+
+- **The description and the gate read one clamp.** A second copy of that
+  reasoning is the drift `session.js` exists to prevent, so `reachForRole` lives
+  beside `writesAnywhere` and `readsPrivateAnywhere` rather than in `index.js`.
+  What orientation promises and what `callToolForSession` does cannot disagree.
+- **From the grant's own scopes, never the connection's clamped set.**
+  Re-clamping intersects two roles, so somebody connected at a context they are
+  a `member` of would be told they cannot write in one they are an `editor` of.
+  Sabotage-tested: the guest fixture is what fails.
+- **Which half refused is named, because the remedies differ.** A grant that was
+  never given write is a reconnection; a role that cannot back one up is not,
+  and telling somebody to reconnect for write they can never hold there sends
+  them round a loop that cannot end. `callToolForSession` already refuses in
+  exactly these two voices; the description now uses the same two.
+
+The same question about the context the connection is *in* had the same hole:
+`scopeInfoText` is the paragraph that decides whether an agent tries at all, and
+a client its person deliberately connected read-only was handed "Writable: every
+non-reserved Markdown path". It now opens with which of the two halves said no,
+before the prefixes, because the prefixes remain true of the context and what
+this connection may do with them is a different sentence.
+
+**And the addressing argument is advertised in the tool's description, not only
+in its property blurb.** The property was there and correctly described, and the
+model still reported it absent. A description is the one field every client
+renders; a schema is something a client may summarise, reorder, or show a model
+without. The sentence is appended in the same central map that adds the
+property — `toolDefinitions()` — so a tool added next year gets both or neither,
+and the two cannot drift. `search` and `fetch` get neither: their schema is
+somebody else's contract, and a sentence promising an argument they refuse would
+be worse than silence.
+
+The cost is one sentence on every addressable tool, against a `tools/list` a
+client fetches once and caches for a minute. The test that fails if this is
+reversed is `every addressable tool's description says how to address it`; the
+ones that fail if the rows go back to the role are the four in
+`crossContext.test.mjs` that read a single `### @name —` line and ask what it
+claims.
+
+**Sabotage record**, run as temporary local edits and reverted, counts as
+measured:
+
+1. **`accessSentence` back to the role alone** — 3 checks failed, one per
+   direction plus the reason.
+2. **`reachForRole` re-clamps the connection's already-clamped scopes** — 2
+   failed, both of them write that survives a connection clamped to `member`.
+   (The first pass of this suite did *not* catch it: the check that would have
+   was written over the whole orientation text rather than one row. Recorded
+   because a sabotage that passes is the only way that gets found.)
+3. **The read-only notice is suppressed** — 3 failed. Same lesson: the first
+   version of that check searched the whole answer, which contains "read-only"
+   in the sibling rows, and passed with the notice deleted. It reads the
+   `## Write surface` section now.
+4. **The notice ignores which half refused** — 1 failed, the one that separates
+   a reconnection the person can make from a role only an owner can change.
+5. **The description suffix is dropped** — 1 failed, and it names all 33 tools.

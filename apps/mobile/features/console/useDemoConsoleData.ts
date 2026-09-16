@@ -606,6 +606,12 @@ export function useDemoConsoleData(): ConsoleData {
       plugins: DEMO_CONTEXT_PLUGINS,
     },
     /*
+      The landing page has no bucket, so nothing was installed into one. That is
+      a real answer rather than a withheld one — `withheld` would draw "only an
+      owner can read this" on a page with no owner.
+    */
+    pluginInstalls: { state: "ready", installs: [], truncated: false, read: async () => {} },
+    /*
       No grants, and no `actions` to make any — the same rule `storageActions`
       and `shares` follow. The landing page's console has no bucket and no
       account behind it, so an Approve there would be a button that lies about

@@ -182,7 +182,7 @@ const TOP_LEVEL_ONLY_NAMES: readonly string[] = [
     reserving, because nobody legitimate is ever going to want them.
   */
 
-  // Spellings of `@context-lc`, the shared context every user is a member of.
+  // Spellings of `@context-lc`, the context pinned into every account's list.
   // A handle that reads as it is a handle that reads as us.
   "contextlc",
   "context-app",

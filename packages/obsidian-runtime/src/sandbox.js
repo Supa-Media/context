@@ -355,6 +355,20 @@ export function pluginSandboxDocument() {
     for the editor's own suggestions, applied to this.
   */
   let openModal = null;
+  /*
+    The plain text dialog a plugin has open, if any. Separate from openModal
+    because they are different dialogs with different protocols — one asks the
+    reader to choose, one only shows them something — and one variable for both
+    would make close() have to guess which it was closing.
+  */
+  let openTextModal = null;
+  const TEXT_MODAL_TITLE_MAX = 200;
+  /*
+    Enough for a passage, and a ceiling rather than a guess: what crosses is one
+    postMessage per mutation of the dialog's own DOM, so a plugin that builds a
+    large document into contentEl would otherwise send it repeatedly.
+  */
+  const TEXT_MODAL_TEXT_MAX = 8000;
 
   async function answerSuggest(message) {
     const line = typeof message.line === 'string' ? message.line : '';
@@ -713,6 +727,148 @@ export function pluginSandboxDocument() {
   }
 
   class Component { load() {}; unload() {} }
+  /*
+    AN EVENT BUS, IMPLEMENTED RATHER THAN DECLARED.
+
+    Obsidian's Events is a plain emitter and several plugins extend it to make
+    their own. Bible Reference does, at module scope, about eighty kilobytes
+    into its bundle:
+
+        var Pe = class n extends it.Events { ... static getInstance() ... }
+
+    which is evaluated on load. A missing class there is extends undefined,
+    thrown before onload, and the whole plugin gone — the same failure
+    SuggestModal was added for, from a class nobody had thought to list.
+
+    There is nothing to invert here and nothing to ask the console for: this is
+    a map of callbacks inside the sandbox. The reference object on returns is
+    what offref takes back, which is the contract the subclass above relies on —
+    it collects refs and releases them together.
+
+    A listener that throws must not stop the ones after it, and a plugin cannot
+    be trusted not to throw; the same rule the disposer loop follows.
+  */
+  class Events {
+    constructor() { this.__contextHandlers = new Map(); }
+    on(name, callback, ctx) {
+      const key = String(name);
+      const ref = { name: key, callback, ctx };
+      const list = this.__contextHandlers.get(key) || [];
+      list.push(ref);
+      this.__contextHandlers.set(key, list);
+      return ref;
+    }
+    off(name, callback) {
+      const key = String(name);
+      const list = this.__contextHandlers.get(key);
+      if (!list) return;
+      this.__contextHandlers.set(key, list.filter(entry => entry.callback !== callback));
+    }
+    offref(ref) {
+      if (!ref || typeof ref !== 'object') return;
+      const list = this.__contextHandlers.get(ref.name);
+      if (!list) return;
+      this.__contextHandlers.set(ref.name, list.filter(entry => entry !== ref));
+    }
+    trigger(name, ...args) {
+      const list = this.__contextHandlers.get(String(name));
+      if (!list) return;
+      // A copy, because a listener may register or release one while running.
+      for (const entry of list.slice()) {
+        try { entry.callback.apply(entry.ctx, args); } catch (_) {}
+      }
+    }
+    tryTrigger(ref, args) {
+      if (!ref || typeof ref.callback !== 'function') return;
+      try { ref.callback.apply(ref.ctx, args || []); } catch (_) {}
+    }
+  }
+
+  /*
+    A DIALOG THE PLUGIN FILLS AND THE CONSOLE DRAWS.
+
+    Same inversion as SuggestModal, one step simpler. contentEl and titleEl are
+    real elements in here, so a plugin builds into them exactly as it would in
+    Obsidian — including asynchronously, which Bible Reference's verse-of-the-day
+    does: its onOpen awaits a fetch and only then calls contentEl.setText.
+
+    So what crosses is text, and it crosses whenever the text changes rather
+    than once when open() returns. A MutationObserver is what makes the async
+    case work without polling and without the plugin having to tell us it
+    finished — and without it this dialog would reliably show empty for the one
+    plugin it was written for.
+
+    Only textContent crosses. A plugin cannot put markup, a link, an image or a
+    script in front of a reader, which is the same boundary the suggestion
+    dialog keeps and for the same reason.
+
+    Interactive controls built into contentEl do not work, and that is reported
+    rather than hidden: a button drawn in here is a button in a document nobody
+    sees. Read-only dialogs — a verse, a summary, an explanation — are what this
+    serves, and they are most of them.
+  */
+  class Modal {
+    constructor(appValue) {
+      this.app = appValue;
+      this.containerEl = createDiv();
+      this.modalEl = this.containerEl.createDiv();
+      this.titleEl = this.modalEl.createDiv();
+      this.contentEl = this.modalEl.createDiv();
+      this.__contextObserver = null;
+    }
+    setTitle(value) { this.titleEl.setText(value); this.__contextPush(); return this; }
+    setContent(value) { this.contentEl.setText(value); this.__contextPush(); return this; }
+    onOpen() {}
+    onClose() {}
+    open() {
+      /*
+        Retire whoever was open first. Its observer would otherwise keep running
+        against a dialog nobody can see — __contextPush returns early once
+        openTextModal moves on, so the callbacks are pure waste, and a plugin
+        that opens a dialog per command would accumulate one each time.
+      */
+      if (openTextModal !== null && openTextModal !== this) openTextModal.__contextUnwatch();
+      openTextModal = this;
+      this.__contextWatch();
+      // Sent before onOpen so a dialog whose content arrives over the network
+      // appears immediately rather than after the round trip, which is what the
+      // reader who pressed the command is waiting to see.
+      this.__contextPush();
+      try { Promise.resolve(this.onOpen()).then(() => this.__contextPush(), () => {}); } catch (_) {}
+    }
+    close() {
+      // Unconditionally, before the early return: a modal that was replaced
+      // rather than closed still owns an observer, and close() is a plugin's
+      // only way to say it is finished with it.
+      this.__contextUnwatch();
+      if (openTextModal !== this) return;
+      openTextModal = null;
+      try { this.onClose(); } catch (_) {}
+      send('text-modal', { open: false });
+    }
+    __contextWatch() {
+      if (this.__contextObserver || typeof MutationObserver !== 'function') return;
+      this.__contextObserver = new MutationObserver(() => this.__contextPush());
+      this.__contextObserver.observe(this.modalEl, {
+        childList: true, subtree: true, characterData: true,
+      });
+    }
+    __contextUnwatch() {
+      if (!this.__contextObserver) return;
+      this.__contextObserver.disconnect();
+      this.__contextObserver = null;
+    }
+    __contextPush() {
+      if (openTextModal !== this) return;
+      send('text-modal', {
+        open: true,
+        title: String(this.titleEl.textContent || '').slice(0, TEXT_MODAL_TITLE_MAX),
+        text: String(this.contentEl.textContent || '').slice(0, TEXT_MODAL_TEXT_MAX),
+      });
+    }
+  }
+
+
   class MarkdownView {}
   class ItemView {}
   class EditorSuggest { constructor(appValue) { this.app = appValue; } }
@@ -854,8 +1010,8 @@ export function pluginSandboxDocument() {
   };
 
   const api = {
-    Plugin, Notice, Component, MarkdownView, ItemView, EditorSuggest, SuggestModal, FuzzySuggestModal,
-    PluginSettingTab, Setting,
+    Plugin, Notice, Component, Events, Modal, MarkdownView, ItemView, EditorSuggest, SuggestModal,
+    FuzzySuggestModal, PluginSettingTab, Setting,
     TFile, TFolder, Vault: function Vault() {}, Workspace: function Workspace() {},
     MetadataCache: function MetadataCache() {},
     normalizePath: value => String(value).replace(/\\\\/g, '/').replace(/^\\/+|\\/+$/g, ''),
@@ -925,6 +1081,15 @@ export function pluginSandboxDocument() {
     suggesters.length = 0;
     offered = null;
     processors.length = 0;
+    /*
+      An unloaded plugin's dialogs are not answerable. openModal mattered
+      already — a pick would have run onChooseSuggestion on a plugin that is no
+      longer running — and openTextModal holds a live MutationObserver besides,
+      which would go on firing against a document nobody sees.
+      (No backticks: this whole file is inside a template literal.)
+    */
+    openModal = null;
+    if (openTextModal !== null) { openTextModal.__contextUnwatch(); openTextModal = null; }
     if (statusWatch !== null) { statusWatch.disconnect(); statusWatch = null; }
     statusRoot.textContent = '';
     statusCount = 0;
@@ -1037,6 +1202,18 @@ export function pluginSandboxDocument() {
       // console a message about a dialog the console just shut.
       const modal = openModal.modal;
       openModal = null;
+      try { modal.onClose(); } catch (_) {}
+      return;
+    }
+    if (message.type === 'text-modal-dismiss') {
+      if (instance === null || openTextModal === null) return;
+      // The reader closed it. Same shape as the suggestion dialog's dismissal:
+      // the plugin's onClose runs and the observer stops, and it does not go
+      // through close(), which would send the console a message about a dialog
+      // the console has already shut.
+      const modal = openTextModal;
+      openTextModal = null;
+      modal.__contextUnwatch();
       try { modal.onClose(); } catch (_) {}
       return;
     }
@@ -1177,6 +1354,16 @@ export const STATUS_BAR_MAX = 8;
 
 /** How many instruction rows a dialog may put under its list. */
 export const SUGGEST_MODAL_INSTRUCTIONS_MAX = 6;
+
+/**
+ * What a plain `Modal` may put on screen, bounded on the trusted side.
+ *
+ * The guest applies the same numbers to itself, and that is not where the cap
+ * lives: a bound the untrusted half enforces is a bound it can drop. These are
+ * the ones that decide what is drawn.
+ */
+export const TEXT_MODAL_TITLE_CAP = 200;
+export const TEXT_MODAL_TEXT_CAP = 8000;
 
 /**
  * How many links one preview query covers, and how long one preview may be.
@@ -1326,6 +1513,27 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         open: row.open,
         placeholder: typeof row.placeholder === "string" ? row.placeholder.slice(0, 120) : "",
         instructions,
+      };
+    }
+    /*
+      A plain text dialog, opened or closed.
+
+      `Modal` has no query and no pick, so unlike `suggest-modal` there is
+      nothing to route back — the console draws the title and the body and
+      offers a way out. The text is re-sent on every mutation of the dialog's
+      own DOM, because a plugin may fill it asynchronously and the one this was
+      written for does.
+
+      Bounded here as well as in the guest, for `suggest-modal`'s reason: a cap
+      the untrusted half applies to itself is not a cap.
+    */
+    case "text-modal": {
+      if (typeof row.open !== "boolean") return null;
+      return {
+        type: "text-modal",
+        open: row.open,
+        title: typeof row.title === "string" ? row.title.slice(0, TEXT_MODAL_TITLE_CAP) : "",
+        text: typeof row.text === "string" ? row.text.slice(0, TEXT_MODAL_TEXT_CAP) : "",
       };
     }
     /*

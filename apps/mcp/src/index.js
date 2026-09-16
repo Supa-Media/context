@@ -75,6 +75,7 @@ import {
   storeForOpenedBinding,
   storeForSession,
   readsPrivateAnywhere,
+  reachForRole,
   writesAnywhere,
   participatesInForms,
 } from "./session.js";
@@ -1836,11 +1837,25 @@ function personalNameFor(session) {
 function contextsFor(session) {
   return (session.workspaces || [])
     .filter((entry) => typeof entry.slug === "string" && entry.slug !== "")
-    .map((entry) => ({
-      name: `@${entry.slug}`,
-      role: entry.role,
-      current: entry.workspaceId === session.workspaceId,
-    }));
+    .map((entry) => {
+      /*
+        The role is what this connection's person holds there; the reach is what
+        *this connection* may do with it, which is the role intersected with the
+        grant's own scopes. Both travel, because orientation describes contexts
+        it does not open — the ones past the fan-out cap, and every one of them
+        when `orient` was itself addressed elsewhere — and a description drawn
+        from the role alone is wrong in both directions.
+      */
+      const reach = reachForRole(session, entry.role);
+      return {
+        name: `@${entry.slug}`,
+        role: entry.role,
+        current: entry.workspaceId === session.workspaceId,
+        canWrite: reach.canWrite,
+        grantWrites: reach.grantWrites,
+        tier: reach.tier,
+      };
+    });
 }
 
 async function handleMcp(request, store, session) {
@@ -2607,6 +2622,23 @@ const CONTEXT_ARGUMENT = {
 };
 
 /**
+ * The same fact, in the one field every client renders.
+ *
+ * A property blurb is not nothing, but a client is free to summarise the schema,
+ * reorder it, or show a model the tool without it; the description is the field
+ * that always arrives. A connected ChatGPT holding this exact schema told its
+ * user three times that the write action "doesn't expose the workspace
+ * selector", and never tried — the argument was there, and the sentence a model
+ * reads when it is deciding what a tool can do was not.
+ *
+ * Appended in the same map that adds the property, so the two cannot drift and
+ * the tool added next year gets both or neither.
+ */
+const CONTEXT_ARGUMENT_SENTENCE =
+  ' Works in another context too: pass context: "@name" for any workspace you reach ' +
+  "(orient lists them and says what you may do in each).";
+
+/**
  * The two tools whose schema is somebody else's contract.
  *
  * `search` and `fetch` exist in OpenAI's deep-research shape so ordinary
@@ -2633,6 +2665,10 @@ export function toolDefinitions() {
     const schema = tool.inputSchema || { type: "object" };
     return {
       ...tool,
+      // Concatenated rather than templated, so a definition that somehow has no
+      // description gets the sentence alone instead of the word "undefined" in
+      // the field a model reads to decide what the tool does.
+      description: `${tool.description || ""}${CONTEXT_ARGUMENT_SENTENCE}`.trim(),
       inputSchema: {
         ...schema,
         properties: { ...(schema.properties || {}), context: CONTEXT_ARGUMENT },
@@ -4701,7 +4737,7 @@ async function surveyOtherContexts(store) {
         const opened = await store.openContext(entry.name);
         const privacy = await loadPrivacyState(opened.store);
         if (privacy.error) {
-          return `### ${entry.name} — ${accessSentence(entry.role)}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.`;
+          return `### ${entry.name} — ${accessSentence(entry)}\nIts privacy manifest could not be read, so nothing there is readable until its owner repairs it.`;
         }
         const page = await readFrontPage(
           opened.store,
@@ -4711,7 +4747,7 @@ async function surveyOtherContexts(store) {
           ORIENT_SIBLING_INDEX_CHAR_CAP
         );
         return (
-          `### ${entry.name} — ${accessSentence(entry.role)}\n` +
+          `### ${entry.name} — ${accessSentence(entry)}\n` +
           (page ||
             "No front page visible to you there yet. `list_notes` with " +
               `\`context: "${entry.name}"\` is the way in.`)
@@ -4719,7 +4755,7 @@ async function surveyOtherContexts(store) {
       } catch {
         // Named, and honest about why it is thin. Dropping the row would make
         // a context that exists look like one that does not.
-        return `### ${entry.name} — ${accessSentence(entry.role)}\nCould not be opened just now; its storage may be disconnected.`;
+        return `### ${entry.name} — ${accessSentence(entry)}\nCould not be opened just now; its storage may be disconnected.`;
       }
     })
   );
@@ -4735,16 +4771,18 @@ async function surveyOtherContexts(store) {
     : "## Other contexts you can reach\n\n";
   const body = readable.length
     ? pages.join("\n\n")
-    : others.map((entry) => `- ${entry.name} — ${accessSentence(entry.role)}`).join("\n");
+    : others.map((entry) => `- ${entry.name} — ${accessSentence(entry)}`).join("\n");
 
   return (
     heading +
     body +
     tail +
     "\n\nEvery tool here takes an optional `context` argument: pass one of these names to " +
-    "read or write there instead of this one. Orient again with that argument before working " +
-    "in it — the map above, and every search and listing, is for this context only. What you " +
-    "may do in another is decided by your role there, not by this connection."
+    "read or write there instead of this one — `write_note` included, so filing a note in one " +
+    "of them is one call and needs no reconnection. Orient again with that argument before " +
+    "working in it: the map above, and every search and listing, is for this context only. " +
+    "Each line above already says what this connection may do in that context, so take it from " +
+    "there rather than assuming a reach you have not been given — or holding back one you have."
   );
 }
 
@@ -4879,25 +4917,90 @@ async function toolOrient(store, scope, rules, overrides) {
   }
 
   parts.push(ORIENT_OPERATING_CONTRACT);
-  parts.push(scopeInfoText(scope, rules));
+  parts.push(scopeInfoText(scope, rules, currentReach(store)));
   return toolText(parts.join("\n\n---\n\n"));
 }
 
 /**
- * What a role means where an agent will read it, rather than the word itself.
+ * What an agent may do in one of the other contexts, where it will read it.
  *
  * `member` and `editor` are this codebase's vocabulary; what an agent needs to
- * know before it tries to write somewhere is whether it can. An unknown role is
- * described as read-only — the direction that costs a refused write rather than
- * a confident attempt that fails.
+ * know before it tries to write somewhere is whether it can. So the row is
+ * written from the connection's **reach** — `effectiveScopes(grantScopes,
+ * role)`, the clamp the call itself will be held to — and not from the role,
+ * which is only half of it and was wrong in both directions.
+ *
+ * Both halves are said out loud, and that is the point rather than verbosity:
+ *
+ *  - **Write is named when it is held.** The version that said only "yours, and
+ *    you see private notes there" described an owned context in three facts
+ *    about reading, and a model asked to file a note there — reading that row,
+ *    then the closing "what you may do in another is decided by your role
+ *    there" — concluded it had not established that it could write, and said so
+ *    instead of writing. It had `context` on `write_note` throughout.
+ *  - **Read-only is named when it is not.** An `editor` on a read-only grant
+ *    was announced as writable, which spends an agent's turn on a refusal this
+ *    sentence could have prevented — and names the connection as the reason,
+ *    because that is the part the person can change.
+ *
+ * The tier comes from the same clamp for the same reason: an `owner` on a grant
+ * carrying no `context:private` reads that context at `team`, and promising
+ * private notes there describes a workspace this connection cannot see.
+ *
+ * An unknown role reaches this with no write in its clamp, so it is described
+ * as read-only — the direction that costs a refused write rather than a
+ * confident attempt that fails.
  */
-function accessSentence(role) {
-  if (role === "owner") return "yours, and you see private notes there";
-  if (role === "editor") return "you can read and write team notes there";
-  return "you can read team notes there";
+function accessSentence(entry) {
+  const owner = entry?.role === "owner";
+  const notes = owner && entry?.tier === "private" ? "private notes" : "team notes";
+  if (entry?.canWrite) {
+    return owner
+      ? `yours: you read ${notes} and can write there`
+      : `you can read and write ${notes} there`;
+  }
+  // Which half refused, in the two voices `callToolForSession` refuses in: a
+  // grant is a reconnection the person can make, a role is not.
+  const why = entry?.grantWrites
+    ? "your role there does not carry write"
+    : "this connection is read-only";
+  return owner
+    ? `yours: you read ${notes} there, but ${why}`
+    : `you can read ${notes} there, but ${why}`;
 }
 
-function scopeInfoText(scope, rules) {
+/**
+ * The connection's reach in the context it is acting in, for the write surface.
+ *
+ * `store.contexts` is the request-scoped list `contextsFor` built, and exactly
+ * one entry is `current`. A store that has none — a self-host shim, a test
+ * harness, an `openContext` hop — yields `null`, and the write surface says
+ * what it always said rather than guessing that a connection is read-only.
+ */
+function currentReach(store) {
+  return (store?.contexts || []).find((entry) => entry.current) || null;
+}
+
+/**
+ * The read-only line, or nothing.
+ *
+ * A grant its person deliberately connected read-only was still handed
+ * "Writable: every non-reserved Markdown path" — the paragraph that decides
+ * whether an agent tries at all. It is stated before the writable prefixes
+ * rather than instead of them: the prefixes remain true of the context, and
+ * which of them this connection may write is a different sentence.
+ */
+function readOnlyNotice(reach) {
+  if (!reach || reach.canWrite) return "";
+  return reach.grantWrites
+    ? "**You cannot write here.** Your role in this context does not carry write; " +
+        "its owner can change that. Everything below describes the context, not this connection.\n\n"
+    : "**This connection is read-only.** It holds no write scope, so every write is refused " +
+        "whichever context it addresses — reconnect the client with write access from the Context " +
+        "dashboard. Everything below describes the context, not this connection.\n\n";
+}
+
+function scopeInfoText(scope, rules, reach = null) {
   const teamRules = teamWritableRules(rules);
   const overrides = visiblePrivateOverrides(rules);
   const teamList = teamRules.length
@@ -4910,6 +5013,7 @@ function scopeInfoText(scope, rules) {
   if (scope === "private") {
     return (
       "## Write surface\n" +
+      readOnlyNotice(reach) +
       "Connection access: personal. New notes default to private.\n\n" +
       "Writable: every non-reserved Markdown path. privacy.md is readable here but protected from ordinary note writes.\n\n" +
       "Team-default folder prefixes:\n" +
@@ -4927,6 +5031,7 @@ function scopeInfoText(scope, rules) {
 
   return (
     "## Write surface\n" +
+    readOnlyNotice(reach) +
     "Connection access: team. New notes default to team.\n\n" +
     "Team-writable folder defaults:\n" +
     teamList +
@@ -4944,7 +5049,7 @@ function scopeInfoText(scope, rules) {
 }
 
 async function toolScopeInfo(store, scope, rules, overrides, pathArg) {
-  let text = scopeInfoText(scope, rules);
+  let text = scopeInfoText(scope, rules, currentReach(store));
   if (pathArg !== undefined) {
     const path = normalizePath(pathArg);
     if (!path) return toolError("invalid path");

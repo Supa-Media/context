@@ -82,6 +82,16 @@ const TOKEN_GUEST = `cat_cross_guest_${"0".repeat(24)}`;
 /** A grant that was never given write, anywhere. */
 const TOKEN_READ_ONLY = `cat_cross_readonly_${"0".repeat(22)}`;
 /**
+ * A read-only grant belonging to somebody who is an `editor` elsewhere.
+ *
+ * The role says write, the grant says no, and the two are intersected — so this
+ * is the fixture that catches an orientation describing another context from
+ * the role alone. It is the direction that costs a person an attempt: told
+ * "you can read and write team notes there", an agent tries, and the write
+ * gate refuses it for a reason orientation never mentioned.
+ */
+const TOKEN_READ_ONLY_EDITOR = `cat_cross_ro_editor_${"0".repeat(21)}`;
+/**
  * Connected at a context they are only a `member` of, while owning another.
  *
  * The one shape `readsPrivateAnywhere`'s cross-context arm exists for: the
@@ -261,6 +271,15 @@ export async function runCrossContextChecks(check) {
     clientId: "mcp_client_cross_readonly",
     userId: "user_cross",
     alsoMemberOf: [{ workspaceId: "ws_shared", role: "member" }],
+  });
+  await controlPlane.addGrant({
+    accessToken: TOKEN_READ_ONLY_EDITOR,
+    workspaceId: "ws_own",
+    role: "owner",
+    scopes: ["context:read", "context:private"],
+    clientId: "mcp_client_cross_readonly_editor",
+    userId: "user_cross",
+    alsoMemberOf: [{ workspaceId: "ws_shared", role: "editor" }],
   });
   await controlPlane.addGrant({
     accessToken: TOKEN_OWNER_BOTH,
@@ -721,6 +740,114 @@ export async function runCrossContextChecks(check) {
   );
 
   /*
+    WHAT THIS CONNECTION MAY DO THERE — NOT WHAT THE ROLE ALONE IMPLIES.
+
+    The row describing each sibling was a function of the role and nothing else,
+    and both of its answers were wrong in a way an agent acts on.
+
+    Too mean, which is the one a user actually hit: an owner was told "yours,
+    and you see private notes there" — three facts about *reading* and not one
+    word about writing. Asked to file a note in a workspace it owns, a model
+    reads that row, reads the closing "what you may do in another is decided by
+    your role there", and concludes it has not established that it may write.
+    It then says so instead of writing, which is what a connected ChatGPT did:
+    it had `context` on `write_note` the whole time.
+
+    Too generous, the other direction: an `editor` on a read-only grant was told
+    "you can read and write team notes there". The grant ∩ role clamp refuses
+    that write, so the row sends an agent into a refusal orientation could have
+    saved it.
+
+    The reach is `effectiveScopes(grantScopes, role)` — the same clamp
+    `sessionForContext` applies when the call actually arrives — so the row and
+    the gate cannot disagree.
+  */
+  const rowFor = (text, name) =>
+    (text.split("\n").find((line) => line.startsWith(`### ${name} \u2014`)) ?? "");
+
+  const ownerBothOrientation = textOf(await callTool(env, TOKEN_OWNER_BOTH, "orient"));
+  check(
+    "a context this connection owns and may write is described as writable",
+    /\bwrite\b/.test(rowFor(ownerBothOrientation, "@stranger"))
+  );
+  check(
+    "and still says the private tier is readable there",
+    /private/.test(rowFor(ownerBothOrientation, "@stranger"))
+  );
+
+  const readOnlyEditorOrientation = textOf(
+    await callTool(env, TOKEN_READ_ONLY_EDITOR, "orient")
+  );
+  check(
+    "an editor role on a read-only grant is not described as writable",
+    rowFor(readOnlyEditorOrientation, "@theirs") !== "" &&
+      !/\bwrite\b/.test(rowFor(readOnlyEditorOrientation, "@theirs"))
+  );
+  check(
+    "and the row says the connection is the reason, not the role",
+    /read-only/.test(rowFor(readOnlyEditorOrientation, "@theirs"))
+  );
+
+  /*
+    An owner on a grant that carries no `context:private` reads that context at
+    `team`, exactly as `visibilityTierForGrant` says — so the row must not
+    promise private notes it will not return.
+  */
+  const readOnlyOrientation = textOf(await callTool(env, TOKEN_READ_ONLY, "orient"));
+  check(
+    "a plain member is still described as reading only",
+    !/\bwrite\b/.test(rowFor(readOnlyOrientation, "@theirs"))
+  );
+
+  /*
+    THE ROW IS READ OFF THE GRANT'S OWN SCOPES, NOT THE CONNECTION'S CLAMPED SET.
+
+    `sessionForContext` keeps this distinction and documents why; `reachForRole`
+    describes what that call will do, so it has to make the same one or the
+    description and the gate disagree. This person connected at a context they
+    are a plain `member` of — so the live session carries no write at all — and
+    is an `editor` somewhere else, where the grant's write survives the clamp.
+    Re-clamping the already-clamped set intersects two roles and takes that
+    away, which reads as a permission bug in the wrong place: an agent told it
+    cannot write in a context where it can.
+  */
+  const guestOrientation = textOf(await callTool(env, TOKEN_GUEST, "orient"));
+  check(
+    "write held where the caller is an editor survives a connection clamped to member",
+    /\bwrite\b/.test(rowFor(guestOrientation, "@stranger")) &&
+      !/read-only/.test(rowFor(guestOrientation, "@stranger"))
+  );
+
+  /*
+    And the same question about the context the connection is actually in,
+    which is the paragraph deciding whether an agent tries at all. Asserted on
+    the write-surface section rather than on the whole answer: the sibling rows
+    say "read-only" too, so a check over the whole text passes with this notice
+    deleted — measured, during the sabotage pass, as zero failures.
+  */
+  const writeSurfaceOf = (text) => text.split("## Write surface")[1] ?? "";
+  check(
+    "a read-only grant's write surface says so before it lists writable paths",
+    /This connection is read-only/.test(writeSurfaceOf(readOnlyOrientation))
+  );
+  check(
+    "a role that cannot write is named as the role, not as the connection",
+    /You cannot write here/.test(writeSurfaceOf(guestOrientation)) &&
+      !/This connection is read-only/.test(writeSurfaceOf(guestOrientation))
+  );
+  check(
+    "a connection that can write here is told neither",
+    writeSurfaceOf(orientation) !== "" &&
+      !/read-only|cannot write here/i.test(writeSurfaceOf(orientation))
+  );
+  check(
+    "and scope_info, the other caller, carries the same notice",
+    /This connection is read-only/.test(
+      textOf(await callTool(env, TOKEN_READ_ONLY, "scope_info"))
+    ) && !/read-only/i.test(textOf(await callTool(env, TOKEN_OWNER, "scope_info")))
+  );
+
+  /*
     The front page of each of them, which is what makes the list worth having.
     A name an agent cannot judge is a name it never follows; `index.md` is the
     one file that says what a context is for.
@@ -939,6 +1066,35 @@ export async function runCrossContextChecks(check) {
   check(
     "orient advertises it too, since orientation is per context",
     Boolean(tools.find((tool) => tool.name === "orient")?.inputSchema?.properties?.context)
+  );
+
+  /*
+    AND THE DESCRIPTION SAYS SO, BECAUSE THAT IS THE SURFACE EVERY CLIENT READS.
+
+    A property blurb is not nothing, but it is the part of a tool a client is
+    free to summarise, reorder or leave out of what the model sees — and a
+    model that has decided a capability is absent does not go back and re-read
+    the parameter list to check. A connected ChatGPT, holding this exact
+    schema, told its user three times that "the write action exposed to me
+    doesn't expose the workspace selector".
+
+    So the sentence goes where the one description every client renders is,
+    added in the same central map as the property so the two cannot drift and
+    a tool added next year cannot quietly ship without it.
+  */
+  const unaddressed = tools
+    .filter((tool) => tool.inputSchema?.properties?.context)
+    .filter((tool) => !/context: "@name"/.test(tool.description || ""))
+    .map((tool) => tool.name);
+  check(
+    `every addressable tool's description says how to address it (${unaddressed.join(", ") || "none missing"})`,
+    unaddressed.length === 0
+  );
+  check(
+    "and the two foreign-contract tools say nothing they cannot honour",
+    tools
+      .filter((tool) => !tool.inputSchema?.properties?.context)
+      .every((tool) => !/context: "@name"/.test(tool.description || ""))
   );
 
   /*

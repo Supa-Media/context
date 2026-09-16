@@ -31,6 +31,7 @@ import {
   MANAGED_PLUGIN_PREFIX,
   PLUGIN_PREFIX,
   inventoryPlugins,
+  listManagedInstalls,
   listPluginFolders,
 } from "../src/plugins/inventory.js";
 import { renderPluginReport } from "../src/plugins/report.js";
@@ -49,13 +50,19 @@ function makeBucket({ delimiter = true, pageSize = 1000 } = {}) {
   let etagCounter = 0;
   const encoder = new TextEncoder();
   const writes = [];
+  // Every key anybody asked for, so "this does not open a bundle" can be a
+  // check rather than a claim. `listManagedInstalls` exists to be cheap, and a
+  // cheapness nobody measured is the kind that grows a manifest read back.
+  const reads = [];
   return {
     objects,
     writes,
+    reads,
     seed(key, text) {
       objects.set(key, { bytes: encoder.encode(text), etag: `e${++etagCounter}` });
     },
     async get(key) {
+      reads.push(key);
       const entry = objects.get(key);
       if (!entry) return null;
       if (entry.explode) throw new Error("backend refused this object");
@@ -411,6 +418,60 @@ export async function runPluginChecks(check) {
         called.limitations.some((line) => line.includes("rendering markdown"))
       );
     })()
+  );
+  /*
+    THE HALF NO LIST COULD HAVE ANSWERED.
+
+    `SuggestModal` was found because somebody had written it down as absent.
+    `Events` and `Modal` were on no list in this repository — not supported, not
+    planned, not absent — so a bundle extending either scanned clean, was
+    labelled "runs here: everything these use, Context implements", and then
+    died on `extends undefined` before `onload`. Verified against the real
+    Bible Reference release, which extends both.
+
+    `undeclaredBases` derives the answer from what the shim exports instead, so
+    a base class nobody thought of is caught by construction. The name is
+    reported without a claim about it: "not built yet" would be a promise about
+    somebody else's API.
+  */
+  check(
+    "a base class nobody ever listed is still a blocker, derived from what the shim exports",
+    (() => {
+      const scanned = scanPlugin({
+        id: "unlisted-base",
+        manifestText: manifestFor("unlisted-base"),
+        source: 'var eo = require("obsidian");\nclass V extends eo.NeverHeardOfIt {}\n',
+      });
+      return (
+        scanned.verdict === "wont-run" &&
+        scanned.evidence.some((entry) => entry.id === "NeverHeardOfIt") &&
+        !scanned.evidence.some((entry) => /not built yet/.test(entry.reason))
+      );
+    })()
+  );
+  check(
+    "and a class the shim does export is not one, however it was reached",
+    (() => {
+      const source =
+        'var eo = require("obsidian");\n' +
+        "class A extends eo.Events {}\nclass B extends eo.Modal { }\n" +
+        "class C extends eo.Plugin {}\nmodule.exports = C;\n";
+      return scanPlugin({ id: "real-bases", manifestText: manifestFor("real-bases"), source }).verdict === "runs";
+    })()
+  );
+  /*
+    The precision that keeps this from failing plugins that work: a bundled
+    third-party library has its own namespaces and its own classes, and only a
+    namespace that provably came from `require("obsidian")` is ours to judge.
+    The module string survives minification; the identifier does not.
+  */
+  check(
+    "a namespace that did not come from the obsidian module is left alone",
+    scanPlugin({
+      id: "other-namespace",
+      manifestText: manifestFor("other-namespace"),
+      source: 'var ui = require("some-ui-kit");\nclass W extends ui.Widget {}\n',
+    }).verdict === "runs"
   );
   check(
     "and extending one the shim DOES answer is not a blocker",
@@ -783,6 +844,79 @@ export async function runPluginChecks(check) {
   check(
     "managed settings without a current release are not mistaken for an install",
     managedEdges.found === 2 && !managedEdges.plugins.some((p) => p.id === "data-only")
+  );
+
+  /* ------------------------------------- what Context itself installed here */
+  /*
+    The cheap question, asked without the expensive one.
+
+    These checks exist because the console used to be unable to answer "what
+    have I got" without running a full scan of somebody's vault, so it answered
+    "nothing" — and people reinstalled a plugin that had been installed the
+    whole time. The three properties below are the three halves of that bug:
+    the list is complete, it is cheap, and a failure to read it never comes back
+    looking like an empty bucket.
+  */
+  const installedBucket = makeBucket();
+  installedBucket.seed(`${PLUGIN_PREFIX}dataview/manifest.json`, manifestFor("dataview"));
+  installedBucket.seed(`${PLUGIN_PREFIX}dataview/main.js`, CLEAN_BUNDLE);
+  installedBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}obsidian-bible-reference/current.json`,
+    JSON.stringify({
+      id: "obsidian-bible-reference",
+      version: "26.08.07",
+      repository: "example/bible",
+    })
+  );
+  installedBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}obsidian-bible-reference/releases/26.08.07/manifest.json`,
+    manifestFor("obsidian-bible-reference")
+  );
+  installedBucket.seed(
+    `${MANAGED_PLUGIN_PREFIX}obsidian-bible-reference/releases/26.08.07/main.js`,
+    CLEAN_BUNDLE
+  );
+  installedBucket.seed(`${MANAGED_PLUGIN_PREFIX}half-written/current.json`, "{");
+  installedBucket.seed(`${MANAGED_PLUGIN_PREFIX}settings-only/data.json`, "{}");
+  installedBucket.reads.length = 0;
+  const installed = await listManagedInstalls(new R2Store(installedBucket));
+  const bible = installed.installs.find((row) => row.id === "obsidian-bible-reference");
+  check(
+    "an install Context made is named with its pinned version, having been asked nothing",
+    installed.available && bible?.version === "26.08.07" && bible?.repository === "example/bible"
+  );
+  check(
+    "and answering costs one pointer per install and not one bundle",
+    installedBucket.reads.length > 0 &&
+      installedBucket.reads.every((key) => key.endsWith("/current.json"))
+  );
+  check(
+    "a vault plugin is not a Context install",
+    !installed.installs.some((row) => row.id === "dataview")
+  );
+  check(
+    "a pointer that will not parse is still an install, with no version claimed",
+    installed.installs.some((row) => row.id === "half-written" && row.version === null)
+  );
+  check(
+    "settings left behind by a removal are not an install",
+    !installed.installs.some((row) => row.id === "settings-only")
+  );
+  const unreadableInstalls = await listManagedInstalls({
+    list: async () => {
+      throw new Error("the bucket refused this listing");
+    },
+  });
+  check(
+    "a listing that fails says so rather than reporting an empty bucket",
+    !unreadableInstalls.available &&
+      unreadableInstalls.installs.length === 0 &&
+      unreadableInstalls.reason === "the bucket refused this listing"
+  );
+  const cappedInstalls = await listManagedInstalls(new R2Store(installedBucket), { cap: 1 });
+  check(
+    "more installs than one answer carries is reported rather than silently cut",
+    cappedInstalls.installs.length === 1 && cappedInstalls.truncated
   );
 
   const crossSourceCap = await inventoryPlugins(store, { cap: 3 });

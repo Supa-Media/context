@@ -84,6 +84,18 @@ export const SUPPORTED_MEMBERS = Object.freeze([
   "SuggestModal",
   "FuzzySuggestModal",
 
+  // An event bus, and a plain-text dialog. Both are base classes a plugin
+  // extends at module scope, which is why they are here rather than on a list
+  // of things that would be nice: Bible Reference extends `Events` eighty
+  // kilobytes into its bundle and `Modal` at the end of it, and each missing
+  // one was `extends undefined` before `onload` — the whole plugin gone, over a
+  // secondary flow. Neither had ever been listed anywhere, not even as absent,
+  // so the scanner called the bundle `runs` while it could not load at all.
+  // `pluginBundles.spec.ts` runs the real release in a real browser now,
+  // because that is the only check that could have found them.
+  "Events",
+  "Modal",
+
   // Helpers the shim exports from the `obsidian` module.
   "normalizePath",
 
@@ -193,3 +205,49 @@ export const ABSENT_MEMBERS = Object.freeze({
  */
 export const PLANNED_MEMBERS = Object.freeze({ ...INERT_MEMBERS, ...ABSENT_MEMBERS });
 
+
+/**
+ * Exactly what `require("obsidian")` hands back inside the sandbox.
+ *
+ * ## A different question from `SUPPORTED_MEMBERS`, and the one nothing asked
+ *
+ * That list is mostly *methods* — `getMarkdownFiles`, `addCommand`,
+ * `registerEditorSuggest` — and it answers "will this call work". This answers
+ * "does this name exist on the module at all", which is the question that
+ * decides whether a bundle finishes evaluating.
+ *
+ * Nothing asked it, and two classes fell through the gap. `Events` and `Modal`
+ * were on no list in this repository: not supported, not planned, not absent.
+ * A bundle extending either scanned clean and was labelled *"runs here"*, and
+ * then died on `extends undefined` before `onload` — the whole plugin gone, for
+ * a class it used in a flow nobody would have called central.
+ *
+ * `scan.js` reads this to decide whether a base class the bundle reaches off
+ * the `obsidian` module is one the shim actually has. So a class added to the
+ * shim and not to this list makes the scanner fail a plugin that works, and a
+ * class on this list that the shim does not export makes it pass one that
+ * cannot load. Both directions are wrong, and both are caught in one place:
+ * `pluginSandboxGuest.test.ts` asserts this list and `Object.keys(api)` are the
+ * same set, against the real document.
+ */
+export const SANDBOX_MODULE_EXPORTS = Object.freeze([
+  "Plugin",
+  "Notice",
+  "Component",
+  "Events",
+  "Modal",
+  "MarkdownView",
+  "ItemView",
+  "EditorSuggest",
+  "SuggestModal",
+  "FuzzySuggestModal",
+  "PluginSettingTab",
+  "Setting",
+  "TFile",
+  "TFolder",
+  "Vault",
+  "Workspace",
+  "MetadataCache",
+  "normalizePath",
+  "requestUrl",
+]);

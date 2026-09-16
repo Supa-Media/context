@@ -1,6 +1,7 @@
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { ContextPluginsView } from "./plugins/contextPlugins";
+import type { ManagedInstallsView } from "./plugins/managedInstalls";
 import type { GrantsView } from "./plugins/grants";
 import type { BrowseView } from "./plugins/lifecycle";
 import type { RuntimeView } from "./plugins/runtime";
@@ -29,7 +30,16 @@ import type { ConnectFormValues } from "./storage/connect";
  * filled in from `placeholderData.ts`, labelled at the source.
  */
 
-export type StatusTone = "ok" | "warn" | "crit";
+/**
+ * A status pip's tone.
+ *
+ * `neutral` is "nothing is known, and nothing is claimed" — the grey pip, not a
+ * fourth severity. It exists for the pinned context, which has no storage
+ * subscription behind it because it has no membership row; see
+ * `contextToneFor`, which is where the alternative (an amber alarm about
+ * somebody else's bucket, drawn forever) is written down.
+ */
+export type StatusTone = "ok" | "warn" | "crit" | "neutral";
 
 /** One entry in the rail's "Contexts" group. */
 export interface ConsoleContext {
@@ -49,6 +59,25 @@ export interface ConsoleContext {
    * console would be a second place for it to drift.
    */
   meetingsFolder?: string;
+  /**
+   * True on the pinned context — `@context-lc`, which every account reaches
+   * without being invited (`packages/shared/src/pinnedContext.ts`).
+   *
+   * **Not derivable from anything else on this row.** It looks like an ordinary
+   * `shared`/`member` context and that is exactly what it is not: a shared
+   * context with `member` is one somebody put you in, and this one nobody did.
+   * The difference decides where the row is drawn (last, under a rule), what it
+   * says (read-only, whose it is), which of its verbs exist (Open, and nothing
+   * else), and — the one that is not cosmetic — whether the console fans its
+   * per-workspace subscriptions out over it. `listGrants`, `getStorageBinding`
+   * and `listGoogleConnections` all go through `requireWorkspaceAccess`, which
+   * has no membership row to find, so subscribing on this row means three
+   * failing queries per paint.
+   *
+   * Optional, and absent is false, so the demo console and the landing page's
+   * picture of the rail keep rendering unchanged.
+   */
+  pinned?: boolean;
 }
 
 /**
@@ -407,6 +436,15 @@ export interface ConsoleData {
    * for whichever half you had.
    */
   contextPlugins: ContextPluginsView;
+  /**
+   * What Context has installed in the selected context's bucket.
+   *
+   * A third kind of fact again, and the cheap one: a pointer per install, read
+   * on arrival rather than on a press. `plugins` is the scan and says what each
+   * one can do; this only says what is there — which is the question a person
+   * opening this screen actually has, and the one it could not answer.
+   */
+  pluginInstalls: ManagedInstallsView;
   /**
    * What each plugin in the selected context has been allowed to do.
    *

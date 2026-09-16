@@ -50,6 +50,11 @@
  * folder and a folder full of notes somebody may not read look identical here,
  * which is the point.
  *
+ * **It does not list the folder's placeholder either.** The `README.md` that
+ * makes the prefix exist is plumbing rather than a note, and a folder holding
+ * nothing else reads as empty here. The filter is `listedEntries`, shared with
+ * the tree so the two cannot come to disagree about what is in a folder.
+ *
  * ## The foot, and why only the root page has one
  *
  * `foot` is where `storage · index · counts` lands on a phone — the line that
@@ -85,6 +90,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
 import { baseName, displayName } from "./paths";
+import { listedEntries } from "./tree";
 import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
 
@@ -139,7 +145,13 @@ export function FolderView({
   // would be the overstatement `privacy/words.ts` forbids — "yours alone" about
   // a folder two colleagues can read.
   const groupRule = isGroupVisibility(entry.visibility) ? entry.visibility : null;
-  const rows = listing?.entries ?? [];
+  /*
+    `listedEntries` rather than the listing itself, so this page and the tree
+    agree about what is in a folder — including the folder placeholder, which
+    neither of them draws. See `tree.ts`. No `keep` here: the open thing on
+    this screen is the folder, so there is no note to hold visible.
+  */
+  const rows = listedEntries(listing?.entries ?? []);
 
   return (
     <View style={[styles.folder, compact && styles.folderCompact]}>

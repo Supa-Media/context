@@ -217,6 +217,15 @@ jobs:
           node scripts/check-gateway-imports.mjs --self-test
           node scripts/check-gateway-imports.mjs apps/mcp/src
 
+      # The mirror of the check above: the gateway imports none of the desktop
+      # bridge, and the control plane imports plenty of the gateway — so its
+      # deploy has to notice when any of that changes. It stopped noticing, for
+      # six source trees, and nothing said so; see the script's header.
+      - name: A Convex deploy is triggered by everything it bundles
+        run: |
+          node scripts/check-convex-deploy-paths.mjs --self-test
+          node scripts/check-convex-deploy-paths.mjs
+
   # ── THE APP HAS TO START, NOT JUST TYPECHECK AND PACKAGE ─────────────────
   #
   # #329 merged with 24 green checks and a temporal dead zone in
@@ -468,6 +477,22 @@ jobs:
         # directly leaves `/drawing-assets/editor/index.html` absent, and the
         # static server serves the SPA fallback page at that URL instead.
         run: pnpm build:e2e-web
+
+      # `pluginBundles.spec.ts` runs a real community-plugin release through the
+      # real shim, which is the only check that has ever caught a plugin failing
+      # to load at all — `SuggestModal`, then `Events`, then `Modal`, each a
+      # class nobody had listed and each taking a whole bundle down while every
+      # jsdom suite stayed green.
+      #
+      # The releases are not committed (megabytes of third-party minified code
+      # in a public repository) and the spec skips when they are absent, so a
+      # GitHub outage costs a skip rather than a red run. `continue-on-error`
+      # says that out loud rather than leaving it to a silent `|| true`.
+      - name: Fetch the community plugin releases the browser suite runs
+        if: steps.changes.outputs.mobile == 'true'
+        continue-on-error: true
+        working-directory: apps/mobile
+        run: node e2e/webkit/fetch-bundles.mjs
 
       - name: Run the suite in WebKit
         if: steps.changes.outputs.mobile == 'true'
