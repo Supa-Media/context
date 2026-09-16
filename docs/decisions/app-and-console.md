@@ -3863,3 +3863,119 @@ hundred as zero pixels is the worse lie.
 `usageReport` keeps the event counters and loses its two all-time totals from the
 screen. One number arriving on one page from two different reads, with two
 different ceilings, is how a dashboard starts disagreeing with itself.
+
+### Bold is a toggle, ⌘B belongs to the note, and the right-click menu is the web's alone
+
+Four decisions from one ask — *"command b should make whatever you highlighted
+bold, same with italics… highlight something, right click to see a menu of
+different options, strike through… maybe insert a table, selecting the
+dimensions of that table"* — and they are separable, so each is here with what
+it costs.
+
+**A marker verb is a toggle, on every surface.** `wrapSelection` inserted a pair
+and nothing took one off, which was survivable while the only thing that ran it
+was one key on the accessory bar with an undo key beside it. It is not
+survivable on ⌘B, because ⌘B is *the* chord people press twice — once to start a
+bold word and once to end it — and answering the second press with `****bold**`
+punishes the most ordinary thing anybody does with the editor. So `toggleWrap`
+in `markdownFormat.ts` is what the chord, the menu row **and the phone's Bold
+key** all run. The bar did not ask for that and gets it anyway: two meanings of
+Bold on two surfaces is the drift `editorSetup.ts` exists to prevent, and
+`webviewBridge.test.ts` now presses the bar's key twice across the bridge to
+prove the phone got the same verb rather than a lookalike.
+
+**Which half of `***x***` a chord takes back is a rule, not an accident.**
+`**words**` has a `*` immediately either side of the word, so a naive "is the
+marker there?" answered yes for ⌘I, took one off each end, and left `*words*` —
+the same words saying something else, from a keystroke meant to *add* emphasis.
+A run of asterisks is now read the way CommonMark reads it: a one-character
+marker is present only in an **odd** run, a two-character marker in any run of
+two or more. That is what makes the two chords compose — bold then italic gives
+`***x***`, and either pressed again removes its own pair and leaves the other —
+and it is the first thing to revisit if a marker that is not a repeated single
+character is ever added.
+
+**⌘B is bold in a note and the rail everywhere else**, which needed a rule in
+`keymap.ts` rather than a winner. `toggleRail` is global and declaring `"global"`
+declares every scope but `"overlay"`, so before this the chord toggled a sidebar
+while somebody was typing. The two are not competing for one chord: they are one
+chord meaning the obvious thing in each of the two places it can be pressed, and
+that is what scopes are for. **A binding that names a scope beats one that only
+reaches it as `global`** — which is general, is what `resolve` does in two
+passes, and is why the collision guard in `keymap.test.ts` now allows exactly
+one kind of shadowing and still fails every other. The marker bindings sit at the
+*bottom* of `BINDINGS`, below `toggleRail`, on purpose: in their natural group a
+first-match-wins resolver would answer `bold` by coincidence of position, the
+rule would be untested, and the suite would go green against a resolver that had
+never learned it.
+
+Three consequences, each a real cost rather than a tidy-up:
+
+- **⌘B no longer toggles the rail while the caret is in a note.** The rail's
+  own control is still on screen; the chord is not the only route to it.
+- **The three chords are declared in `keymap.ts` and dispatched nowhere.**
+  `editorSetup.ts` binds them inside CodeMirror, against the live selection,
+  which is the only place that knows what "the selection" is. The declaration
+  buys the two things a binding written only there cannot: the menu prints the
+  real chord through `describeBinding` rather than a literal — the bug `menu.ts`
+  has already had once — and the chord takes part in the collision guard.
+- **`useKeymap.web.ts` now ignores a keystroke whose default was already
+  prevented.** It has to: the listener is on `document` and bubbles, so a widget
+  with its own keymap has already run. The latent half of that is worse than the
+  ⌘B half — ⌘S is bound in `editorSetup.ts` *and* is `save` here, so the day
+  `readFocus` learns to see a contenteditable (the Live Preview editor is a
+  `div`, not a `textarea`, so the `editor` scope does not resolve for it today)
+  one press would have written the note twice, the second write conditional on
+  an etag the first had already moved: a conflict dialog over somebody's own
+  keystroke.
+
+**There is no chord for an inline code span, and none for a link.** Every
+obvious one is already spoken for by something that works: ⌘E is
+`togglePreview`, ⌘⇧C is the element inspector in Chrome and Edge, and ⌘K is the
+palette — which is the console's main route to everywhere and worth more than a
+second way to type two brackets. Both verbs are on the menu with no chord
+printed beside them, which `describeBinding` already treats as a legitimate
+state rather than an error.
+
+**The right-click menu is `Menu.web.tsx` drawing `editorMenu.ts`**, the same
+arrangement the file tree has had since the console rebuild, and it inherits
+that arrangement's two rules unchanged: read-only means a row is *absent* rather
+than greyed, and an empty list means **let the browser's own menu open**. That
+last one is not politeness. Spelling suggestions live in the browser's menu and
+nowhere else, and spellcheck is on in this editor by an earlier deliberate
+decision (P1), so replacing that menu unconditionally would have taken away a
+feature somebody had switched on. **Shift-right-click therefore falls through**,
+which is the chord Firefox already spells this way and which the other engines
+learn here. Paste is deliberately not offered at all: reading the clipboard is a
+permission prompt in Chrome, a second confirmation in Safari and refused
+outright on an insecure origin, so the row would work for some people some of
+the time with nothing useful to say when it did not — and ⌘V is unaffected.
+
+The handler also **places the caret where the click landed** unless the click is
+inside the selection, because the engines disagree about whether a right button
+places a caret in a contenteditable at all, and a formatting menu that acts three
+lines from where somebody clicked is worse than none. `posAtCoords` measures, and
+measuring is the one thing here that can throw, so a position it cannot answer
+leaves the selection alone rather than costing the whole menu.
+
+**The table picker is web-only, and the file name says so.** Hovering a
+rectangle is a pointer gesture, the menu it opens from does not exist on the
+native app, and the accessory bar is already at the width where an equal share
+of its pill falls below the touch floor — there is no room for a ninth key. So
+`TableSizePicker.web.tsx` has no native sibling, and an iOS note gets tables by
+typing them exactly as it did before. That is a stated gap, and the same gap
+covers **strikethrough**, whose ⌘⇧X has no touch route on the native app either.
+`keymap.ts`'s standing rule — no command it names may be the only way to do
+something without a keyboard — is satisfied for bold and italic by the bar and
+for strikethrough only by the web build's own long-press, which raises the same
+menu as a bottom sheet. The place the missing keys would land is the bar, on the
+day it stops being full.
+
+Two smaller things fell out and are worth recording so they are not undone:
+`place`/`fixedAt`'s flip-don't-clip arithmetic moved to
+`design/components/popoverPlacement.ts` because the picker is the second thing
+that opens at a pointer and a second copy of that rule is the copy that gets
+fixed once; and a GFM table cannot interrupt a paragraph, so a table asked for
+on a line that already has text is inserted *after* that paragraph with the
+blank line the grammar requires — without which the button's whole output is a
+row of literal pipes in the middle of somebody's sentence.
