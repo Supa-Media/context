@@ -181,6 +181,12 @@ export function desktopRecorder(
       audio,
       systemAudio: capabilities.systemAudio,
       /*
+        The shell's tap is silent — no picker, no per-meeting choice — which is
+        the whole difference between this and what a browser can offer. See
+        `RecorderCapability.systemAudioNeedsPicker`.
+      */
+      systemAudioNeedsPicker: false,
+      /*
         The shell transcribes through the gateway with this machine's own
         grant, which is the cloud tier by the definition this app already uses:
         `transcribesAt` answers "where are the words produced", and the note

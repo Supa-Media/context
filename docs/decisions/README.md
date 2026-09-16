@@ -193,6 +193,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One file per meeting, and `read_meeting` is what that costs
 - A meeting note is a note, and `privacy.md` decides it with no bypass
 - Nothing joins the call
+- A browser records the whole call only if somebody hands it the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
 - The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at

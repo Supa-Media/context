@@ -102,6 +102,7 @@ export function fakeRecorder(
     capability: {
       audio: true,
       systemAudio: false,
+      systemAudioNeedsPicker: false,
       transcribesAt: "device",
       unavailableReason: null,
       ...capability,
