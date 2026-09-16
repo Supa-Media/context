@@ -243,12 +243,16 @@ export function Explorer({
   /**
    * Choosing a note, and putting the tree away if the tree is over the note.
    *
-   * `closesOnSelect` is `false` at every density today — there is no drawer
-   * anywhere (`features/app/frame.ts`) — so the second line does nothing. It is
-   * kept rather than inlined to `files.select` because that file's header names
-   * this call site: `closesOnSelect` and `closeDrawer` are `AppFrame`'s API,
-   * the meaning lives in one function, and the day a density puts the tree over
-   * the document again it is `closesOnSelect` that changes and not this.
+   * `closesOnSelect` is true exactly when this tree is drawn *over* the editor
+   * rather than beside it, which on a pointer layout means the peek — the tree
+   * brought back over the note while the pointer rests on its folded seam. It
+   * is covering the thing you just asked to read, so leaving it up opens every
+   * note behind a panel.
+   *
+   * **`closeOverlays` rather than `closeDrawer`**, which is the change the peek
+   * forced and the right one anyway: this call site wants "put away whatever is
+   * over the editor", and `closeDrawer` names one particular panel. It was
+   * correct while the drawer was the only one; it would silently do nothing now.
    *
    * `useCallback` because `runAction` depends on it: a plain arrow is a new
    * identity every render, which would rebuild that callback on every keystroke
@@ -257,7 +261,7 @@ export function Explorer({
   const select = useCallback(
     (path: string) => {
       files.select(path);
-      if (frame.closesOnSelect) frame.closeDrawer();
+      if (frame.closesOnSelect) frame.closeOverlays();
     },
     [files, frame],
   );

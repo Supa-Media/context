@@ -29,6 +29,7 @@ import {
   densityFor,
   explorerToggleFor,
   floatingGapFor,
+  focusToggleFor,
   initialFrame,
   panelsClearedFor,
   railToggleFor,
@@ -112,6 +113,25 @@ export interface FrameApi {
    * the strip now.
    */
   toggleRail: () => void;
+  /**
+   * ⌘\, and the pill on the focus edge.
+   *
+   * Folds both panels away for the length of a read and restores them exactly
+   * as they were — `FrameState.focus` is one boolean *over* the two
+   * preferences, not a snapshot of them, so there is no second copy to drift.
+   * Nothing on a phone, where there is no panel to fold; `focusToggleFor` owns
+   * that, for the reason the other two commands have their own owners.
+   */
+  toggleFocus: () => void;
+  /**
+   * The pointer arriving at, or leaving, the folded tree's seam.
+   *
+   * Hover state rather than a command, which is why it takes the value instead
+   * of toggling: two `onHoverOut`s in a row must not bring the peek back. The
+   * *delay* before the pointer counts as resting is the seam's business — this
+   * is only told the answer.
+   */
+  setExplorerPeeking: (peeking: boolean) => void;
   closeDrawer: () => void;
   /**
    * Dismisses the rail sheet. Clears the flag at any density; there is only
@@ -257,13 +277,16 @@ const FrameContext = createContext<FrameApi | null>(null);
 export function useFrame(): FrameApi {
   const fallbackDensity = densityFor(useWindowDimensions().width);
   const provided = useContext(FrameContext);
+  const fallbackRegions = regionsFor(fallbackDensity, initialFrame);
   return (
     provided ?? {
       density: fallbackDensity,
-      regions: regionsFor(fallbackDensity, initialFrame),
+      regions: fallbackRegions,
       state: initialFrame,
       toggleExplorer: noop,
       toggleRail: noop,
+      toggleFocus: noop,
+      setExplorerPeeking: noop,
       closeDrawer: noop,
       closeNav: noop,
       closeOverlays: () => false,
@@ -271,7 +294,7 @@ export function useFrame(): FrameApi {
       // registration is real and the unregistration is a no-op.
       registerDismissable: () => noop,
       setExplorerWidth: noop,
-      closesOnSelect: closesOnSelect(fallbackDensity),
+      closesOnSelect: closesOnSelect(fallbackRegions.explorer),
       contentInsets: NO_CONTENT_INSETS,
       viewportInsets: NO_CONTENT_INSETS,
       framed: false,
@@ -463,14 +486,25 @@ export function AppFrame({
   // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
     setState((current) => {
-      // `hasExplorer` still travels because `explorerToggleFor` still takes it
-      // — the day a density gets a drawer back it is the flag that decides
-      // whether there is anything to pull in. Today the answer is `null` at
-      // every density and this is a genuine no-op, which is the thing to keep:
-      // "does nothing" must mean *nothing*, not "does the other command".
+      // A command that names a panel which is not on the screen brings the
+      // panels back rather than writing a preference nobody can see change.
+      // Leaving focus is the whole of what the first press does — see
+      // `toggleFocus`.
+      if (current.focus) return { ...current, focus: false };
+      /*
+        `hasExplorer` decides whether there is anything to fold: it is `false`
+        on Map and Connections, and writing `explorerHidden` there would set a
+        preference on a pane that cannot show it, discovered later as a missing
+        tree back on Browse. `explorerToggleFor` owns that and answers `null`,
+        which must stay a genuine no-op — "does nothing" means *nothing*, not
+        "does the other command", which is what made ⌘⇧E a second ⌘B.
+      */
       const field = explorerToggleFor(densityFor(width), { hasExplorer });
       if (field === null) return current;
-      return { ...current, [field]: !current[field] };
+      // The peek goes with the fold in both directions: opening the column
+      // leaves no seam to have been resting on, and closing it must not open
+      // straight into a peek the pointer never asked for.
+      return { ...current, [field]: !current[field], explorerPeeking: false };
     });
   }, [width, hasExplorer]);
 
@@ -482,11 +516,42 @@ export function AppFrame({
   const toggleRail = useCallback(
     () =>
       setState((current) => {
+        if (current.focus) return { ...current, focus: false };
         const field = railToggleFor(densityFor(width));
         if (field === null) return current;
         return { ...current, [field]: !current[field] };
       }),
     [width],
+  );
+  /*
+    ⌘\ and the focus edge's pill.
+
+    `focusToggleFor` owns whether this density has anything to fold, for the
+    reason the other two commands have owners: a chord that wrote `focus` on a
+    phone would be setting a mode no compact layout reads, which is the ⌘B
+    failure exactly. Entering takes the peek with it — the seam it was resting
+    on is about to stop existing.
+  */
+  const toggleFocus = useCallback(
+    () =>
+      setState((current) => {
+        if (!focusToggleFor(densityFor(width))) return current;
+        return { ...current, focus: !current.focus, explorerPeeking: false };
+      }),
+    [width],
+  );
+  /*
+    Idempotent on purpose. The seam sends `false` on hover-out and the peek
+    panel sends `false` when the pointer leaves it too, so the same value
+    arrives twice on the way out of one gesture; returning `current` is what
+    keeps that from being a second render of the whole frame.
+  */
+  const setExplorerPeeking = useCallback(
+    (peeking: boolean) =>
+      setState((current) =>
+        current.explorerPeeking === peeking ? current : { ...current, explorerPeeking: peeking },
+      ),
+    [],
   );
   const closeDrawer = useCallback(
     () => setState((current) => (current.drawerOpen ? { ...current, drawerOpen: false } : current)),
@@ -539,10 +604,23 @@ export function AppFrame({
     for (let at = registered.length - 1; at >= 0; at -= 1) {
       if (registered[at]?.() === true) return true;
     }
-    const wasOpen = state.drawerOpen || state.navOpen;
-    if (wasOpen) setState((current) => ({ ...current, drawerOpen: false, navOpen: false }));
+    /*
+      Then the frame's own panels, which are the outermost thing Escape can
+      reach and so genuinely the last resort — including the two the folding
+      side panels added. The peek is over the editor and focus mode has taken
+      both panels away, and Escape is the key everybody tries for either.
+    */
+    const wasOpen = state.drawerOpen || state.navOpen || state.explorerPeeking || state.focus;
+    if (wasOpen)
+      setState((current) => ({
+        ...current,
+        drawerOpen: false,
+        navOpen: false,
+        explorerPeeking: false,
+        focus: false,
+      }));
     return wasOpen;
-  }, [state.drawerOpen, state.navOpen]);
+  }, [state.drawerOpen, state.navOpen, state.explorerPeeking, state.focus]);
   const setExplorerWidth = useCallback(
     (next: number) =>
       setState((current) => ({ ...current, explorerWidth: clampExplorerWidth(next) })),
@@ -550,6 +628,24 @@ export function AppFrame({
   );
 
   const compact = density === "compact";
+
+  /**
+   * Whether there is a folded tree here that a seam could bring back.
+   *
+   * Asked of `explorerToggleFor` rather than re-derived, because it is the same
+   * question the command asks and the answer has to be one answer: a control
+   * that folds where ⌘⇧E does nothing is a button that lies, and a control that
+   * does not exist where ⌘⇧E works is a chord nobody can discover.
+   *
+   * It says `null` on a phone, which has no left panel at all, and on Map and
+   * Connections, which have no tree — and both of those were drawing a closed
+   * seam until a render test caught it. Focus is excluded on top: the tree is
+   * hidden there too, but by a mode that owns its own way back, and a seam
+   * offering to restore one of the two panels would be a third thing to put the
+   * layout right with.
+   */
+  const explorerFoldable =
+    explorerToggleFor(density, { hasExplorer }) !== null && !state.focus;
 
   /**
    * The two bands the floating chrome occupies, as content padding.
@@ -664,12 +760,14 @@ export function AppFrame({
       state,
       toggleExplorer,
       toggleRail,
+      toggleFocus,
+      setExplorerPeeking,
       closeDrawer,
       closeNav,
       closeOverlays,
       registerDismissable,
       setExplorerWidth,
-      closesOnSelect: closesOnSelect(density),
+      closesOnSelect: closesOnSelect(regions.explorer),
       contentInsets,
       viewportInsets,
       framed: true,
@@ -683,6 +781,8 @@ export function AppFrame({
       state,
       toggleExplorer,
       toggleRail,
+      toggleFocus,
+      setExplorerPeeking,
       closeDrawer,
       closeNav,
       closeOverlays,
@@ -802,11 +902,56 @@ export function AppFrame({
             </View>
           ) : null}
 
+          {/*
+            The rail's seam, and the first half of the whole design: the control
+            that folds a panel lives on the panel's own edge, so the control
+            that unfolds it is where the panel was. A toggle in the top bar
+            would put the affordance for bringing a left column back forty
+            points above and to the right of where it used to be, which is how
+            people come to believe a feature was removed. ⌘B still works and is
+            still the fast way; until this there was nothing else, and nothing
+            on the screen said so.
+          */}
+          {regions.rail === "full" || regions.rail === "icons" ? (
+            <PanelSeam
+              collapsed={regions.rail === "icons"}
+              onPress={toggleRail}
+              testID="rail-seam"
+              label={
+                regions.rail === "icons"
+                  ? "Show the navigation labels"
+                  : "Collapse the navigation rail to icons"
+              }
+            />
+          ) : null}
+
           {regions.explorer === "column" ? (
             <View style={[styles.explorerColumn, { width: state.explorerWidth }]}>
               {explorer}
-              <ExplorerResizer width={state.explorerWidth} onResize={setExplorerWidth} />
+              <ExplorerResizer
+                width={state.explorerWidth}
+                onResize={setExplorerWidth}
+                onClose={toggleExplorer}
+              />
             </View>
+          ) : null}
+
+          {/*
+            What is left where the tree was: a seam that is wider than the one
+            between two panels, because it is the only thing standing where a
+            whole column stood, and because it is a control rather than a rule.
+
+            Drawn for `peek` as well as `hidden` — the peek floats *over* the
+            editor and does not take the seam's place, so the seam has to stay
+            put underneath it or the pointer resting on it would be resting on
+            nothing and the peek would close the instant it opened.
+          */}
+          {explorerFoldable && (regions.explorer === "hidden" || regions.explorer === "peek") ? (
+            <ClosedExplorerSeam
+              peeking={regions.explorer === "peek"}
+              onOpen={toggleExplorer}
+              onPeek={setExplorerPeeking}
+            />
           ) : null}
 
           {/*
@@ -846,6 +991,84 @@ export function AppFrame({
               testID="frame-scrim"
             />
           ) : null}
+
+          {/*
+            The peek: the folded tree, back over the editor while the pointer
+            rests on its seam.
+
+            **Absolutely positioned rather than a flex sibling, which is the
+            point of it.** A panel that took part in the row would push the
+            editor across every time the pointer crossed the seam, and the
+            paragraph somebody is reading would jump under their eyes. This
+            floats, so nothing reflows, and the note stays exactly where it was
+            — which is what makes folding the tree away a cheap decision rather
+            than a commitment.
+
+            No scrim, deliberately, and that is why `peek` is its own arm of
+            `Regions.explorer` rather than the `drawer` with the scrim
+            suppressed: it is dismissed by moving the pointer away, and a scrim
+            would grey out and make inert the note being peeked at in order to
+            reach.
+
+            `left` is arithmetic on tokens rather than a measurement, so it is
+            correct on the first frame. Measuring the rail would put the panel
+            at zero for a frame and slide it into place, which reads as a bug.
+          */}
+          {regions.explorer === "peek" ? (
+            <Pressable
+              style={[
+                styles.explorerPeek,
+                styles.panelRounded,
+                {
+                  left:
+                    (regions.rail === "full"
+                      ? layout.railWidth
+                      : regions.rail === "icons"
+                        ? layout.railIconWidth
+                        : 0) +
+                    layout.seamWidth +
+                    layout.seamClosedWidth,
+                  width: state.explorerWidth,
+                },
+              ]}
+              /*
+                The pointer leaving the panel ends the peek, exactly as it
+                leaving the seam does. Both send `false`, and `setExplorerPeeking`
+                is idempotent so the pair costs one render rather than two.
+              */
+              onHoverOut={() => setExplorerPeeking(false)}
+              onHoverIn={() => setExplorerPeeking(true)}
+              /*
+                A hover surface, so not a tab stop. `Pressable` gives every
+                instance a `tabIndex` and the scrim a few lines down states the
+                rule this would otherwise break: labelled and roleless, a screen
+                reader announces a stop it cannot describe — and this one would
+                be roleless *and* nameless, sitting between the rail and the
+                note. The tree inside carries the semantics; this only carries
+                the pointer.
+
+                `tabIndex` rather than `focusable`: react-native-web's
+                `Pressable` reads the first and ignores the second, so the
+                obvious spelling compiles, renders `tabindex="0"` anyway, and is
+                only caught by asserting the attribute.
+              */
+              tabIndex={-1}
+              testID="explorer-peek"
+            >
+              {explorer}
+            </Pressable>
+          ) : null}
+
+          {/*
+            Focus mode's way back.
+
+            A strip of the leading edge that draws nothing and holds a pill once
+            the pointer arrives, because the edge of the window is where a hand
+            goes looking for a panel that was there a moment ago. ⌘\ and Escape
+            both do the same thing; this is for the hand that reaches before it
+            remembers.
+          */}
+          {state.focus && !compact ? <FocusEdge onLeave={toggleFocus} /> : null}
 
           {regions.explorer === "drawer" ? (
             <View
@@ -963,7 +1186,45 @@ export function AppFrame({
           ) : null}
         </View>
 
-        {regions.statusBar && status ? <View style={styles.status}>{status}</View> : null}
+        {regions.statusBar && status ? (
+          <View style={styles.status}>
+            {/*
+              The two panel toggles, at the leading edge where VS Code, Zed and
+              every editor with a foldable sidebar put them.
+
+              They are the frame's own and not part of the `status` node
+              because they are geometry, which is the only thing this component
+              knows about — the counts and the save state beside them belong to
+              whatever is in the editor.
+
+              Two controls for one action, with the seam, is deliberate and the
+              split is clean: **the seam is the gesture and the status bar is
+              the state**. The seam costs nothing at rest because it is only
+              revealed under the pointer, and a person who has folded something
+              away and forgotten what needs somewhere that never moves to look.
+              It is also the only one of the two a keyboard can reach by
+              tabbing, and the only one left standing in focus mode.
+            */}
+            <PanelToggle
+              testID="status-toggle-rail"
+              label="Navigation rail"
+              chord="⌘B"
+              state={regions.rail === "full" ? "open" : regions.rail === "icons" ? "half" : "off"}
+              onPress={toggleRail}
+            />
+            {hasExplorer ? (
+              <PanelToggle
+                testID="status-toggle-explorer"
+                label="File tree"
+                chord="⌘⇧E"
+                state={regions.explorer === "column" ? "open" : "off"}
+                onPress={toggleExplorer}
+              />
+            ) : null}
+            <View style={styles.statusDivider} />
+            {status}
+          </View>
+        ) : null}
 
         {/*
           The toolbar's room, and both of its edges.
@@ -1167,12 +1428,30 @@ export function FrameIconButton({
 function ExplorerResizer({
   width,
   onResize,
+  onClose,
 }: {
   width: number;
   onResize: (next: number) => void;
+  /** Called on release, when the drag went far enough past the floor. */
+  onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [active, setActive] = useState(false);
+  /**
+   * Whether releasing now would fold the column away.
+   *
+   * **The clamp is not weakened by this and that is the whole of the design.**
+   * `clampExplorerWidth` still refuses to render anything below the floor,
+   * because the floor is where a kebab-case name under two indents stops being
+   * readable. What it used to do past that point was simply refuse, and its
+   * comment gave the reason: dragging to zero is how somebody hides a region
+   * and then wonders where it went. That reason is answered now by the seam
+   * that stays behind, so the drag can mean something past the floor instead of
+   * meeting a wall — it arms, it says so, and releasing above the floor snaps
+   * back.
+   */
+  const [arming, setArming] = useState(false);
+  const armed = useRef(false);
 
   /**
    * The live width, and the width this drag started from.
@@ -1199,6 +1478,18 @@ function ExplorerResizer({
     liveWidth.current = width;
   }, [width]);
   const startWidth = useRef(width);
+  /*
+    `onClose` goes through a ref for the reason above, which applies to it more
+    sharply than to `onResize`. `setExplorerWidth` is stable; `toggleExplorer`
+    is not — it closes over the window width — so listing it here would rebuild
+    the responder on any resize, and the paragraph above is about what a rebuild
+    mid-gesture costs. The deps stay "nothing a drag can change", which is the
+    invariant, rather than "nothing a drag happens to change today".
+  */
+  const liveClose = useRef(onClose);
+  useEffect(() => {
+    liveClose.current = onClose;
+  }, [onClose]);
 
   const responder = useMemo(
     () =>
@@ -1209,9 +1500,38 @@ function ExplorerResizer({
           startWidth.current = liveWidth.current;
           setActive(true);
         },
-        onPanResponderMove: (_event, gesture) => onResize(startWidth.current + gesture.dx),
-        onPanResponderRelease: () => setActive(false),
-        onPanResponderTerminate: () => setActive(false),
+        onPanResponderMove: (_event, gesture) => {
+          const raw = startWidth.current + gesture.dx;
+          /*
+            The *raw* width decides whether the close is armed, and the clamped
+            one is what gets rendered. Reading the clamped value here would make
+            this unreachable: it can never be below the floor, so the drag would
+            arm at exactly the moment it stopped being able to.
+          */
+          const next = raw < layout.explorerMinWidth - layout.explorerCloseOvershoot;
+          if (next !== armed.current) {
+            armed.current = next;
+            setArming(next);
+          }
+          onResize(raw);
+        },
+        onPanResponderRelease: () => {
+          setActive(false);
+          if (armed.current) liveClose.current();
+          armed.current = false;
+          setArming(false);
+        },
+        /*
+          A terminated gesture is not a release. The pointer was taken away by
+          something else — a browser drag, a lost capture — and folding a panel
+          on the strength of that is the surprise this whole design is trying
+          not to be, so it only disarms.
+        */
+        onPanResponderTerminate: () => {
+          setActive(false);
+          armed.current = false;
+          setArming(false);
+        },
       }),
     [onResize],
   );
@@ -1219,11 +1539,256 @@ function ExplorerResizer({
   return (
     <View
       {...responder.panHandlers}
-      style={[styles.resizer, active && styles.resizerActive]}
+      style={[styles.resizer, active && styles.resizerActive, arming && styles.resizerArming]}
       accessibilityLabel="Resize the file tree"
       role="separator"
       testID="explorer-resizer"
-    />
+    >
+      {/*
+        A marker, not a button, and that is the one real constraint this seam
+        has. A press target in the middle of a drag handle takes the most
+        natural place to grab a divider and makes it do something else — so the
+        seam behind a resizable panel drags, the seam behind a folded or
+        fixed-width one is pressed, and the status bar carries the toggle that
+        works the same way for both. What this draws is the answer to "what will
+        releasing do", which only a drag can ask.
+      */}
+      {arming ? <View style={styles.seamArmMark} testID="explorer-seam-arming" /> : null}
+    </View>
+  );
+}
+
+/**
+ * A seam between two panels, and the control that folds the leading one.
+ *
+ * Draws the hairline the layout needs anyway, brightens under the pointer, and
+ * reveals a chevron pill. At rest it is exactly the rule it was before this
+ * existed — the affordance costs nothing until somebody goes looking for it,
+ * which is the trade that lets a permanent control live on every seam.
+ */
+function PanelSeam({
+  collapsed,
+  onPress,
+  testID,
+  label,
+}: {
+  collapsed: boolean;
+  onPress: () => void;
+  testID: string;
+  label: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  // `onHoverIn`/`onHoverOut` rather than `Pressable`'s style callback, which
+  // carries `pressed` and `focused` but not `hovered` in RN's own types. Every
+  // hover in this app is done this way; see `design/components/Button.tsx`.
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      style={[styles.seam, hovered && styles.seamHot]}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      role="button"
+      accessibilityLabel={label}
+      testID={`${testID}-toggle`}
+    >
+      <SeamPill shown={hovered} direction={collapsed ? "expand" : "collapse"} />
+    </Pressable>
+  );
+}
+
+/**
+ * The seam left standing where the folded tree was.
+ *
+ * Two controls in one 10pt strip, and they are different gestures on purpose:
+ * **pressing** it brings the column back for good, **resting** on it brings the
+ * tree back for as long as the pointer stays. One is a decision and the other
+ * is a glance, and a person who only wants to check where a note lives should
+ * not have to reflow their editor twice to do it.
+ *
+ * The delay before a rest counts is what keeps a pointer crossing the seam on
+ * its way somewhere else from opening anything.
+ */
+function ClosedExplorerSeam({
+  peeking,
+  onOpen,
+  onPeek,
+}: {
+  peeking: boolean;
+  onOpen: () => void;
+  onPeek: (peeking: boolean) => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [hovered, setHovered] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancel = useCallback(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  }, []);
+
+  /*
+    A pending timer outliving the component would call `onPeek` on a frame that
+    is gone — which is what happens every time somebody navigates from Browse to
+    Map with the pointer sitting on this seam.
+  */
+  useEffect(() => cancel, [cancel]);
+
+  return (
+    <Pressable
+      style={[styles.seamClosed, (hovered || peeking) && styles.seamClosedActive]}
+      onPress={() => {
+        cancel();
+        onOpen();
+      }}
+      onHoverIn={() => {
+        setHovered(true);
+        cancel();
+        timer.current = setTimeout(() => onPeek(true), PEEK_DELAY_MS);
+      }}
+      /*
+        Hovering out cancels a pending peek but does not close one that is
+        already up: the pointer leaving this seam is usually the pointer moving
+        *onto* the panel that opened beside it, and closing here would make the
+        peek impossible to reach. The panel reports its own exit.
+      */
+      onHoverOut={() => {
+        setHovered(false);
+        cancel();
+      }}
+      role="button"
+      accessibilityLabel="Open the file tree"
+      testID="explorer-seam-closed"
+    >
+      <SeamPill shown={hovered || peeking} direction="expand" />
+    </Pressable>
+  );
+}
+
+/**
+ * How long the pointer has to rest on the closed seam before the tree peeks.
+ *
+ * Short enough to feel like a property of the seam rather than a wait; long
+ * enough that crossing it on the way to the editor opens nothing. Exported for
+ * the render test, which drives it with fake timers rather than guessing.
+ */
+export const PEEK_DELAY_MS = 300;
+
+/**
+ * The chevron centred on a seam, revealed under the pointer.
+ *
+ * A drawing rather than a control: the seam it sits on is the button, and one
+ * press target inside another is how a click lands on the wrong one. It is
+ * rendered at `opacity: 0` rather than not at all so that revealing it is a
+ * fade and not a layout change under the pointer that caused it.
+ */
+function SeamPill({ shown, direction }: { shown: boolean; direction: "collapse" | "expand" }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  return (
+    <View
+      style={[styles.seamPill, shown && styles.seamPillShown]}
+      /*
+        **A drawing must not take pointer events, and this one was.** The pill is
+        18pt wide on a 7pt or 10pt seam — deliberately, because a chevron inside
+        a hairline is unreadable — so it overhangs its own seam by several points
+        on each side. As a plain child it therefore sat *on top of* whatever was
+        next to it: with the tree folded, the closed seam's pill covered the
+        rail's seam, and clicking the rail's seam re-opened the file tree
+        instead. Found by the browser fixture; jsdom has no pointers to
+        intercept, so nothing in the render suite could have seen it.
+      */
+      pointerEvents="none"
+    >
+      <Icon
+        name={direction === "expand" ? "chevronRight" : "chevronLeft"}
+        size={12}
+        color={colors.text2}
+      />
+    </View>
+  );
+}
+
+/**
+ * The leading edge in focus mode, and the pill that ends it.
+ *
+ * Nothing is drawn until the pointer arrives. The strip exists because the edge
+ * of the window is where a hand goes for a panel that was there a moment ago,
+ * and finding the note there instead is the moment somebody decides the mode
+ * ate their sidebar.
+ */
+function FocusEdge({ onLeave }: { onLeave: () => void }) {
+  const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
+  const [near, setNear] = useState(false);
+  return (
+    <Pressable
+      style={styles.focusEdge}
+      onHoverIn={() => setNear(true)}
+      onHoverOut={() => setNear(false)}
+      onPress={onLeave}
+      role="button"
+      accessibilityLabel="Bring the panels back"
+      testID="frame-focus-edge"
+    >
+      {near ? (
+        <View style={styles.focusExit} testID="frame-focus-exit">
+          <Icon name="panelLeft" size={14} color={colors.text2} />
+          <Text variant="treeMeta">Panels</Text>
+          <Text variant="treeMeta">⌘\</Text>
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * One of the two panel toggles in the status bar.
+ *
+ * Draws the layout rather than naming it: a cell for the panel and a wider one
+ * for the document, so the glyph is a two-pane picture that fills in when the
+ * panel is out and thins to a bar when the rail is down to its icons. A word
+ * would be just as clear and twice as wide, and this bar is 26pt tall.
+ */
+function PanelToggle({
+  state,
+  label,
+  chord,
+  onPress,
+  testID,
+}: {
+  state: "open" | "half" | "off";
+  label: string;
+  chord: string;
+  onPress: () => void;
+  testID: string;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const [hovered, setHovered] = useState(false);
+  return (
+    <Pressable
+      style={[styles.panelToggle, hovered && styles.panelTogglePressed]}
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      role="switch"
+      aria-checked={state !== "off"}
+      accessibilityLabel={`${label} (${chord})`}
+      testID={testID}
+    >
+      <View style={styles.toggleGlyph}>
+        <View
+          style={[
+            styles.toggleCell,
+            state !== "off" && styles.toggleCellOn,
+            state === "half" && styles.toggleCellHalf,
+          ]}
+        />
+        <View style={styles.toggleDoc} />
+      </View>
+    </Pressable>
   );
 }
 
@@ -1395,6 +1960,156 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as unknown as ViewStyle) : null),
   },
   resizerActive: { backgroundColor: colors.accentDim },
+  /** Past the floor: releasing here folds the column away rather than snapping back. */
+  resizerArming: { backgroundColor: colors.warnWash },
+  /** The bar drawn inside an arming seam, so the state is visible and not only felt. */
+  seamArmMark: {
+    position: "absolute",
+    top: "50%",
+    left: 1,
+    width: 5,
+    height: layout.seamPillHeight,
+    marginTop: -layout.seamPillHeight / 2,
+    borderRadius: radii.xs,
+    backgroundColor: colors.warn,
+  },
+
+  /**
+   * The seam between two panels.
+   *
+   * A hairline the layout needed anyway, drawn as a border rather than a fill so
+   * that at rest it is exactly the rule it replaced — the control costs nothing
+   * on the screen until a pointer goes looking for it.
+   */
+  seam: {
+    width: layout.seamWidth,
+    borderRightWidth: 1,
+    borderRightColor: colors.line,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as unknown as ViewStyle) : null),
+  },
+  seamHot: { borderRightColor: colors.accent },
+
+  /**
+   * The seam left where a folded panel was: wider, and lit.
+   *
+   * Wider because it is the only thing standing where a whole column stood, and
+   * because it is a control rather than a rule — 7pt is a comfortable target
+   * beside something; 10pt is a comfortable target beside nothing.
+   */
+  seamClosed: {
+    width: layout.seamClosedWidth,
+    borderRightWidth: 1,
+    borderRightColor: colors.line,
+    /*
+      `surface3`, not `surface2`, and the difference is the whole point of the
+      strip. On the light palette `surface2` is #FAFAFA against a #FFFFFF
+      ground — a browser check showed it reading as nothing at all, so the only
+      thing saying a panel could come back was a hairline indistinguishable
+      from the rule between two columns. A recessed strip says "there is
+      something here" before anybody hovers it.
+    */
+    backgroundColor: colors.surface3,
+    alignItems: "center",
+    justifyContent: "center",
+    ...(Platform.OS === "web" ? ({ cursor: "pointer" } as unknown as ViewStyle) : null),
+  },
+  seamClosedActive: { backgroundColor: colors.accentDim, borderRightColor: colors.accent },
+
+  seamPill: {
+    width: layout.seamPillWidth,
+    height: layout.seamPillHeight,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.chrome,
+    alignItems: "center",
+    justifyContent: "center",
+    /*
+      Drawn and invisible rather than absent, so that revealing it is a fade
+      rather than a node appearing under the pointer that caused it — and so the
+      seam's own width never changes, which would move the editor.
+    */
+    opacity: 0,
+    boxShadow: shadows.floating,
+  },
+  seamPillShown: { opacity: 1 },
+
+  /**
+   * The peek: the folded tree, over the editor rather than beside it.
+   *
+   * Absolute, so nothing reflows when it arrives — see the branch that renders
+   * it. `left` and `width` are supplied there; everything that is a constant is
+   * here.
+   */
+  explorerPeek: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    zIndex: 2,
+    boxShadow: shadows.floating,
+  },
+
+  /** The warm strip down the leading edge in focus mode. Draws nothing itself. */
+  focusEdge: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: layout.focusEdgeWidth,
+    zIndex: 3,
+  },
+  focusExit: {
+    position: "absolute",
+    top: space.x4,
+    left: space.x3,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    borderRadius: radii.sm,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    backgroundColor: colors.chrome,
+    boxShadow: shadows.floating,
+  },
+
+  /**
+   * A panel toggle in the status bar: a two-cell picture of the layout.
+   *
+   * The panel, then the document. Filled when the panel is out, a thin bar when
+   * the rail is down to its icons, empty when it is folded away — so the glyph
+   * is the layout rather than a label for it, which is what fits in 26pt.
+   */
+  panelToggle: {
+    height: layout.statusBarHeight - 8,
+    paddingHorizontal: space.x2,
+    borderRadius: radii.xs,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  panelTogglePressed: { backgroundColor: colors.surface3 },
+  toggleGlyph: { flexDirection: "row", alignItems: "center", gap: 1 },
+  toggleCell: {
+    width: 4,
+    height: 11,
+    borderRadius: 1,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+  },
+  toggleCellOn: { backgroundColor: colors.accent, borderColor: colors.accent },
+  toggleCellHalf: { height: 5 },
+  toggleDoc: { width: 8, height: 11, borderRadius: 1, backgroundColor: colors.line },
+  statusDivider: {
+    width: 1,
+    height: 12,
+    marginHorizontal: space.x2,
+    backgroundColor: colors.line,
+  },
 
   scrim: {
     position: "absolute",

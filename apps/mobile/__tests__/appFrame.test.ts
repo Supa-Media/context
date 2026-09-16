@@ -21,6 +21,7 @@ import {
   closesOnSelect,
   densityFor,
   explorerToggleFor,
+  focusToggleFor,
   initialFrame,
   panelsClearedFor,
   railToggleFor,
@@ -56,11 +57,34 @@ function everyFrame(): { density: Density; state: FrameState; hasExplorer: boole
       for (const navOpen of [false, true]) {
         for (const railCollapsed of [false, true]) {
           for (const hasExplorer of [false, true]) {
-            frames.push({
-              density,
-              hasExplorer,
-              state: { drawerOpen, navOpen, railCollapsed, explorerWidth: layout.explorerWidth },
-            });
+            /*
+              The three fields the collapsible panels added sweep here too, and
+              for the reason the sweep exists: `explorerHidden` is a preference
+              that survives a resize, so every density sees it set, and
+              `explorerPeeking` and `focus` are modes a stale bundle can have
+              written. A combination that is wrong — a peek with no tree behind
+              it, a focused phone, a column and a peek at once — has to fail
+              here rather than on a window somebody happens to narrow.
+            */
+            for (const explorerHidden of [false, true]) {
+              for (const explorerPeeking of [false, true]) {
+                for (const focus of [false, true]) {
+                  frames.push({
+                    density,
+                    hasExplorer,
+                    state: {
+                      drawerOpen,
+                      navOpen,
+                      railCollapsed,
+                      explorerWidth: layout.explorerWidth,
+                      explorerHidden,
+                      explorerPeeking,
+                      focus,
+                    },
+                  });
+                }
+              }
+            }
           }
         }
       }
@@ -185,6 +209,35 @@ describe("regions", () => {
     expect([...sheetDensities]).toEqual([]);
   });
 
+  test("a peek only exists where there is a closed tree and a seam to rest on", () => {
+    // The sweep, because `explorerPeeking` is a mode a stale bundle can carry
+    // into any state. Every one of these is a way for it to be wrong: a peek
+    // on a phone (no seam), on Map (no tree), beside an open column (two
+    // trees on the screen — which is exactly what the proposal's prototype
+    // drew when its own version of this rule was missing), or under focus.
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      if (regions.explorer !== "peek") continue;
+      expect(density).not.toBe("compact");
+      expect(hasExplorer).toBe(true);
+      expect(state.explorerHidden).toBe(true);
+      expect(state.explorerPeeking).toBe(true);
+      expect(state.focus).toBe(false);
+    }
+  });
+
+  test("a peek is a panel over the editor and still has no scrim", () => {
+    // Stated separately from the scrim sweep above, which asserts the rule by
+    // naming `drawer` and `sheet`. This is the same fact from the side that
+    // would change if somebody "tidied" the peek into the drawer arm: the
+    // scrim would arrive with it and grey out the note being reached for.
+    const peeking: FrameState = { ...initialFrame, explorerHidden: true, explorerPeeking: true };
+    for (const density of DENSITIES) {
+      const regions = regionsFor(density, peeking);
+      expect(regions.scrim).toBe(false);
+    }
+  });
+
   test("the bottom bar and the status bar are never both present", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
@@ -300,7 +353,7 @@ describe("medium and wide are untouched by the phone's change", () => {
   // and the explorer column are exactly what they were, at every state.
   test("a tablet still has an explorer column and an icon rail", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
-      if (density !== "medium") continue;
+      if (density !== "medium" || state.focus || state.explorerHidden) continue;
       const regions = regionsFor(density, state, { hasExplorer });
       expect(regions.explorer).toBe(hasExplorer ? "column" : "hidden");
       expect(regions.rail).toBe(hasExplorer || state.railCollapsed ? "icons" : "full");
@@ -311,7 +364,7 @@ describe("medium and wide are untouched by the phone's change", () => {
 
   test("a desktop still has both columns, and ⌘B still collapses the rail", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
-      if (density !== "wide") continue;
+      if (density !== "wide" || state.focus || state.explorerHidden) continue;
       const regions = regionsFor(density, state, { hasExplorer });
       expect(regions.explorer).toBe(hasExplorer ? "column" : "hidden");
       expect(regions.rail).toBe(state.railCollapsed ? "icons" : "full");
@@ -436,6 +489,7 @@ describe("a panel does not survive the layout that had it", () => {
 
   test("the preferences are left exactly as they were", () => {
     const state: FrameState = {
+      ...initialFrame,
       drawerOpen: true,
       navOpen: true,
       railCollapsed: true,
@@ -450,6 +504,191 @@ describe("a panel does not survive the layout that had it", () => {
     // This runs on every density change, so it must not manufacture a new
     // state — and therefore a re-render — for a layout that never had a panel.
     expect(panelsClearedFor("wide", initialFrame)).toBe(initialFrame);
+  });
+});
+
+describe("folding the explorer away", () => {
+  const wide = (over: Partial<FrameState> = {}) => regionsFor("wide", { ...initialFrame, ...over });
+
+  test("a closed tree is hidden, and the editor takes the width", () => {
+    expect(wide().explorer).toBe("column");
+    expect(wide({ explorerHidden: true }).explorer).toBe("hidden");
+    expect(wide({ explorerHidden: true }).editor).toBe(true);
+  });
+
+  test("closing it raises no scrim, because nothing is over the editor", () => {
+    expect(wide({ explorerHidden: true }).scrim).toBe(false);
+  });
+
+  test("the width is remembered while it is closed", () => {
+    // `explorerHidden` and `explorerWidth` are two fields on purpose. One
+    // number that meant both would make a 40px tree representable, which is
+    // what `clampExplorerWidth`'s floor exists to refuse — and re-opening
+    // would have to invent a width.
+    const closed = panelsClearedFor("wide", {
+      ...initialFrame,
+      explorerHidden: true,
+      explorerWidth: 341,
+    });
+    expect(closed.explorerWidth).toBe(341);
+    expect(closed.explorerHidden).toBe(true);
+  });
+
+  test("a tablet gets the rail's labels back when the column goes", () => {
+    // Medium pays for the explorer column with the rail's labels. Close the
+    // column and there is nothing left to pay for — otherwise collapsing the
+    // tree on a tablet buys 260 points of editor and leaves the navigation
+    // unreadable for no reason.
+    expect(regionsFor("medium", initialFrame).rail).toBe("icons");
+    expect(regionsFor("medium", { ...initialFrame, explorerHidden: true }).rail).toBe("full");
+  });
+
+  test("but an explicit collapse still wins on a tablet", () => {
+    const both: FrameState = { ...initialFrame, explorerHidden: true, railCollapsed: true };
+    expect(regionsFor("medium", both).rail).toBe("icons");
+    expect(regionsFor("wide", both).rail).toBe("icons");
+  });
+
+  test("a phone ignores it entirely", () => {
+    // It is a preference a wider window wrote, and compact reads none of them.
+    const hidden: FrameState = { ...initialFrame, explorerHidden: true };
+    expect(regionsFor("compact", hidden)).toEqual(regionsFor("compact", initialFrame));
+  });
+});
+
+describe("the peek", () => {
+  const peeking: FrameState = { ...initialFrame, explorerHidden: true, explorerPeeking: true };
+
+  test("a closed tree resting under the pointer comes back over the editor", () => {
+    expect(regionsFor("wide", peeking).explorer).toBe("peek");
+    expect(regionsFor("medium", peeking).explorer).toBe("peek");
+  });
+
+  test("it is its own region rather than the drawer, and that is the point", () => {
+    /*
+      **This is the decision the proposal put to the owner, recorded here
+      because it is the assertion that would go quiet if it were reversed.**
+
+      `regionsFor` promises the scrim exists *if and only if* a panel is over
+      the editor, and the sweep below asserts it against `drawer` and `sheet`
+      by name. The peek is over the editor and must not have a scrim: it is
+      dismissed by moving the pointer, and a scrim would grey out and make
+      inert the note you are peeking in order to reach.
+
+      The alternative was to keep `drawer` and loosen the invariant's word to
+      "modal". This costs one more arm in a union that is already this file's
+      subject, and keeps a proven assertion literally true instead.
+    */
+    expect(regionsFor("wide", peeking).explorer).not.toBe("drawer");
+    expect(regionsFor("wide", peeking).scrim).toBe(false);
+  });
+
+  test("it cannot be up while the column is", () => {
+    // One field, so this is unrepresentable rather than merely untrue — which
+    // is why `explorerPeeking` is read only on the closed branch. A stale
+    // `explorerPeeking` with an open column must draw a column and nothing else.
+    const stale: FrameState = { ...initialFrame, explorerPeeking: true };
+    expect(regionsFor("wide", stale).explorer).toBe("column");
+    expect(regionsFor("medium", stale).explorer).toBe("column");
+  });
+
+  test("there is nothing to peek at on a pane with no tree", () => {
+    expect(regionsFor("wide", peeking, { hasExplorer: false }).explorer).toBe("hidden");
+  });
+
+  test("and none on a phone, which has no seam to rest on", () => {
+    expect(regionsFor("compact", peeking).explorer).toBe("hidden");
+  });
+
+  test("a peek never survives the layout that had it", () => {
+    // It is the clearest case of "a panel is currently over your editor":
+    // hover state, from a pointer that has since gone somewhere else.
+    const cleared = panelsClearedFor("wide", peeking);
+    expect(cleared.explorerPeeking).toBe(false);
+    // And the preference underneath it is untouched.
+    expect(cleared.explorerHidden).toBe(true);
+  });
+});
+
+describe("focus mode", () => {
+  const focused: FrameState = { ...initialFrame, focus: true };
+
+  test("folds both panels away on a pointer layout", () => {
+    expect(regionsFor("wide", focused).rail).toBe("hidden");
+    expect(regionsFor("wide", focused).explorer).toBe("hidden");
+    expect(regionsFor("medium", focused).rail).toBe("hidden");
+    expect(regionsFor("medium", focused).explorer).toBe("hidden");
+  });
+
+  test("keeps the status bar, which is the way back out", () => {
+    // It removes the *panels*, not the *instruments*. The status bar carries
+    // the save state, the conflict-check mode and the two panel toggles — and
+    // a mode that hides its own escape hatch is a mode people do not enter
+    // twice.
+    expect(regionsFor("wide", focused).statusBar).toBe(true);
+    expect(regionsFor("medium", focused).statusBar).toBe(true);
+    expect(regionsFor("wide", focused).bottomBar).toBe(false);
+  });
+
+  test("raises no scrim — the note is the thing you are left with", () => {
+    expect(regionsFor("wide", focused).scrim).toBe(false);
+  });
+
+  test("hides no panel a phone does not already lack", () => {
+    expect(regionsFor("compact", focused)).toEqual(regionsFor("compact", initialFrame));
+  });
+
+  test("the panels underneath are remembered, not rewritten", () => {
+    // `focus` is one boolean over the two preferences rather than a snapshot
+    // of them, so leaving it restores exactly what was there with no state to
+    // keep in step. Somebody who collapsed the rail, entered focus and left it
+    // gets their collapsed rail back.
+    const kept: FrameState = {
+      ...initialFrame,
+      railCollapsed: true,
+      explorerHidden: true,
+      explorerWidth: 321,
+      focus: true,
+    };
+    const left: FrameState = { ...kept, focus: false };
+    expect(regionsFor("wide", left).rail).toBe("icons");
+    expect(regionsFor("wide", left).explorer).toBe("hidden");
+    expect(left.explorerWidth).toBe(321);
+  });
+
+  test("it is a mode, so it does not survive a resize", () => {
+    // The same line `panelsClearedFor` already draws. `railCollapsed` and
+    // `explorerWidth` are choices about how you like the app; "everything is
+    // folded away right now" is a thing that is either true of what is on the
+    // screen or is stale — and coming back to a stripped app after a rotation
+    // is precisely the leftover this function exists to prevent.
+    for (const density of DENSITIES) {
+      expect(panelsClearedFor(density, focused).focus).toBe(false);
+    }
+  });
+
+  test("but the preferences it was covering come back untouched", () => {
+    const state: FrameState = {
+      ...initialFrame,
+      focus: true,
+      railCollapsed: true,
+      explorerHidden: true,
+      explorerWidth: 404,
+    };
+    const cleared = panelsClearedFor("wide", state);
+    expect(cleared.railCollapsed).toBe(true);
+    expect(cleared.explorerHidden).toBe(true);
+    expect(cleared.explorerWidth).toBe(404);
+  });
+
+  test("nothing is left over the editor at any density", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      if (!state.focus) continue;
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.scrim).toBe(false);
+      expect(regions.explorer).not.toBe("peek");
+      expect(regions.explorer).not.toBe("drawer");
+    }
   });
 });
 
@@ -493,26 +732,44 @@ describe("the touch minimum", () => {
 });
 
 describe("toggling", () => {
-  test("⌘⇧E has nothing to toggle at any density", () => {
-    // It used to answer `"drawerOpen"` at compact-with-a-tree. There is no
-    // drawer at any density now, so the one arm that named a field is gone and
-    // the honest answer everywhere is `null` — which the *command* must then
-    // treat as nothing, not as a licence to toggle the rail instead.
+  test("⌘⇧E folds the column away on a pointer and does nothing on a phone", () => {
+    // **This reverses the assertion it replaces, which read "⌘⇧E has nothing
+    // to toggle at any density".** That was true and was written to stay true
+    // until somebody took the product decision it was waiting on: the function
+    // said "hiding the column outright is a product decision nobody has taken.
+    // The day somebody takes it, this is where it lands." It landed.
+    //
+    // What does not change is the other half of the old rule, which is the one
+    // that was a bug twice: the answer at compact is still `null`, and it is
+    // `null` because a phone has no left panel, not because nothing has been
+    // decided.
+    expect(explorerToggleFor("medium")).toBe("explorerHidden");
+    expect(explorerToggleFor("wide")).toBe("explorerHidden");
     expect(explorerToggleFor("compact")).toBeNull();
-    expect(explorerToggleFor("medium")).toBeNull();
-    expect(explorerToggleFor("wide")).toBeNull();
   });
 
-  test("and the tree flag does not resurrect one", () => {
-    // The flag is still on the signature and is still what would decide if a
-    // density grew a drawer back. It decides nothing today, in either
-    // direction, which is the thing to pin — the older failure here was the
-    // opposite one: `"drawerOpen"` answered on Map and Connections, where the
-    // flag was set, `regionsFor` discarded it, and the keystroke looked inert
-    // while writing state.
-    expect(explorerToggleFor("compact", { hasExplorer: false })).toBeNull();
-    expect(explorerToggleFor("compact", { hasExplorer: true })).toBeNull();
+  test("and it stays a no-op on a pane with no tree behind it", () => {
+    // Map and Connections. The flag was on the signature and unread for the
+    // whole time the function was a constant; this is the case it was kept
+    // for, and it is the older failure restated: `"drawerOpen"` answered where
+    // the flag was false, `regionsFor` discarded it, and the keystroke looked
+    // inert while writing state. Writing `explorerHidden` here would be the
+    // same shape of wrong — a preference set on Map that you discover later,
+    // as a missing tree, back on Browse.
+    expect(explorerToggleFor("wide", { hasExplorer: false })).toBeNull();
     expect(explorerToggleFor("medium", { hasExplorer: false })).toBeNull();
+    expect(explorerToggleFor("compact", { hasExplorer: false })).toBeNull();
+    expect(explorerToggleFor("wide", { hasExplorer: true })).toBe("explorerHidden");
+  });
+
+  test("⌘\\ folds both panels on a pointer and does nothing on a phone", () => {
+    // A phone has no left panel to fold, so focus mode is not "unavailable
+    // there", it is meaningless there — and a chord that writes a mode no
+    // compact layout reads is exactly the ⌘B bug `railToggleFor` was extracted
+    // to end.
+    expect(focusToggleFor("wide")).toBe(true);
+    expect(focusToggleFor("medium")).toBe(true);
+    expect(focusToggleFor("compact")).toBe(false);
   });
 
   test("⌘B collapses the rail on a pointer and does nothing on a phone", () => {
@@ -527,15 +784,18 @@ describe("toggling", () => {
     expect(railToggleFor("wide")).toBe("railCollapsed");
   });
 
-  test("choosing a note dismisses nothing, because the tree covers nothing", () => {
-    // This used to be true at compact: the drawer was over the note you had
-    // just asked for, so leaving it open opened every note behind a panel.
-    // With no drawer at any density, the remaining case is the column — and
-    // dismissing a permanent region because somebody clicked inside it is how
-    // people stop using a file tree.
-    expect(closesOnSelect("compact")).toBe(false);
-    expect(closesOnSelect("medium")).toBe(false);
-    expect(closesOnSelect("wide")).toBe(false);
+  test("choosing a note dismisses the tree only when the tree is over it", () => {
+    // **The argument is unchanged; the thing it is a function of is not.** This
+    // used to take a density and answer `false` at all three, because the only
+    // tree over a document had been the compact drawer and that was gone. The
+    // peek puts one back — at wide, which is why the density was never the
+    // question. A tree *over* the note is covering what you just asked to read;
+    // a tree *beside* it must stay put, because dismissing a permanent region
+    // when somebody clicks inside it is how people stop using a file tree.
+    expect(closesOnSelect("peek")).toBe(true);
+    expect(closesOnSelect("drawer")).toBe(true);
+    expect(closesOnSelect("column")).toBe(false);
+    expect(closesOnSelect("hidden")).toBe(false);
   });
 });
 
