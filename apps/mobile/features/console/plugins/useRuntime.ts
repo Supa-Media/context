@@ -14,6 +14,7 @@ import type {
   OpenSettingsPane,
   OpenTextModal,
   PendingCommand,
+  PluginWorkReason,
   PreviewRequest,
   SuggestRequest,
 } from "./runtime";
@@ -173,6 +174,19 @@ export function useRuntime(options: {
     travels back is a dismissal.
   */
   const [textModal, setTextModal] = useState<OpenTextModal | null>(null);
+  /*
+    The last pick that could not be applied, and whose it was.
+
+    Held beside the dialog rather than on it, because by the time this is known
+    the dialog is gone: the guest closes its own modal before running
+    `onChooseSuggestion`, exactly as Obsidian does, so there is nothing left to
+    put a banner inside. One slot, replaced by the next failure and cleared when
+    another dialog opens — it describes the last thing the reader pressed, and
+    two of them stacked would be a queue of complaints about one press.
+  */
+  const [pickFailure, setPickFailure] = useState<
+    { pluginId: string; reason: PluginWorkReason } | null
+  >(null);
   const [textModalDismiss, setTextModalDismiss] = useState<
     { seq: number; pluginId: string; nonce: string } | undefined
   >(undefined);
@@ -207,6 +221,27 @@ export function useRuntime(options: {
     { seq: number; pluginId: string; nonce: string; index: number; value: boolean | string | number }
     | undefined
   >(undefined);
+  /*
+    WHOSE PANE WAS ASKED FOR, IN A REF, AND THE BUG THAT PUT IT THERE.
+
+    This check used to read `settingsPane` and `settingsRequest` state from
+    inside `onEvent` — and the paragraph beside `textModalOwner` already said
+    why that is not safe, then accepted it here on the grounds that it "fails
+    CLOSED: the pane stops opening, somebody notices within a day".
+
+    It failed closed, permanently, and somebody did notice: `onEvent` is a
+    `useCallback` whose dependencies — two Convex actions, two mutations, a
+    workspace id and a `useCallback(…, [])` from the file browser — are every
+    one of them stable, so the callback is built on the first render and keeps
+    the `settingsRequest` it saw then, which is `undefined`. Every pane any
+    plugin ever drew was dropped as one nobody had asked for, and pressing
+    Settings… did nothing at all.
+
+    A ref is read at the moment the answer arrives, which is the only moment the
+    question "did I ask this frame for this?" has an answer. It carries the same
+    two fields the check needs and nothing else.
+  */
+  const settingsOwner = useRef<{ pluginId: string; nonce: string } | null>(null);
   /*
     The owner is recorded ON the pending entry, not looked up when the answer
     arrives. `onEvent` would otherwise have to read `modal` state to know who it
@@ -315,6 +350,23 @@ export function useRuntime(options: {
       commandTimers.current.delete(pluginId);
     }
     setPending(prune);
+    /*
+      And a settings pane follows its frame for the same reason a command does,
+      one step further on: every control in it is addressed by index to a guest
+      that is no longer there, so a pane left up after Stop is a panel of
+      settings whose changes reach nobody. `Settings…` goes with it — the
+      control offers to open a pane that cannot be drawn.
+    */
+    setSettingsTabs((was) => {
+      const keep = was.filter((pluginId) => live.has(pluginId));
+      return keep.length === was.length ? was : keep;
+    });
+    setSettingsPane((was) => {
+      if (was === null) return was;
+      if (sandboxes.some((one) => one.nonce === was.nonce)) return was;
+      settingsOwner.current = null;
+      return null;
+    });
   }, [sandboxes]);
   const resumed = useRef(new Set<string>());
   /*
@@ -579,6 +631,9 @@ export function useRuntime(options: {
     setModal(null);
   }, [modal]);
 
+  /** The reader has read why their pick did nothing. Nothing crosses. */
+  const dismissPickFailure = useCallback(() => setPickFailure(null), []);
+
   /*
     Same rule as `dismissModal`: the dialog goes now and the guest is told.
     A reader closing a dialog must not be waiting on the plugin that opened it.
@@ -612,6 +667,10 @@ export function useRuntime(options: {
       if (frame === undefined) return;
       modalSeq.current += 1;
       setSettingsPane(null);
+      // Recorded before the request goes out: the answer can arrive in the same
+      // tick the frame is told, and a claim written after it would be a window
+      // in which the pane Context asked for is dropped as unasked-for.
+      settingsOwner.current = { pluginId, nonce: frame.nonce };
       setSettingsRequest({
         seq: modalSeq.current,
         pluginId,
@@ -650,6 +709,13 @@ export function useRuntime(options: {
       nonce: settingsPane.nonce,
       open: false,
     });
+    /*
+      The claim is released here as well as the pane. The guest's own observer
+      fires as its pane comes down, so a console that still held the claim
+      would take that redraw for a pane to put back in front of somebody who
+      has just dismissed it.
+    */
+    settingsOwner.current = null;
     setSettingsPane(null);
   }, [settingsPane]);
 
@@ -776,6 +842,9 @@ export function useRuntime(options: {
             }
           : null,
       );
+      // A new dialog answers the old complaint: whatever did not land last
+      // time, the reader has moved on and is being asked something else.
+      if (event.open) setPickFailure(null);
       return;
     }
     if (event.type === "settings-tab") {
@@ -791,14 +860,15 @@ export function useRuntime(options: {
         somebody else's controls — the forgery #573 fixed for the suggestion
         dialog, which this would have reintroduced in a worse place: these rows
         are settings a reader is about to change.
+
+        Read off the ref, never off state: see `settingsOwner` for the render
+        that captured `settingsRequest` as `undefined` and dropped every pane
+        the console ever asked for.
       */
-      if (settingsPane !== null) {
-        if (settingsPane.pluginId !== pluginId || settingsPane.nonce !== sandbox.nonce) return;
-      } else if (settingsRequest === undefined || !settingsRequest.open) {
-        return;
-      } else if (settingsRequest.pluginId !== pluginId || settingsRequest.nonce !== sandbox.nonce) {
-        return;
-      }
+      const owner = settingsOwner.current;
+      if (owner === null) return;
+      if (owner.pluginId !== pluginId || owner.nonce !== sandbox.nonce) return;
+      if (!event.open) settingsOwner.current = null;
       setSettingsPane(
         event.open
           ? { pluginId, nonce: sandbox.nonce, rows: event.rows, error: event.error }
@@ -882,6 +952,15 @@ export function useRuntime(options: {
       // console that closed unconditionally would shut the dialog it was just
       // asked for — see `reopened` in the protocol.
       if (!event.reopened) setModal(null);
+      /*
+        AND WHAT THE READER GETS INSTEAD OF SILENCE.
+
+        A pick that could not be applied is the report this whole path was
+        repaired for: the row was pressed, the dialog closed, the note did not
+        change, and nothing anywhere said why. The guest names which of three
+        cases it was and the console says it — see `pluginWorkNote`.
+      */
+      if (event.reason !== null) setPickFailure({ pluginId, reason: event.reason });
       return;
     }
     if (event.type === "preview-results") {
@@ -921,7 +1000,7 @@ export function useRuntime(options: {
       });
       setOutcomes((was) => ({
         ...was,
-        [pluginId]: { id: event.id, ok: event.ok, error: event.error },
+        [pluginId]: { id: event.id, ok: event.ok, error: event.error, reason: event.reason },
       }));
       return;
     }
@@ -1040,10 +1119,24 @@ export function useRuntime(options: {
     resumed.current.clear();
   }, [workspaceId]);
 
+  /*
+    Restart each frame just before its session expires.
+
+    The delay is clamped to what a timer can actually hold. A delay past 2^31-1
+    milliseconds does not mean "later": `setTimeout` truncates it to a 32-bit
+    int and fires almost immediately, so a bundle whose session expires far
+    enough out would restart its plugin on every tick for ever — the failure
+    mode furthest from the one this timer exists for. Real sessions are minutes
+    away and never reach the clamp; a deployment that issues a long-lived one
+    gets a restart in twenty-five days instead of a loop.
+  */
   useEffect(() => {
-    const timers = sandboxes.map((sandbox) => setTimeout(() => {
-      void start(sandbox.bundle.pluginId, sandbox.bundle.bundleFingerprint).catch(() => undefined);
-    }, Math.max(0, sandbox.bundle.expiresAt - Date.now() - 5_000)));
+    const timers = sandboxes.map((sandbox) => setTimeout(
+      () => {
+        void start(sandbox.bundle.pluginId, sandbox.bundle.bundleFingerprint).catch(() => undefined);
+      },
+      Math.min(2_147_483_647, Math.max(0, sandbox.bundle.expiresAt - Date.now() - 5_000)),
+    ));
     return () => timers.forEach(clearTimeout);
   }, [sandboxes, start]);
 
@@ -1068,6 +1161,7 @@ export function useRuntime(options: {
     openNote: activeFile?.path ?? null,
     modal,
     textModal,
+    pickFailure,
     settingsPane,
     settingsTabs,
     actions: isOwner && workspaceId !== null
@@ -1081,6 +1175,7 @@ export function useRuntime(options: {
           askModalSuggestions,
           pickModalSuggestion,
           dismissModal,
+          dismissPickFailure,
           dismissTextModal,
           openSettingsPane,
           changeSetting,

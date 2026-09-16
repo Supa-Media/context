@@ -96,6 +96,9 @@ describe("a timeout and a failure are different sentences", () => {
       ok: false,
       error: "Open a note first",
       timedOut: false,
+      // No `reason`: the plugin itself failed and said so, which is a different
+      // thing from Context refusing it the open note. See `pluginWorkNote`.
+      reason: null,
     });
   });
 
@@ -111,12 +114,19 @@ describe("a timeout and a failure are different sentences", () => {
       ok: false,
       error: null,
       timedOut: true,
+      reason: null,
     });
   });
 
   test("a success is never a timeout", () => {
     const shown = commandOutcomeFor(REGISTERED, { id: "sync-now", ok: true, error: null });
-    expect(shown).toEqual({ name: "Sync now", ok: true, error: null, timedOut: false });
+    expect(shown).toEqual({
+      name: "Sync now",
+      ok: true,
+      error: null,
+      timedOut: false,
+      reason: null,
+    });
   });
 
   /*

@@ -489,12 +489,12 @@ describe("an outcome is shown against a command that still exists", () => {
 
   test("the name is resolved, because an id means nothing to a reader", () => {
     expect(commandOutcomeFor(registered, { id: "toggle", ok: true, error: null }))
-      .toEqual({ name: "Toggle highlight", ok: true, error: null, timedOut: false });
+      .toEqual({ name: "Toggle highlight", ok: true, error: null, timedOut: false, reason: null });
   });
 
   test("a failure carries its message through", () => {
     expect(commandOutcomeFor(registered, { id: "ribbon-0", ok: false, error: "boom" }))
-      .toEqual({ name: "Highlight", ok: false, error: "boom", timedOut: false });
+      .toEqual({ name: "Highlight", ok: false, error: "boom", timedOut: false, reason: null });
   });
 
   test("no outcome is no outcome", () => {

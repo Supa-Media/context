@@ -1,4 +1,4 @@
-import type { PluginSettingRow } from "./runtime";
+import type { PluginSettingRow, PluginWorkReason } from "./runtime";
 
 export interface PluginRuntimeBundle {
   pluginId: string;
@@ -39,7 +39,18 @@ export type SandboxEvent =
    * either way, because a host that never hears back cannot tell a command that
    * broke from one still running.
    */
-  | { type: "command-result"; id: string; ok: boolean; error: string | null }
+  | {
+      type: "command-result";
+      id: string;
+      ok: boolean;
+      error: string | null;
+      /**
+       * Why it did nothing, when that is Context's sentence rather than the
+       * plugin's: it asked for the open note and there was none, or the owner
+       * has not let it write. See `PluginWorkReason`.
+       */
+      reason: PluginWorkReason | null;
+    }
   /**
    * Everything the plugin currently has in its status bar.
    *
@@ -95,7 +106,20 @@ export type SandboxEvent =
     pick — a two-step flow picks a translation and then a verse, and a console
     that closed unconditionally would shut the one it just asked for.
   */
-  | { type: "suggest-modal-picked"; seq: number; reopened: boolean }
+  | {
+      type: "suggest-modal-picked";
+      seq: number;
+      reopened: boolean;
+      /**
+       * Whether the pick landed, and why not.
+       *
+       * Every way it fails looks the same from where the reader is sitting —
+       * the row was pressed, the dialog closed, the note did not change — so
+       * this is what turns that silence into a sentence. `null` is the
+       * ordinary case: it worked, or the plugin never wanted the note.
+       */
+      reason: PluginWorkReason | null;
+    }
   /**
    * The line the plugin's own `selectSuggestion` produced.
    *

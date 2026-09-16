@@ -122,6 +122,15 @@ export interface RuntimeView {
    * field for both would make every consumer re-derive which kind it had.
    */
   textModal?: OpenTextModal | null;
+  /**
+   * The last dialog pick that did nothing, and why — or `null`.
+   *
+   * Not part of `modal`: the dialog is already closed by the time this is
+   * known, because the guest closes its own before running the plugin's
+   * handler. This is what the console puts in that space instead of the
+   * silence the whole path was reported for.
+   */
+  pickFailure?: { pluginId: string; reason: PluginWorkReason } | null;
   /** The plugin settings pane currently open, or `null`. */
   settingsPane?: OpenSettingsPane | null;
   /** Plugin ids that registered a settings pane, so a row can offer to open it. */
@@ -226,6 +235,8 @@ export interface RuntimeActions {
   start: (pluginId: string, bundleFingerprint: string) => Promise<void>;
   /** Close the plain dialog, telling the plugin that opened it. */
   dismissTextModal?: () => void;
+  /** Put away the note about a pick that did nothing. Nothing crosses. */
+  dismissPickFailure?: () => void;
   /** Ask a running plugin to draw its own settings pane. */
   openSettingsPane?: (pluginId: string) => void;
   /** Work one of its controls. The index names a row in the pane now on screen. */
@@ -296,17 +307,52 @@ export interface RuntimeActions {
 export const SUGGEST_TIMEOUT_MS = 1200;
 
 /**
+ * Why a piece of a plugin's work did not land, and the sentence for it.
+ *
+ * The guest names which of three cases it is and the console writes the words:
+ * a sentence carried up from a sandbox would be a plugin composing Context's
+ * error message, often *about that plugin's own* missing grant. The set is
+ * closed in `@context/obsidian-runtime`, so the worst a lying guest achieves is
+ * the wrong one of three.
+ *
+ * Shared by the two surfaces that have to say it — a command's outcome on the
+ * plugins pane and a dialog pick in front of the reader — because one of them
+ * wording it differently would make the same refusal read as two problems.
+ */
+export type PluginWorkReason = "no-note" | "not-allowed" | "failed";
+
+export function pluginWorkNote(reason: PluginWorkReason): string {
+  if (reason === "no-note") {
+    return "It asked for the note you have open, and nothing was open. Open a note and try again.";
+  }
+  if (reason === "not-allowed") {
+    return "It is not allowed to change your notes. Turn on “Create and change notes” with Change what it can do.";
+  }
+  return "The change it made could not be saved. Your note is as it was.";
+}
+
+/**
  * What came back from the last command this plugin was asked to run.
  *
- * `ok: false` is the plugin failing, not Context: the command threw inside the
- * sandbox and the guest reported it rather than swallowing it. The console says
- * which command, because a plugin with several is otherwise a screen saying
- * something went wrong somewhere.
+ * `ok: false` with an `error` is the plugin failing, not Context: the command
+ * threw inside the sandbox and the guest reported it rather than swallowing it.
+ * `ok: false` with a `reason` is the other way round — it ran, and asked for
+ * something Context could not give it. The console says which command either
+ * way, because a plugin with several is otherwise a screen saying something
+ * went wrong somewhere.
  */
 export interface CommandOutcome {
   id: string;
   ok: boolean;
   error: string | null;
+  /**
+   * Why it did nothing, when the why is Context's to say rather than the
+   * plugin's — see `PluginWorkReason`.
+   *
+   * Absent means the ordinary case: it ran, or it threw and `error` carries
+   * what it threw.
+   */
+  reason?: PluginWorkReason | null;
   /**
    * Nothing answered, as opposed to the plugin answering that it failed.
    *
@@ -576,7 +622,13 @@ export const REGISTRATION_NOTE =
 export function commandOutcomeFor(
   registered: PluginRegistration[],
   outcome: CommandOutcome | undefined,
-): { name: string; ok: boolean; error: string | null; timedOut: boolean } | null {
+): {
+  name: string;
+  ok: boolean;
+  error: string | null;
+  timedOut: boolean;
+  reason: PluginWorkReason | null;
+} | null {
   if (outcome === undefined) return null;
   const match = registered.find((one) => one.id === outcome.id);
   if (match === undefined) return null;
@@ -585,6 +637,7 @@ export function commandOutcomeFor(
     ok: outcome.ok,
     error: outcome.error,
     timedOut: outcome.timedOut === true,
+    reason: outcome.reason ?? null,
   };
 }
 
