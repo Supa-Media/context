@@ -434,6 +434,29 @@ export async function runPluginChecks(check) {
     reported without a claim about it: "not built yet" would be a promise about
     somebody else's API.
   */
+  /*
+    A PLUGIN THAT USES PLAIN fetch ASKS FOR APPROVAL.
+
+    It did not, and the omission was invisible while the sandbox CSP refused
+    every direct call: the scan said "no network" and the plugin reached
+    nothing, so the wrong reading and the right outcome agreed. Once the shim
+    brokers `fetch` the plugin really does reach outward, and a verdict of
+    `runs` would hand it the network without its owner ever naming a host.
+  */
+  check(
+    "a bundle that calls fetch needs approval rather than running unasked",
+    (() => {
+      const scanned = scanPlugin({
+        id: "fetcher",
+        manifestText: manifestFor("fetcher"),
+        source: 'const { Plugin } = require("obsidian");\nmodule.exports = class extends Plugin { async onload() { await fetch("https://example.invalid/x"); } };\n',
+      });
+      return (
+        scanned.verdict === "needs-approval" &&
+        scanned.evidence.some((entry) => entry.id === "fetch" && entry.kind === "network")
+      );
+    })()
+  );
   check(
     "a base class nobody ever listed is still a blocker, derived from what the shim exports",
     (() => {
