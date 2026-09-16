@@ -114,29 +114,46 @@ export const PARTIAL_MEMBERS = Object.freeze({
 });
 
 /**
- * Members the shim is committed to and does not answer yet.
+ * Members the shim is committed to and does not answer yet — the two kinds.
  *
- * Each one is a sentence rather than a flag, because a plugin naming one still
- * runs — it is the *feature behind it* that will not work, and "this plugin is
- * unavailable" would be false. `scanBundle` turns each into a limitation on the
- * row, so the console says which half of a plugin arrives.
+ * This used to be one map, `PLANNED_MEMBERS`, whose comment named both kinds
+ * and whose data did not distinguish them. The distinction was described as
+ * mattering "to whoever implements them", and it turned out to matter to the
+ * *scanner* first, in a way that overclaimed:
  *
- * Two kinds are in here and the distinction matters to whoever implements them:
+ * - An **inert** member is reachable and does nothing. `addSettingTab` accepts
+ *   a registration and drops it, so the plugin loads happily and its settings
+ *   pane never appears. "Not yet, so that part will not work" is exactly true.
+ * - An **absent** member is not on the shim at all. Calling one is a
+ *   `TypeError` in whatever path calls it — still a limitation, since the rest
+ *   of the plugin runs. **Extending one is not.** `class X extends
+ *   api.SuggestModal {}` evaluates `extends undefined` and throws where it
+ *   stands, so the bundle never finishes loading and nothing of the plugin
+ *   arrives. Reported as a limitation on a `runs` row, that is the roadmap
+ *   being read out as a capability all over again, one level down.
  *
- * - **Absent.** `resolvedLinks`, `registerView`, `MarkdownRenderer` — a plugin
- *   calling one gets a `TypeError` and, if it is in `onload`, a crash the
- *   runtime reports honestly.
- * - **Present and inert.** `addSettingTab` and `registerEditorExtension` accept
- *   a registration and drop it, so the plugin loads happily and its settings
- *   pane or its editor decoration never appears. That is the harder failure to
- *   report, which is exactly why it is named here rather than left to be
- *   noticed.
+ * So the two are separate maps and `scanBundle` can ask which kind it found.
+ * `PLANNED_MEMBERS` below is their union, unchanged in shape, because every
+ * reader that only needs "name → sentence" should not have to know.
  *
- * A member that is answered but *bounded* belongs in neither kind. It is in
- * `SUPPORTED_MEMBERS` and in `PARTIAL_MEMBERS` above — the read preview is the
- * first, and the paragraph up there says why that needed a third list.
+ * **Both halves are checked against the real shim**, in the only place that can
+ * run it: `pluginSandboxGuest.test.ts` walks the sandbox and asserts every
+ * inert name is reachable on it and every absent name is not. That is the
+ * direction the guard could not prove before, and the comment there said so.
  */
-export const PLANNED_MEMBERS = Object.freeze({
+export const INERT_MEMBERS = Object.freeze({
+  addSettingTab: "a plugin's own settings pane is accepted and not drawn yet",
+  registerEditorExtension: "editor decorations are accepted and not applied yet",
+  getActiveViewOfType: "the console has no views for this to find yet",
+  getLeavesOfType: "the console has no leaves for this to find yet",
+});
+
+/**
+ * Not on the shim at all. Reaching one is a `TypeError`; extending one is a
+ * bundle that never loads — see `INERT_MEMBERS` above for why that matters here
+ * rather than only to whoever implements them.
+ */
+export const ABSENT_MEMBERS = Object.freeze({
   getAllLoadedFiles: "listing every loaded file is not wired to the adapter yet",
   createFolder: "creating a folder has no operation in the plugin RPC yet",
   getFileByPath: "looking a file up by path is not wired yet",
@@ -145,13 +162,9 @@ export const PLANNED_MEMBERS = Object.freeze({
   resolvedLinks: "the link graph is not exposed to plugins yet",
   unresolvedLinks: "the link graph is not exposed to plugins yet",
   fileToLinktext: "the link graph is not exposed to plugins yet",
-  addSettingTab: "a plugin's own settings pane is accepted and not drawn yet",
   registerMarkdownCodeBlockProcessor: "plugin-rendered code blocks are not drawn yet",
-  registerEditorExtension: "editor decorations are accepted and not applied yet",
   registerView: "a plugin's own panel is not drawn yet",
   registerExtensions: "opening a plugin's own file type is not wired yet",
-  getActiveViewOfType: "the console has no views for this to find yet",
-  getLeavesOfType: "the console has no leaves for this to find yet",
   getRightLeaf: "the console has no side panels yet",
   getLeftLeaf: "the console has no side panels yet",
   MarkdownRenderer: "rendering markdown on a plugin's behalf is not available yet",
@@ -159,4 +172,17 @@ export const PLANNED_MEMBERS = Object.freeze({
   FuzzySuggestModal: "the suggestion dialog is not available yet",
   setIcon: "the icon set is not exposed to plugins yet",
 });
+
+/**
+ * Every member still on the way, whichever kind, with the sentence to say.
+ *
+ * Derived rather than typed out a third time: a name added to one of the maps
+ * above and forgotten here would be a member the scanner stops mentioning at
+ * all, which is the silence this whole split exists to end.
+ *
+ * A member that is answered but *bounded* belongs in neither map. It is in
+ * `SUPPORTED_MEMBERS` and in `PARTIAL_MEMBERS` above — the read preview is the
+ * first, and the paragraph up there says why that needed a third list.
+ */
+export const PLANNED_MEMBERS = Object.freeze({ ...INERT_MEMBERS, ...ABSENT_MEMBERS });
 

@@ -525,6 +525,117 @@ describe("Obsidian plugin inventory", () => {
     expect(f.backend.snapshot()).toHaveProperty(".obsidian/plugins/virtual-linker/main.js");
   });
 
+  /*
+    THE ONE THING AN OWNER MAY NOT AUTHORIZE AWAY.
+
+    Decided by the owner, 2026-09-16: enabling a plugin over your own workspace
+    is your call, the same trust you already place in Context — but a plugin
+    enabled in one workspace may never reach another, because the people in that
+    other one authorized nothing.
+
+    It holds by construction rather than by policy, and that is the part worth a
+    test: `executePluginRequest` takes a runtime token and a request, and the
+    request has **no workspace argument**. The server derives the workspace from
+    the session the token hashes to. So there is no message plugin code can send
+    that names somewhere else — and this proves it against the shape that would
+    matter, two workspaces owned by the same person, each on its own bucket.
+
+    Same owner on purpose. A stranger being refused proves the membership check;
+    it says nothing about whether an authorized token stays where it was issued,
+    which is the actual question here.
+  */
+  test("a plugin's token reaches exactly one workspace", async () => {
+    const f = await fixture();
+
+    // A second workspace of the owner's, on its own bucket, holding a note
+    // whose path does not exist in the first.
+    const elsewhere = await createWorkspace(f.t, f.owner, "other-context");
+    const otherBucket = memoryS3("other-bucket");
+    otherBucket.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    otherBucket.seed("1-projects/only-over-here.md", `# Elsewhere\n\n${SECRET_BODY_MARKER}\n`);
+    const first = f.backend.fetchImpl;
+    // One socket, two buckets: each stub 404s a bucket that is not its own, so
+    // whichever binding the server actually used is the one that answers.
+    vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+      const response = await first(input, init);
+      return response.status === 404 ? await otherBucket.fetchImpl(input, init) : response;
+    });
+    await f.t.run(async (ctx) =>
+      ctx.db.insert("storageBindings", {
+        workspaceId: elsewhere,
+        provider: FAKE_STORAGE.provider,
+        endpoint: FAKE_STORAGE.endpoint,
+        region: FAKE_STORAGE.region,
+        bucket: "other-bucket",
+        accessKeyId: FAKE_STORAGE.accessKeyId,
+        encryptedSecretAccessKey: await encryptSecret(
+          FAKE_STORAGE.secretAccessKey,
+          requireKeyset(),
+          { workspaceId: elsewhere },
+        ),
+        capabilities: { conditionalWrite: true },
+        status: "connected" as const,
+        lastVerifiedAt: Date.now(),
+        boundBy: f.owner,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/manifest.json",
+      JSON.stringify({ id: "highlightr-plugin", name: "Highlightr", version: "1.2.2" }),
+    );
+    f.backend.seed(
+      ".obsidian/plugins/highlightr-plugin/main.js",
+      'const { Plugin } = require("obsidian"); class Highlightr extends Plugin {}',
+    );
+    const inventory = await asUser(f.t, f.owner).action(api.functions.files.listObsidianPlugins, {
+      workspaceId: f.workspaceId,
+    });
+    const bundleFingerprint = inventory.plugins[0].bundleFingerprint!;
+    await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.approvePlugin, {
+      workspaceId: f.workspaceId,
+      pluginId: "highlightr-plugin",
+      bundleFingerprint,
+      capabilities: ["vault:read"],
+      networkHosts: [],
+    });
+    const { runtimeToken } = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.loadPluginBundle,
+      { workspaceId: f.workspaceId, pluginId: "highlightr-plugin", bundleFingerprint },
+    );
+
+    // The positive companion first: the token does work, in the workspace it
+    // was issued for. Without this the refusal below passes on a broken build.
+    expect(
+      await asUser(f.t, f.owner).action(api.functions.obsidianPlugins.executePluginRequest, {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "own_workspace",
+          operation: { kind: "vault.read", path: "1-projects/shared.md" },
+        },
+      }),
+    ).toMatchObject({ ok: true, result: { kind: "file", text: "# Shared\n" } });
+
+    // And the note that exists only in the other workspace is not reachable —
+    // by the owner of both, holding a live token, over a granted capability.
+    const across = await asUser(f.t, f.owner).action(
+      api.functions.obsidianPlugins.executePluginRequest,
+      {
+        runtimeToken,
+        request: {
+          version: 1,
+          requestId: "across_workspaces",
+          operation: { kind: "vault.read", path: "1-projects/only-over-here.md" },
+        },
+      },
+    );
+    expect(across).toMatchObject({ ok: false });
+    expect(JSON.stringify(across)).not.toContain(SECRET_BODY_MARKER);
+  });
+
   test("an owner grants capabilities to the exact bundle that was checked", async () => {
     const f = await fixture();
     f.backend.seed(

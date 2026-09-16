@@ -253,14 +253,20 @@ describe("the ready list", () => {
 
   test("every plugin that cannot run here is told where it still runs", () => {
     expect(panel(READY).textContent).toContain(
-      "Keep it in Obsidian — same bucket, same files, and Context reads whatever it writes.",
+      "Keep it in Obsidian — Context reads what it writes.",
     );
   });
 
+  /*
+    Same rule, stated once instead of three times — see `plugins.test.ts`. The
+    screen still has to say it was not read rather than refused; it says so in
+    the group heading and blurb, and the row carries the part they do not.
+  */
   test("an unchecked plugin is told it was not read, and how much was", () => {
     const text = panel(READY).textContent ?? "";
-    expect(text).toContain("Not a refusal");
+    expect(text).toContain("could not read these");
     expect(text).toContain("512 KB of 1.8 MB read");
+    expect(text).toContain("Run it in Obsidian meanwhile.");
   });
 
   test("the floor and the shared-notes scope both survive to the screen", () => {

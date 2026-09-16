@@ -30,7 +30,7 @@ const BLURBS = {
   "needs-approval": "these run, but call a host outside Context — approve the hosts to install",
   "files-only":
     "these stay in Obsidian, and Context reads the files they write, so no data is stranded",
-  "wont-run": "these need a filesystem, a shell, or Obsidian's private internals",
+  "wont-run": "these need a filesystem, a shell, Obsidian's private internals, or a part of its interface Context has not built yet",
   unknown: "the check could not read these; they are not offered as working",
 };
 

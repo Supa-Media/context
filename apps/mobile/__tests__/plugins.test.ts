@@ -26,6 +26,7 @@ import {
   type PluginInventory,
   type PluginVerdict,
 } from "../features/console/plugins/plugins";
+import { UNINSTALL_NOTE } from "../features/console/plugins/lifecycle";
 
 /**
  * The plugin inventory's wording and its two guards.
@@ -102,6 +103,15 @@ describe("the five verdicts", () => {
     expect(verdictHeading("unknown")).toBe("Couldn't be checked");
     expect(verdictHeading("unknown")).not.toMatch(/refus|reject|unsupport|block/i);
     expect(verdictBlurb("unknown")).toContain("not offered as working");
+    /*
+      The won't-run heading has to describe both ways a plugin lands there. It
+      read "a filesystem, a shell, or Obsidian's private internals" — true of
+      every plugin that had ever been in that group, and false as soon as a
+      missing base class could put one there. Bible Reference needs none of the
+      three; it needs a dialog Context has not built. A group blurb that does
+      not cover its own rows is the same overclaim as a verdict that does not.
+    */
+    expect(verdictBlurb("wont-run")).toContain("Context has not built yet");
   });
 });
 
@@ -137,14 +147,23 @@ describe("no row ends on a refusal", () => {
   test("a plugin that cannot run here is told where it still runs", () => {
     for (const verdict of ["wont-run", "files-only"] as const) {
       expect(routeOut(verdict)).toContain("Obsidian");
-      expect(routeOut(verdict)).toContain("same bucket");
+      expect(routeOut(verdict)).toContain("Context reads what it writes");
     }
   });
 
+  /*
+    The rule is unchanged and where it is stated moved. The row used to open
+    "Not a refusal: the check could not read it" — a third telling of what the
+    pill ("Couldn't be checked") and the group heading already say, on a card
+    the owner called too wordy. The row now carries only the part neither of
+    them does, which is what to do about it.
+  */
   test("an unchecked plugin is told it was not read, not that it was rejected", () => {
-    const line = routeOut("unknown");
-    expect(line).toContain("Not a refusal");
-    expect(line).toContain("Obsidian");
+    expect(verdictHeading("unknown")).toContain("checked");
+    expect(verdictBlurb("unknown")).toContain("could not read these");
+    expect(verdictBlurb("unknown")).toContain("not offered as working");
+    // And the row still ends on somewhere it does work, never on the refusal.
+    expect(routeOut("unknown")).toContain("Obsidian");
   });
 
   test("the runs-here note is absent wherever a route out already answers", () => {
@@ -389,10 +408,43 @@ describe("where a plugin lives", () => {
     expect(sourceNote(plugin({ verdict: "runs", source: "obsidian" }))).toBeNull();
   });
 
+  /*
+    The promise stayed and the plumbing went. This used to name
+    `.context/plugins/` on every managed row; the owner called the card too
+    wordy and the path is ours, not a fact a reader acts on. "Your vault is
+    untouched" is the half they do act on — it is the worry an Obsidian user
+    brings to a row that says Context installed something.
+  */
   test("a Context-managed install says so, and says the vault is untouched", () => {
     const note = sourceNote(plugin({ verdict: "runs", source: "context" }));
-    expect(note).toContain(".context/plugins/");
+    expect(note).toContain("Installed by Context");
     expect(note).toContain("vault is untouched");
+    expect(note?.split(". ").length).toBe(1);
+  });
+
+  /*
+    ONE SENTENCE PER LINE ON A ROW, AND THIS IS WHAT HOLDS IT.
+
+    The owner's rule, given while looking at a plugin card carrying five blocks
+    of prose: "only put like 1 sentence max of info when showing things to
+    users." Every line here is stacked on every row of a list, so a second
+    sentence anywhere is a second sentence everywhere — and the reader who
+    needed it has already stopped reading.
+
+    It counts sentence *breaks*, not full stops, so `.context/plugins/` and
+    `v1.2.2` do not trip it. Wording is free to change; length is not.
+  */
+  test("no line on a plugin row runs to a second sentence", () => {
+    const second = /[.!?]\s+\S/;
+    const lines = [
+      ...VERDICT_ORDER.map(routeOut),
+      ...VERDICT_ORDER.map(runsHereNote),
+      sourceNote(plugin({ verdict: "runs", source: "context" })),
+      readLabel(plugin({ verdict: "runs", bytesRead: 512, bytesTotal: 2048 })),
+      UNINSTALL_NOTE,
+    ].filter((line): line is string => typeof line === "string");
+    expect(lines.length).toBeGreaterThan(4);
+    expect(lines.filter((line) => second.test(line))).toEqual([]);
   });
 
   test("the source survives the row mapping rather than defaulting to one of them", () => {

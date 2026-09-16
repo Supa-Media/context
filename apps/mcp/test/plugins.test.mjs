@@ -264,11 +264,13 @@ export async function runPluginChecks(check) {
     `id` WAS THE ONE FIELD WITH NO BOUND, IN A FILE THAT BOUNDS EVERYTHING ELSE.
 
     Folder ≤200, `str` ≤300, `reason` ≤200, hosts ≤12, plugins ≤20, list pages
-    ≤20, bundle ≤4MB — and `id` only `.trim()`ed. `readText` caps a manifest at
-    `MAX_SCAN_BYTES + 1`, so one manifest can carry a ~4MB id, and `scanPlugin`
-    renders it twice (as `id`, and as `name` when name is absent). Measured: 20
-    such manifests produced 160MB of MCP text and 544MB RSS, against a 128MB
-    isolate limit — an OOM in `lines.join`.
+    ≤20, bundle ≤`MAX_SCAN_BYTES` — and `id` only `.trim()`ed. `readText` caps a
+    manifest at `MAX_SCAN_BYTES + 1`, so one manifest can carry an id that size,
+    and `scanPlugin` renders it twice (as `id`, and as `name` when name is
+    absent). Measured back when the cap was 4MB: 20 such manifests produced
+    160MB of MCP text and 544MB RSS, against a 128MB isolate limit — an OOM in
+    `lines.join`. The cap is 16MB now, so the same bug would cost four times
+    that; `str()` is what stops it, and this is what holds `str()`.
   */
   const huge = parseManifest(JSON.stringify({ id: "x".repeat(500_000) })).manifest;
   check("a manifest id is bounded like every other field", huge.id.length <= 300);
@@ -334,6 +336,131 @@ export async function runPluginChecks(check) {
       graph.limitations.filter((line) => line.includes("link graph")).length === 1
     );
   }
+
+  /*
+    A PLANNED MEMBER USED AS A BASE CLASS IS NOT A MISSING FEATURE.
+
+    `PLANNED_MEMBERS` holds two kinds, and `surface.js` has always said so:
+    **present and inert** — `addSettingTab` accepts a registration and drops it
+    — and **absent**, which is not on the shim at all. The wording above is
+    written for the first kind and is right about it: the plugin loads, and one
+    part of it does nothing.
+
+    It is wrong about the second kind in one specific place. `class X extends
+    api.SuggestModal {}` evaluates `extends undefined` and throws, so the bundle
+    never finishes loading and *nothing* of the plugin arrives — reported, until
+    now, as `runs` with a "not yet" note under a heading that reads "everything
+    these use, Context implements".
+
+    That is this file's own asymmetry arriving from a new direction: `runs` rests
+    on evidence we did not find, and here we had the evidence and filed it as a
+    footnote. Found on Bible Reference (obsidian-bible-reference), which extends
+    `SuggestModal`. It is 4.11MB, so until the read cap moved to 16MB in this
+    same change it never reached this path at all — the bug was live only for
+    smaller plugins doing the same thing, which is the worst way for one to be
+    live: invisible on the plugin that would have shown it to you.
+  */
+  {
+    const base = scanPlugin({
+      id: "suggest",
+      manifestText: manifestFor("suggest"),
+      source: 'const o = require("obsidian");\nvar M = class extends o.SuggestModal { };\n',
+    });
+    check(
+      "a bundle extending a class the shim does not provide will not run here",
+      base.verdict === "wont-run"
+    );
+    check(
+      "and the evidence names the class, not the category",
+      base.evidence.some((entry) => entry.id === "SuggestModal")
+    );
+    // `report.js` draws the route out for `wont-run`, which is the correct
+    // advice here and the reason the verdict is this one rather than `unknown`.
+    check(
+      "it is not reported as a limitation on a row that says it runs",
+      !base.limitations.some((line) => line.includes("suggestion dialog"))
+    );
+    check(
+      "a bare identifier works too — a bundler may not namespace the import",
+      scanPlugin({
+        id: "bare",
+        manifestText: manifestFor("bare"),
+        source: 'import { SuggestModal } from "obsidian";\nclass M extends SuggestModal {}\n',
+      }).verdict === "wont-run"
+    );
+  }
+  /*
+    The positive companion, and the half that stops this widening onto every
+    plugin: naming an absent member without extending it is unchanged. A
+    `TypeError` on a call is a crash in whatever path calls it; `extends` is a
+    crash before `onload` runs at all, and only the second makes the whole
+    plugin unavailable.
+  */
+  check(
+    "naming an absent member without extending it is still a limitation on a running plugin",
+    (() => {
+      const called = scanPlugin({
+        id: "called",
+        manifestText: manifestFor("called"),
+        source: "const m = new obsidian.SuggestModal(this.app);\n",
+      });
+      return (
+        called.verdict === "runs" &&
+        called.limitations.some((line) => line.includes("suggestion dialog"))
+      );
+    })()
+  );
+  check(
+    "and extending one the shim DOES answer is not a blocker",
+    scanPlugin({
+      id: "inert",
+      manifestText: manifestFor("inert"),
+      source: 'const o = require("obsidian");\nclass T extends o.PluginSettingTab {}\nthis.addSettingTab(new T());\n',
+    }).verdict === "runs"
+  );
+  /*
+    Curation moves the label the same way it does for a blocker, and for the
+    same reason: a plugin whose *format* Context reads strands no data, whatever
+    it cannot do here. Mirrored rather than special-cased so the two paths
+    cannot drift into disagreeing about one plugin.
+  */
+  /*
+    The heading has to describe both ways in. It read "these need a filesystem,
+    a shell, or Obsidian's private internals" — true of every plugin that had
+    ever landed there, and false the moment a missing base class could put one
+    there: Bible Reference needs none of those three, it needs a dialog we have
+    not built. A group blurb that does not cover its own rows is the same
+    overclaim as a verdict that does not, one level up.
+  */
+  check(
+    "the won't-run heading covers a plugin held back by us rather than by the sandbox",
+    (() => {
+      const held = scanPlugin({
+        id: "held",
+        manifestText: manifestFor("held"),
+        source: 'const o = require("obsidian");\nclass M extends o.SuggestModal {}\n',
+      });
+      const rendered = renderPluginReport({
+        available: true,
+        reason: null,
+        plugins: [held],
+        counts: summarize([held]),
+        found: 1,
+        scanned: 1,
+        truncated: false,
+        checkedAt: new Date().toISOString(),
+      });
+      return /Context has not built yet/.test(rendered);
+    })()
+  );
+  check(
+    "a curated format-supported plugin reads files-only rather than wont-run",
+    scanPlugin({
+      id: "remotely-save",
+      manifestText: manifestFor("remotely-save"),
+      source: 'const o = require("obsidian");\nclass M extends o.FuzzySuggestModal {}\n',
+    }).verdict === "files-only"
+  );
 
   const shell = scanPlugin({
     id: "sh",
