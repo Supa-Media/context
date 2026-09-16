@@ -144,6 +144,33 @@ export async function requireAdmin(
 }
 
 /**
+ * Is this *account* staff — asked about somebody who is not the caller?
+ *
+ * `requireAdmin` answers the question about whoever is signed in, which is the
+ * right shape for an admin endpoint and the wrong one for a check on a row's
+ * author. `lib/pinnedContext.ts` needs this: the workspace every account
+ * reaches is selected by a slug anybody may claim, so what makes a row the
+ * pinned context is that somebody this deployment already trusts stands behind
+ * it, and that person is not the person asking.
+ *
+ * The two conditions are `requireAdmin`'s own, for its own reasons: the address
+ * must be **verified**, or signing up as a staff address would be enough; and
+ * the allowlist lives in the environment, where nothing this codebase executes
+ * can write it. A deployment with no `ADMIN_EMAILS` has no staff and therefore
+ * vouches for nothing — which is the direction this has to fail in.
+ */
+export async function userIsStaff(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+  env: Record<string, string | undefined> = process.env,
+): Promise<boolean> {
+  const user = await ctx.db.get(userId);
+  if (user === null) return false;
+  if (user.emailVerificationTime === undefined) return false;
+  return isAdminEmail(user.email, env);
+}
+
+/**
  * Whether the caller is staff, without throwing.
  *
  * For the console's own navigation only — so the app can decide whether to

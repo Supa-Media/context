@@ -192,6 +192,7 @@ interface StripHandlers {
   onActivate: jest.Mock<(path: string) => void>;
   onClose: jest.Mock<(path: string) => void>;
   onCloseOthers: jest.Mock<(path: string) => void>;
+  onCloseToRight: jest.Mock<(path: string) => void>;
   onReopen: jest.Mock<() => void>;
 }
 
@@ -200,6 +201,7 @@ function mountStrip(state: TabsState): Mounted & StripHandlers {
     onActivate: jest.fn<(path: string) => void>(),
     onClose: jest.fn<(path: string) => void>(),
     onCloseOthers: jest.fn<(path: string) => void>(),
+    onCloseToRight: jest.fn<(path: string) => void>(),
     onReopen: jest.fn<() => void>(),
   };
   return { ...mount(createElement(TabStrip, { state, ...handlers })), ...handlers };

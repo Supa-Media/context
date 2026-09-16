@@ -152,6 +152,7 @@ import {
   readBoundedBody,
   readTranscribeRequest,
   toTranscription,
+  TURBO_INPUT,
   TURBO_MODEL,
 } from "./transcribe";
 
@@ -165,7 +166,9 @@ export interface Env {
    * so the handler can be driven from a plain object in tests, with no runtime
    * and no account.
    */
-  AI?: { run(model: string, input: { audio: string }): Promise<unknown> };
+  AI?: {
+    run(model: string, input: { audio: string; vad_filter?: boolean }): Promise<unknown>;
+  };
   /** This Worker's own shared secret. Pushed by the deploy workflow. */
   TRANSCRIBE_WORKER_SECRET?: string;
   /**
@@ -400,7 +403,14 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
   let model = TURBO_MODEL;
   let answer: unknown;
   try {
-    answer = await env.AI.run(TURBO_MODEL, { audio: parsed.audioBase64 });
+    /*
+      `TURBO_INPUT` is `{ vad_filter: true }`, and it is the half of the silence
+      rule that was missing: the model's VAD is off by default, so
+      `duration_after_vad` came back equal to the duration and the refusal that
+      reads it could never fire. `transcribe.ts` carries the argument and what
+      it costs.
+    */
+    answer = await env.AI.run(TURBO_MODEL, { audio: parsed.audioBase64, ...TURBO_INPUT });
   } catch (error) {
     // The whole of the fallback: retry on the older model only when the turbo
     // one is not on this account at all. Anything else is a real failure and is
@@ -411,6 +421,12 @@ export async function handleRequest(request: Request, env: Env): Promise<Respons
     }
     model = FALLBACK_MODEL;
     try {
+      /*
+        No `TURBO_INPUT` here. The original `@cf/openai/whisper` declares
+        `audio` and nothing else, reports no `duration_after_vad`, and is the
+        only path an account without the turbo model has — so an undeclared key
+        would risk a 502 on that path to arm a rule the model cannot feed.
+      */
       answer = await env.AI.run(FALLBACK_MODEL, { audio: parsed.audioBase64 });
     } catch {
       log({ event: "engine_failed", caller, model: FALLBACK_MODEL });

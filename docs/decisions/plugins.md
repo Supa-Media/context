@@ -22,7 +22,7 @@ question of the same screen.
 
 ## A Context plugin is Obsidian's manifest with one extra key, and no bundle
 
-`apps/mcp/src/plugins/catalog.js` declares four, in Obsidian's own manifest
+`apps/mcp/src/plugins/catalog.js` declares five, in Obsidian's own manifest
 shape — `id`, `name`, `version`, `minAppVersion`, `description`, `author`,
 `authorUrl`, `isDesktopOnly`, spelled the way Obsidian spells them. Everything
 Context needs that Obsidian has no concept of goes under a single `context`
@@ -46,13 +46,56 @@ called `forms`, or a community plugin published under that id, must never be
 able to present itself as the built-in one — the built-in's row carries a switch
 that changes what the gateway serves, and a folder anybody can sync into a
 bucket borrowing that row would be a control surface with an untrusted name on
-it. Reserved is the whole prefix rather than the four ids in use, so a plugin
+it. Reserved is the whole prefix rather than the five ids in use, so a plugin
 added later is not shadowable by a folder that predates it.
 
 **What a simplification costs.** Dropping the prefix check lets a synced folder
 take a built-in's row. Inventing a manifest shape of our own ends the one-row
 claim and makes a future third-party Context plugin unpublishable to either
 catalogue. `a vault folder cannot borrow a built-in id` is the check.
+
+### Contacts is the fifth, and it earned the row by growing tools
+
+Contact pages existed for a week before this, written into `0-inbox/contacts/`
+by the Gmail, Chat and iMessage syncs and reachable only as ordinary notes: a
+connected client could read one if it already knew the path, and had no way to
+ask who the user corresponds with at all. That is the same state **drawings**
+was in when it was written into this list and taken back out — every surface a
+read of a file already there, nothing for a switch to govern — and the
+difference is the one that rule names: `list_contacts` and `read_contact` are
+a capability, so turning them off removes something.
+
+**The switch governs the reading and says so.** The syncs do not consult this
+file and keep writing pages with contacts turned off, so an `offMeans`
+promising that contacts stop being collected would be a promise the product
+does not keep, printed at the moment somebody is deciding. It names the Email
+and Chats connection screens instead, the way Chat history's entry does.
+
+**Both tools carry the provenance line, and that is not decoration.** A
+contact page is the only thing this product writes whose **key was chosen by
+whoever sent the user a message** — the fact the review of `#448` said to hold
+in mind for anything built on contacts next — and its name, organization and
+identifiers are values lifted off inbound mail. A model handed that page with
+nothing said reads it as the context's own claim about a person. `list_contacts`
+prints the sentence under the listing and `read_contact` prints it under the
+page, from one constant, because the listing is where somebody chooses who to
+read about and the read is where they choose what to believe.
+
+**A path under `0-inbox/contacts/` is not proof the note is ours**, for the
+same reason: a sender picked the name. `parseContactView` is lenient by design
+and would happily render somebody's own note — or ciphertext — as a person's
+contact details, so both tools gate on `isContactNote`, the positive
+frontmatter marker `renderContactNote` always emits. The listing names such a
+note rather than hiding it (hiding a visible note from a listing of its own
+folder teaches the caller something false), and the read hands it to
+`read_note` rather than printing fields it never had. *A lenient reader is a
+dangerous gate* is that review's own lesson, applied on the read side.
+
+**What a simplification costs**: dropping the `isContactNote` gate turns a
+note the user wrote at a contact's key into a contact page in the listing and
+in the read. Dropping the provenance line makes a sender's self-description
+indistinguishable from something this context established. The checks are in
+`apps/mcp/test/contacts.test.mjs`.
 
 ## The switch lives in the bucket, in two lists rather than one
 
@@ -1235,3 +1278,63 @@ something about third-party code nobody checked.
 `apps/mobile/__tests__/pluginsPanel.test.ts` and
 `apps/mobile/e2e/webkit/pluginsInstalled.spec.ts` hold these, the last in a real
 browser in the state a first visit is actually in.
+
+## A settings pane is described, never forwarded
+
+`display()` is the most hostile thing a plugin runs on Context's behalf, and
+that is not a hypothetical: the real Bible Reference pane opens with a **sponsor
+iframe** and a **tracking image**, both set through `innerHTML`, before it
+reaches a single control. Forwarding what a plugin builds would mean Context
+serving somebody else's ads and somebody else's analytics from inside a
+customer's console.
+
+So the same inversion as the suggestion dialog and `Modal`, applied where it
+matters most. `display()` runs in the sandbox against a real `containerEl`; the
+guest walks that element and sends a **description** — a kind, a name, a
+sentence, a value, a list of options; the console draws its own controls; a
+change crosses back as an index and the plugin's own `onChange` runs in the
+sandbox.
+
+Order is document order from the plugin's own container, so a heading it wrote
+between two settings lands between them. Nothing is re-sorted: this is somebody
+else's pane, and rearranging it makes their documentation wrong.
+
+**A hidden control is not offered.** Obsidian augments `HTMLElement` with
+`hide()`/`show()`, and this pane builds every control up front then hides the
+ones that do not apply. Two things followed from adding them: the shim stopped
+throwing (see below), and `describePane` skips a hidden row — drawing it would
+offer a setting the plugin's own author refuses to show.
+
+**A `display()` that throws part-way is reported, not swallowed.** The shim was
+missing `hide()`, so `display()` threw on the fourth of twenty-one rows and the
+error was caught and dropped. The reader got a pane silently missing seventeen
+settings, which looks exactly like a plugin that has four — the quieter failure
+and the worse one. The pane now carries what it threw and says so above the rows
+it did manage to draw.
+
+**Links do not survive, and the pane says so once.** An anchor is markup; only
+text crosses. A plugin's settings routinely link to its documentation, its
+repository and its author, and all of them arrive as plain words. Silence there
+reads as a broken pane, so `LINKS_NOTE` states the rule at the foot — a refusal
+carrying its route out, like every other refusal in this feature.
+
+**The index is checked on the trusted side.** It is what a reader's press is
+addressed by, so a guest that renumbered its rows could point a toggle at a
+different setting than the one on screen. The parser accepts a control only when
+its claimed index equals its position in the accepted list, and drops it
+otherwise. The real guest emits dense indices and can never exercise that
+branch, which is exactly why it has its own check in
+`packages/obsidian-runtime/test/test.mjs`.
+
+**What a simplification costs.** Forwarding the plugin's DOM puts an iframe and
+a tracking pixel in the trusted realm. Drawing hidden rows offers settings the
+plugin refuses to show. Swallowing the `display()` error restores a pane that
+lies about how many settings a plugin has. Trusting the index lets a guest
+redirect a press. `pluginSandboxGuest.test.ts`, `pluginSettingsPane.test.ts`,
+`packages/obsidian-runtime/test/test.mjs` and
+`e2e/webkit/pluginSettings.spec.ts` hold these, the last against the real
+release — which is the only check that caught the missing `hide()`.
+
+`addSettingTab` moved from `INERT_MEMBERS` to `SUPPORTED_MEMBERS` with this.
+That is the direction an entry on that list is supposed to travel, and it had
+been "accepted and not drawn yet" for months.

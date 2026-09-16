@@ -37,7 +37,25 @@
 import { PINNED_CONTEXT_ROLE, PINNED_CONTEXT_SLUG } from "@context/shared";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import { userIsStaff } from "./admin";
 import { getMembership } from "./workspaceAuth";
+
+/**
+ * How many membership rows are examined for somebody who can vouch.
+ *
+ * The creator is checked first and is the answer wherever this is set up the
+ * ordinary way, so the common path is one extra read. The scan exists for the
+ * row whose creator has since left the allowlist, and it is capped because the
+ * rows that reach it are the ones already failing the fast path — a claimed
+ * name nobody vouches for must not cost an unbounded read per request.
+ *
+ * **The cap fails closed**, which is the right direction and is worth knowing
+ * about: a pinned workspace whose only staff owner sits past this many
+ * membership rows loses its pin rather than gaining a wrong one. Fifty is far
+ * past the size of the team that runs a workspace like this, and the creator
+ * check is the path that is meant to answer.
+ */
+const VOUCHERS_EXAMINED = 50;
 
 /**
  * The pinned workspace, or `null` when this deployment has none.
@@ -47,17 +65,72 @@ import { getMembership } from "./workspaceAuth";
  * control plane with no such workspace simply has no pinned context. Every
  * caller treats `null` as "the feature is not present here" and carries on.
  *
- * One indexed read on `by_slug`. It is on the hottest path in the system —
- * every MCP request resolves a session — which is why it is an index lookup and
- * never a scan with a filter.
+ * ## THE SLUG SELECTS THE ROW. IT DOES NOT MAKE IT THE PINNED CONTEXT.
+ *
+ * `context-lc` is deliberately claimable: `lib/names.ts` reserves its
+ * lookalikes and says of the name itself that *"what protects a name we hold is
+ * holding it"*, because a reserved name is refused for everyone **including
+ * us**, and we could then never recreate this workspace after a delete or a
+ * migration. That argument is sound and is not reopened here — but it was made
+ * about a **handle**, and this feature is what turns the same string into a
+ * **trust anchor**: whatever row holds it is read by every account on the
+ * deployment and appears in every MCP session.
+ *
+ * Anywhere the row is not already held — a self-hosted control plane, a fresh
+ * staging database, this one after a delete frees the name — the first account
+ * to create a workspace called `context-lc` would otherwise be pinned into
+ * every rail and every session. That is an author's notes reaching every user's
+ * agent under a handle that reads as ours, and, since `participatesInForms`
+ * asks only for a write-scoped grant and a **non-empty** role, a form of theirs
+ * taking submissions from any user's client.
+ *
+ * So the row must also be something an account cannot give itself:
+ *
+ *  1. **`kind: "shared"`.** A personal context has a mailbox, an ingestion
+ *     alias and an owner it is deleted with; it is not a thing to pin into
+ *     everybody's list, and `pinnedContextRow` reports the row's own kind.
+ *  2. **Somebody this deployment already trusts stands behind it** —
+ *     `ADMIN_EMAILS`, which lives in the Convex environment exactly because
+ *     nothing this codebase executes can write it (`lib/admin.ts`). Unset means
+ *     nobody, so a deployment with no staff has no pinned context: the same
+ *     answer a self-hoster already got, and the one they should keep.
+ *
+ * Neither is configuration anybody has to set for this to keep working where it
+ * already does; both are facts the deployment already carries.
+ *
+ * One indexed read on `by_slug` plus, only when the row exists, the vouching
+ * read. It is on the hottest path in the system — every MCP request resolves a
+ * session — which is why it is an index lookup and never a scan with a filter.
  */
 export async function pinnedContextWorkspace(
   ctx: QueryCtx,
 ): Promise<Doc<"workspaces"> | null> {
-  return await ctx.db
+  const workspace = await ctx.db
     .query("workspaces")
     .withIndex("by_slug", (q) => q.eq("slug", PINNED_CONTEXT_SLUG))
     .unique();
+  if (workspace === null) return null;
+  if (workspace.kind !== "shared") return null;
+  if (!(await vouchedFor(ctx, workspace))) return null;
+  return workspace;
+}
+
+/** Does somebody this deployment trusts stand behind this row? */
+async function vouchedFor(
+  ctx: QueryCtx,
+  workspace: Doc<"workspaces">,
+): Promise<boolean> {
+  if (await userIsStaff(ctx, workspace.createdBy)) return true;
+  const owners = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspace._id))
+    .take(VOUCHERS_EXAMINED);
+  for (const membership of owners) {
+    if (membership.role !== "owner") continue;
+    if (membership.userId === workspace.createdBy) continue;
+    if (await userIsStaff(ctx, membership.userId)) return true;
+  }
+  return false;
 }
 
 /**

@@ -3864,6 +3864,92 @@ hundred as zero pixels is the worse lie.
 screen. One number arriving on one page from two different reads, with two
 different ceilings, is how a dashboard starts disagreeing with itself.
 
+### Both left panels fold, and the seam between them is the control
+
+The console's two left panels on a pointer layout are the rail and the file
+tree. The rail collapsed to its marks through ⌘B and nothing on the screen said
+so; the tree did not fold at all — `explorerToggleFor` was a documented constant
+`null`, above a comment reserving the decision for whoever took it. Both fold
+now, and the decisions that a "simplification" would reverse are these.
+
+**The control that folds a panel lives on the panel's own edge.** So the control
+that unfolds it is where the panel was, and spatial memory does the work. A
+toggle in the top bar puts the affordance for restoring a left column forty
+points up and to the right of where that column used to be, which is how people
+come to believe a feature was removed. The seams were already there as
+hairlines, and are 7pt hit targets that reveal a chevron only under the pointer —
+so the affordance costs nothing on screen at rest, which is what lets it be
+permanent.
+
+**A seam does one job.** The seam behind a resizable panel drags; the seam
+behind a folded or fixed-width one is pressed. Putting a press target in the
+middle of a drag handle takes the most natural place to grab a divider and makes
+it do something else, and no amount of hover-revealing fixes that — the target
+is there whether it is painted or not. The tree is therefore folded by dragging
+its own edge past the floor, not by a button sitting on that edge.
+
+**Dragging past the floor arms a close instead of refusing.**
+`clampExplorerWidth` still renders nothing narrower than `explorerMinWidth`,
+because that is where a kebab-case name under two indents stops being readable.
+What changes is only what a *release* past it means. The clamp's own comment
+gave the reason it refused — dragging a region to zero is how somebody hides it
+and then wonders where it went — and that reason is answered by the seam left
+standing, not by the refusal. `explorerCloseOvershoot` is the gap that keeps
+overshooting the floor by a few pixels from folding the tree by accident.
+
+**`explorerHidden` and `explorerWidth` stay two fields.** One number meaning
+both makes a 40pt tree representable, which is exactly what the floor exists to
+refuse, and re-opening would have to invent a width instead of restoring the one
+somebody dragged to.
+
+**The peek is its own region, not the drawer with its scrim suppressed.**
+Resting on the folded tree's seam brings it back *over* the editor — floating,
+so nothing reflows and the paragraph being read does not move — which is what
+makes folding it a cheap decision rather than a commitment. It must not have a
+scrim: it is dismissed by moving the pointer, and a scrim would grey out and
+make inert the note being peeked at *in order to reach*. `regionsFor` promises
+the scrim exists if and only if a panel is over the editor and asserts it by
+naming `drawer` and `sheet`, so the alternative was to loosen that word to
+"modal". A fourth arm on a union that is already `frame.ts`'s subject is cheaper
+than weakening a proven invariant, and `appFrame.test.ts` fails if the peek is
+folded back into `drawer`.
+
+**`closesOnSelect` takes the presentation, not the density.** Its previous
+comment predicted this: it answered `false` everywhere and said the day a
+density put the tree over the document again, this is the line that changes. The
+tree is over the document again — as a peek, at wide rather than compact — so
+the density was never the question.
+
+**Preferences survive a resize; modes do not.** `railCollapsed`,
+`explorerWidth` and `explorerHidden` are choices about how somebody likes the
+app. `explorerPeeking` and `focus` are claims about what is on the screen right
+now, so `panelsClearedFor` clears them. Getting the split wrong fails in both
+directions: a cleared preference is a resize that rewrites what somebody chose,
+and an uncleared mode is a rotation that returns you to a stripped app.
+
+**Focus mode removes the panels, not the instruments.** ⌘\ folds both and keeps
+the status bar, which carries the save state, the conflict-check mode and the
+two panel toggles — so it is the way back out, alongside Escape and a warm strip
+down the leading edge where a hand goes looking for a panel that was there a
+moment ago. A mode that hides its own escape hatch is one people enter exactly
+once. It is also the only thing that reaches `rail: "hidden"` at a pointer
+density, so that arm has left `frame.ts`'s kept-but-unreachable list and
+`appFrameRender.test.ts` now names which density draws it.
+
+**Two controls for one action, split cleanly: the seam is the gesture, the
+status bar is the state.** The seam costs nothing at rest because it is revealed
+under the pointer; the status bar costs nothing to find because it never moves,
+is the only half a keyboard reaches by tabbing, and is the only half left
+standing in focus mode.
+
+**None of this is on a phone.** `compact` has no left panel — navigation is the
+context strip and the bottom row — so `explorerToggleFor` and `focusToggleFor`
+answer "nothing" there, and the closed seam is gated on the same answer rather
+than on a second derivation of it. A control that folds where the chord does
+nothing is a button that lies. The first render of the closed seam *was* gated
+on `hasExplorer` alone and drew a seam on every phone; a render test caught it,
+which is the whole argument for asking the single owner instead.
+
 ### Bold is a toggle, ⌘B belongs to the note, and the right-click menu is the web's alone
 
 Four decisions from one ask — *"command b should make whatever you highlighted
@@ -3911,8 +3997,12 @@ never learned it.
 
 Three consequences, each a real cost rather than a tidy-up:
 
-- **⌘B no longer toggles the rail while the caret is in a note.** The rail's
-  own control is still on screen; the chord is not the only route to it.
+- **⌘B no longer toggles the rail while the caret is in a note.** That cost
+  was paid before it was charged: the section above this one put the fold on
+  the rail's own seam and a toggle for it at the leading edge of the status
+  bar, on the argument that a panel collapsing through a chord with nothing on
+  screen saying so was the defect. The chord was the only route; it is not now,
+  and ⌘\ still folds both panels from anywhere including the editor.
 - **The three chords are declared in `keymap.ts` and dispatched nowhere.**
   `editorSetup.ts` binds them inside CodeMirror, against the live selection,
   which is the only place that knows what "the selection" is. The declaration

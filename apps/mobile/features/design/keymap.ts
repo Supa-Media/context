@@ -126,6 +126,7 @@ export type Command =
   | "reopenTab"
   | "toggleRail"
   | "toggleExplorer"
+  | "toggleFocus"
   | "nextTab"
   | "prevTab"
   | "tab1"
@@ -220,6 +221,15 @@ export const BINDINGS: readonly Binding[] = [
   { command: "reopenTab", key: "t", mod: true, shift: true, scopes: GLOBAL },
   { command: "toggleRail", key: "b", mod: true, scopes: GLOBAL },
   { command: "toggleExplorer", key: "e", mod: true, shift: true, scopes: GLOBAL },
+  /**
+   * Both panels away, for the length of a read.
+   *
+   * ⌘\ is free on every platform this ships to — no browser and neither
+   * desktop shell claims it — which is why a mode worth a single key gets one
+   * rather than a third modifier on top of ⌘B. Escape leaves it too, through
+   * `dismiss`, because a mode with one way out is a mode people do not enter.
+   */
+  { command: "toggleFocus", key: "\\", mod: true, scopes: GLOBAL },
   { command: "nextTab", key: "arrowright", mod: true, alt: true, scopes: GLOBAL },
   { command: "prevTab", key: "arrowleft", mod: true, alt: true, scopes: GLOBAL },
   ...TAB_COMMANDS.map(

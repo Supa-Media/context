@@ -109,6 +109,85 @@ a grep-shaped guard with the usual weakness — see
 [testing](./testing.md), *a guard nobody has checked is not a guard* — so it is
 written against outbound host allowlisting rather than against import names.
 
+### A browser records the whole call only if somebody hands it the call
+
+Reported by the owner, on the web build: *"when I have headphones on, it does
+not record what I'm hearing through my headphones."* Correct, and it was
+documented as correct — `capture/audio.web.ts` said in its own header that
+system audio was the desktop app's job, and the sheet said in as many words that
+the far side of a call on headphones is not in the recording. Honest, and still
+the wrong answer to somebody on a call in a browser, which is most people.
+
+**A browser cannot tap the machine's output, and that has not changed.** There
+is no `getUserMedia`-shaped route to the speakers, and there never will be: a
+page that could silently record everything a machine plays is a page that can
+record every other tab. What a browser *can* do is `getDisplayMedia` — put the
+platform's own picker in front of the person, take the tab or screen they
+choose, and record the audio of that source if they tick the option offering it.
+Mixed with the microphone through a `MediaStreamAudioDestinationNode`, that is
+both sides of a call in one recording, chosen by the person, once per meeting,
+with the browser's own sharing indicator lit the whole time.
+
+**So `capability.systemAudio` now means two mechanisms, and the sheet may never
+say them in the same words.** The shell's is a loopback tap: the switch is on,
+the machine's output is in the recording, nothing is asked again. The browser's
+costs a picker, every meeting, with a checkbox most people have never noticed on
+it. `systemAudioNeedsPicker` is the second field that keeps them apart, and it
+carries three consequences that are the whole of this decision:
+
+- **The offer is off by default in a browser and on in the shell.** A default of
+  on would put a screen-share picker in front of every meeting anybody records,
+  including the in-person ones. That is not a feature people turn off; it is a
+  feature people stop using.
+- **A caller who says nothing gets what the build can do *without asking
+  again*.** `controller.start`'s fallback used to be the capability itself,
+  which was right while the only mechanism was silent. Left that way, any code
+  path that starts a meeting without going through the sheet would open a picker
+  on behalf of somebody who was never asked.
+- **The picker is opened before the microphone prompt, and that order is not a
+  preference.** `getDisplayMedia` requires transient activation and
+  `getUserMedia` does not, so a microphone prompt sitting on screen while
+  somebody finds Allow spends the activation the picker needs — and the share
+  would then be refused for a reason that has nothing to do with what anybody
+  chose.
+
+**Three ways the ask comes back empty, and they are the ordinary case rather
+than the edge one.** The picker is cancelled; the source chosen carries no audio
+(a whole screen on most platforms, anything at all on a browser that shares no
+audio); or nothing on the page can mix two inputs into one recording. All three
+leave a microphone recording, all three say one sentence, and the share is
+handed straight back rather than held — a captured tab with its indicator lit,
+contributing nothing to the transcript, is the worst available outcome. Pressing
+the browser's own "Stop sharing" mid-meeting is a fourth, and it says so too:
+what was recorded before it has both sides and what comes after does not.
+
+**What is claimed is *"this browser can ask"*, which is true, and no more.**
+There is no API that says in advance whether a browser will hand over audio —
+Firefox has `getDisplayMedia` and shares none from it — so the capability probe
+checks the two things that *are* knowable (a picker exists, and there is
+something to mix its audio into) and every empty answer is reported in a
+sentence. That is the same rule as everywhere else here: an absent capability is
+reported, never faked.
+
+**Nothing about *nothing joins the call* moves.** This records a source the
+person handed over on the machine they are sitting at. It authenticates to no
+platform, sends no participant, and appears in no attendee list.
+
+The checks are `both halves of the probe, or no offer at all`, `the picker is
+opened before the microphone prompt`, `nobody is asked to share anything unless
+they asked for it`, `a shared source is mixed with the microphone, and the mix
+is what records`, `the call's audio is never played back into the room`, the two
+`a microphone recording, and a sentence saying so` rows, `a source with no audio
+is let go rather than held`, `a share stopped mid-meeting is said out loud, and
+the rest is recorded`, `ending a meeting turns the sharing indicator off as well
+as the recording one`, `a refused microphone hands the share back rather than
+leaving it running`, `a browser says a picker is coming, and what to pick`, and
+`a picker is not opened on somebody's behalf`.
+
+**Not proven here:** that a real Chrome hands back a real tab's audio and that
+the mix is intelligible. The suite drives a fake browser; the last step needs a
+machine, a call and a pair of headphones.
+
 ### iOS recording survives screen lock through two deliberate controls
 
 The recorder has two controls: the shipped native configuration declares
@@ -1588,9 +1667,9 @@ snapshot: the first reason in that header is intact and is the load-bearing
 one — a level moves ten times a second, everything that reaches the controller
 rebuilds the app's whole meetings snapshot, and six hundred rebuilds a minute
 for a number one leaf reads is a cost for nothing. `notesOnly` still has no
-input, a browser still has no meter, and a build with no shell still has no
-bridge, so an interface method would still oblige implementations to answer a
-question they cannot.
+input and a build with no shell still has no bridge, so an interface method
+would still oblige implementations to answer a question they cannot. (A browser
+was the third name on that list until the section below took it off.)
 
 **The shell stays preferred where there is one.** A phone's meter is the
 microphone; the shell's is the louder of the microphone and the machine's own
@@ -1622,6 +1701,58 @@ there is one, because it hears more`.
 **Not proven here, and it is the same gap the section below has:** the meter is
 driven from a fake device. That a phone's bar moves when somebody speaks needs
 a native build and a voice.
+
+### ...and so does a browser, which is the third surface that drew a claim it could not keep
+
+Reported in the same breath as the headphones: *"the equalizer does not move on
+web so it looks off."* The same defect as the phone's, one surface along, and
+the section above predicted it — it listed a browser among the surfaces that
+cannot answer "how loud is it", which was true of `MediaRecorder` and not true
+of the page it runs in.
+
+**`MediaRecorder` has no meter and Web Audio does.** An `AnalyserNode` over the
+same inputs being recorded is what the shell has done since the meter landed;
+there is nothing about it that needs a shell. So the browser recorder builds the
+graph it was going to build anyway for mixing, hangs one analyser off every
+input, and publishes RMS dBFS on the same module channel the phone polls, at the
+same 10 Hz.
+
+**One analyser fed by both inputs, rather than two and `loudest` over the pair.**
+The bridge carries `{ mic, systemAudio }` because the shell genuinely knows both
+and a diagnostics screen may one day want the split. Here the two inputs are
+already being summed into one recording, and the question the mark answers —
+*"can this hear anything"* — is a question about that recording.
+
+**The mic-only path records exactly the bytes it always did.** The analyser is a
+sink hanging off the side of the microphone's own stream; `MediaRecorder` is
+handed the mixed destination only when there are genuinely two inputs to
+combine. A meter is a decoration and may not change what lands in somebody's
+bucket.
+
+**`null` is still not zero, and digital silence is a reading.** A browser with
+no `AudioContext` publishes nothing at all, which draws the static silhouette —
+*"nothing here can tell you"*. A window of exact zeros is `20 * log10(0)`, which
+is `-Infinity`, which `meterLevel` reads as no reading: it is returned as
+`METER_FLOOR_DB` instead, because something genuinely is listening and the honest
+answer is the bottom of the mark rather than the absence of one.
+
+**A suspended `AudioContext` is checked rather than assumed away**, and that
+guard is about the recording, not the meter: autoplay policy can hand back a
+suspended context, and a suspended context's destination node produces a stream
+of silence — a meeting that records perfectly and contains nothing. It is
+resumed, and a context that will not run is closed and answered as `null`, so
+capture falls back to the microphone's own stream.
+
+The checks are `a browser with no AudioContext publishes nothing at all`, `a
+room with a voice in it moves the mark`, `a quiet room reads zero, which is not
+the same as no meter`, `a meeting that ends says it has no reading rather than
+keeping its last`, `a paused meeting is not listening, and the meter says so`,
+`the shared source is in the reading, not just the microphone`, and `a browser
+that cannot mix records the microphone and says so`.
+
+**Not proven here, and it is the same gap the section above has:** the analyser
+is a fake. That a real bar moves when somebody speaks into a real microphone
+needs a browser and a voice.
 
 ### Ending a meeting is not waiting for it to be transcribed
 
@@ -2468,6 +2599,62 @@ and *"it did not say"* must not become *"nobody spoke"*. Written the other way
 round, one model change silently transcribes nothing while every health check
 stays green, which is the exact failure shape `isReadableAnswer` was added for.
 Six checks stand on that line, which is more than stand on the refusal itself.
+
+#### The rule was armed, and could not fire, because nobody had asked the engine to run its VAD
+
+Reported by the owner after all of the above shipped: *"when things are silent
+it transcribes a bunch of random things."* Still. The refusal was in place, the
+thresholds were the engine authors' own, and quiet chunks were still coming back
+with sentences in them.
+
+The section below had already written down why, without drawing the conclusion:
+***`vad_filter` defaults to `false` on that model***, and with VAD off
+`faster-whisper` sets `duration_after_vad = duration`. So rule 1 read a positive
+number on every chunk, had no opinion on every chunk, and was — exactly as
+documented — *"armed for a deployment that turns VAD on"*. Nobody turned it on.
+That left rule 2 alone, and rule 2 is the one this file says is *"either
+redundant or the whole fix, depending on a serving detail nobody outside
+Cloudflare can read"*. It was redundant.
+
+**So the Worker asks for it: `env.AI.run(TURBO_MODEL, { audio, vad_filter: true })`.**
+This is not a new policy and no threshold of ours appears in it. It turns on the
+engine's own front end so that the engine's own evidence exists, which is the
+deployment rule 1 was written for. Two things follow and both are wanted: a
+chunk that is entirely non-speech comes back with `duration_after_vad: 0` and
+rule 1 fires; and a chunk that is *mostly* quiet has its silence cut **before
+decoding**, which is where the hallucinations come from in the first place. The
+second half needs no rule at all — it is the engine not being handed the
+silence.
+
+**Only the turbo model is asked.** `@cf/openai/whisper` declares `audio` and
+nothing else, reports no `duration_after_vad` to arm anything with, and is the
+only path an account without the turbo model has. An undeclared key there would
+risk turning that path into a 502 to arm a rule the model cannot feed.
+
+**What it costs, stated.** Silero VAD decides what speech is, and speech it
+drops is speech nobody transcribes — the same trade rule 2 already takes, moved
+one step earlier and taken by the engine's own front end rather than by a number
+in this repository. It is visible rather than silent: a wholly refused chunk
+puts one sentence on the recorder's screen while the meeting runs. **How a wrong
+call here would show up** is that sentence appearing during a meeting people are
+talking in, or a transcript with holes where a quiet speaker was — the first
+thing to look at if anybody reports a short transcript.
+
+**What this does not touch** is the half of the defect that happens at full
+volume. The counting-script inventions were confidently decoded segments over
+real audio; VAD keeps that audio, correctly, and `TRANSCRIPT_CAVEAT` is still
+the only honest answer to it.
+
+**And an audio gate is still not shipped.** The owner asked for "some basic
+noise gate" in the same message, and the measurement below still says a loudness
+threshold cannot separate this room's silence from this room's speech — the
+medians are identical and the silent room's peak is louder than speech's 90th
+percentile. The one measurement that would reopen it is named there and still
+does not exist. Turning the engine's VAD on is the gate, taken by the thing that
+has a voice model rather than by a number over a level meter.
+
+The checks are `asks the turbo model to run its VAD, which is what arms the
+silence rule` and `does not send the older model a key it does not declare`.
 
 #### Whether either rule can fire is a property of how the engine is run, and adversarial review checked it against the vendor's schema
 

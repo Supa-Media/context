@@ -1,4 +1,5 @@
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
+import { AppFrameFixture } from "./AppFrameFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
@@ -31,6 +32,14 @@ function first(value: string | string[] | undefined): string | undefined {
 
 export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "vault-import") return <VaultImportFixture />;
+
+  /*
+    The application frame, which is otherwise on no browser-reachable screen
+    either — `E2EFixtureScreen` reproduces the console's panes and says in its
+    own header that it does not reproduce `AppFrame`. The folding panels are all
+    layout claims, which is the one class jsdom cannot check.
+  */
+  if (first(params.screen) === "app-frame") return <AppFrameFixture />;
 
   /*
     The storage step, which is otherwise on no browser-reachable screen:

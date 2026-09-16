@@ -25,6 +25,8 @@ export function PluginSandbox({
   modalPick,
   modalDismiss,
   textModalDismiss,
+  settingsPane,
+  settingsChange,
   preview,
 }: PluginSandboxProps) {
   const frame = useRef<WebView | null>(null);
@@ -172,6 +174,28 @@ export function PluginSandbox({
     post({ type: "text-modal-dismiss", seq: textModalDismiss.seq });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, post, textModalDismiss?.seq]);
+
+  /*
+    Ask this plugin to draw its own settings pane, or tell it the reader left.
+    `display()` may fetch and may redraw itself afterwards, so the answer comes
+    back as `settings-pane` events rather than as a reply to this.
+  */
+  useEffect(() => {
+    if (!loaded || settingsPane === undefined) return;
+    post({ type: settingsPane.open ? "settings-pane-open" : "settings-pane-close", seq: settingsPane.seq });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, settingsPane?.seq]);
+
+  useEffect(() => {
+    if (!loaded || settingsChange === undefined) return;
+    post({
+      type: "settings-pane-change",
+      seq: settingsChange.seq,
+      index: settingsChange.index,
+      value: settingsChange.value,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, settingsChange?.seq]);
 
   useEffect(() => {
     if (!loaded || preview === undefined) return;
