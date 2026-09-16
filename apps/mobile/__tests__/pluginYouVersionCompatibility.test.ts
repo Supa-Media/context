@@ -40,6 +40,36 @@ async function nextRpc(after: number) {
   throw new Error("guest did not issue the expected RPC");
 }
 
+/**
+ * Wait until the guest says it loaded, rather than until 20ms have passed.
+ *
+ * This was `setTimeout(resolve, 20)`, and 20ms is not a fact about anything —
+ * loading that bundle is `ready`, two `settings.load` round trips and the
+ * plugin's own `onload`, each of which costs event-loop turns this file does
+ * not control. On a busy CI runner they do not all fit, and **both** of the
+ * failures that produced are worth naming because only the first one looks
+ * like the bug:
+ *
+ *  - the test that asserts `loaded` was posted fails, having asserted against
+ *    a guest that was still starting;
+ *  - and then `afterEach`'s `unload` reaches a guest that was not listening
+ *    for it yet, so that guest **stays attached to `window`** and answers the
+ *    *next* test's messages alongside the fresh one. That is how a
+ *    `command-result` carrying the previous test's nonce, from a guest with no
+ *    active file, turns up in an array that was emptied in `beforeEach`.
+ *
+ * Polled on the same idiom as `nextRpc` below, so the wait is as long as it
+ * needs to be and no longer, and a guest that genuinely never loads says so
+ * instead of failing an assertion about something else.
+ */
+async function untilLoaded() {
+  for (let turn = 0; turn < 200; turn += 1) {
+    if (posted.some((one) => one.type === "loaded")) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("the sandbox guest never reported that it loaded");
+}
+
 function answer(requestId: string, result: unknown) {
   toGuest({
     type: "rpc-result",
@@ -120,7 +150,7 @@ beforeEach(async () => {
     mainJs: YOUVERSION_SHAPED_BUNDLE,
     manifestJson: '{"id":"youversion-linker","version":"1.8.1"}',
   });
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await untilLoaded();
 });
 
 afterEach(() => {
