@@ -11,6 +11,7 @@ import type {
   CommandOutcome,
   InvokeRequest,
   OpenModal,
+  OpenSettingsPane,
   OpenTextModal,
   PendingCommand,
   PreviewRequest,
@@ -174,6 +175,23 @@ export function useRuntime(options: {
   const [textModal, setTextModal] = useState<OpenTextModal | null>(null);
   const [textModalDismiss, setTextModalDismiss] = useState<
     { seq: number; pluginId: string; nonce: string } | undefined
+  >(undefined);
+  /*
+    A plugin's own settings pane, and which plugins have one to offer.
+
+    `settingsTabs` is a set rather than a list because `addSettingTab` is
+    announced once per load and a restarted plugin announces again; the ids
+    are what the plugins panel reads to decide whether to draw a Settings
+    control on a row.
+  */
+  const [settingsTabs, setSettingsTabs] = useState<string[]>([]);
+  const [settingsPane, setSettingsPane] = useState<OpenSettingsPane | null>(null);
+  const [settingsRequest, setSettingsRequest] = useState<
+    { seq: number; pluginId: string; nonce: string; open: boolean } | undefined
+  >(undefined);
+  const [settingsChange, setSettingsChange] = useState<
+    { seq: number; pluginId: string; nonce: string; index: number; value: boolean | string | number }
+    | undefined
   >(undefined);
   /*
     The owner is recorded ON the pending entry, not looked up when the answer
@@ -562,6 +580,61 @@ export function useRuntime(options: {
     setTextModal(null);
   }, [textModal]);
 
+  /*
+    Ask one plugin to draw its pane.
+
+    Addressed to the frame running that plugin now, and the answer replaces
+    whatever pane was open: one pane at a time, like the dialogs, because it is
+    one surface in front of the reader. The pane arrives as an event rather than
+    a return value — `display()` may fetch, and it may redraw itself afterwards.
+  */
+  const openSettingsPane = useCallback(
+    (pluginId: string) => {
+      const frame = sandboxes.find((one) => one.bundle.pluginId === pluginId);
+      if (frame === undefined) return;
+      modalSeq.current += 1;
+      setSettingsPane(null);
+      setSettingsRequest({
+        seq: modalSeq.current,
+        pluginId,
+        nonce: frame.nonce,
+        open: true,
+      });
+    },
+    [sandboxes],
+  );
+
+  const changeSetting = useCallback(
+    (index: number, value: boolean | string | number) => {
+      if (settingsPane === null) return;
+      modalSeq.current += 1;
+      setSettingsChange({
+        seq: modalSeq.current,
+        pluginId: settingsPane.pluginId,
+        nonce: settingsPane.nonce,
+        index,
+        value,
+      });
+    },
+    [settingsPane],
+  );
+
+  /*
+    Closed here first and told to the guest after, the rule both dialogs keep:
+    a reader leaving a pane must not be waiting on the plugin that drew it.
+  */
+  const closeSettingsPane = useCallback(() => {
+    if (settingsPane === null) return;
+    modalSeq.current += 1;
+    setSettingsRequest({
+      seq: modalSeq.current,
+      pluginId: settingsPane.pluginId,
+      nonce: settingsPane.nonce,
+      open: false,
+    });
+    setSettingsPane(null);
+  }, [settingsPane]);
+
   const askPreviews = useCallback(async (links: LinkPreview[]) => {
     if (!isOwner || links.length === 0) return [];
     previewWalk.current += 1;
@@ -683,6 +756,34 @@ export function useRuntime(options: {
               placeholder: event.placeholder,
               instructions: event.instructions,
             }
+          : null,
+      );
+      return;
+    }
+    if (event.type === "settings-tab") {
+      setSettingsTabs((current) =>
+        current.includes(pluginId) ? current : [...current, pluginId].sort(),
+      );
+      return;
+    }
+    if (event.type === "settings-pane") {
+      /*
+        Only from the frame this pane was asked of. Every other running plugin
+        can post the same message, and a pane carries its plugin's name over
+        somebody else's controls — the forgery #573 fixed for the suggestion
+        dialog, which this would have reintroduced in a worse place: these rows
+        are settings a reader is about to change.
+      */
+      if (settingsPane !== null) {
+        if (settingsPane.pluginId !== pluginId || settingsPane.nonce !== sandbox.nonce) return;
+      } else if (settingsRequest === undefined || !settingsRequest.open) {
+        return;
+      } else if (settingsRequest.pluginId !== pluginId || settingsRequest.nonce !== sandbox.nonce) {
+        return;
+      }
+      setSettingsPane(
+        event.open
+          ? { pluginId, nonce: sandbox.nonce, rows: event.rows, error: event.error }
           : null,
       );
       return;
@@ -916,7 +1017,7 @@ export function useRuntime(options: {
     host: isOwner
       ? createElement(PluginSandboxFarm, {
           sandboxes, onEvent, activeFile, vaultEvent, invoke, suggest, suggestApply, preview, grants,
-          modalQuery, modalPick, modalDismiss, textModalDismiss,
+          modalQuery, modalPick, modalDismiss, textModalDismiss, settingsRequest, settingsChange,
         })
       : undefined,
     registrations,
@@ -931,6 +1032,8 @@ export function useRuntime(options: {
     openNote: activeFile?.path ?? null,
     modal,
     textModal,
+    settingsPane,
+    settingsTabs,
     actions: isOwner && workspaceId !== null
       ? {
           start,
@@ -943,6 +1046,9 @@ export function useRuntime(options: {
           pickModalSuggestion,
           dismissModal,
           dismissTextModal,
+          openSettingsPane,
+          changeSetting,
+          closeSettingsPane,
         }
       : undefined,
   };

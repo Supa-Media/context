@@ -89,6 +89,13 @@ export function PluginRuntimeCard({
 
   const revoked = isRevocation(state);
   const stopped = isOwnerStop(state);
+  /*
+    The guest announces `addSettingTab` on load, so this is the plugin's own
+    answer rather than a guess from its manifest. A plugin that registers no
+    pane gets no control, which is what keeps `Settings…` from being a button
+    that opens an empty box.
+  */
+  const hasSettings = (view.settingsTabs ?? []).includes(state.pluginId);
   const pill = revoked ? { label: "Access revoked", tone: "neutral" as const } : runtimePill(state);
   const detail = revoked || stopped ? null : runtimeDetail(state);
   const rollback = rollbackTarget(state);
@@ -234,6 +241,25 @@ export function PluginRuntimeCard({
             </Text>
           ) : null}
         </View>
+      ) : null}
+
+      {/*
+        A plugin's own settings, offered only where they exist and only while it
+        is running. `addSettingTab` is announced by the guest on load, so this
+        appears for a plugin that has one and is absent for a plugin that does
+        not — a disabled Settings button on a plugin with no settings would be a
+        control that can never do anything, which is the rule the uninstall
+        control already follows on a vault row.
+
+        Running, because `display()` runs *in the plugin*. There is nothing to
+        draw from a frame that is not there.
+      */}
+      {state.status === "loaded" && hasSettings ? (
+        <Button
+          label="Settings…"
+          onPress={() => view.actions?.openSettingsPane?.(state.pluginId)}
+          testID={`plugin-settings-open-${state.pluginId}`}
+        />
       ) : null}
 
       {canStart && !revoked ? (

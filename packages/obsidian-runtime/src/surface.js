@@ -96,6 +96,14 @@ export const SUPPORTED_MEMBERS = Object.freeze([
   "Events",
   "Modal",
 
+  // A plugin's own settings pane, by the same inversion again: display() runs
+  // in the sandbox against a real containerEl, and what crosses is a
+  // DESCRIPTION of the controls it built rather than the controls. It moved out
+  // of INERT_MEMBERS when the console learned to draw one — "accepted and not
+  // drawn yet" was true for months and is the exact trap this list was split in
+  // two to stop claiming.
+  "addSettingTab",
+
   // Helpers the shim exports from the `obsidian` module.
   "normalizePath",
 
@@ -142,9 +150,12 @@ export const PARTIAL_MEMBERS = Object.freeze({
  * mattering "to whoever implements them", and it turned out to matter to the
  * *scanner* first, in a way that overclaimed:
  *
- * - An **inert** member is reachable and does nothing. `addSettingTab` accepts
- *   a registration and drops it, so the plugin loads happily and its settings
- *   pane never appears. "Not yet, so that part will not work" is exactly true.
+ * - An **inert** member is reachable and does nothing. `registerEditorExtension`
+ *   accepts a registration and drops it, so the plugin loads happily and its
+ *   decorations never appear. "Not yet, so that part will not work" is exactly
+ *   true. (`addSettingTab` was the example here for months, and it moved to
+ *   `SUPPORTED_MEMBERS` when the console learned to draw a plugin's pane —
+ *   which is the direction an entry on this list is supposed to travel.)
  * - An **absent** member is not on the shim at all. Calling one is a
  *   `TypeError` in whatever path calls it — still a limitation, since the rest
  *   of the plugin runs. **Extending one is not.** `class X extends
@@ -163,7 +174,6 @@ export const PARTIAL_MEMBERS = Object.freeze({
  * direction the guard could not prove before, and the comment there said so.
  */
 export const INERT_MEMBERS = Object.freeze({
-  addSettingTab: "a plugin's own settings pane is accepted and not drawn yet",
   registerEditorExtension: "editor decorations are accepted and not applied yet",
   getActiveViewOfType: "the console has no views for this to find yet",
   getLeavesOfType: "the console has no leaves for this to find yet",
