@@ -29,7 +29,16 @@ import type { ConnectFormValues } from "./storage/connect";
  * filled in from `placeholderData.ts`, labelled at the source.
  */
 
-export type StatusTone = "ok" | "warn" | "crit";
+/**
+ * A status pip's tone.
+ *
+ * `neutral` is "nothing is known, and nothing is claimed" — the grey pip, not a
+ * fourth severity. It exists for the pinned context, which has no storage
+ * subscription behind it because it has no membership row; see
+ * `contextToneFor`, which is where the alternative (an amber alarm about
+ * somebody else's bucket, drawn forever) is written down.
+ */
+export type StatusTone = "ok" | "warn" | "crit" | "neutral";
 
 /** One entry in the rail's "Contexts" group. */
 export interface ConsoleContext {

@@ -27,7 +27,14 @@ import { useGrants } from "./plugins/useGrants";
 import { useLifecycle } from "./plugins/useLifecycle";
 import { useRuntime } from "./plugins/useRuntime";
 import { toBindStorageArgs, type Provider } from "./storage/connect";
-import { atName, contextTone, describeScopes, formatCount, grantTone, lastUsedLabel } from "./format";
+import {
+  atName,
+  contextToneFor,
+  describeScopes,
+  formatCount,
+  grantTone,
+  lastUsedLabel,
+} from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
 import { formatNotesTotal, totalNotes } from "./noteTotals";
 import { forgetContextCopies, forgetLocalCopies } from "../offline/forget";
@@ -405,16 +412,18 @@ export function useLiveConsoleData(): ConsoleData {
     role: workspace.role,
     kind: workspace.kind,
     /*
-      The pinned context has no storage subscription (see `memberOf`), so this
-      resolves through `contextTone(undefined)` — the same "nothing to report"
-      the rail draws for a context whose binding has not landed. That is the
-      honest answer rather than a gap: whether *our* bucket is reachable is not
-      a fact this person is entitled to, and the strip does not draw status at
-      all on the surface where the pinned pill is most visible.
+      `contextToneFor`, not `contextTone`: the pinned context has no storage
+      subscription behind it (see `memberOf`), and `contextTone` reads that
+      silence as a missing binding and answers `warn` — a permanent amber alarm
+      about somebody else's bucket, on every account's rail. The distinction is
+      argued in full where the function lives.
     */
-    status: contextTone(
-      usable<StorageBinding | null>(results[`storage:${workspace.workspaceId}`])?.status,
-    ),
+    status: contextToneFor({
+      storageStatus: usable<StorageBinding | null>(
+        results[`storage:${workspace.workspaceId}`],
+      )?.status,
+      pinned: workspace.pinned,
+    }),
     meetingsFolder: workspace.meetingsFolder,
     pinned: workspace.pinned,
   }));

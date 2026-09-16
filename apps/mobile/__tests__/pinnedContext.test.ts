@@ -1,5 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
 import { contextMenuItems } from "../features/console/contextMenu";
+import { contextTone, contextToneFor } from "../features/console/format";
 import { defaultContext, landingHref } from "../features/console/nav";
 import { pinnedContext, railGroup } from "../features/console/rail";
 import { stripOrder } from "../features/console/strip";
@@ -231,6 +232,44 @@ describe("the phone strip keeps the pinned pill last", () => {
   test("the context being read is still drawn in the breadcrumb, not here", () => {
     const ordered = stripOrder([own, PINNED], "context-lc", []);
     expect(ordered.map((c) => c.slug)).toEqual(["sayo"]);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                   the status pip: silence is not an alarm                   */
+/* -------------------------------------------------------------------------- */
+
+describe("the pinned context's status pip", () => {
+  test("is neutral, because nothing was asked", () => {
+    expect(contextToneFor({ storageStatus: undefined, pinned: true })).toBe("neutral");
+  });
+
+  /**
+   * The bug this function exists to prevent, kept as a test of the *other*
+   * function so the difference between them cannot quietly close up.
+   *
+   * `contextTone(undefined)` is `warn` and is right to be: for a context you
+   * are in, the console did subscribe, so no answer means no binding. The
+   * pinned context has no subscription at all, and feeding that silence to the
+   * same rule drew a permanent amber alarm about somebody else's bucket on
+   * every account's rail — the one direction a status light must never fail in.
+   */
+  test("an unanswered binding on a context you are in is still a warning", () => {
+    expect(contextTone(undefined)).toBe("warn");
+    expect(contextToneFor({ storageStatus: undefined })).toBe("warn");
+  });
+
+  test("a real member of that workspace still sees its real status", () => {
+    // No flag, so nothing is overridden: somebody who really is a member has a
+    // binding subscription and is owed the truth from it.
+    expect(contextToneFor({ storageStatus: "error" })).toBe("crit");
+    expect(contextToneFor({ storageStatus: "connected" })).toBe("ok");
+  });
+
+  test("the flag never upgrades a pip, only silences it", () => {
+    // Belt and braces on the direction of the override: if the pinned context
+    // ever did gain a subscription, this must not hide a real error.
+    expect(contextToneFor({ storageStatus: "connected", pinned: true })).toBe("neutral");
   });
 });
 
