@@ -58,9 +58,6 @@ export type Dialog =
   | { kind: "share"; path: string }
   | null;
 
-/** Which tabs a close item is about. See `closeTabs`. */
-export type CloseScope = "one" | "others" | "toRight";
-
 export interface ActionContext {
   files: FileBrowser;
   /** `@seyi`. The prefix of the addressable `@path` form. */
@@ -84,8 +81,6 @@ export interface ActionContext {
    * layout narrower than `frame.ts`'s pointer density.
    */
   reveal?: (path: string) => void;
-  /** Absent where there are no tabs. */
-  closeTabs?: (path: string, scope: CloseScope) => void;
   /**
    * What `path` would be visible to with no setting of its own.
    *
@@ -130,8 +125,6 @@ export function actionTargetOf(target: MenuTarget): ActionTarget | null {
       return { path: target.folder, folder: target.folder, kind: "folder" };
     case "crumb":
       return { path: target.folder, folder: target.folder, kind: "folder" };
-    case "tab":
-      return { path: target.path, folder: parentPath(target.path), kind: "file" };
     case "row": {
       const row = target.row;
       const kind = row.kind === "folder" ? ("folder" as const) : ("file" as const);
@@ -180,15 +173,6 @@ export function runMenuAction(
       // No tree on this layout is "nothing to reveal into", not an error. The
       // item is not offered there in the first place.
       context.reveal?.(path);
-      return;
-    case "closeTab":
-      context.closeTabs?.(path, "one");
-      return;
-    case "closeOtherTabs":
-      context.closeTabs?.(path, "others");
-      return;
-    case "closeTabsToRight":
-      context.closeTabs?.(path, "toRight");
       return;
     case "newNote":
       context.setDialog({ kind: "newNote", folder });

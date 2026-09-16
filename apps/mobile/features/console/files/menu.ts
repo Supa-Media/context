@@ -71,23 +71,14 @@ export type MenuActionId =
   | "visibilityTeam"
   | "visibilityFollow"
   /**
-   * From a tab or a breadcrumb back to the row in the tree.
+   * From a breadcrumb segment back to that folder's row in the tree.
    *
-   * Not an alias for `open`: the thing is already open, which is why you are
-   * standing on a tab or a crumb at all. This puts the *tree* on it.
+   * Not an alias for `open`: you are already *in* the folder, which is why you
+   * are standing on its crumb at all. This puts the *tree* on it — expands the
+   * ancestors and selects the row — so the folder's full set of verbs is one
+   * right-click away.
    */
   | "revealInTree"
-  /**
-   * The three tab closes.
-   *
-   * `closeTab` is the tab you clicked, never "the active tab" — right-clicking
-   * an inactive tab and closing the one you were reading is the bug this
-   * distinction exists to prevent, and the caller is handed the path so it
-   * cannot make that mistake.
-   */
-  | "closeTab"
-  | "closeOtherTabs"
-  | "closeTabsToRight"
   | "archive"
   | "restore"
   | "delete";
@@ -134,6 +125,25 @@ export interface MenuItem<Id extends string = MenuActionId> {
    */
   checked?: boolean;
   danger?: boolean;
+  /**
+   * Present, but inert and drawn dimmed.
+   *
+   * **The file menu never sets this, and that is a rule rather than an
+   * oversight** — see this module's own header: a console that cannot edit is
+   * offered *fewer* items, because a screen of greyed rows tells somebody their
+   * context is broken while a short menu tells them the truth.
+   *
+   * It exists for the tab menu's "Reopen closed", where the opposite is right
+   * and for a reason that does not generalise: that item is one ⌘⇧T away from
+   * being available again, it comes back on its own the moment anything is
+   * closed, and a menu of three rows whose contents shuffle between openings is
+   * a menu nobody can learn. Absence tells the truth about a permission;
+   * absence would tell a lie about an empty undo stack.
+   *
+   * A new caller reaching for this should read both paragraphs and expect to
+   * have to argue for the second one.
+   */
+  disabled?: boolean;
   /** Items after this one start a new visual group. */
   separatorBefore?: boolean;
   /** A submenu (Visibility ▸). Only ever one level deep. */
@@ -153,15 +163,6 @@ export type MenuTarget =
   | { kind: "background"; folder: string }
   | { kind: "row"; row: TreeRow }
   | { kind: "selection"; rows: readonly TreeRow[] }
-  /**
-   * A tab: a *view onto* a note rather than the note.
-   *
-   * `others` and `toRight` are the caller's answers to "is there anything for
-   * these to close", because the tab strip owns the tab list and this module
-   * cannot see it. Both false is the only tab open, and both items are then
-   * absent rather than present and inert — the same rule `canEdit` follows.
-   */
-  | { kind: "tab"; path: string; others: boolean; toRight: boolean }
   /** A breadcrumb segment. `""` is the context root. */
   | { kind: "crumb"; folder: string };
 
@@ -269,7 +270,6 @@ const COMMANDS: Partial<Record<MenuActionId, Command>> = {
   cut: "cut",
   paste: "paste",
   archive: "archive",
-  closeTab: "closeTab",
   // Keep the established command id so existing keyboard customizations keep
   // working. The action is now recoverable even though this legacy id says
   // `deleteForever`.
@@ -324,8 +324,10 @@ function makeItem(
  * Any `separatorBefore` already on an incoming item is dropped, so a caller
  * composing groups out of pre-built items cannot smuggle one back in.
  */
-export function joinGroups(groups: readonly (readonly MenuItem[])[]): MenuItem[] {
-  const items: MenuItem[] = [];
+export function joinGroups<Id extends string = MenuActionId>(
+  groups: readonly (readonly MenuItem<Id>[])[],
+): MenuItem<Id>[] {
+  const items: MenuItem<Id>[] = [];
   for (const group of groups) {
     if (group.length === 0) continue;
     group.forEach((entry, index) => {
@@ -514,35 +516,6 @@ function createGroup(context: MenuContext, here: boolean): MenuItem[] {
     makeItem(context, "newDrawing", `New drawing${where}`),
     makeItem(context, "newFolder", `New folder${where}`),
   ];
-}
-
-/**
- * A tab's menu: closing it, closing its neighbours, and getting back to what it
- * shows.
- *
- * **Nothing here changes the note**, and that is the decision rather than an
- * omission. Archive, trash, rename and visibility all act on a file that is one
- * indirection away from the pointer — the tab is a view onto it — and a "Move to
- * trash" sitting two rows under "Close" is how somebody deletes a note meaning
- * to close a tab. The tree is where a note is acted on, and `revealInTree` is
- * the one-click route to it.
- *
- * It survives a read-only console intact: closing a tab and copying an address
- * write nothing, so a `member` is offered the same six.
- */
-function tabItems(context: MenuContext, target: Extract<MenuTarget, { kind: "tab" }>): MenuItem[] {
-  return joinGroups([
-    [
-      makeItem(context, "closeTab", "Close"),
-      ...(target.others ? [makeItem(context, "closeOtherTabs", "Close others")] : []),
-      ...(target.toRight ? [makeItem(context, "closeTabsToRight", "Close to the right")] : []),
-    ],
-    [
-      makeItem(context, "copyPath", "Copy path"),
-      makeItem(context, "copyAtPath", "Copy @path"),
-      makeItem(context, "revealInTree", "Reveal in tree"),
-    ],
-  ]);
 }
 
 /**
@@ -750,7 +723,6 @@ export function itemsFor(context: MenuContext): MenuItem[] {
   if (context.target.kind === "background") {
     return backgroundItems(context, context.target.folder);
   }
-  if (context.target.kind === "tab") return tabItems(context, context.target);
   if (context.target.kind === "crumb") return crumbItems(context, context.target.folder);
   const rows = targetRows(context.target);
   if (rows === null) return [];

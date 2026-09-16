@@ -328,6 +328,7 @@ function Row({
   shortcut,
   submenu = false,
   checked,
+  disabled = false,
   align = "left",
   focused = false,
   onActivate,
@@ -354,6 +355,11 @@ function Row({
    * gutter at all. See `MenuItem.checked`.
    */
   checked?: boolean;
+  /**
+   * Present, drawn dimmed, and does not fire. See `MenuItem.disabled` for why
+   * this exists at all when the file menu's rule is absence.
+   */
+  disabled?: boolean;
   align?: "left" | "center";
   focused?: boolean;
   onActivate: () => void;
@@ -364,14 +370,17 @@ function Row({
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const [hovered, setHovered] = useState(false);
-  const lit = hovered || focused;
+  // A disabled row must not light up either: a hover highlight on something
+  // that will not fire is the control promising a press it does not honour.
+  const lit = (hovered || focused) && !disabled;
 
   return (
     <Pressable
       {...roleFor(checked)}
       accessibilityLabel={accessibilityLabel ?? label}
       testID={testID ?? `menu-item-${id}`}
-      onPress={onActivate}
+      aria-disabled={disabled || undefined}
+      onPress={disabled ? undefined : onActivate}
       onHoverIn={() => {
         setHovered(true);
         onHover?.();
@@ -383,6 +392,7 @@ function Row({
         !touch && detail !== undefined && styles.rowPointerTall,
         align === "center" && styles.rowCentered,
         lit && (touch ? styles.rowHover : styles.rowLit),
+        disabled && styles.rowOff,
       ]}
     >
       {leading}
@@ -463,6 +473,7 @@ function ItemRow({
       shortcut={item.shortcut}
       submenu={item.items !== undefined}
       checked={item.checked}
+      disabled={item.disabled === true}
       focused={focused}
       onActivate={onActivate}
       onHover={onHover}
@@ -975,6 +986,8 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * row's gap — the two are a pair, and the geometry above measures with it.
    */
   checkGutter: { width: 12, alignItems: "center", justifyContent: "center" },
+  /** Present but unavailable. See `MenuItem.disabled`. */
+  rowOff: { opacity: 0.4 },
   shortcut: { marginLeft: "auto" },
   chevron: { marginLeft: "auto" },
   separator: {

@@ -80,7 +80,6 @@ function harness(over: Partial<ActionContext> = {}) {
   const opened: string[] = [];
   const pinned: string[] = [];
   const revealed: string[] = [];
-  const closed: { path: string; scope: string }[] = [];
   const copied: string[] = [];
   const context: ActionContext = {
     files: stubBrowser(calls),
@@ -90,12 +89,11 @@ function harness(over: Partial<ActionContext> = {}) {
     writeClipboard: (text) => copied.push(text),
     openPinned: (path) => pinned.push(path),
     reveal: (path) => revealed.push(path),
-    closeTabs: (path, scope) => closed.push({ path, scope }),
     inheritedOf: () => "team",
     ...over,
   };
   const run = (id: MenuActionId, target: MenuTarget) => runMenuAction(id, target, context);
-  return { run, calls, dialogs, opened, pinned, revealed, closed, copied, context };
+  return { run, calls, dialogs, opened, pinned, revealed, copied, context };
 }
 
 const onRow = (r: TreeRow): MenuTarget => ({ kind: "row", row: r });
@@ -170,29 +168,25 @@ describe("a selection dispatches nothing at all", () => {
   });
 });
 
-describe("the tab verbs are about the tab that was clicked", () => {
+describe("reveal puts the tree on a folder rather than opening it again", () => {
   /**
-   * Not "the active tab". Right-clicking an inactive tab and closing the one
-   * you were reading is the bug the path argument exists to prevent.
+   * The breadcrumb's own verb. You are already *in* the folder — that is why
+   * you are standing on its crumb — so this is not an alias for `open`: it
+   * expands the ancestors and selects the row, which is where the folder's full
+   * set of verbs lives.
    */
-  test("close carries the path it was opened on", () => {
+  test("it reveals and does not open", () => {
     const h = harness();
-    const tab: MenuTarget = { kind: "tab", path: "2-areas/health.md", others: true, toRight: true };
-    h.run("closeTab", tab);
-    h.run("closeOtherTabs", tab);
-    h.run("closeTabsToRight", tab);
-    expect(h.closed).toEqual([
-      { path: "2-areas/health.md", scope: "one" },
-      { path: "2-areas/health.md", scope: "others" },
-      { path: "2-areas/health.md", scope: "toRight" },
-    ]);
+    h.run("revealInTree", { kind: "crumb", folder: "2-areas/health" });
+    expect(h.revealed).toEqual(["2-areas/health"]);
+    expect(h.opened).toEqual([]);
   });
 
-  test("reveal puts the tree on it rather than opening it again", () => {
+  test("and open still opens", () => {
     const h = harness();
-    h.run("revealInTree", { kind: "tab", path: "2-areas/health.md", others: false, toRight: false });
-    expect(h.revealed).toEqual(["2-areas/health.md"]);
-    expect(h.opened).toEqual([]);
+    h.run("open", { kind: "crumb", folder: "2-areas/health" });
+    expect(h.opened).toEqual(["2-areas/health"]);
+    expect(h.revealed).toEqual([]);
   });
 });
 
@@ -208,12 +202,6 @@ describe("a surface without a capability degrades rather than throwing", () => {
     expect(() => h.run("revealInTree", onRow(note("a.md")))).not.toThrow();
   });
 
-  test("no tab strip: the close verbs do nothing, quietly", () => {
-    const h = harness({ closeTabs: undefined });
-    expect(() =>
-      h.run("closeTab", { kind: "tab", path: "a.md", others: false, toRight: false }),
-    ).not.toThrow();
-  });
 });
 
 describe("addresses", () => {

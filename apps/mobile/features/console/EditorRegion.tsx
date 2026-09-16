@@ -79,6 +79,7 @@ export function EditorRegion({
             onActivate={tabs.activate}
             onClose={onCloseTab}
             onCloseOthers={tabs.closeOthers}
+            onCloseToRight={tabs.closeToRight}
             onReopen={tabs.reopen}
           />
         ) : null}

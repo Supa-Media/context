@@ -994,7 +994,7 @@ describe("a row that carries a state draws it, and says so", () => {
    * actually on" would be a question the pointer layout answers and the phone
    * does not.
    */
-  const VISIBILITY: MenuItem<MenuActionId>[] = [
+  const VISIBILITY: MenuItem[] = [
     { id: "visibilityPrivate", label: "Make private", checked: false },
     { id: "visibilityTeam", label: "Share with the team", checked: false },
     {
@@ -1055,5 +1055,36 @@ describe("a row that carries a state draws it, and says so", () => {
     expect(menu.find("menu-detail-visibilityFollow")?.textContent).toBe(
       "Currently team — from 1-projects.",
     );
+  });
+});
+
+describe("a disabled row is present, dimmed, and does not fire", () => {
+  /**
+   * The rule the file menu never uses and the tab menu's "Reopen closed" does.
+   * Adding the field without drawing it would have shipped a row that looks
+   * ordinary, invites a press and silently does nothing — worse than either
+   * absence or a greyed row, because it is the only one of the three that
+   * lies.
+   */
+  const ITEMS: MenuItem[] = [
+    { id: "archive", label: "Archive" },
+    { id: "restore", label: "Reopen closed", disabled: true },
+  ];
+
+  test("it is still in the list", () => {
+    // The sheet appends its own Cancel row — see the top of this file.
+    expect(mountSheet(ITEMS).labels()).toEqual(["Archive", "Reopen closed", "Cancel"]);
+  });
+
+  test("pressing it dispatches nothing", () => {
+    const menu = mountSheet(ITEMS);
+    menu.press("menu-item-restore");
+    expect(menu.selected).toEqual([]);
+  });
+
+  test("while the row beside it still does", () => {
+    const menu = mountSheet(ITEMS);
+    menu.press("menu-item-archive");
+    expect(menu.selected).toEqual(["archive"]);
   });
 });

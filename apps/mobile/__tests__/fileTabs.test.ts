@@ -303,6 +303,69 @@ describe("close others", () => {
   });
 });
 
+describe("closing the tabs to the right", () => {
+  /**
+   * The other bulk close, and the one people reach for after opening six things
+   * from a search: keep what you were working through, drop what you opened
+   * past it. "Close others" cannot express it — it takes the ones on the left
+   * too, which are usually the ones you still want.
+   */
+  test("the tabs after this one go, and the ones before it stay", () => {
+    let state = run(
+      pinned("1-projects/a.md", "1-projects/b.md", "1-projects/c.md", "1-projects/d.md"),
+      { type: "closedToRight", path: "1-projects/b.md" },
+    );
+    expect(paths(state)).toEqual(["1-projects/a.md", "1-projects/b.md"]);
+    // In strip order, so ⌘⇧T walks left to right and rebuilds what it had.
+    expect(state.closed).toEqual(["1-projects/c.md", "1-projects/d.md"]);
+
+    state = run(state, { type: "reopened" }, { type: "reopened" });
+    expect(paths(state)).toEqual([
+      "1-projects/a.md",
+      "1-projects/b.md",
+      "1-projects/c.md",
+      "1-projects/d.md",
+    ]);
+  });
+
+  /**
+   * The active tab may be one of the ones that went, and it cannot be left
+   * pointing at a tab that is no longer in the strip — that is a pane showing a
+   * note with nothing selected above it.
+   */
+  test("an active tab that was closed moves to the one you kept", () => {
+    const state = run(
+      pinned("1-projects/a.md", "1-projects/b.md", "1-projects/c.md"),
+      { type: "activated", path: "1-projects/c.md" },
+      { type: "closedToRight", path: "1-projects/a.md" },
+    );
+    expect(paths(state)).toEqual(["1-projects/a.md"]);
+    expect(state.activePath).toBe("1-projects/a.md");
+  });
+
+  test("an active tab to the left of the cut is left where it was", () => {
+    const state = run(
+      pinned("1-projects/a.md", "1-projects/b.md", "1-projects/c.md"),
+      { type: "activated", path: "1-projects/a.md" },
+      { type: "closedToRight", path: "1-projects/b.md" },
+    );
+    expect(state.activePath).toBe("1-projects/a.md");
+  });
+
+  /** The rightmost tab has nothing to its right, and the strip is untouched. */
+  test("the last tab closes nothing", () => {
+    const before = pinned("1-projects/a.md", "1-projects/b.md");
+    expect(tabsReducer(before, { type: "closedToRight", path: "1-projects/b.md" })).toBe(before);
+  });
+
+  test("on a path that is not open, nothing happens", () => {
+    const before = pinned("1-projects/a.md", "1-projects/b.md");
+    expect(tabsReducer(before, { type: "closedToRight", path: "1-projects/ghost.md" })).toBe(
+      before,
+    );
+  });
+});
+
 /* -------------------------------------------------------------------------- */
 /*                            renames and removals                            */
 /* -------------------------------------------------------------------------- */
