@@ -705,7 +705,10 @@ describe("a long press opens the context's own menu", () => {
       // Reused rather than reimplemented: these are `contextMenuItems`' own
       // keys, so a second menu with a different list would fail here.
       expect(strip.find("context-menu-settings")).not.toBeNull();
-      expect(strip.find("context-menu-sharing")).not.toBeNull();
+      // ...and only those: "Manage sharing…" went when sharing moved into the
+      // context's own settings. A strip that grew its own list would show it
+      // here after the rail had dropped it.
+      expect(strip.find("context-menu-sharing")).toBeNull();
     } finally {
       jest.useRealTimers();
     }

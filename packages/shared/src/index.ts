@@ -21,6 +21,20 @@ export const APP_NAME = "Context";
 export const APP_SLUG = "context";
 
 export { normalizeEmail } from "./email";
+
+/**
+ * The one shared workspace every account reaches without an invitation.
+ *
+ * Here rather than in either app because both sides have to agree about it and
+ * neither owns it: the control plane decides who reaches it, and the console
+ * decides how it is drawn and — the part a second copy would get wrong — that
+ * it does not count as "this person has a context of their own".
+ */
+export {
+  PINNED_CONTEXT_ROLE,
+  PINNED_CONTEXT_SLUG,
+  isPinnedContextSlug,
+} from "./pinnedContext";
 export {
   DESTRUCTIVE_ACTION_ACKNOWLEDGEMENT,
   matchesDestructiveActionAcknowledgement,
