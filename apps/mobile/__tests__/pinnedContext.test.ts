@@ -329,10 +329,21 @@ describe("the pinned context's menu", () => {
   });
 
   test("an ordinary context somebody is a member of is unchanged", () => {
+    /*
+      `sharing` was in this list and is not in the menu: #577 added this test
+      against the menu as it was, #578 took **Manage sharing…** off it, and the
+      two landed without either one seeing the other — so `main` went red on an
+      expectation that had been correct an hour earlier.
+
+      The source is the side that is right. `contextMenu.ts` carries the whole
+      argument for dropping the row: it sent people *out* of the context they
+      had just right-clicked, to answer a question that context's own Settings →
+      People now answers. This is the assertion catching up, not the menu
+      changing.
+    */
     expect(contextMenuItems("acme", { canLeave: true }).map((i) => i.key)).toEqual([
       "open",
       "settings",
-      "sharing",
       "leave",
     ]);
   });
