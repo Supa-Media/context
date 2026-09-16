@@ -429,21 +429,29 @@ const OBSIDIAN_NAMESPACE_MATCHER =
 /**
  * The same binding written the other three ways every plugin is written.
  *
- * `var x = require("obsidian")` is what esbuild emits, and reading only that
- * left the check blind to the form the official sample plugin uses — measured:
- * `var eo = require("obsidian"); class V extends eo.Unknown {}` answered
- * `wont-run`, and `const { Unknown } = require("obsidian")` answered `runs`,
- * for the same unknown base class.
+ * A namespace bound by `require` is what esbuild emits, and reading only that
+ * left the check blind to the form the official sample plugin uses. Measured on
+ * one unknown base class: the namespace form answered `wont-run`, and the
+ * destructured form answered `runs`.
  *
- *  - `const { Modal, Events } = require("obsidian")` — hand-written `main.js`
- *    and rollup's CJS output.
- *  - `import { Modal } from "obsidian"` — the ESM source form, which reaches a
- *    scan whenever a plugin ships unbundled or bundles to ESM.
- *  - `import * as obsidian from "obsidian"` — the ESM namespace, the twin of
- *    the `require` form above.
+ *  - a destructuring off the same `require` — hand-written `main.js` and
+ *    rollup's CJS output;
+ *  - a named ESM import, which reaches a scan whenever a plugin ships
+ *    unbundled or bundles to ESM;
+ *  - an ESM namespace import, the twin of the `require` form above.
  *
  * All four key off the module string for the reason the first one does: a
- * minifier renames the local binding freely and cannot rename `"obsidian"`.
+ * minifier renames the local binding freely and cannot rename the string.
+ *
+ * NO IMPORT-SHAPED EXAMPLE IN THIS COMMENT, AND THAT IS NOT STYLE.
+ * `scripts/check-gateway-imports.mjs` strips comments with a walker that
+ * tracks strings and not regex literals, so the `["']` classes below leave it
+ * inside a string state and the prose after them is scanned as code — measured:
+ * four docblock lines here were reported as bare-package imports of
+ * `obsidian`, and the job that failed was "Gateway stays dependency-free".
+ * It fails in the safe direction (string content is kept, so a real import is
+ * never hidden — only a comment is wrongly read), but the example belongs in
+ * the test file, where it is a string and where it is checked.
  */
 const OBSIDIAN_ESM_NAMESPACE_MATCHER =
   /\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*["']obsidian["']/g;
