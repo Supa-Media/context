@@ -30,6 +30,25 @@ export function PluginSandbox({
   preview,
 }: PluginSandboxProps) {
   const frame = useRef<WebView | null>(null);
+  /*
+    Whether this frame has already been handed the nonce and the bundle.
+
+    The web host has the same guard under a different name — it counts frame
+    loads and disowns the second, because *"the successor gets no nonce and no
+    bundle"*. Here the trigger is the guest's `ready`, which is the one message
+    `parsePluginSandboxMessage` accepts BEFORE the nonce check, by necessity: a
+    guest that has never been told the nonce cannot quote it.
+
+    That makes `ready` the only thing in this protocol that asks for the secret
+    rather than proving it, and after the first one the realm is no longer
+    empty — the plugin's bundle is running in it, as a script in global scope
+    with `window.ReactNativeWebView.postMessage` in front of it and a `message`
+    listener of its own if it wants one. A second `ready` therefore comes from
+    either a frame that reloaded, whose plugin is gone, or from the plugin
+    itself; both get the same answer, and neither gets the value the parser
+    uses to reject its forgeries.
+  */
+  const handed = useRef(false);
   // See the web host: host-to-guest state only lands once the bundle is
   // running, and state rather than a ref so the note already open when a plugin
   // starts reaches it at that moment.
@@ -57,6 +76,14 @@ export function PluginSandbox({
       ) as ParsedSandboxEvent | null;
       if (message === null) return;
       if (message.type === "ready") {
+        if (handed.current) {
+          // Same posture as the web host's second frame load: end the plugin
+          // and say so, rather than re-arming a realm that is not the one this
+          // host started.
+          onEvent({ type: "disowned" });
+          return;
+        }
+        handed.current = true;
         frame.current?.postMessage(
           JSON.stringify({
             source: "context-plugin-host",
