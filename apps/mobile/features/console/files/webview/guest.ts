@@ -36,6 +36,7 @@ import {
 } from "../editorSetup";
 import type { NoteLinkRef } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
+import { pluginSuggestSource, type PluginSuggestRef } from "../pluginSuggest";
 import {
   PROTOCOL_VERSION,
   acceptsChange,
@@ -47,6 +48,38 @@ import {
   type ToGuest,
   type ToHost,
 } from "./protocol";
+
+/**
+ * The suggestions off the wire, or none of them.
+ *
+ * `decode` proves a message is one of ours and says nothing about its payload,
+ * and this payload becomes a list somebody picks from. So it is checked here —
+ * `decodeCommand`'s rule, one level in.
+ *
+ * **All or nothing, and the reason is the pick.** A pick crosses back as an
+ * *index* into this same list, which the host routes to the plugin that offered
+ * it, which indexes its own array with it. Dropping the one malformed row and
+ * offering the other nine would be the obvious kindness and would renumber
+ * every row after it: the reader picks the label they read and the plugin
+ * rewrites their line from the row below it. A list that cannot be picked from
+ * correctly is not a list worth showing, and a silent list is a plugin that
+ * looks like it has nothing to say rather than one that says the wrong thing.
+ *
+ * In practice nothing legitimate trips this — the items reach the host already
+ * parsed out of a sandbox message — which is the point: if it ever fires,
+ * something upstream is wrong and guessing is the worst available response.
+ */
+function suggestItems(value: unknown): { text: string }[] {
+  if (!Array.isArray(value)) return [];
+  const items: { text: string }[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return [];
+    const { text } = item as { text?: unknown };
+    if (typeof text !== "string") return [];
+    items.push({ text });
+  }
+  return items;
+}
 
 export interface GuestBridge {
   /** Hand a message to the host. */
@@ -317,6 +350,34 @@ export function mountGuest(
     },
   };
 
+  /**
+   * A plugin's in-editor suggestions, asked for across the bridge.
+   *
+   * Empty to start, and that is the meaningful state rather than a placeholder:
+   * `pluginSuggestSource` answers `null` without sending anything while `ask`
+   * is absent, so a note on a surface with no plugin running costs no bridge
+   * traffic at all. The host fills it in with a `suggest` message when a plugin
+   * that can answer is running, and empties it again when none is.
+   *
+   * A ref the source reads at call time, for the reason `pluginSuggest.ts`
+   * gives at length: the editor's state is built once, so a source handed the
+   * callbacks directly would hold whatever was true at mount for the life of
+   * the editor — and "no plugin was running when this note was opened" is the
+   * commonest thing that is true at mount and false a second later.
+   */
+  const suggests: PluginSuggestRef = {};
+  /**
+   * Asks and picks in flight, by the token that will answer them.
+   *
+   * Two maps and not one because the two answers are different shapes, and a
+   * single map would make "a list of items" and "a rewritten line" the same
+   * kind of thing one `settle` away from being inserted into a note. Each entry
+   * is deleted by whichever settles it, so a duplicate reply finds nothing.
+   */
+  const pendingSuggests = new Map<string, (items: { text: string }[]) => void>();
+  const pendingPicks = new Map<string, (text: string | null) => void>();
+  let suggestToken = 0;
+
   const view = new EditorView({
     state: editorStateFor({
       doc: "",
@@ -325,6 +386,13 @@ export function mountGuest(
       handlers,
       links,
       forms,
+      /*
+        Always installed, never conditional. The source is the thing that reads
+        `suggests` at call time; installing it only when a plugin happened to be
+        running at mount would be the exact staleness the ref exists to avoid,
+        and `override` is one list on one facet, so it cannot be added later.
+      */
+      pluginSuggest: pluginSuggestSource(suggests),
       insetBottom: () => inset,
     }),
     parent: root,
@@ -402,6 +470,60 @@ export function mountGuest(
         // The palette carries the *measure* too — type size, leading, the note's
         // own padding — so a theme message reflows the document.
         heights.request();
+        return;
+      }
+      case "suggest": {
+        if (message.available) {
+          suggests.ask = (line, ch) =>
+            new Promise((resolve) => {
+              const token = `s${++suggestToken}`;
+              pendingSuggests.set(token, resolve);
+              bridge.post({ v: PROTOCOL_VERSION, type: "suggest-ask", token, line, ch });
+            });
+          suggests.pick = (index) =>
+            new Promise((resolve) => {
+              const token = `p${++suggestToken}`;
+              pendingPicks.set(token, resolve);
+              bridge.post({ v: PROTOCOL_VERSION, type: "suggest-pick", token, index });
+            });
+        } else {
+          /*
+            Deleted rather than set to a function that answers nothing, because
+            `pluginSuggestSource` reads `ask === undefined` as "there is nobody
+            to ask" and returns before it has built a completion at all. A stub
+            would be a source that runs, awaits and resolves empty on every
+            keystroke — the cost this message exists to avoid.
+
+            Anything already in flight still settles: the promises were made
+            before this arrived and the host answers every request it receives.
+          */
+          delete suggests.ask;
+          delete suggests.pick;
+        }
+        return;
+      }
+      case "suggest-result": {
+        const settle = pendingSuggests.get(message.token);
+        pendingSuggests.delete(message.token);
+        settle?.(suggestItems(message.items));
+        return;
+      }
+      case "suggest-pick-result": {
+        const settle = pendingPicks.get(message.token);
+        pendingPicks.delete(message.token);
+        /*
+          The one reply on this protocol that becomes an **edit**, so its type
+          is checked rather than trusted — `decodeCommand`'s rule, one level in.
+          Anything that is not a string is `null`, which `pluginSuggestSource`
+          reads as "nothing answered" and writes nothing for.
+
+          Measured rather than assumed: taking this check out and answering a
+          pick with an object does not insert `[object Object]`, it **wedges**.
+          CodeMirror's `insert` takes a string or a `Text`, and handed neither it
+          does not return — the test suite stops producing output rather than
+          failing. A hung editor on somebody's phone, from one malformed reply.
+        */
+        settle?.(typeof message.text === "string" ? message.text : null);
         return;
       }
       case "form-result": {

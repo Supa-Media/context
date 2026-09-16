@@ -204,6 +204,49 @@ export type ToGuest =
    * both outcomes, because the words for a refusal come from the server that
    * refused and the guest has no better one to offer.
    */
+  /**
+   * Whether a plugin can be asked for in-editor suggestions **right now**.
+   *
+   * A fact rather than a request, and the only one of these the guest cannot
+   * work out for itself: the plugins run on the host side, in their own
+   * sandboxes, and the guest has never heard of them.
+   *
+   * It exists so that the ordinary case costs nothing. Without it the guest
+   * would have to ask on every completion — which CodeMirror runs on every
+   * keystroke — and get an empty list back across the bridge, forever, on every
+   * note on every surface with no plugin running. With it, `pluginSuggest`'s
+   * source answers `null` without sending anything, which is what the web half
+   * does when it was handed no callback.
+   *
+   * Sent whenever it changes and resent on `ready`, like every other piece of
+   * desired state: a plugin started after the note was opened is the case this
+   * whole path exists for, and a `WebView` can reload underneath us.
+   */
+  | { v: number; type: "suggest"; available: boolean }
+  /**
+   * The answer to one `suggest-ask`, matched to it by `token`.
+   *
+   * `items` is typed here and still checked by the guest, for the reason
+   * `decodeCommand` gives: this is the host's own message, but the guest is a
+   * separate bundle that can be paired with a host it does not know, and what
+   * arrives becomes a list somebody picks from.
+   */
+  | {
+      v: number;
+      type: "suggest-result";
+      token: string;
+      items: ReadonlyArray<{ text: string }>;
+    }
+  /**
+   * The answer to one `suggest-pick`: the line as the plugin rewrote it, or
+   * `null` when nothing answered.
+   *
+   * **This one becomes an edit**, which is why the guest checks its type rather
+   * than trusting the declaration above. A `text` that arrived as an object
+   * would be inserted into somebody's note as `[object Object]` — the same
+   * failure `decodeCommand` exists to prevent for a `wrap`.
+   */
+  | { v: number; type: "suggest-pick-result"; token: string; text: string | null }
   | { v: number; type: "form-result"; token: string; ok: boolean; message: string }
   | {
       v: number;
@@ -288,6 +331,30 @@ export type ToHost =
    * message that could name a different one would be a WebView — the least
    * trusted thing in this app — choosing which file a write touches.
    */
+  /**
+   * Ask the running plugins what they would offer here.
+   *
+   * `line` is the text of the caret's line **up to the caret**, and `ch` is how
+   * far along it the caret is. Not the whole line and not the document: the
+   * sandbox is asked the least that lets it answer, and `pluginSuggest.ts`
+   * carries the argument for why the range a pick then writes is that same
+   * prefix rather than the whole line.
+   *
+   * A request/reply pair like `form-submit`, and a token for the same reason:
+   * the answer comes from a sandbox with its own timeout, so "the last reply is
+   * for the last request" is not a property this side can rely on.
+   */
+  | { v: number; type: "suggest-ask"; token: string; line: string; ch: number }
+  /**
+   * Somebody picked the suggestion at `index` in the list the last `suggest-ask`
+   * answered with.
+   *
+   * An index rather than the text, because the plugin's `selectSuggestion` is
+   * what produces the replacement and it is entitled to produce something other
+   * than the label it showed. The host routes it back to whichever plugin
+   * offered that list; see `applySuggestion`.
+   */
+  | { v: number; type: "suggest-pick"; token: string; index: number }
   | {
       v: number;
       type: "form-submit";
@@ -362,6 +429,9 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "links",
   "form-result",
   "form-responses-result",
+  "suggest",
+  "suggest-result",
+  "suggest-pick-result",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -379,6 +449,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "form-vote",
   "form-update",
   "form-retract",
+  "suggest-ask",
+  "suggest-pick",
 ] as const);
 
 /**

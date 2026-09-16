@@ -602,6 +602,9 @@ export function editorStateFor(options: {
   insetBottom?: () => number;
   links?: NoteLinkRef;
   forms?: FormHostRef;
+  /** See `editorExtensions`. The `WebView` guest passes one; the web half
+   * builds its extensions directly and never comes through here. */
+  pluginSuggest?: CompletionSource;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,
