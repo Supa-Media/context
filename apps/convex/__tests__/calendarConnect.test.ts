@@ -1173,3 +1173,53 @@ describe("an editor is not an owner, and that is what the guards actually refuse
     expect((await connectionRow(t, workspaceId, "person@example.invalid"))?.disconnectedAt).toBeDefined();
   });
 });
+
+describe("a calendar connection records the folder it files into", () => {
+  /*
+    Calendar's half of the rule stated in full in `chatProduct.test.ts`,
+    "a connection records the folder it files into": the folder a customer's
+    days are written to is a fact about the connection, recorded once, not a
+    constant every pass re-reads. Gmail has always pinned it at connect;
+    Calendar stored nothing, so `defaultGoogleDestinationFolder("calendar")`
+    decided — in source — where already-connected customers' calendars land,
+    and editing it would relocate them.
+  */
+  test("a first calendar connect records its destination folder on the row", async () => {
+    const { t, owner, workspaceId } = await personalScenario();
+    await bindCalendar(t, workspaceId, owner);
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique(),
+    );
+    expect(row?.calendar?.destinationFolder).toBe("0-inbox/calendar");
+  });
+
+  test("a reconnect keeps a destination the owner chose", async () => {
+    enableCalendarConnect();
+    const { t, owner, workspaceId } = await personalScenario();
+    await bindCalendar(t, workspaceId, owner);
+    const connection = await t.run((ctx) =>
+      ctx.db
+        .query("googleConnections")
+        .withIndex("by_workspace_address", (q) =>
+          q.eq("workspaceId", workspaceId).eq("address", "person@example.invalid"),
+        )
+        .unique(),
+    );
+    await asUser(t, owner).mutation(api.functions.googleConnect.updateGoogleSyncDestination, {
+      workspaceId,
+      connectionId: connection!._id,
+      service: "calendar",
+      destinationPath: "2-areas/calendar",
+    });
+    await bindCalendar(t, workspaceId, owner);
+
+    const row = await t.run((ctx) => ctx.db.get(connection!._id));
+    expect(row?.calendar?.destinationFolder).toBe("2-areas/calendar");
+  });
+});
