@@ -27,7 +27,7 @@ import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { itemsFor, type MenuActionId, type MenuTarget } from "./menu";
 import { runMenuAction, type ActionContext, type Dialog } from "./actions";
-import { useBackgroundMenu } from "./backgroundMenu";
+import { useRightClick } from "./rightClick";
 import { baseName, parentPath } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
@@ -336,13 +336,13 @@ export function Explorer({
    * the gesture falls through to the browser there — which is the right answer
    * when the application has nothing to offer.
    */
-  const openBackgroundMenu = useCallback(
+  const openRightClick = useCallback(
     (anchor: { x: number; y: number }) =>
       openTarget({ kind: "background", folder: "" }, contextLabel, anchor),
     [openTarget, contextLabel],
   );
 
-  const background = useBackgroundMenu(files.canEdit ? openBackgroundMenu : undefined);
+  const background = useRightClick(files.canEdit ? openRightClick : undefined);
 
   /**
    * The dispatcher's world, assembled once.

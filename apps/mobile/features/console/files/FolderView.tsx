@@ -85,8 +85,27 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
 import { baseName, displayName } from "./paths";
+import { useRightClick } from "./rightClick";
 import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
+
+/**
+ * The folder listing's right-click wiring.
+ *
+ * Supplied by the pane rather than built here, for the reason every other
+ * decision in this file is: this component draws a folder and knows nothing
+ * about a `FileBrowser`, a clipboard or who is allowed to do what. Both
+ * handlers report whether they actually opened a menu — see `rightClick.web.ts`
+ * for why the answer is what decides whether the browser's own menu is
+ * suppressed.
+ *
+ * Absent on a read-only console and on native, and the listing then has no
+ * pointer gesture at all rather than one that does nothing.
+ */
+export interface FolderMenu {
+  onRow: (entry: FileEntry, anchor: { x: number; y: number }) => boolean;
+  onBackground: (anchor: { x: number; y: number }) => boolean;
+}
 
 export function FolderView({
   entry,
@@ -95,6 +114,7 @@ export function FolderView({
   contextLabel,
   foot,
   onSelect,
+  menu,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -124,6 +144,8 @@ export function FolderView({
    */
   foot?: string;
   onSelect: (path: string) => void;
+  /** Right-click. Absent where there is nothing to offer — see `FolderMenu`. */
+  menu?: FolderMenu;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -141,8 +163,25 @@ export function FolderView({
   const groupRule = isGroupVisibility(entry.visibility) ? entry.visibility : null;
   const rows = listing?.entries ?? [];
 
+  /*
+    The background gesture is on the **whole view**, not on a filler strip under
+    the last row.
+
+    Right-clicking the heading, the visibility line, or the space beside a short
+    name is a right-click on this folder in every file manager there is, and a
+    listing that answered only below its last row would be a target you have to
+    find. Rows stop propagation on a gesture they answer (`rightClick.web.ts`),
+    so a row's own menu still wins where there is one — this catches exactly
+    what is left, which is the folder itself.
+  */
+  const background = useRightClick(menu === undefined ? undefined : menu.onBackground);
+
   return (
-    <View style={[styles.folder, compact && styles.folderCompact]}>
+    <View
+      style={[styles.folder, compact && styles.folderCompact]}
+      ref={background.ref}
+      collapsable={false}
+    >
       {/*
         The folder names itself the way a note does — an inline title at the top
         of its own content — rather than under a `FOLDER` eyebrow. The route
@@ -189,7 +228,9 @@ export function FolderView({
               : "Nothing in this folder is shared with you."}
           </Text>
         ) : (
-          rows.map((row) => <FolderRow key={row.path} row={row} onSelect={onSelect} />)
+          rows.map((row) => (
+            <FolderRow key={row.path} row={row} onSelect={onSelect} menu={menu} />
+          ))
         )}
         {listing?.truncated ? (
           <Text variant="treeMeta" style={styles.aside}>
@@ -224,11 +265,30 @@ export function FolderView({
  * `FileTree`'s empty box exists. `hitSlop` buys back the 8pt the 36pt row is
  * short of the touch floor: pad the pressable, never the visual.
  */
-function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string) => void }) {
+function FolderRow({
+  row,
+  onSelect,
+  menu,
+}: {
+  row: FileEntry;
+  onSelect: (path: string) => void;
+  menu?: FolderMenu;
+}) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
   const label = displayName(row.name);
+  /*
+    A wrapper rather than a ref on the `PressRow`, which is the same escape
+    hatch `ContextRowMenu`'s `RightClickTarget` uses and for the same reason:
+    react-native-web forwards no `onContextMenu`, and reaching the real node
+    through a plain `View` is the contained way to get at one. The wrapper sets
+    no style, so it adds no box — the row inside keeps its own 36pt pitch.
+  */
+  const rightClick = useRightClick(
+    menu === undefined ? undefined : (anchor) => menu.onRow(row, anchor),
+  );
   return (
+    <View ref={rightClick.ref} collapsable={false}>
     <PressRow
       onPress={() => onSelect(row.path)}
       style={styles.row}
@@ -286,6 +346,7 @@ function FolderRow({ row, onSelect }: { row: FileEntry; onSelect: (path: string)
         />
       ) : null}
     </PressRow>
+    </View>
   );
 }
 

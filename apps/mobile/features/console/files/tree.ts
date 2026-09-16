@@ -100,6 +100,39 @@ export function markerFor(
   return entry.exception ? entry.visibility : undefined;
 }
 
+/**
+ * One listing entry as a row, without a tree around it.
+ *
+ * `buildTreeRows` is the only way to get a `TreeRow` for a long time, which was
+ * fine while the tree was the only thing that had rows. The folder view draws
+ * the same entries in the other place and its right-click menu needs the same
+ * shape — and the alternative, a second literal spelling out the same nine
+ * fields, is how a `label` that strips `.md` in one listing and not the other
+ * gets shipped. `menu.ts` reads `marker` to decide which visibility is in
+ * force, so a hand-built row with that field guessed would mark the wrong one.
+ *
+ * `depth`, `expanded` and `selected` are the tree's own facts about where a row
+ * sits in *it*, so they get their safe flat defaults here and the walk
+ * overwrites them.
+ */
+export function treeRowFor(entry: FileEntry, folderDefault: Visibility): TreeRow {
+  return {
+    kind: entry.kind,
+    key: entry.path,
+    path: entry.path,
+    name: entry.name,
+    label: displayName(entry.name),
+    depth: 0,
+    expanded: false,
+    selected: false,
+    marker: markerFor(entry, folderDefault),
+    markerIsDefault: entry.kind === "folder",
+    readOnly: entry.readOnly,
+    size: entry.size,
+    updatedAt: entry.updatedAt,
+  };
+}
+
 export interface BuildTreeOptions {
   /** Listings by folder path. `""` is the root. */
   listings: Readonly<Record<string, FolderListing | undefined>>;
@@ -184,22 +217,13 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
     for (const entry of orderedEntries(listing.entries, options.descending)) {
       const expanded = entry.kind === "folder" && options.expanded.has(entry.path);
       rows.push({
-        kind: entry.kind,
-        key: entry.path,
-        path: entry.path,
-        name: entry.name,
-        label: displayName(entry.name),
+        // The folder this entry sits in is the one being walked, so its default
+        // is the listing's — read here rather than looked up again, because a
+        // second lookup is a second chance to read the wrong folder.
+        ...treeRowFor(entry, listing.folderDefault),
         depth,
         expanded,
         selected: entry.path === options.selectedPath,
-        // The folder this entry sits in is the one being walked, so its
-        // default is the listing's — read here rather than looked up again,
-        // because a second lookup is a second chance to read the wrong folder.
-        marker: markerFor(entry, listing.folderDefault),
-        markerIsDefault: entry.kind === "folder",
-        readOnly: entry.readOnly,
-        size: entry.size,
-        updatedAt: entry.updatedAt,
       });
       if (expanded) walk(entry.path, depth + 1);
     }

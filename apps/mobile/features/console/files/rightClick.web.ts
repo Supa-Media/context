@@ -1,25 +1,27 @@
 import { useCallback, useRef } from "react";
-import type { BackgroundMenu } from "./backgroundMenu";
+import type { RightClick } from "./rightClick";
 
-export type { BackgroundMenu } from "./backgroundMenu";
+export type { RightClick } from "./rightClick";
 
 /**
- * Right-click on the empty space of a listing.
+ * A right-click target that is not a tree row: empty space, a folder-view row,
+ * a breadcrumb segment, a tab.
  *
  * The same DOM escape hatch `rowInteractions.web.ts` uses and for the same
  * reason — react-native-web forwards no `onContextMenu` — but the rules around
- * *when to suppress* are different enough to be worth stating, because this
- * listener sits behind every row in the pane and a mistake here breaks the
- * rows rather than the background.
+ * *when to suppress* are different enough to be worth stating, because one use
+ * of this sits behind every row in a pane and a mistake there breaks the rows
+ * rather than the background.
  *
- * ## It must not answer a gesture that was meant for a row
+ * ## It must not answer a gesture that was meant for something in front of it
  *
- * A row's own handler calls `stopPropagation()`, so an answered right-click
- * never reaches here. The two cases that *do* bubble through are precisely the
- * two a row declines: a row with no menu at all, and a shift-held gesture. Both
- * must go on declining, so this checks shift itself rather than assuming the
- * row above it already dealt with it — a listener that inherits a rule by
- * accident stops honouring it the moment the row above changes.
+ * Every handler here and in `rowInteractions` calls `stopPropagation()` on a
+ * gesture it answers, so an answered right-click never reaches the target
+ * behind it. The two cases that *do* bubble through are precisely the two that
+ * get declined: a target with no menu at all, and a shift-held gesture. Both
+ * must go on declining, so this checks shift itself rather than assuming
+ * whatever is in front of it already dealt with it — a listener that inherits
+ * a rule by accident stops honouring it the moment its neighbour changes.
  *
  * ## It decides before it suppresses, and needs an answer to do so
  *
@@ -36,11 +38,11 @@ export type { BackgroundMenu } from "./backgroundMenu";
  * is the platform's suppressed. The call is still inside the handler, so
  * `preventDefault` is in time.
  */
-export function useBackgroundMenu(
+export function useRightClick(
   onMenu?: (anchor: { x: number; y: number }) => boolean,
-): BackgroundMenu {
+): RightClick {
   // Read inside a listener attached once, so the ref keeps it current without
-  // tearing the listener down on every render of the tree.
+  // tearing the listener down on every render of the listing.
   const latest = useRef(onMenu);
   latest.current = onMenu;
 
