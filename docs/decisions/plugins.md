@@ -197,6 +197,57 @@ removing the wall.
 makes the cross-workspace rule unenforceable in the only place it is currently
 free. Letting a plugin name its own workspace does the same, more directly.
 
+## A base class is a load-bearing export, so the dialog was built rather than stubbed
+
+`SuggestModal` and `FuzzySuggestModal` are answered by the shim, and the reason
+they moved off `ABSENT_MEMBERS` is not that the dialog was next on a list. It is
+that **a plugin extends them at module scope**: `class X extends
+api.SuggestModal {}` throws `extends undefined` before `onload`, so a missing
+class is not a missing feature, it is the whole plugin gone.
+
+Bible Reference is the case. Its inline verse suggester needed nothing that was
+not already built — `registerEditorSuggest` has worked end to end for weeks —
+and it never got to register one, because the bundle died on a class it uses for
+a *secondary* flow. One absent export cost the feature that was already working.
+
+**Stubbing them would have been the wrong fix twice over.** An inert base class
+gets the bundle loading and then silently does nothing when a reader presses the
+command, which is the "present and inert" trap this same file spends a section
+on. And it would have been a stub shipped in the name of a plugin that then
+still did not work.
+
+So the dialog is real, by the same inversion `registerEditorSuggest` uses:
+`getSuggestions`, `renderSuggestion` and `onChooseSuggestion` run **in the
+sandbox**, the guest reports the text its elements carry, the console draws its
+own list, and a pick crosses back as an index. Nothing the plugin built reaches
+the trusted realm — not markup, not a link, not an image.
+
+Four consequences worth keeping:
+
+- **The console draws the rows in the plugin's order and does not rank them.**
+  This is why it is not `Palette`, which ranks a fixed array against the query:
+  the plugin already decided what matches, and re-ranking would drop the answers
+  whose text does not contain the query — which is most of them, since
+  "Gen 1:1" does not appear in the verse it returns.
+- **The dialog names the plugin that opened it.** Somebody is being asked to
+  choose something by third-party code, and "who is asking" is the first
+  question that deserves an answer.
+- **A pick can only land on the list now on screen.** The guest replaces its
+  values on every query and refuses an index past the end, for the reason the
+  editor's own `offered` exists.
+- **`reopened` is carried back on a pick.** `onChooseSuggestion` runs in the
+  guest and may open another dialog — a two-step flow picks a translation and
+  then a verse — so a console that closed unconditionally would shut the one it
+  had just been asked for.
+
+**What a simplification costs.** Exporting these as inert stubs gets a bundle
+loading and leaves a command that does nothing. Ranking the rows here reorders
+somebody else's answers. Letting the guest hand over an element instead of its
+text puts third-party DOM in the trusted realm, which is the line this whole
+area exists to hold. The checks are in `pluginSandboxGuest.test.ts` (seven,
+including `a query runs the plugin's getSuggestions and only text comes back`,
+sabotage-confirmed by sending `innerHTML`) and `pluginSuggestDialog.test.ts`.
+
 ### A member the shim lacks is a limitation, except when it is extended
 
 `PLANNED_MEMBERS` always held two kinds, and `surface.js` always said so:

@@ -21,6 +21,9 @@ export function PluginSandboxFarm({
   invoke,
   suggest,
   suggestApply,
+  modalQuery,
+  modalPick,
+  modalDismiss,
   preview,
   grants,
 }: {
@@ -43,6 +46,17 @@ export function PluginSandboxFarm({
   suggest?: SuggestRequest;
   /** The pick, routed back to the frame that offered it. */
   suggestApply?: { seq: number; pluginId: string; nonce: string; index: number };
+  /*
+    The dialog's three, each addressed to one frame by plugin id *and* nonce.
+
+    Not gated by `maySeeContent` like a suggestion or a preview, and the reason
+    is what is being carried: a query is what the reader typed into a dialog
+    this plugin put in front of them, not a line out of their note. A plugin
+    with no read grant may still ask somebody a question.
+  */
+  modalQuery?: { seq: number; pluginId: string; nonce: string; query: string };
+  modalPick?: { seq: number; pluginId: string; nonce: string; index: number };
+  modalDismiss?: { seq: number; pluginId: string; nonce: string };
   /**
    * The open note's links, aimed at one frame, for its markdown post-processor.
    *
@@ -96,6 +110,27 @@ export function PluginSandboxFarm({
                 ? { seq: suggestApply.seq, index: suggestApply.index }
                 : undefined
             }
+            modalQuery={
+              modalQuery !== undefined &&
+              modalQuery.pluginId === sandbox.bundle.pluginId &&
+              modalQuery.nonce === sandbox.nonce
+                ? { seq: modalQuery.seq, query: modalQuery.query }
+                : undefined
+            }
+            modalPick={
+              modalPick !== undefined &&
+              modalPick.pluginId === sandbox.bundle.pluginId &&
+              modalPick.nonce === sandbox.nonce
+                ? { seq: modalPick.seq, index: modalPick.index }
+                : undefined
+            }
+            modalDismiss={
+              modalDismiss !== undefined &&
+              modalDismiss.pluginId === sandbox.bundle.pluginId &&
+              modalDismiss.nonce === sandbox.nonce
+                ? { seq: modalDismiss.seq }
+                : undefined
+            }
           />
         );
       })}
@@ -111,6 +146,9 @@ function SandboxSlot({
   invoke,
   suggest,
   suggestApply,
+  modalQuery,
+  modalPick,
+  modalDismiss,
   preview,
 }: {
   sandbox: ActiveSandbox;
@@ -120,6 +158,9 @@ function SandboxSlot({
   invoke?: InvokeMessage;
   suggest?: { seq: number; line: string; ch: number };
   suggestApply?: { seq: number; index: number };
+  modalQuery?: { seq: number; query: string };
+  modalPick?: { seq: number; index: number };
+  modalDismiss?: { seq: number };
   preview?: PreviewMessage;
 }) {
   const receive = useCallback(
@@ -136,6 +177,9 @@ function SandboxSlot({
       invoke={invoke}
       suggest={suggest}
       suggestApply={suggestApply}
+      modalQuery={modalQuery}
+      modalPick={modalPick}
+      modalDismiss={modalDismiss}
       preview={preview}
     />
   );

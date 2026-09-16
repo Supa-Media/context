@@ -23,6 +23,7 @@ import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
 import { EditorRegion } from "../../../features/console/EditorRegion";
 import { TierChip } from "../../../features/console/ConsoleShell";
 import {
@@ -470,6 +471,13 @@ export default function ConsoleLayout() {
   return (
     <ConsoleDataProvider value={data}>
       {data.pluginRuntime?.host}
+      {/*
+        Beside the host and at console scope for the same reason: a plugin can
+        ask for its dialog from a command pressed on any pane, so the surface
+        that draws it cannot belong to one of them. It renders nothing until a
+        plugin actually asks.
+      */}
+      <PluginSuggestDialog runtime={data.pluginRuntime} />
       <AppFrame
         switcher={
           insideContext ? (

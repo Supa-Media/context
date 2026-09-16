@@ -16,6 +16,9 @@ export function PluginSandbox({
   invoke,
   suggest,
   suggestApply,
+  modalQuery,
+  modalPick,
+  modalDismiss,
   preview,
 }: PluginSandboxProps) {
   const frame = useRef<HTMLIFrameElement | null>(null);
@@ -165,6 +168,32 @@ export function PluginSandbox({
     registered. Keyed on `seq` for the same reason, gated in the farm for the
     same reason, and posted here without interpretation for the same reason.
   */
+  /*
+    The dialog's half of the round trip, keyed on `seq` like every other slot
+    here and for the same reason: the object arrives new on every render, and a
+    query sent twice would answer twice for one keystroke.
+
+    Gated in the farm, not here — a query carries what the reader typed into the
+    dialog, which is theirs, and the plugin that opened it is the only one asked.
+  */
+  useEffect(() => {
+    if (!loaded || modalQuery === undefined) return;
+    post({ type: "suggest-modal-query", seq: modalQuery.seq, query: modalQuery.query });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, modalQuery?.seq]);
+
+  useEffect(() => {
+    if (!loaded || modalPick === undefined) return;
+    post({ type: "suggest-modal-pick", seq: modalPick.seq, index: modalPick.index });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, modalPick?.seq]);
+
+  useEffect(() => {
+    if (!loaded || modalDismiss === undefined) return;
+    post({ type: "suggest-modal-dismiss", seq: modalDismiss.seq });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, modalDismiss?.seq]);
+
   useEffect(() => {
     if (!loaded || preview === undefined) return;
     post({ type: "preview-query", seq: preview.seq, links: preview.links });

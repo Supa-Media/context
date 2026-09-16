@@ -10,6 +10,7 @@ import type {
   AppliedPluginNoteWrite,
   CommandOutcome,
   InvokeRequest,
+  OpenModal,
   PendingCommand,
   PreviewRequest,
   SuggestRequest,
@@ -137,6 +138,36 @@ export function useRuntime(options: {
   */
   const walk = useRef(0);
   const offeredBy = useRef<{ pluginId: string; nonce: string } | null>(null);
+
+  /*
+    THE SUGGESTION DIALOG, WHICH IS THE SAME ROUND TRIP WITH A DIFFERENT OWNER.
+
+    A completion menu is asked for by the *editor*, so the host walks the frames
+    and the first that offers anything owns it. A dialog is asked for by the
+    *plugin*, so ownership is settled before any query happens: whoever sent
+    `suggest-modal` is the only frame that will ever be queried or picked from.
+    That is why this keeps a `modal` rather than an `offeredBy`.
+
+    One at a time. A second plugin opening one replaces the first, which is what
+    a single dialog surface means and matches what the guest does with its own
+    `openModal`.
+  */
+  const [modal, setModal] = useState<OpenModal | null>(null);
+  const modalSeq = useRef(0);
+  const [modalQuery, setModalQuery] = useState<
+    { seq: number; pluginId: string; nonce: string; query: string } | undefined
+  >(undefined);
+  const [modalPick, setModalPick] = useState<
+    { seq: number; pluginId: string; nonce: string; index: number } | undefined
+  >(undefined);
+  const [modalDismiss, setModalDismiss] = useState<
+    { seq: number; pluginId: string; nonce: string } | undefined
+  >(undefined);
+  const modalWaiting = useRef(new Map<number, {
+    resolve: (items: { text: string }[]) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>());
+  const lastModalAsked = useRef<number | null>(null);
 
   /*
     AND THE SAME THREE THINGS FOR THE READ PREVIEW.
@@ -453,6 +484,44 @@ export function useRuntime(options: {
    * Only frames that pass `maySeeContent` are asked. A link is note content —
    * the address somebody wrote down and the words they wrote around it.
    */
+  /*
+    Ask the open dialog what to show. One frame, not a walk: the dialog already
+    belongs to whoever opened it, so there is nobody else to ask.
+  */
+  const askModalSuggestions = useCallback(async (query: string) => {
+    if (!isOwner || modal === null) return [];
+    modalSeq.current += 1;
+    const seq = modalSeq.current;
+    lastModalAsked.current = seq;
+    const answer = new Promise<{ text: string }[]>((resolve) => {
+      const timer = setTimeout(() => {
+        modalWaiting.current.delete(seq);
+        resolve([]);
+      }, SUGGEST_TIMEOUT_MS);
+      modalWaiting.current.set(seq, { resolve, timer });
+    });
+    setModalQuery({ seq, pluginId: modal.pluginId, nonce: modal.nonce, query });
+    return await answer;
+  }, [isOwner, modal]);
+
+  const pickModalSuggestion = useCallback((index: number) => {
+    if (!isOwner || modal === null) return;
+    modalSeq.current += 1;
+    setModalPick({ seq: modalSeq.current, pluginId: modal.pluginId, nonce: modal.nonce, index });
+  }, [isOwner, modal]);
+
+  /*
+    Closed here as well as told to the guest. The reader pressed Escape and the
+    dialog goes now — waiting for the guest to confirm would leave it on screen
+    while a wedged plugin decides, which is the one thing a dismiss must not do.
+  */
+  const dismissModal = useCallback(() => {
+    if (modal === null) return;
+    modalSeq.current += 1;
+    setModalDismiss({ seq: modalSeq.current, pluginId: modal.pluginId, nonce: modal.nonce });
+    setModal(null);
+  }, [modal]);
+
   const askPreviews = useCallback(async (links: LinkPreview[]) => {
     if (!isOwner || links.length === 0) return [];
     previewWalk.current += 1;
@@ -557,6 +626,45 @@ export function useRuntime(options: {
         offeredBy.current = { pluginId, nonce: sandbox.nonce };
       }
       pending.resolve(items ?? []);
+      return;
+    }
+    if (event.type === "suggest-modal") {
+      /*
+        The plugin asked for a dialog, or said it closed its own. Recorded
+        against the frame that said it, because every later query and pick is
+        routed back to exactly that frame — a dialog belongs to whoever opened
+        it, and a plugin restarted under a new nonce is not the same frame.
+      */
+      setModal(
+        event.open
+          ? {
+              pluginId,
+              nonce: sandbox.nonce,
+              placeholder: event.placeholder,
+              instructions: event.instructions,
+            }
+          : null,
+      );
+      return;
+    }
+    if (event.type === "suggest-modal-results") {
+      const pending = modalWaiting.current.get(event.seq);
+      if (pending === undefined) return;
+      modalWaiting.current.delete(event.seq);
+      clearTimeout(pending.timer);
+      /*
+        Stale answers are dropped rather than drawn, exactly as a completion's
+        are: typing outruns the round trip, and a list computed for a query the
+        reader has moved on from is a list of the wrong things.
+      */
+      pending.resolve(event.seq === lastModalAsked.current ? event.items : []);
+      return;
+    }
+    if (event.type === "suggest-modal-picked") {
+      // Closed unless the plugin opened another while handling the pick. A
+      // console that closed unconditionally would shut the dialog it was just
+      // asked for — see `reopened` in the protocol.
+      if (!event.reopened) setModal(null);
       return;
     }
     if (event.type === "preview-results") {
@@ -728,6 +836,7 @@ export function useRuntime(options: {
     host: isOwner
       ? createElement(PluginSandboxFarm, {
           sandboxes, onEvent, activeFile, vaultEvent, invoke, suggest, suggestApply, preview, grants,
+          modalQuery, modalPick, modalDismiss,
         })
       : undefined,
     registrations,
@@ -740,8 +849,19 @@ export function useRuntime(options: {
       `PluginSandboxFarm`'s and stays behind `maySeePaths`.
     */
     openNote: activeFile?.path ?? null,
+    modal,
     actions: isOwner && workspaceId !== null
-      ? { start, stop, run, askSuggestions, applySuggestion, askPreviews }
+      ? {
+          start,
+          stop,
+          run,
+          askSuggestions,
+          applySuggestion,
+          askPreviews,
+          askModalSuggestions,
+          pickModalSuggestion,
+          dismissModal,
+        }
       : undefined,
   };
 }
