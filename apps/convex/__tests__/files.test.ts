@@ -277,7 +277,11 @@ describe("an owner can edit their context", () => {
       api.functions.files.createDirectory,
       { workspaceId: f.workspaceId, path: "1-projects/plans" },
     );
-    expect(f.backend.snapshot()[created.readme]).toContain("# plans");
+    // The placeholder, named for the prefix it holds open. Its wording is
+    // `fileOps.test.ts`'s to pin; what this end-to-end path checks is that the
+    // action wrote the key at all.
+    expect(created.readme).toBe("1-projects/plans/README.md");
+    expect(f.backend.snapshot()[created.readme]).toContain("Folder placeholder.");
   });
 
   test("pastes a copy at an explicit destination", async () => {

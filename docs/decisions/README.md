@@ -168,6 +168,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
+- A folder's placeholder is not a row
 - A phone gets a path bar, which is half of the line that was deleted
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
@@ -197,6 +198,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One file per meeting, and `read_meeting` is what that costs
 - A meeting note is a note, and `privacy.md` decides it with no bypass
 - Nothing joins the call
+- A browser records the whole call only if somebody hands it the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
 - The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at

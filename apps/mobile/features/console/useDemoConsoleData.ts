@@ -52,8 +52,12 @@ import type {
  * pull the gateway's module into a web bundle for five rows of copy. Copied
  * *faithfully*, though — these ids, names and consequences are the real ones,
  * so the demo cannot show a product that does not exist.
+ *
+ * That last sentence was a comment until `demoContextPlugins.test.ts`, which
+ * imports the catalogue (a test may, a bundle may not) and compares every
+ * field a visitor reads. It is exported for that test and for nothing else.
  */
-const DEMO_CONTEXT_PLUGINS = [
+export const DEMO_CONTEXT_PLUGINS = [
   {
     id: "context-forms",
     name: "Markdown forms",
@@ -107,6 +111,20 @@ const DEMO_CONTEXT_PLUGINS = [
     surfaces: ["Console"],
     offMeans:
       "The two channel tools disappear from connected clients, so an AI client can no longer read a day of a channel. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
+  },
+  {
+    id: "context-contacts",
+    name: "Contacts",
+    description:
+      "One page per person you correspond with, in 0-inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
+    version: "1.0.0",
+    author: "Context",
+    enabled: true,
+    defaultEnabled: true,
+    tools: ["list_contacts", "read_contact"],
+    surfaces: ["Console", "Notes"],
+    offMeans:
+      "The two contact tools disappear from connected clients, so an AI client can no longer list the people you correspond with or read one of their pages. Every contact page stays exactly where it is, still readable as an ordinary note and still shown in the console; the connected accounts that build them keep running, so turn one off under Email or Chats if that is what you meant.",
   },
 ];
 

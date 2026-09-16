@@ -222,6 +222,43 @@ describe("what an empty folder is told", () => {
   });
 });
 
+describe("the folder's placeholder", () => {
+  /**
+   * The `README.md` a folder is made of is plumbing, not a note, and this page
+   * is the surface it was loudest on: the first row of every folder, before
+   * anything anybody wrote.
+   *
+   * It is dropped here by `listedEntries`, which the tree uses too — one filter,
+   * so a file cannot be a row on one surface and absent on the other. See
+   * `fileEditor.test.ts` for the rule itself.
+   *
+   * SABOTAGE: listing `listing.entries` directly again fails both tests here.
+   */
+  test("is not one of the rows", () => {
+    const view = mount({
+      listing: listing([file("README.md"), file("findings.md")]),
+    });
+    expect(view.container.textContent).toContain("findings");
+    expect(view.container.textContent).not.toContain("README");
+  });
+
+  test("a folder holding nothing else is empty, and the sentence is the owner's", () => {
+    const view = mount({ listing: listing([file("README.md")]), canSetVisibility: true });
+    expect(view.container.textContent).toContain("nothing in it yet");
+  });
+
+  /**
+   * The empty sentence still forks on who is asking. A member whose every note
+   * in this folder is private, plus a placeholder, must not be told the folder
+   * is empty — that is the claim this file exists to prevent, and the new filter
+   * must not become a way to make it.
+   */
+  test("a member is still told what they are not being shown", () => {
+    const view = mount({ listing: listing([file("README.md")]), canSetVisibility: false });
+    expect(view.container.textContent).toContain("Nothing in this folder is shared with you");
+  });
+});
+
 describe("the controls", () => {
   /**
    * **This pane draws neither of them any more, and that is the change.**

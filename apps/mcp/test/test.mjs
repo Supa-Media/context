@@ -3,6 +3,7 @@ import { R2Store } from "../src/store/r2.js";
 import { SUPPORTED_SCOPES, visibilityTierForGrant } from "../src/session.js";
 import { runStoreChecks } from "./store.test.mjs";
 import { runCommunicationsChecks } from "./communications.test.mjs";
+import { runContactsChecks } from "./contacts.test.mjs";
 import { messageAnchor } from "../../../packages/communications/src/anchors.js";
 import { renderChannelDayNote } from "../../../packages/communications/src/note.js";
 import { runCommsSearchIndexChecks } from "./commsSearchIndex.test.mjs";
@@ -441,8 +442,10 @@ const tools = await rpc("priv-token", "tools/list");
 // note too, and these are the two reads that know the bodies are appended to
 // one and that a model has to ask for them. 27 with `set_encryption`, which is
 // a write over one note's own bytes and, like `set_visibility` beside it, a
-// personal connection's. 35 adds the owner-only storage-layout migration.
-check("35 tools listed", tools.result?.tools.length === 35);
+// personal connection's. 35 adds the owner-only storage-layout migration. 37
+// with `list_contacts` and `read_contact` — the same pair a layer further
+// over, over the people those days were with rather than the days.
+check("37 tools listed", tools.result?.tools.length === 37);
 check(
   "storage migration is advertised only to an owner-tier connection",
   tools.result.tools.some((tool) => tool.name === "migrate_storage_layout") &&
@@ -554,7 +557,7 @@ await contextStore.put(
 const listWithFormsOff = await rpc("priv-token", "tools/list");
 check(
   "a Context plugin turned off takes its tools out of the listing",
-  listWithFormsOff.result?.tools.length === 31 &&
+  listWithFormsOff.result?.tools.length === 33 &&
     !listWithFormsOff.result.tools.some((tool) => tool.name === "submit_form")
 );
 check(
@@ -600,12 +603,12 @@ check(
 await contextStore.put(enablementKey, "{ half a file");
 check(
   "a settings file that does not parse leaves every tool where it was",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 35
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 37
 );
 await contextStore.delete(enablementKey);
 check(
   "and removing the file restores the full listing",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 35
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 37
 );
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
@@ -1319,7 +1322,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 35);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 37);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1545,7 +1548,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 35
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 37
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -4319,6 +4322,11 @@ await runPathInjectionChecks(check);
 // the fixture here is two mailboxes with different visibilities, which is the
 // arrangement the "a mailbox is a folder" decision exists for.
 await runCommunicationsChecks(check);
+// The two contact reads, in their own bucket for the same reason: the fixture
+// is one contact published, one held back, and a note of the user's own at a
+// key a sender could have picked — the arrangement that tells a lenient parse
+// apart from a positive identity marker.
+await runContactsChecks(check);
 await runCommsSearchIndexChecks(check);
 
 // The calendar sync: the Google-shaped adapter (calendarGoogle.test.mjs) and

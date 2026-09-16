@@ -3,7 +3,7 @@
  *
  * ## Why these are plugins at all
  *
- * Forms, images, meetings and chat days were each built as a
+ * Forms, images, meetings, chat days and contacts were each built as a
  * feature *of the app* — a tool in the gateway, a widget in the editor, a card
  * in the console — while the only thing this product called a "plugin" was
  * somebody else's Obsidian bundle. That split is arbitrary from the customer's
@@ -91,7 +91,7 @@ function contextPlugin({ id, name, description, tools = [], surfaces, offMeans, 
 }
 
 /**
- * The four, in the order the console lists them: most-used first.
+ * The five, in the order the console lists them: most-used first.
  *
  * A feature belongs here when turning it off removes a *capability* and nothing
  * else. Notes, privacy, search, audit, storage and encryption are deliberately
@@ -159,6 +159,26 @@ export const CONTEXT_PLUGINS = Object.freeze([
     surfaces: ["Console"],
     offMeans:
       "The two channel tools disappear from connected clients, so an AI client can no longer read a day of a channel. The connection that syncs those chats is separate and keeps running; turn it off under Chats if that is what you meant.",
+  }),
+  contextPlugin({
+    id: "contacts",
+    name: "Contacts",
+    description:
+      "One page per person you correspond with, in 0-inbox/contacts — their addresses, your own notes about them, and links into the days you spoke.",
+    tools: ["list_contacts", "read_contact"],
+    surfaces: ["Console", "Notes"],
+    /*
+      Says "read", twice, because reading is the whole of what this switch
+      governs. The pages are written by the Gmail, Chat and iMessage syncs on
+      their own schedule, and none of them asks this file — so an `offMeans`
+      promising that contacts stop being built would be the product lying at
+      the moment somebody is deciding, which is the rule every entry here has
+      to pass. The sentence names the connection screens instead, the way
+      Chat history's does, because "stop collecting this" is a real thing
+      somebody means by turning this off and they should be told where it is.
+    */
+    offMeans:
+      "The two contact tools disappear from connected clients, so an AI client can no longer list the people you correspond with or read one of their pages. Every contact page stays exactly where it is, still readable as an ordinary note and still shown in the console; the connected accounts that build them keep running, so turn one off under Email or Chats if that is what you meant.",
   }),
 ]);
 

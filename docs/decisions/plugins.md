@@ -22,7 +22,7 @@ question of the same screen.
 
 ## A Context plugin is Obsidian's manifest with one extra key, and no bundle
 
-`apps/mcp/src/plugins/catalog.js` declares four, in Obsidian's own manifest
+`apps/mcp/src/plugins/catalog.js` declares five, in Obsidian's own manifest
 shape — `id`, `name`, `version`, `minAppVersion`, `description`, `author`,
 `authorUrl`, `isDesktopOnly`, spelled the way Obsidian spells them. Everything
 Context needs that Obsidian has no concept of goes under a single `context`
@@ -46,13 +46,56 @@ called `forms`, or a community plugin published under that id, must never be
 able to present itself as the built-in one — the built-in's row carries a switch
 that changes what the gateway serves, and a folder anybody can sync into a
 bucket borrowing that row would be a control surface with an untrusted name on
-it. Reserved is the whole prefix rather than the four ids in use, so a plugin
+it. Reserved is the whole prefix rather than the five ids in use, so a plugin
 added later is not shadowable by a folder that predates it.
 
 **What a simplification costs.** Dropping the prefix check lets a synced folder
 take a built-in's row. Inventing a manifest shape of our own ends the one-row
 claim and makes a future third-party Context plugin unpublishable to either
 catalogue. `a vault folder cannot borrow a built-in id` is the check.
+
+### Contacts is the fifth, and it earned the row by growing tools
+
+Contact pages existed for a week before this, written into `0-inbox/contacts/`
+by the Gmail, Chat and iMessage syncs and reachable only as ordinary notes: a
+connected client could read one if it already knew the path, and had no way to
+ask who the user corresponds with at all. That is the same state **drawings**
+was in when it was written into this list and taken back out — every surface a
+read of a file already there, nothing for a switch to govern — and the
+difference is the one that rule names: `list_contacts` and `read_contact` are
+a capability, so turning them off removes something.
+
+**The switch governs the reading and says so.** The syncs do not consult this
+file and keep writing pages with contacts turned off, so an `offMeans`
+promising that contacts stop being collected would be a promise the product
+does not keep, printed at the moment somebody is deciding. It names the Email
+and Chats connection screens instead, the way Chat history's entry does.
+
+**Both tools carry the provenance line, and that is not decoration.** A
+contact page is the only thing this product writes whose **key was chosen by
+whoever sent the user a message** — the fact the review of `#448` said to hold
+in mind for anything built on contacts next — and its name, organization and
+identifiers are values lifted off inbound mail. A model handed that page with
+nothing said reads it as the context's own claim about a person. `list_contacts`
+prints the sentence under the listing and `read_contact` prints it under the
+page, from one constant, because the listing is where somebody chooses who to
+read about and the read is where they choose what to believe.
+
+**A path under `0-inbox/contacts/` is not proof the note is ours**, for the
+same reason: a sender picked the name. `parseContactView` is lenient by design
+and would happily render somebody's own note — or ciphertext — as a person's
+contact details, so both tools gate on `isContactNote`, the positive
+frontmatter marker `renderContactNote` always emits. The listing names such a
+note rather than hiding it (hiding a visible note from a listing of its own
+folder teaches the caller something false), and the read hands it to
+`read_note` rather than printing fields it never had. *A lenient reader is a
+dangerous gate* is that review's own lesson, applied on the read side.
+
+**What a simplification costs**: dropping the `isContactNote` gate turns a
+note the user wrote at a contact's key into a contact page in the listing and
+in the read. Dropping the provenance line makes a sender's self-description
+indistinguishable from something this context established. The checks are in
+`apps/mcp/test/contacts.test.mjs`.
 
 ## The switch lives in the bucket, in two lists rather than one
 

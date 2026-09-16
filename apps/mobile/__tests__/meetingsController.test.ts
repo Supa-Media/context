@@ -298,6 +298,44 @@ describe("starting a meeting", () => {
   });
 });
 
+/**
+ * A CAPABILITY WITH A CONSENT STEP IS OPTED INTO, NEVER DEFAULTED INTO.
+ *
+ * `start()`'s fallback for a caller that says nothing about system audio is
+ * "whatever this build can do" — which was right while the only build that
+ * could do it was the desktop shell, whose loopback tap is silent. A browser
+ * can also do it, and doing it there means opening a screen-share picker.
+ * Falling back to the capability alone would put that picker in front of any
+ * caller that starts a meeting without going through the sheet, on behalf of
+ * somebody who was never asked.
+ *
+ * So the fallback is "whatever this build can do **without asking again**", and
+ * these two checks are the difference. The sheet still decides for itself; this
+ * is about every other way a meeting can start.
+ */
+describe("what a caller who says nothing gets", () => {
+  test("a silent tap is taken", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: false });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("a picker is not opened on somebody's behalf", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup" });
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+
+  test("...and a caller who does say still decides", async () => {
+    const recorder = fakeRecorder({ systemAudio: true, systemAudioNeedsPicker: true });
+    const { controller } = await harness({ recorder });
+    await controller.start({ title: "Standup", systemAudio: true });
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+});
+
 describe("the clock is the log, not a timer", () => {
   test("pauses come out of the elapsed time", async () => {
     const { controller, clock } = await harness();

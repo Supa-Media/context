@@ -59,6 +59,27 @@ export const SYSTEM_AUDIO_TITLE = "Record the whole call";
 export const SYSTEM_AUDIO_SUB =
   "This machine can hear the call's own audio as well as your microphone, so both sides are in the transcript.";
 
+/**
+ * The same offer where it costs a source picker, which is a browser.
+ *
+ * A browser tab cannot tap the machine's output; it can only record a source
+ * **you hand it**. So this says what is about to happen and what to do when it
+ * does, because a picker that appears unexplained is a picker people cancel —
+ * and the one control on it that matters is a checkbox most people have never
+ * read. Saying "both sides are in the transcript" here, as the shell's sentence
+ * does, would be a claim about something nobody has agreed to yet.
+ *
+ * **"Never the picture" is a promise this app keeps rather than a reassurance.**
+ * The picker is a *screen* picker and there is no way to ask it for audio
+ * alone, so a video track genuinely is handed over. It is asked for at one
+ * frame a second at one pixel, never rendered, never given to `MediaRecorder`,
+ * and stopped with everything else at the end of the meeting — see
+ * `DISPLAY_CONSTRAINTS` in `capture/audio.web.ts`. Somebody sharing the tab a
+ * private conversation is in is entitled to know that before they pick it.
+ */
+export const SYSTEM_AUDIO_PICKER_SUB =
+  "Your browser will ask which tab or window to share — pick the one the call is in and turn on the option to share its audio. Only the audio is recorded, never the picture, and both sides are then in the transcript.";
+
 export function DestinationSheet({
   choice,
   selectedIndex,
@@ -118,7 +139,12 @@ export function DestinationSheet({
    * the bridge. It is not decided here: a rule expressed inside a component in
    * this app is a rule nothing holds.
    */
-  systemAudio?: { on: boolean; onToggle: (on: boolean) => void } | null;
+  systemAudio?: {
+    on: boolean;
+    onToggle: (on: boolean) => void;
+    /** From `capability.systemAudioNeedsPicker`. Picks which sentence is true. */
+    needsPicker: boolean;
+  } | null;
 }) {
   const styles = useThemedStyles(makeStyles);
 
@@ -245,7 +271,11 @@ export function DestinationSheet({
                   >
                     <Text variant="rowTitle">{SYSTEM_AUDIO_TITLE}</Text>
                     <Text variant="rowSub">
-                      {systemAudio.on ? SYSTEM_AUDIO_SUB : MIC_ONLY_SENTENCE}
+                      {!systemAudio.on
+                        ? MIC_ONLY_SENTENCE
+                        : systemAudio.needsPicker
+                          ? SYSTEM_AUDIO_PICKER_SUB
+                          : SYSTEM_AUDIO_SUB}
                     </Text>
                   </View>
                 </PressRow>

@@ -823,6 +823,49 @@ Google People scope, or second provider crawl is part of this path.
 
 The check is `a name-only match never merges two contacts`.
 
+### And they are read through two tools, because a page nobody can find is a file
+
+For a week after the pages landed there was no way to *ask* for one. A
+connected client could read a contact page if it already knew the path, which
+it only ever would by having been told; "who does this person correspond with"
+had no answer at all, on a surface whose whole claim is that the answer is one
+call away. `list_contacts` and `read_contact` are that pair, built the same way
+`list_channel_days` and `read_channel_day` are — a listing from the folder
+listing and then the notes, never an index, so a page the owner moved out stops
+being listed and stays a note of theirs — and they carry the
+[`context-contacts` plugin](./plugins.md)'s switch.
+
+Three things they do that the channel-day pair does not have to, all from one
+fact: **a contact's key is chosen by whoever sent the user a message.**
+
+- **`isContactNote`, not a successful parse, decides whether a page is ours.**
+  `parseContactView` is lenient by design; pointed at the owner's own note at a
+  contact's key — or at ciphertext — it returns a person with an empty name.
+  The listing labels such a note (`(a note of your own)`, `(encrypted)`) rather
+  than hiding it, and the read hands it to `read_note`, which is the tool that
+  can actually open the sealed one.
+- **Both print the same provenance sentence, from one constant.** The name, the
+  organization and the identifiers on a page are values off inbound mail. A
+  model handed them with nothing said reports them as this context's own claim
+  about a person — so the listing says it where somebody chooses who to read
+  about, and the read says it where they choose what to believe.
+- **The activity list is cut to five** unless `activity: true` asks for it, the
+  same bargain `read_channel_day` strikes with message bodies: a
+  three-year correspondence is a link per message, and a tool call should not
+  spend a model's context on a list nobody asked for.
+
+Ordering is the listing's own `uploaded`, so nothing is read before the slice —
+a contact page is rewritten whenever a sync adds activity, which makes
+"recently written" and "recently in touch" the same answer without opening a
+note to find it.
+
+**What a simplification costs**: gating on the parse turns the owner's own note
+into a person; dropping the provenance line makes a sender's self-description
+indistinguishable from something this context established; sorting on the key
+lists people alphabetically by the address that happened to name their file.
+The checks are `apps/mcp/test/contacts.test.mjs`, with its sabotage record —
+nine edits, every one caught.
+
 ### The Gmail restricted scope is Google's decision, so v1 runs on fixtures
 
 Reading message bodies needs `gmail.readonly`, which is a **restricted** scope:

@@ -73,6 +73,51 @@ export function displayName(name: string): string {
 }
 
 /**
+ * The name of the file that makes a folder exist.
+ *
+ * Object storage has no folders, only keys with slashes in them, so `createFolder`
+ * writes one key to give the prefix something to be. `README.md` is the name
+ * because it is the one every other tool that reads the bucket already
+ * understands — Obsidian draws it as a note, GitHub renders it, `ls` shows it.
+ */
+export const FOLDER_PLACEHOLDER = "README.md";
+
+/**
+ * Is this the key that exists so its folder does?
+ *
+ * **The console does not list this file**, and that is the whole of what this
+ * predicate decides — see `listedEntries`. The file is real, stays in the
+ * bucket, and is exactly what a folder looks like from Obsidian; what it is not
+ * is a note somebody wrote, and printing it on the first row of every folder
+ * meant the one place with the least to say got the most prominent line.
+ *
+ * Two boundaries, both deliberate:
+ *
+ *  - **Never at the root.** The root prefix needs no key to exist, so a
+ *    `README.md` beside `index.md` is a file its owner put there — very
+ *    probably the readme of a self-hosted bucket — and hiding it would be
+ *    hiding content rather than plumbing.
+ *  - **Case-insensitively.** We write `README.md`; a person typing in Obsidian
+ *    writes `readme.md` about as often, and they mean the same file. Bucket
+ *    keys are case-sensitive and nothing here writes one, so a loose match
+ *    costs a row that is drawn and never a key that is touched.
+ *
+ * What it deliberately does **not** do is look at the contents. A folder
+ * overview somebody actually wrote is hidden by the same rule, which is the
+ * honest cost of a rule a listing can evaluate: a listing carries names, not
+ * bodies, and asking the bucket for every README on every expand would be a
+ * request per folder to decide a row. Nothing becomes unreachable — search
+ * finds it, a `[[link]]` opens it, the tree keeps drawing it while it is the
+ * open note, and Obsidian never hid it in the first place. See
+ * "A folder's placeholder is not a row" in `docs/decisions/app-and-console.md`.
+ */
+export function isFolderPlaceholder(path: string): boolean {
+  const slash = path.lastIndexOf("/");
+  if (slash < 0) return false;
+  return path.slice(slash + 1).toLowerCase() === FOLDER_PLACEHOLDER.toLowerCase();
+}
+
+/**
  * A new note is a `.md` file whether or not the person typed the extension.
  *
  * Not cosmetic: `privacy.md`'s exact-note rules only address `.md` paths, so a
