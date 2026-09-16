@@ -1235,3 +1235,63 @@ something about third-party code nobody checked.
 `apps/mobile/__tests__/pluginsPanel.test.ts` and
 `apps/mobile/e2e/webkit/pluginsInstalled.spec.ts` hold these, the last in a real
 browser in the state a first visit is actually in.
+
+## A settings pane is described, never forwarded
+
+`display()` is the most hostile thing a plugin runs on Context's behalf, and
+that is not a hypothetical: the real Bible Reference pane opens with a **sponsor
+iframe** and a **tracking image**, both set through `innerHTML`, before it
+reaches a single control. Forwarding what a plugin builds would mean Context
+serving somebody else's ads and somebody else's analytics from inside a
+customer's console.
+
+So the same inversion as the suggestion dialog and `Modal`, applied where it
+matters most. `display()` runs in the sandbox against a real `containerEl`; the
+guest walks that element and sends a **description** — a kind, a name, a
+sentence, a value, a list of options; the console draws its own controls; a
+change crosses back as an index and the plugin's own `onChange` runs in the
+sandbox.
+
+Order is document order from the plugin's own container, so a heading it wrote
+between two settings lands between them. Nothing is re-sorted: this is somebody
+else's pane, and rearranging it makes their documentation wrong.
+
+**A hidden control is not offered.** Obsidian augments `HTMLElement` with
+`hide()`/`show()`, and this pane builds every control up front then hides the
+ones that do not apply. Two things followed from adding them: the shim stopped
+throwing (see below), and `describePane` skips a hidden row — drawing it would
+offer a setting the plugin's own author refuses to show.
+
+**A `display()` that throws part-way is reported, not swallowed.** The shim was
+missing `hide()`, so `display()` threw on the fourth of twenty-one rows and the
+error was caught and dropped. The reader got a pane silently missing seventeen
+settings, which looks exactly like a plugin that has four — the quieter failure
+and the worse one. The pane now carries what it threw and says so above the rows
+it did manage to draw.
+
+**Links do not survive, and the pane says so once.** An anchor is markup; only
+text crosses. A plugin's settings routinely link to its documentation, its
+repository and its author, and all of them arrive as plain words. Silence there
+reads as a broken pane, so `LINKS_NOTE` states the rule at the foot — a refusal
+carrying its route out, like every other refusal in this feature.
+
+**The index is checked on the trusted side.** It is what a reader's press is
+addressed by, so a guest that renumbered its rows could point a toggle at a
+different setting than the one on screen. The parser accepts a control only when
+its claimed index equals its position in the accepted list, and drops it
+otherwise. The real guest emits dense indices and can never exercise that
+branch, which is exactly why it has its own check in
+`packages/obsidian-runtime/test/test.mjs`.
+
+**What a simplification costs.** Forwarding the plugin's DOM puts an iframe and
+a tracking pixel in the trusted realm. Drawing hidden rows offers settings the
+plugin refuses to show. Swallowing the `display()` error restores a pane that
+lies about how many settings a plugin has. Trusting the index lets a guest
+redirect a press. `pluginSandboxGuest.test.ts`, `pluginSettingsPane.test.ts`,
+`packages/obsidian-runtime/test/test.mjs` and
+`e2e/webkit/pluginSettings.spec.ts` hold these, the last against the real
+release — which is the only check that caught the missing `hide()`.
+
+`addSettingTab` moved from `INERT_MEMBERS` to `SUPPORTED_MEMBERS` with this.
+That is the direction an entry on that list is supposed to travel, and it had
+been "accepted and not drawn yet" for months.

@@ -437,4 +437,62 @@ assert.deepEqual(parsePluginSandboxMessage({
   },
 });
 
+/*
+  A SETTINGS PANE FROM A GUEST THAT IS NOT PLAYING ALONG.
+
+  The real guest emits dense indices from zero, so nothing that drives it can
+  reach these branches — which is exactly why they need their own checks. The
+  index is what a reader's press is addressed by, so a guest that renumbered
+  its rows could point a toggle at a different setting than the one on screen.
+*/
+const renumbered = parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "settings-pane",
+  open: true,
+  error: null,
+  rows: [
+    { kind: "toggle", index: 0, name: "First", desc: "", value: true },
+    // Claims to be row 7. Accepting it would make every later index wrong, and
+    // a press on "Third" would arrive at the plugin as a press on something
+    // else entirely.
+    { kind: "toggle", index: 7, name: "Second", desc: "", value: false },
+    { kind: "toggle", index: 1, name: "Third", desc: "", value: false },
+  ],
+});
+assert.deepEqual(
+  renumbered.rows.map((row) => [row.kind, row.name, row.index]),
+  [
+    ["toggle", "First", 0],
+    ["toggle", "Third", 1],
+  ],
+  "a row claiming the wrong index is dropped, and the rest keep dense positions",
+);
+
+const unknownKind = parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "settings-pane",
+  open: true,
+  error: null,
+  rows: [
+    { kind: "iframe", index: 0, name: "Sponsor" },
+    { kind: "toggle", index: 0, name: "Real", desc: "", value: true },
+  ],
+});
+assert.deepEqual(
+  unknownKind.rows.map((row) => row.kind),
+  ["toggle"],
+  "a kind this console does not draw is dropped rather than passed through",
+);
+
+const closed = parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  type: "settings-pane",
+  open: false,
+  rows: [{ kind: "toggle", index: 0, name: "Ignored", desc: "", value: true }],
+});
+assert.deepEqual(closed, { type: "settings-pane", open: false, rows: [], error: null });
+
 console.log("obsidian runtime protocol: ok");
