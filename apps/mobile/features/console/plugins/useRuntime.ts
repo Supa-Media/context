@@ -163,9 +163,17 @@ export function useRuntime(options: {
   const [modalDismiss, setModalDismiss] = useState<
     { seq: number; pluginId: string; nonce: string } | undefined
   >(undefined);
+  /*
+    The owner is recorded ON the pending entry, not looked up when the answer
+    arrives. `onEvent` would otherwise have to read `modal` state to know who it
+    asked, and a dialog replaced between the question and the answer would make
+    that the wrong owner. What was asked is a property of the asking.
+  */
   const modalWaiting = useRef(new Map<number, {
     resolve: (items: { text: string }[]) => void;
     timer: ReturnType<typeof setTimeout>;
+    pluginId: string;
+    nonce: string;
   }>());
   const lastModalAsked = useRef<number | null>(null);
 
@@ -498,7 +506,12 @@ export function useRuntime(options: {
         modalWaiting.current.delete(seq);
         resolve([]);
       }, SUGGEST_TIMEOUT_MS);
-      modalWaiting.current.set(seq, { resolve, timer });
+      modalWaiting.current.set(seq, {
+        resolve,
+        timer,
+        pluginId: modal.pluginId,
+        nonce: modal.nonce,
+      });
     });
     setModalQuery({ seq, pluginId: modal.pluginId, nonce: modal.nonce, query });
     return await answer;
@@ -650,6 +663,29 @@ export function useRuntime(options: {
     if (event.type === "suggest-modal-results") {
       const pending = modalWaiting.current.get(event.seq);
       if (pending === undefined) return;
+      /*
+        ONLY THE FRAME THAT WAS ASKED MAY ANSWER.
+
+        `askModalSuggestions` says it above — "whoever sent `suggest-modal` is
+        the only frame that will ever be queried or picked from" — and
+        `PluginSandboxFarm` holds up its end, addressing the query to one frame
+        by plugin id AND nonce. This is the other end of that sentence, and it
+        was missing: the answer was matched on `seq` alone, so a frame that was
+        never asked could volunteer one.
+
+        What that bought: the dialog on screen NAMES the plugin that opened it,
+        so a second plugin's rows would appear under somebody else's name, and
+        the reader's pick then travels to the named plugin as an index into a
+        list it never produced. The completion menu can match on `seq` alone
+        because every frame really is asked there; here exactly one was.
+
+        Returned WITHOUT consuming the entry, deliberately. Deleting it would
+        let an unasked frame silence the real answer as well as forge one, which
+        turns a spoof into a denial — the reader would sit in front of a dialog
+        that never fills. The impostor is ignored; the owner is still awaited,
+        and the timeout still ends it if nobody answers.
+      */
+      if (pending.pluginId !== pluginId || pending.nonce !== sandbox.nonce) return;
       modalWaiting.current.delete(event.seq);
       clearTimeout(pending.timer);
       /*
