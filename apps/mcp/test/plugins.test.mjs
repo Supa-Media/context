@@ -460,6 +460,74 @@ export async function runPluginChecks(check) {
     })()
   );
   /*
+    AND THE OTHER WAY EVERY OBSIDIAN PLUGIN IS WRITTEN.
+
+    `const { Plugin, Modal } = require("obsidian")` is the form the official
+    sample plugin uses and the one every hand-written `main.js` in the ecosystem
+    copies; `import { Modal } from "obsidian"` is its ESM twin, and
+    `import * as obsidian from "obsidian"` the namespace one. The derived check
+    read only `var x = require("obsidian")`, so a bundle written any of the
+    other three ways extended whatever it liked and scanned clean — the exact
+    verdict this check exists to stop, surviving in the import style most
+    plugins are actually written in.
+
+    Measured before it was fixed: the namespace form answered `wont-run`, the
+    destructured form answered `runs`, for the same unknown base class.
+  */
+  for (const [style, binding] of [
+    ["destructured from require", 'const { Plugin, NeverHeardOfIt } = require("obsidian");'],
+    ["destructured and renamed", 'const { NeverHeardOfIt: Base } = require("obsidian");'],
+    ["a named ESM import", 'import { NeverHeardOfIt } from "obsidian";'],
+    ["an ESM namespace import", 'import * as eo from "obsidian";'],
+  ]) {
+    const extendee = style === "destructured and renamed"
+      ? "Base"
+      : style === "an ESM namespace import"
+        ? "eo.NeverHeardOfIt"
+        : "NeverHeardOfIt";
+    check(
+      `a base class nobody listed is caught when it arrives ${style}`,
+      (() => {
+        const scanned = scanPlugin({
+          id: "unlisted-base-other-form",
+          manifestText: manifestFor("unlisted-base-other-form"),
+          source: `${binding}\nclass V extends ${extendee} {}\n`,
+        });
+        return (
+          scanned.verdict === "wont-run" &&
+          // Reported under the name the SHIM would have to provide, which for a
+          // renamed import is the export's name and not the local one.
+          scanned.evidence.some((entry) => entry.id === "NeverHeardOfIt")
+        );
+      })()
+    );
+  }
+  check(
+    "...and a class the shim does export is still fine in those forms",
+    (() => {
+      const source =
+        'const { Plugin, Modal } = require("obsidian");\n' +
+        'import { Events as Bus } from "obsidian";\n' +
+        "class A extends Modal {}\nclass B extends Bus {}\nclass C extends Plugin {}\n";
+      return (
+        scanPlugin({ id: "real-bases-destructured", manifestText: manifestFor("real-bases-destructured"), source })
+          .verdict === "runs"
+      );
+    })()
+  );
+  check(
+    "...and a destructuring of some other module is left alone",
+    (() => {
+      const source =
+        'const { Widget } = require("some-charting-library");\n' +
+        "class V extends Widget {}\nmodule.exports = V;\n";
+      return (
+        scanPlugin({ id: "other-module-destructured", manifestText: manifestFor("other-module-destructured"), source })
+          .verdict === "runs"
+      );
+    })()
+  );
+  /*
     The precision that keeps this from failing plugins that work: a bundled
     third-party library has its own namespaces and its own classes, and only a
     namespace that provably came from `require("obsidian")` is ours to judge.
