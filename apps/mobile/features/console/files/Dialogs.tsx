@@ -61,8 +61,16 @@ export function newDrawingHint(folder: string): string {
   return `It will be created in ${folder || "the root of your context"} as <name>.excalidraw.md, the format Obsidian's Excalidraw plugin reads.`;
 }
 
+/**
+ * Said out loud because the file is real and they will meet it somewhere else.
+ *
+ * The console does not list the placeholder (`isFolderPlaceholder`), so this
+ * sentence is the only place it is mentioned before Obsidian shows it — and a
+ * README appearing in their vault that the app never mentioned is worse than
+ * one line at the moment they make the folder.
+ */
 export const NEW_FOLDER_HINT =
-  "A bucket has no empty folders, so this also writes a README.md inside it — visible in Obsidian and to every other tool that reads your bucket.";
+  "A bucket has no empty folders, so this also writes a README.md placeholder inside it. Context does not list it; Obsidian and anything else that reads your bucket will.";
 
 /**
  * `+`, on a surface with room for exactly one of it.
@@ -168,7 +176,7 @@ export function CreatePrompt({
           hoverStyle={styles.listRowHover}
         >
           <Text variant="body">Folder</Text>
-          <Text variant="paneSub">A place to file notes. Starts with a README.md.</Text>
+          <Text variant="paneSub">A place to file notes. Nest them as deep as you like.</Text>
         </PressRow>
       </View>
       <View style={styles.actions}>

@@ -22,6 +22,7 @@ import {
   duplicateName,
   ensureMarkdown,
   formatBytes,
+  isFolderPlaceholder,
   joinPath,
   moveTargetFor,
   parentPath,
@@ -31,10 +32,12 @@ import {
   buildTreeRows,
   findEntry,
   foldersToRefresh,
+  listedEntries,
   markerFor,
   namesIn,
   targetFolder,
 } from "../features/console/files/tree";
+import { loadedCounts } from "../features/console/files/contextFoot";
 import {
   editorReducer,
   emptyEditor,
@@ -208,6 +211,158 @@ describe("the display name", () => {
     const dir = rows.find((row) => row.kind === "folder")!;
     expect(dir.label).toBe("1-projects");
     expect(dir.name).toBe("1-projects");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                        the folder placeholder is not a row                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A folder's `README.md` exists so its prefix does, and the console does not
+ * list it.
+ *
+ * What this pins is the pair of boundaries, because both of them are the kind
+ * of thing a later "simplification" reaches for. Widen the rule to the root and
+ * a self-hosted bucket's own readme disappears from the one screen its owner
+ * reads it on. Drop the `keep` and a placeholder opened from search or from a
+ * `[[link]]` is the note you are editing with no row anywhere saying where you
+ * are — the tree draws a selection it does not contain.
+ *
+ * SABOTAGE: making `isFolderPlaceholder` match at the root as well fails
+ * "a README at the root is somebody's file, not plumbing" here and the row test
+ * in "the display name" above. Dropping the filter from `listedEntries` fails
+ * four here and two in `folderView.test.ts`. Filtering in `buildTreeRows`
+ * *after* the length check instead of before leaves the empty-folder test
+ * drawing a file row.
+ */
+describe("the folder placeholder", () => {
+  test("is the README that makes a prefix exist, and only that", () => {
+    expect(isFolderPlaceholder("1-projects/README.md")).toBe(true);
+    // Obsidian's own casing is as likely as ours, and they are the same file to
+    // the person looking at it. Nothing here writes a key, so a loose match
+    // costs a drawn row and never a touched one.
+    expect(isFolderPlaceholder("1-projects/plans/readme.md")).toBe(true);
+    expect(isFolderPlaceholder("1-projects/ReadMe.MD")).toBe(true);
+  });
+
+  test("a README at the root is somebody's file, not plumbing", () => {
+    // The root prefix needs no key to exist, so this one was written on purpose
+    // — very probably by whoever self-hosted the bucket.
+    expect(isFolderPlaceholder("README.md")).toBe(false);
+  });
+
+  test("a name that merely starts the same way is a note", () => {
+    expect(isFolderPlaceholder("1-projects/readme-first.md")).toBe(false);
+    expect(isFolderPlaceholder("1-projects/notes/README")).toBe(false);
+    expect(isFolderPlaceholder("1-projects/plans.md")).toBe(false);
+  });
+
+  test("the tree draws every other row and not this one", () => {
+    const rows = buildTreeRows({
+      listings: {
+        "": listing("", [folder("1-projects")]),
+        "1-projects": listing("1-projects", [
+          file("1-projects/README.md"),
+          file("1-projects/q3.md"),
+        ]),
+      },
+      expanded: new Set(["1-projects"]),
+      selectedPath: null,
+    });
+
+    expect(rows.map((row) => row.path)).toEqual(["1-projects", "1-projects/q3.md"]);
+  });
+
+  test("a folder holding nothing else reads as empty rather than as a folder with a file in it", () => {
+    const rows = buildTreeRows({
+      listings: {
+        "": listing("", [folder("1-projects")]),
+        "1-projects": listing("1-projects", [file("1-projects/README.md")]),
+      },
+      expanded: new Set(["1-projects"]),
+      selectedPath: null,
+    });
+
+    // The `empty` row, not a `file` row — which is why the filter runs before
+    // the length check rather than after it.
+    expect(rows.map((row) => row.kind)).toEqual(["folder", "empty"]);
+  });
+
+  test("it is drawn while it is the note you are looking at", () => {
+    const rows = buildTreeRows({
+      listings: {
+        "": listing("", [folder("1-projects")]),
+        "1-projects": listing("1-projects", [
+          file("1-projects/README.md"),
+          file("1-projects/q3.md"),
+        ]),
+      },
+      expanded: new Set(["1-projects"]),
+      selectedPath: "1-projects/README.md",
+    });
+
+    const open = rows.find((row) => row.path === "1-projects/README.md");
+    expect(open?.selected).toBe(true);
+    // And it is the real file underneath, unchanged — the row is hidden, the
+    // key is not.
+    expect(open?.name).toBe("README.md");
+  });
+
+  test("a folder somebody called README.md is still a folder", () => {
+    const rows = buildTreeRows({
+      listings: {
+        "": listing("", [folder("1-projects")]),
+        "1-projects": listing("1-projects", [folder("1-projects/README.md")]),
+      },
+      expanded: new Set(["1-projects"]),
+      selectedPath: null,
+    });
+    // Pathological, and the rule promises to leave a thing unlisted rather than
+    // unreachable — a hidden folder is unreachable, because there is no search
+    // hit or link that opens one.
+    expect(rows.map((row) => row.path)).toContain("1-projects/README.md");
+  });
+
+  test("a collision check still sees it, because the bucket does", () => {
+    const listings = {
+      "1-projects": listing("1-projects", [file("1-projects/README.md")]),
+    };
+    // Hiding a row must never make the name available: `createNote` would write
+    // straight over the file the folder is made of.
+    expect(namesIn(listings, "1-projects").has("README.md")).toBe(true);
+  });
+
+  test("the sort is still the server's, dropped rows and all", () => {
+    const entries = [
+      folder("1-projects/plans"),
+      file("1-projects/README.md"),
+      file("1-projects/a.md"),
+      file("1-projects/b.md"),
+    ];
+    expect(listedEntries(entries).map((entry) => entry.name)).toEqual([
+      "plans",
+      "a.md",
+      "b.md",
+    ]);
+    // Folders stay ahead of files in both directions; see `orderedEntries`.
+    expect(listedEntries(entries, { descending: true }).map((entry) => entry.name)).toEqual([
+      "plans",
+      "b.md",
+      "a.md",
+    ]);
+  });
+
+  test("the counts line does not count a row nobody can find", () => {
+    const counts = loadedCounts({
+      "": listing("", [folder("1-projects")]),
+      "1-projects": listing("1-projects", [
+        file("1-projects/README.md"),
+        file("1-projects/q3.md"),
+      ]),
+    });
+    // One note, not two: the line is read against the rows on screen.
+    expect(counts).toBe("1 note, 1 folder");
   });
 });
 
