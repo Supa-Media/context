@@ -882,6 +882,15 @@ export function LiveEditor({
           if (!ok || id !== "cut") return;
           const editor = view.current;
           if (editor === null || editor.state.readOnly) return;
+          /*
+            The positions were read before an `await`, and an autosave
+            conflict or a note being opened underneath can replace the
+            document in that window. Deleting a range that no longer holds
+            what was copied would take out whatever moved into it, so the
+            range has to still say what it said — and if it does not, the
+            copy stands and nothing is removed.
+          */
+          if (editor.state.sliceDoc(from, to) !== text) return;
           editor.dispatch({ changes: { from, to, insert: "" }, userEvent: "delete.cut" });
         });
       }

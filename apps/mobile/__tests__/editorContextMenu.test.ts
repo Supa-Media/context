@@ -53,6 +53,8 @@ interface Mounted {
   rightClick: (options?: { shiftKey?: boolean; prevented?: boolean; at?: number | null }) => MouseEvent;
   press: (testID: string) => void;
   find: (testID: string) => HTMLElement | null;
+  /** Re-render with a different authoritative note, the way the parent does. */
+  update: (next: { value: string }) => void;
   labels: () => string[];
 }
 
@@ -77,11 +79,13 @@ function mount(options: { value: string; editable?: boolean }): Mounted {
   document.body.appendChild(container);
   const root: Root = createRoot(container);
   const changes: string[] = [];
+  let value = options.value;
 
-  act(() => {
+  const render = () =>
+    act(() => {
     root.render(
       createElement(LiveEditor, {
-        value: options.value,
+        value,
         editable: options.editable ?? true,
         onChange: (text: string) => changes.push(text),
         onSave: () => {},
@@ -90,6 +94,8 @@ function mount(options: { value: string; editable?: boolean }): Mounted {
       }),
     );
   });
+
+  render();
 
   teardown.push(() => {
     act(() => root.unmount());
@@ -167,6 +173,10 @@ function mount(options: { value: string; editable?: boolean }): Mounted {
       });
     },
     find,
+    update: (next) => {
+      value = next.value;
+      render();
+    },
     labels: () =>
       Array.from(document.querySelectorAll('[data-testid^="menu-item-"]')).map(
         (node) => (node as HTMLElement).getAttribute("aria-label") ?? node.textContent ?? "",
@@ -322,6 +332,117 @@ describe("pressing a row edits the note", () => {
     m.press("menu-item-bold");
 
     expect(m.find("menu-item-bold")).toBeNull();
+  });
+});
+
+/**
+ * Cut is a copy that then deletes, and the order is the whole safety of it.
+ *
+ * `writeClipboard` falls back to `execCommand` where the async API is refused
+ * and still answers `false` when neither works — an insecure origin, a
+ * permission denied, an embedded webview. A cut that deleted first, or deleted
+ * regardless, would take somebody's text out of their note and put it nowhere.
+ */
+describe("Cut waits for the copy to land", () => {
+  const clipboard = (write: (text: string) => Promise<void>) => {
+    const original = (navigator as { clipboard?: unknown }).clipboard;
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: write },
+      configurable: true,
+    });
+    teardown.push(() => {
+      Object.defineProperty(navigator, "clipboard", { value: original, configurable: true });
+    });
+  };
+
+  test("a copy that succeeded takes the text out of the note", async () => {
+    const written: string[] = [];
+    clipboard(async (text: string) => {
+      written.push(text);
+    });
+
+    const m = mount({ value: "some words here" });
+    m.select(5, 10);
+    m.rightClick({ at: 7 });
+    m.press("menu-item-cut");
+    await act(async () => {});
+
+    expect(written).toEqual(["words"]);
+    expect(m.doc()).toBe("some  here");
+  });
+
+  test("and a copy that failed leaves the note exactly as it was", async () => {
+    clipboard(async () => {
+      throw new Error("no clipboard here");
+    });
+
+    const m = mount({ value: "some words here" });
+    m.select(5, 10);
+    m.rightClick({ at: 7 });
+    m.press("menu-item-cut");
+    await act(async () => {});
+
+    expect(m.doc()).toBe("some words here");
+  });
+
+  test("Copy never deletes, however well it went", async () => {
+    clipboard(async () => {});
+
+    const m = mount({ value: "some words here" });
+    m.select(5, 10);
+    m.rightClick({ at: 7 });
+    m.press("menu-item-copy");
+    await act(async () => {});
+
+    expect(m.doc()).toBe("some words here");
+  });
+
+  /**
+   * The positions are read before an `await`, and the document can be replaced
+   * in that window — an autosave conflict resolving, another note opening. The
+   * range has to still hold what was copied, or the delete takes out whatever
+   * moved into it.
+   */
+  test("and a document that moved under the copy is not cut", async () => {
+    let release: (() => void) | null = null;
+    clipboard(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    const m = mount({ value: "some words here" });
+    m.select(5, 10);
+    m.rightClick({ at: 7 });
+    m.press("menu-item-cut");
+
+    m.update({ value: "a completely different note" });
+    await act(async () => {
+      release?.();
+    });
+
+    expect(m.doc()).toBe("a completely different note");
+  });
+});
+
+/**
+ * A submenu parent is never dispatched — `Menu` opens its `items` instead — so
+ * the level that actually writes anything is the child. `menu.ts` records why
+ * that matters: an id with no handler is a no-op, an id with the wrong handler
+ * silently rewrites the line somebody right-clicked.
+ */
+describe("the heading submenu", () => {
+  test("opening Heading writes nothing, and a level writes its own prefix", () => {
+    const m = mount({ value: "some words here" });
+    m.select(2);
+    m.rightClick();
+
+    m.press("menu-item-heading");
+    expect(m.doc()).toBe("some words here");
+
+    m.press("menu-item-heading2");
+    expect(m.doc()).toBe("## some words here");
   });
 });
 
