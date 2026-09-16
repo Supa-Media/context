@@ -2002,6 +2002,21 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       // the message's shape, and a consumer should not have to ask which branch
       // it came from before reading it.
       if (!row.open) return { type: "settings-pane", open: false, rows: [], error: null };
+      /*
+        What `display()` threw, carried rather than dropped.
+
+        The comment on the closed branch above says this field is on both, and
+        for a while only that branch had it — which cost twice. A pane that
+        stopped part-way said nothing, so the rows it managed to draw looked
+        like the whole pane: exactly the failure the banner exists to prevent,
+        and the one a missing `hide()` really produced. And a pane that ran to
+        the end arrived with `error` absent rather than null, so the console's
+        `=== null` test was false and every healthy pane drew the banner with
+        the word "undefined" in it.
+      */
+      const error = typeof row.error === "string" && row.error
+        ? row.error.slice(0, SETTING_DESC_CAP)
+        : null;
       const rows = [];
       let controls = 0;
       for (const entry of Array.isArray(row.rows) ? row.rows : []) {
@@ -2065,7 +2080,7 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
         });
         controls += 1;
       }
-      return { type: "settings-pane", open: true, rows };
+      return { type: "settings-pane", open: true, rows, error };
     }
     case "text-modal": {
       if (typeof row.open !== "boolean") return null;

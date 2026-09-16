@@ -123,7 +123,13 @@ test("a real plugin's settings pane describes its controls, and nothing else", a
     here, and `error` is null.
   */
   expect(named.join(" | ")).toContain("Others");
-  expect(last!.error ?? null, "display() ran to the end").toBeNull();
+  /*
+    `toBeNull` on the value itself, not on `error ?? null`. The coalesce was
+    what let a dropped `error` through: it read the same whether the field
+    survived or was missing, which is the one thing this line is here to tell
+    apart. The guest sends the field on every describe, so absent is a failure.
+  */
+  expect(last!.error, "display() ran to the end").toBeNull();
   /*
     And the one setting the plugin HIDES is not offered. Bible Reference builds
     `Book Name Language` and hides it unless the version needs it; drawing it
