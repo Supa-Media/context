@@ -43,7 +43,7 @@ import { pluginSuggestSource, type PluginSuggestRef } from "./pluginSuggest";
 import { pluginLinkPreview, pluginPreviewTheme, type PluginPreviewRef } from "./pluginPreview";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
-import { findInNote } from "./findInNote";
+import { closeFindPanel, findInNote } from "./findInNote";
 import {
   editability,
   editorExtensions,
@@ -95,6 +95,21 @@ export interface EditorControls {
   undo(): void;
   redo(): void;
   blur(): void;
+  /**
+   * Put the find bar away, and say whether there was one.
+   *
+   * **Web only, and optional for that reason** — ⌘F and its bar ship to the
+   * browser alone (`findInNote.ts` says why), so the native half simply does
+   * not answer this and a caller reads `closeFind?.() ?? false`.
+   *
+   * It exists because the press it answers never reached this editor:
+   * `searchKeymap`'s Escape is scoped to the editor and the panel, so a person
+   * whose focus had moved to a tree row or a tab had no key that closed the
+   * bar. `NoteEditor` registers this with the frame's overlay stack, which is
+   * what `keymap.ts`'s "Escape closes whatever is open, wherever you are" means
+   * for a panel the frame does not render.
+   */
+  closeFind?(): boolean;
 }
 
 export interface LiveEditorProps {
@@ -666,6 +681,10 @@ export function LiveEditor({
       undo: () => runCommand(created, { name: "undo" }),
       redo: () => runCommand(created, { name: "redo" }),
       blur: () => runCommand(created, { name: "blur" }),
+      // Not a `runCommand`: the find bar is this surface's alone, so there is
+      // no verb for it in the bridge's protocol and nothing on the other side
+      // to run one.
+      closeFind: () => closeFindPanel(created),
     };
     handlers.current.controls?.(api);
 
@@ -705,6 +724,23 @@ export function LiveEditor({
       effects: editableCompartment.current.reconfigure(editability(editable)),
     });
   }, [editable]);
+
+  /*
+    The find bar belongs to the document it was searching.
+
+    This editor is built once and has notes swapped through it — that is what
+    the effect above this one is for — so nothing takes a bar opened on one
+    note down when another arrives, and what stays on screen is a query, a
+    match count and highlights computed for a document that is no longer here.
+    Keyed on the note rather than on `value`, because `value` changes on every
+    keystroke and closing the bar while somebody types in it is worse than the
+    bug.
+  */
+  useEffect(() => {
+    const current = view.current;
+    if (current === null) return;
+    closeFindPanel(current);
+  }, [notePath]);
 
   return (
     <div
