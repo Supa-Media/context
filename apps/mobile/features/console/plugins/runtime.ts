@@ -106,8 +106,32 @@ export interface RuntimeView {
    * their own open note, not something crossing to a plugin.
    */
   openNote?: string | null;
+  /**
+   * The suggestion dialog a plugin currently has open, or `null`.
+   *
+   * One at a time, and held here rather than keyed by plugin: it is a single
+   * surface in front of the reader, so a second plugin opening one replaces the
+   * first exactly as it does in the guest.
+   */
+  modal?: OpenModal | null;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
+}
+
+/**
+ * The suggestion dialog a running plugin has open, and who opened it.
+ *
+ * The plugin is named on the dialog because a reader is being asked to choose
+ * something by somebody else's code, and "which plugin is this" is the first
+ * question that deserves an answer — the same reason a status bar item carries
+ * its plugin.
+ */
+export interface OpenModal {
+  pluginId: string;
+  /** The exact frame. A restarted plugin is a different one and owns nothing here. */
+  nonce: string;
+  placeholder: string;
+  instructions: { command: string; purpose: string }[];
 }
 
 export interface ActiveSandbox {
@@ -144,6 +168,22 @@ export interface RuntimeActions {
   askSuggestions?: (line: string, ch: number) => Promise<{ text: string }[]>;
   /** Take the pick; resolves to the rewritten line, or null if nothing answers. */
   applySuggestion?: (index: number) => Promise<string | null>;
+  /**
+   * Ask the open dialog what to show for what the reader has typed.
+   *
+   * Resolves empty when nothing is open, when the answer is stale, or when the
+   * plugin does not answer in time — the dialog treats all three as "no rows",
+   * which is what it can honestly draw.
+   */
+  askModalSuggestions?: (query: string) => Promise<{ text: string }[]>;
+  /**
+   * Take the reader's pick. Returns nothing, for `run`'s reason: what the
+   * plugin does with it happens in the sandbox, and the dialog closing is
+   * reported back through `modal` rather than guessed at here.
+   */
+  pickModalSuggestion?: (index: number) => void;
+  /** Close it without choosing, so the plugin's own onClose still runs. */
+  dismissModal?: () => void;
   /**
    * Ask the running plugins to preview these links; resolves to what they gave.
    *

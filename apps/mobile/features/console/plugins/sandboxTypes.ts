@@ -55,6 +55,26 @@ export type SandboxEvent =
    * unchanged so an answer for a line the cursor has left can be dropped.
    */
   | { type: "suggest-results"; seq: number; items: { text: string }[] }
+  /*
+    A plugin asked for its suggestion dialog to be opened, or closed.
+
+    The console draws the dialog; the guest never has one. See the classes in
+    `sandbox.js` for why that inversion exists and why they are exported at all
+    rather than left absent.
+  */
+  | {
+      type: "suggest-modal";
+      open: boolean;
+      placeholder: string;
+      instructions: { command: string; purpose: string }[];
+    }
+  | { type: "suggest-modal-results"; seq: number; items: { text: string }[] }
+  /*
+    `reopened` says whether the plugin opened another dialog while handling the
+    pick — a two-step flow picks a translation and then a verse, and a console
+    that closed unconditionally would shut the one it just asked for.
+  */
+  | { type: "suggest-modal-picked"; seq: number; reopened: boolean }
   /**
    * The line the plugin's own `selectSuggestion` produced.
    *
@@ -206,6 +226,18 @@ export interface PluginSandboxProps {
   suggest?: SuggestMessage;
   /** The suggestion the person picked, routed back to the frame that offered it. */
   suggestApply?: SuggestApplyMessage;
+  /**
+   * What the reader typed into the dialog this plugin opened.
+   *
+   * Routed to that one frame rather than broadcast: a dialog belongs to whoever
+   * asked for it, and a query is what the reader typed into *their* dialog.
+   * `undefined` for every other frame.
+   */
+  modalQuery?: { seq: number; query: string };
+  /** The row they chose, routed back to the frame that offered it. */
+  modalPick?: { seq: number; index: number };
+  /** They closed it without choosing, so the plugin's own onClose still runs. */
+  modalDismiss?: { seq: number };
   /**
    * The links to preview.
    *

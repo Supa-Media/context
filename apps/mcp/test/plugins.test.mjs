@@ -366,7 +366,7 @@ export async function runPluginChecks(check) {
     const base = scanPlugin({
       id: "suggest",
       manifestText: manifestFor("suggest"),
-      source: 'const o = require("obsidian");\nvar M = class extends o.SuggestModal { };\n',
+      source: 'const o = require("obsidian");\nvar M = class extends o.MarkdownRenderer { };\n',
     });
     check(
       "a bundle extending a class the shim does not provide will not run here",
@@ -374,20 +374,20 @@ export async function runPluginChecks(check) {
     );
     check(
       "and the evidence names the class, not the category",
-      base.evidence.some((entry) => entry.id === "SuggestModal")
+      base.evidence.some((entry) => entry.id === "MarkdownRenderer")
     );
     // `report.js` draws the route out for `wont-run`, which is the correct
     // advice here and the reason the verdict is this one rather than `unknown`.
     check(
       "it is not reported as a limitation on a row that says it runs",
-      !base.limitations.some((line) => line.includes("suggestion dialog"))
+      !base.limitations.some((line) => line.includes("rendering markdown"))
     );
     check(
       "a bare identifier works too — a bundler may not namespace the import",
       scanPlugin({
         id: "bare",
         manifestText: manifestFor("bare"),
-        source: 'import { SuggestModal } from "obsidian";\nclass M extends SuggestModal {}\n',
+        source: 'import { MarkdownRenderer } from "obsidian";\nclass M extends MarkdownRenderer {}\n',
       }).verdict === "wont-run"
     );
   }
@@ -404,11 +404,11 @@ export async function runPluginChecks(check) {
       const called = scanPlugin({
         id: "called",
         manifestText: manifestFor("called"),
-        source: "const m = new obsidian.SuggestModal(this.app);\n",
+        source: "const m = new obsidian.MarkdownRenderer(this.app);\n",
       });
       return (
         called.verdict === "runs" &&
-        called.limitations.some((line) => line.includes("suggestion dialog"))
+        called.limitations.some((line) => line.includes("rendering markdown"))
       );
     })()
   );
@@ -440,7 +440,7 @@ export async function runPluginChecks(check) {
       const held = scanPlugin({
         id: "held",
         manifestText: manifestFor("held"),
-        source: 'const o = require("obsidian");\nclass M extends o.SuggestModal {}\n',
+        source: 'const o = require("obsidian");\nclass M extends o.MarkdownRenderer {}\n',
       });
       const rendered = renderPluginReport({
         available: true,
@@ -460,7 +460,7 @@ export async function runPluginChecks(check) {
     scanPlugin({
       id: "remotely-save",
       manifestText: manifestFor("remotely-save"),
-      source: 'const o = require("obsidian");\nclass M extends o.FuzzySuggestModal {}\n',
+      source: 'const o = require("obsidian");\nclass M extends o.MarkdownRenderer {}\n',
     }).verdict === "files-only"
   );
 

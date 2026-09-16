@@ -897,3 +897,167 @@ describe("a plugin can suggest into the editor", () => {
     expect(applied.line).toBe("untouched");
   });
 });
+
+/*
+  THE SUGGESTION DIALOG, END TO END IN THE REAL SANDBOX.
+
+  Bible Reference is the plugin that forced this. It is a `SuggestModal`
+  subclass at module scope, so before the class existed the bundle threw
+  `extends undefined` before `onload` and nothing of it arrived — not the
+  dialog, not the commands, and not the inline verse suggester that needed
+  nothing new at all.
+
+  What is proved here is the inversion rather than the widget: the plugin's own
+  `getSuggestions`, `renderSuggestion` and `onChooseSuggestion` run **in the
+  sandbox**, and what crosses to the console is text and an index. A test that
+  asserted the console drew a list would not catch a shim that handed a plugin's
+  element to the trusted realm, which is the thing that must not happen.
+*/
+describe("a plugin's suggestion dialog", () => {
+  const MODAL_BUNDLE = `
+    const { Plugin, SuggestModal } = require('obsidian');
+    class Verses extends SuggestModal {
+      constructor(app) {
+        super(app);
+        this.setPlaceholder('Find a verse');
+        this.setInstructions([{ command: '↵', purpose: 'insert' }]);
+      }
+      getSuggestions(query) {
+        globalThis.__modal.queries.push(query);
+        return [{ ref: query + ' a' }, { ref: query + ' b' }];
+      }
+      renderSuggestion(value, el) {
+        /*
+          Unconditionally builds a child element, which is the point: a real
+          renderSuggestion writes DOM, and the assertion below is that the DOM
+          stays in here and only its text crosses. Written with a branch first
+          — element or plain text depending on the shim — and that made the
+          test blind: both arms produced the same textContent, so a shim
+          sending innerHTML instead passed it.
+        */
+        const strong = document.createElement('strong');
+        strong.textContent = value.ref;
+        el.appendChild(strong);
+      }
+      onChooseSuggestion(value) { globalThis.__modal.chose.push(value.ref); }
+      onClose() { globalThis.__modal.closed += 1; }
+    }
+    module.exports = class extends Plugin {
+      async onload() {
+        globalThis.__modal = { queries: [], chose: [], closed: 0 };
+        globalThis.__modal.open = () => new Verses(this.app).open();
+      }
+    };
+  `;
+
+  function modalState() {
+    return (globalThis as unknown as {
+      __modal?: { queries: string[]; chose: string[]; closed: number; open: () => void };
+    }).__modal;
+  }
+
+  async function loadModalBundle() {
+    posted = [];
+    nonces += 1;
+    nonce = `nonce-for-modal-${nonces}`;
+    // eslint-disable-next-line no-eval
+    (0, eval)(scriptOf(pluginSandboxDocument()));
+    toHost({ nonce, type: "load", mainJs: MODAL_BUNDLE, manifestJson: '{"id":"verses"}' });
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  test("the bundle loads at all, which is the whole reason the class exists", async () => {
+    await loadModalBundle();
+    expect(posted.some((message) => message.type === "loaded")).toBe(true);
+    expect(posted.some((message) => message.type === "crashed")).toBe(false);
+  });
+
+  test("opening one asks the console for a dialog, with the plugin's own words", async () => {
+    await loadModalBundle();
+    modalState()?.open();
+    const opened = posted.find((message) => message.type === "suggest-modal") as
+      | { open: boolean; placeholder: string; instructions: { command: string }[] }
+      | undefined;
+    expect(opened?.open).toBe(true);
+    expect(opened?.placeholder).toBe("Find a verse");
+    expect(opened?.instructions).toEqual([{ command: "↵", purpose: "insert" }]);
+  });
+
+  test("a query runs the plugin's getSuggestions and only text comes back", async () => {
+    await loadModalBundle();
+    modalState()?.open();
+    posted = [];
+    toHost({ nonce, type: "suggest-modal-query", seq: 7, query: "Gen 1:1" });
+    await Promise.resolve();
+    await Promise.resolve();
+    const results = posted.find((message) => message.type === "suggest-modal-results") as
+      | { seq: number; items: { text: string }[] }
+      | undefined;
+    expect(modalState()?.queries).toEqual(["Gen 1:1"]);
+    expect(results?.seq).toBe(7);
+    // `renderSuggestion` built a <strong> in the sandbox; its text is what left.
+    expect(results?.items).toEqual([{ text: "Gen 1:1 a" }, { text: "Gen 1:1 b" }]);
+    expect(JSON.stringify(results)).not.toContain("strong");
+  });
+
+  test("a pick runs the plugin's own handler, and the dialog closes", async () => {
+    await loadModalBundle();
+    modalState()?.open();
+    toHost({ nonce, type: "suggest-modal-query", seq: 1, query: "Ps 23" });
+    await Promise.resolve();
+    await Promise.resolve();
+    posted = [];
+    toHost({ nonce, type: "suggest-modal-pick", seq: 2, index: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(modalState()?.chose).toEqual(["Ps 23 b"]);
+    expect(modalState()?.closed).toBe(1);
+    const picked = posted.find((message) => message.type === "suggest-modal-picked") as
+      | { seq: number; reopened: boolean }
+      | undefined;
+    expect(picked).toMatchObject({ seq: 2, reopened: false });
+  });
+
+  /*
+    The guard against the shape that looks like a bug and is not: a pick can
+    only land on the list currently on screen. Without it, a plugin whose
+    second query returned fewer rows would have an old value chosen by an index
+    the reader never saw.
+  */
+  test("a pick past the end of the current list chooses nothing", async () => {
+    await loadModalBundle();
+    modalState()?.open();
+    toHost({ nonce, type: "suggest-modal-query", seq: 1, query: "x" });
+    await Promise.resolve();
+    await Promise.resolve();
+    toHost({ nonce, type: "suggest-modal-pick", seq: 2, index: 9 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(modalState()?.chose).toEqual([]);
+  });
+
+  test("a query with no dialog open is answered with silence, not an empty list", async () => {
+    // "closed" and "no matches" are different facts, and the console draws them
+    // differently — the same distinction the editor's own suggester keeps.
+    await loadModalBundle();
+    posted = [];
+    toHost({ nonce, type: "suggest-modal-query", seq: 3, query: "anything" });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(posted.some((message) => message.type === "suggest-modal-results")).toBe(false);
+  });
+
+  test("a dismiss runs the plugin's onClose without telling it to close again", async () => {
+    await loadModalBundle();
+    modalState()?.open();
+    posted = [];
+    toHost({ nonce, type: "suggest-modal-dismiss", seq: 4 });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(modalState()?.closed).toBe(1);
+    // No `suggest-modal` back: the console shut it, and telling it to shut the
+    // dialog it just shut is how a reopen from onClose would be lost.
+    expect(posted.some((message) => message.type === "suggest-modal")).toBe(false);
+  });
+});

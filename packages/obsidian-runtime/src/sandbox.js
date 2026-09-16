@@ -348,6 +348,13 @@ export function pluginSandboxDocument() {
   // returned, and the editor it was computed against. Replaced by the next
   // query, so an apply can only ever land on what is currently on screen.
   let offered = null;
+  /*
+    The dialog a plugin has open, if any: the modal itself and the values its
+    last query produced. One at a time, replaced by the next open(), so a pick
+    can only ever land on what is currently on screen — the rule offered keeps
+    for the editor's own suggestions, applied to this.
+  */
+  let openModal = null;
 
   async function answerSuggest(message) {
     const line = typeof message.line === 'string' ? message.line : '';
@@ -390,6 +397,59 @@ export function pluginSandboxDocument() {
       try { await offered.suggester.selectSuggestion(value, {}); } catch (_) {}
     }
     send('suggest-applied', { seq: message.seq, line: offered.editor.getValue().slice(0, 4000) });
+  }
+
+  /*
+    What the open dialog would show for this query.
+
+    The same shape as answerSuggest: the plugin's own getSuggestions runs in
+    here, each value is rendered into an element in here, and only the text
+    those elements carry is sent. limit is the plugin's own if it set one,
+    clamped, because a plugin asking for three hundred rows is still a list the
+    console has to draw.
+  */
+  async function answerModal(message) {
+    const query = typeof message.query === 'string' ? message.query.slice(0, 200) : '';
+    const modal = openModal.modal;
+    let values = [];
+    try { values = await modal.getSuggestions(query); } catch (_) { values = []; }
+    if (!Array.isArray(values)) values = [];
+    const limit = Math.max(1, Math.min(SUGGEST_MAX, Number(modal.limit) || SUGGEST_MAX));
+    values = values.slice(0, limit);
+    const items = [];
+    for (const value of values) {
+      const el = document.createElement('div');
+      try { modal.renderSuggestion(value, el); } catch (_) {}
+      items.push({ text: String(el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200) });
+    }
+    // Replaced wholesale, so a pick can only land on the list now on screen.
+    openModal.values = values;
+    send('suggest-modal-results', { seq: message.seq, items });
+  }
+
+  /*
+    The reader chose one. onChooseSuggestion is the plugin's own, and it runs in
+    here — that is where the plugin does its work, and it reaches the vault
+    through the same grants as everything else.
+
+    The dialog closes on a pick because Obsidian's does, and the guest reports
+    that rather than leaving the console to assume it: a plugin that reopened
+    from inside onChooseSuggestion would otherwise have its new dialog shut by
+    the console's own tidy-up.
+  */
+  async function pickModal(message) {
+    const index = Number(message.index);
+    const value = openModal.values[index];
+    const modal = openModal.modal;
+    openModal = null;
+    // Closed before chosen, which is Obsidian's order and matters here: a
+    // plugin that reopens from inside onChooseSuggestion must not then have its
+    // new dialog's onClose fired by this one's tidy-up.
+    try { modal.onClose(); } catch (_) {}
+    if (value !== undefined) {
+      try { await modal.onChooseSuggestion(value, {}); } catch (_) {}
+    }
+    send('suggest-modal-picked', { seq: message.seq, reopened: openModal !== null });
   }
 
   /*
@@ -656,6 +716,89 @@ export function pluginSandboxDocument() {
   class MarkdownView {}
   class ItemView {}
   class EditorSuggest { constructor(appValue) { this.app = appValue; } }
+
+  /*
+    A SUGGESTION DIALOG, BY THE SAME INVERSION AS registerEditorSuggest.
+
+    Obsidian's SuggestModal builds and mounts its own dialog. Context cannot let
+    it — that is third-party DOM in the trusted realm, which plugins.md rules
+    out — so the halves are split exactly as they are for an editor suggestion,
+    and for the same reasons: the plugin's getSuggestions and renderSuggestion
+    run *in here*, against elements created in here, and only the resulting text
+    crosses. The console draws its own dialog and sends back an index.
+
+    **It exists at all because absent was worse than inverted.** class X extends
+    api.SuggestModal {} is evaluated when a bundle loads, so a missing class was
+    not a missing feature — it was extends undefined, thrown before onload, and
+    the whole plugin gone. Bible Reference is the one that showed it: its inline
+    verse suggester needs nothing that was not already built, and it never got to
+    register it.
+
+    onChooseSuggestion runs in here too, which is the point — that is where a
+    plugin does its work, and it reaches the vault through the same grants
+    everything else does.
+  */
+  class SuggestModal {
+    constructor(appValue) {
+      this.app = appValue;
+      this.limit = SUGGEST_MAX;
+      this.placeholder = '';
+      this.instructions = [];
+    }
+    setPlaceholder(text) { this.placeholder = String(text == null ? '' : text).slice(0, 120); }
+    setInstructions(list) {
+      this.instructions = (Array.isArray(list) ? list : []).slice(0, 6).map((row) => ({
+        command: String((row && row.command) || '').slice(0, 40),
+        purpose: String((row && row.purpose) || '').slice(0, 120),
+      }));
+    }
+    // Obsidian calls these on the plugin's behalf; a subclass may override
+    // either. Empty here rather than absent so super.onOpen() works.
+    onOpen() {}
+    onClose() {}
+    getSuggestions() { return []; }
+    renderSuggestion() {}
+    onChooseSuggestion() {}
+    open() {
+      openModal = { modal: this, values: [] };
+      try { this.onOpen(); } catch (_) {}
+      send('suggest-modal', {
+        open: true,
+        placeholder: this.placeholder,
+        instructions: this.instructions,
+      });
+    }
+    close() {
+      if (openModal === null || openModal.modal !== this) return;
+      openModal = null;
+      try { this.onClose(); } catch (_) {}
+      send('suggest-modal', { open: false, placeholder: '', instructions: [] });
+    }
+  }
+
+  /*
+    The fuzzy variant, which most plugins actually reach for. Obsidian wraps each
+    item as { item, match } and calls getItemText / onChooseItem; the
+    default filter here is a plain case-insensitive substring rather than a
+    scoring one, because a wrong *order* is a worse answer that still looks
+    right, and nothing here promises Obsidian's ranking.
+  */
+  class FuzzySuggestModal extends SuggestModal {
+    getItems() { return []; }
+    getItemText() { return ''; }
+    onChooseItem() {}
+    getSuggestions(query) {
+      const needle = String(query || '').toLowerCase();
+      const matches = [];
+      for (const item of this.getItems()) {
+        const text = String(this.getItemText(item) || '');
+        if (needle === '' || text.toLowerCase().includes(needle)) matches.push({ item, match: { score: 0, matches: [] } });
+      }
+      return matches;
+    }
+    renderSuggestion(value, el) { el.textContent = String(this.getItemText(value && value.item)); }
+    onChooseSuggestion(value, evt) { this.onChooseItem(value && value.item, evt); }
+  }
   class PluginSettingTab { constructor(appValue, plugin) { this.app = appValue; this.plugin = plugin; } }
   class Setting { constructor() {} setName() { return this; } setDesc() { return this; } addText() { return this; } addToggle() { return this; } addDropdown() { return this; } addButton() { return this; } }
   function decodeBase64(value) {
@@ -711,7 +854,8 @@ export function pluginSandboxDocument() {
   };
 
   const api = {
-    Plugin, Notice, Component, MarkdownView, ItemView, EditorSuggest, PluginSettingTab, Setting,
+    Plugin, Notice, Component, MarkdownView, ItemView, EditorSuggest, SuggestModal, FuzzySuggestModal,
+    PluginSettingTab, Setting,
     TFile, TFolder, Vault: function Vault() {}, Workspace: function Workspace() {},
     MetadataCache: function MetadataCache() {},
     normalizePath: value => String(value).replace(/\\\\/g, '/').replace(/^\\/+|\\/+$/g, ''),
@@ -873,6 +1017,29 @@ export function pluginSandboxDocument() {
       await applySuggest(message);
       return;
     }
+    // The dialog's two halves. Answered only while a plugin has one open: a
+    // guest with no open modal says nothing, so the console can tell "closed"
+    // from "no matches" — the same distinction the editor's suggester keeps.
+    if (message.type === 'suggest-modal-query') {
+      if (instance === null || openModal === null) return;
+      await answerModal(message);
+      return;
+    }
+    if (message.type === 'suggest-modal-pick') {
+      if (instance === null || openModal === null) return;
+      await pickModal(message);
+      return;
+    }
+    if (message.type === 'suggest-modal-dismiss') {
+      if (instance === null || openModal === null) return;
+      // The reader closed it, so the plugin's own onClose runs and the guest
+      // forgets the values. Not routed through close(), which would send the
+      // console a message about a dialog the console just shut.
+      const modal = openModal.modal;
+      openModal = null;
+      try { modal.onClose(); } catch (_) {}
+      return;
+    }
     // A preview carries the note's own links into the sandbox, so like a
     // suggestion it is the host that decides whether this plugin may be asked,
     // and an unloaded guest answers nothing at all rather than an empty list.
@@ -1008,6 +1175,9 @@ export const SUGGEST_MAX = 8;
  */
 export const STATUS_BAR_MAX = 8;
 
+/** How many instruction rows a dialog may put under its list. */
+export const SUGGEST_MODAL_INSTRUCTIONS_MAX = 6;
+
 /**
  * How many links one preview query covers, and how long one preview may be.
  *
@@ -1126,6 +1296,72 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
       }
       return { type: "suggest-results", seq: row.seq, items };
     }
+    /*
+      A plugin opened or closed its suggestion dialog.
+
+      The console draws the dialog, so this is the plugin asking for one rather
+      than announcing one it made. Nonce-authenticated like every observable
+      event: a forged open would put a dialog carrying somebody else's
+      placeholder in front of a reader, over a plugin's name.
+
+      `placeholder` and the instruction rows are the plugin's own text, bounded
+      here as well as in the guest — a cap the untrusted half applies to itself
+      is not a cap, which is the rule `STATUS_BAR_MAX` already states.
+    */
+    case "suggest-modal": {
+      if (typeof row.open !== "boolean") return null;
+      const instructions = [];
+      for (const entry of Array.isArray(row.instructions) ? row.instructions : []) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+        const one = /** @type {Record<string, unknown>} */ (entry);
+        if (typeof one.command !== "string" || typeof one.purpose !== "string") return null;
+        if (instructions.length >= SUGGEST_MODAL_INSTRUCTIONS_MAX) continue;
+        instructions.push({
+          command: one.command.slice(0, 40),
+          purpose: one.purpose.slice(0, 120),
+        });
+      }
+      return {
+        type: "suggest-modal",
+        open: row.open,
+        placeholder: typeof row.placeholder === "string" ? row.placeholder.slice(0, 120) : "",
+        instructions,
+      };
+    }
+    /*
+      What the open dialog would show for the query the reader typed.
+
+      The same shape and the same bounds as `suggest-results`, and `seq` carries
+      the same weight: typing outruns the round trip, so a list computed for a
+      query nobody is on any more must be droppable rather than drawn.
+    */
+    case "suggest-modal-results": {
+      if (typeof row.seq !== "number" || !Array.isArray(row.items)) return null;
+      const items = [];
+      for (const entry of row.items) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+        const one = /** @type {Record<string, unknown>} */ (entry);
+        if (typeof one.text !== "string") return null;
+        if (items.length >= SUGGEST_MAX) continue;
+        items.push({ text: one.text.slice(0, 200) });
+      }
+      return { type: "suggest-modal-results", seq: row.seq, items };
+    }
+    /*
+      The pick landed, and whether the plugin opened another dialog while
+      handling it.
+
+      `reopened` is not a convenience: `onChooseSuggestion` runs in the guest and
+      may call `open()` again — a two-step flow picks a translation and then a
+      verse — so a console that closed unconditionally on a pick would shut the
+      dialog the plugin had just asked for. Required as a boolean rather than
+      coerced, for `command-result`'s reason: a missing field would invent an
+      answer the guest never gave.
+    */
+    case "suggest-modal-picked":
+      return typeof row.seq === "number" && typeof row.reopened === "boolean"
+        ? { type: "suggest-modal-picked", seq: row.seq, reopened: row.reopened }
+        : null;
     /*
       The line the plugin's own selectSuggestion produced.
 

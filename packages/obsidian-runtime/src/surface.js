@@ -75,6 +75,15 @@ export const SUPPORTED_MEMBERS = Object.freeze([
   // Workspace: which note the console has open, and events when it changes.
   "getActiveFile",
 
+  // The suggestion dialog, by the same inversion as `registerEditorSuggest`:
+  // the plugin's `getSuggestions` and `renderSuggestion` run in the sandbox and
+  // the console draws the list. They are here rather than in `ABSENT_MEMBERS`
+  // because a plugin *extends* them — a missing base class is not a missing
+  // feature, it is `extends undefined` thrown before `onload` and the whole
+  // plugin gone.
+  "SuggestModal",
+  "FuzzySuggestModal",
+
   // Helpers the shim exports from the `obsidian` module.
   "normalizePath",
 
@@ -168,8 +177,6 @@ export const ABSENT_MEMBERS = Object.freeze({
   getRightLeaf: "the console has no side panels yet",
   getLeftLeaf: "the console has no side panels yet",
   MarkdownRenderer: "rendering markdown on a plugin's behalf is not available yet",
-  SuggestModal: "the suggestion dialog is not available yet",
-  FuzzySuggestModal: "the suggestion dialog is not available yet",
   setIcon: "the icon set is not exposed to plugins yet",
 });
 
