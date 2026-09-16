@@ -194,8 +194,10 @@ the check that matches what actually gets stored and addressed.
 `RESERVED_LABEL_FORM` catches a homograph smuggled in from outside the charset.
 It cannot see one built inside it: in the system UI face digit `1` and letter
 `l` are one glyph, so `@context-1c` beside `@context-lc` is indistinguishable —
-and `@context-lc` is the shared context every user is a member of, which is what
-makes it worth wearing.
+and `@context-lc` is the shared context every account reaches — pinned for
+everybody rather than joined one at a time
+([identity-and-access](./identity-and-access.md)) — which is what makes it worth
+wearing.
 
 The named lookalikes are reserved. The general fix is **skeleton matching** —
 fold `1`→`l`, `0`→`o`, drop hyphens, and check uniqueness on the folded form, so

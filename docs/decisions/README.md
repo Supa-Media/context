@@ -56,6 +56,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A third-party OAuth callback carries a secret the browser kept, not just `state`
 - The same derived-subjects shape closes a teardown gap, not just a binding gap
 - One connection reaches every context its person belongs to
+- One context is pinned for everybody, and the pin is reach rather than membership
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
 - An invitation is delivered, and the delivery is scheduled rather than sent
