@@ -198,8 +198,47 @@ describe("a binding fires only where it is declared", () => {
     for (const scope of ["global", "tree", "editor"] satisfies Scope[]) {
       expect(resolve(press({ key: "k", mod: true }, true), scope, true)).toBe("palette");
       expect(resolve(press({ key: "o", mod: true }, true), scope, true)).toBe("quickSwitcher");
-      expect(resolve(press({ key: "b", mod: true }, true), scope, true)).toBe("toggleRail");
     }
+  });
+
+  /**
+   * ⌘B was `toggleRail` everywhere, including inside a note, where every editor
+   * anybody has ever used means bold by it. The rule that resolved it is not a
+   * special case for this chord: a binding that names a scope beats one that
+   * only reaches that scope as `global`.
+   */
+  describe("a binding that names a scope beats a global one on the same chord", () => {
+    test("⌘B is bold in the note and the rail everywhere else", () => {
+      expect(resolve(press({ key: "b", mod: true }, true), "editor", true)).toBe("bold");
+      expect(resolve(press({ key: "b", mod: true }, true), "tree", true)).toBe("toggleRail");
+      expect(resolve(press({ key: "b", mod: true }, true), "global", true)).toBe("toggleRail");
+    });
+
+    /**
+     * And the precedence is doing the work, rather than the order of the rows.
+     * `bold` is declared **after** `toggleRail` for exactly this reason, so a
+     * resolver that simply took the first match would answer `toggleRail` here
+     * and this file would go green against a rule it had never learned.
+     */
+    test("the table is ordered so a first-match resolver would get it wrong", () => {
+      const rail = BINDINGS.findIndex((binding) => binding.command === "toggleRail");
+      const bold = BINDINGS.findIndex((binding) => binding.command === "bold");
+      expect(rail).toBeLessThan(bold);
+    });
+
+    test("and the escalation still stops at an overlay", () => {
+      expect(resolve(press({ key: "b", mod: true }, true), "overlay", true)).toBeNull();
+    });
+
+    /** ⌘I and ⌘⇧X are new and collide with nothing; the marker chords are complete. */
+    test("the other two marker chords resolve in the note", () => {
+      expect(resolve(press({ key: "i", mod: true }, true), "editor", true)).toBe("italic");
+      expect(resolve(press({ key: "x", mod: true, shift: true }, true), "editor", true)).toBe(
+        "strikethrough",
+      );
+      expect(resolve(press({ key: "i", mod: true }, true), "tree", true)).toBeNull();
+      expect(resolve(press({ key: "x", mod: true, shift: true }, true), "tree", true)).toBeNull();
+    });
   });
 
   test("dismiss is global and overlay both", () => {
@@ -364,14 +403,48 @@ describe("what the menu prints comes from the table", () => {
  * whatever comes back must be either nothing or that binding's own command. If
  * somebody adds a second binding on a chord that is already live in a scope,
  * one of the two resolves to the other's command and this fails.
+ *
+ * **There is exactly one way a chord may answer with somebody else's command,
+ * and it is a rule rather than a tolerance**: a binding that *names* the scope
+ * beats one that only reaches it as `global`, which is how ⌘B is bold in a note
+ * and the rail everywhere else. So the shadowing binding has to be an explicit
+ * one and the shadowed binding has to be a global one — a global shadowing a
+ * global, or an explicit shadowing an explicit, is still the collision this
+ * test exists to catch, and still fails.
  */
+/**
+ * Is this binding a candidate in this scope at all?
+ *
+ * The resolver's own `firesIn`, restated because it is not exported — and
+ * restating it is the point here rather than a compromise: this is the *claim*
+ * about which scopes a binding reaches, checked against the resolver's
+ * behaviour. If the two ever disagree, one of the tests above says so directly.
+ */
+function live(binding: Binding, scope: Scope): boolean {
+  if (binding.scopes.includes(scope)) return true;
+  return scope !== "overlay" && binding.scopes.includes("global");
+}
+
 describe("no two bindings share a chord in a scope", () => {
-  test("each binding's chord resolves to itself or to nothing, everywhere", () => {
+  test("each binding's chord resolves to itself, to nothing, or to a scoped override", () => {
     for (const binding of BINDINGS) {
       for (const apple of [true, false]) {
         for (const scope of SCOPES) {
           const got = resolve(eventFor(binding, apple), scope, apple);
-          if (got !== null) expect(got).toBe(binding.command);
+          if (got === null || got === binding.command) continue;
+          /*
+            A binding that is not live in this scope at all was never a
+            candidate, so somebody else answering is not a collision: ⌘B in the
+            tree is `toggleRail` because `bold` is declared for the editor and
+            reaches nowhere else.
+          */
+          if (!live(binding, scope)) continue;
+          const winner = BINDINGS.find((candidate) => candidate.command === got) as Binding;
+          expect({
+            chord: `${binding.key}/${scope}`,
+            winnerNamesScope: winner.scopes.includes(scope),
+            loserNamesScope: binding.scopes.includes(scope),
+          }).toEqual({ chord: `${binding.key}/${scope}`, winnerNamesScope: true, loserNamesScope: false });
         }
       }
     }

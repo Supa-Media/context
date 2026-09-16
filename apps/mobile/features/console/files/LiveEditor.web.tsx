@@ -37,12 +37,18 @@
  * as controlled would mean rebuilding them from scratch on every character.
  */
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Compartment, EditorState } from "@codemirror/state";
 import { pluginSuggestSource, type PluginSuggestRef } from "./pluginSuggest";
 import { pluginLinkPreview, pluginPreviewTheme, type PluginPreviewRef } from "./pluginPreview";
 import { EditorView } from "@codemirror/view";
 import { livePreviewStyles } from "./livePreview";
+import { Menu } from "../../design/components/Menu";
+import { isApplePlatform } from "../../design/applePlatform";
+import { writeClipboard } from "../../design/clipboard";
+import { editorMenuItems, LINE_PREFIXES, type EditorMenuId } from "./editorMenu";
+import { insertTable, MARKERS, toggleWrap } from "./markdownFormat";
+import { TableSizePicker } from "./TableSizePicker.web";
 import { closeFindPanel, findInNote } from "./findInNote";
 import {
   editability,
@@ -549,6 +555,18 @@ export function LiveEditor({
   const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
   handlers.current = { onChange, onSave, controls, onFocus, onBlur };
 
+  /**
+   * The right-click menu over the note body, and the table-size picker it can
+   * raise. `null` means closed; the point is where the pointer was.
+   *
+   * Two pieces of state rather than one discriminated union because they are
+   * genuinely sequential — choosing "Table…" closes the menu and opens the
+   * picker at the **same** point, so the picker outlives the menu and has to
+   * remember an anchor the menu has already forgotten.
+   */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const [tableAt, setTableAt] = useState<{ x: number; y: number } | null>(null);
+
   // What the editor is known to hold. Compared against the incoming `value` to
   // decide whether a write is a genuine external change or the echo of our own
   // last keystroke. See the module comment.
@@ -657,6 +675,77 @@ export function LiveEditor({
     created.contentDOM.addEventListener("focus", reportFocus);
     created.contentDOM.addEventListener("blur", reportBlur);
 
+    /**
+     * Right-click over the note body.
+     *
+     * A DOM listener on `contentDOM` rather than a CodeMirror
+     * `domEventHandlers`, for the one reason that matters here: `noteLinks.ts`
+     * already registers a `contextmenu` handler, and it answers a **long press
+     * on a link** (WebKit reports one as a `contextmenu`). Its press must keep
+     * winning, so this checks `defaultPrevented` and stands down — the same
+     * shape as `useKeymap.web.ts`'s guard, and the same sentence: a press
+     * something has already answered is not this one's to answer again.
+     *
+     * ## Three things it deliberately does not do
+     *
+     *  - **Shift-right-click falls through to the browser.** Spelling
+     *    suggestions live in the browser's own menu and nowhere else, and
+     *    spellcheck is on in this editor by decision (P1 in the editor sweep) —
+     *    so replacing that menu unconditionally would have taken away the
+     *    feature somebody deliberately turned on. Firefox already spells this
+     *    chord the same way; the other engines learn it here.
+     *  - **It never suppresses a menu it will not answer.** A read-only note
+     *    with nothing selected has no verbs, `editorMenuItems` returns an empty
+     *    list, and the browser's menu opens instead of an empty box.
+     *    `rowInteractions.web.ts` states the same rule for the file tree.
+     *  - **It does not move the caret out of a selection.** Right-clicking
+     *    inside the selected text keeps that selection, which is what Copy and
+     *    Bold are then about. Clicking anywhere else puts the caret where the
+     *    click landed — explicitly, because the engines disagree about whether
+     *    a right button places a caret in a contenteditable at all, and a
+     *    formatting menu that acts three lines from where somebody clicked is
+     *    worse than none.
+     */
+    const onContextMenu = (event: MouseEvent) => {
+      if (event.defaultPrevented) return;
+      if (event.shiftKey) return;
+
+      const at = { x: event.clientX, y: event.clientY };
+      /*
+        `posAtCoords` measures, and measuring is the one thing that can fail
+        here: it reads client rectangles off ranges, which a document that has
+        not been laid out does not have. A throw inside this listener would
+        cost the whole menu rather than the caret move, so an unanswerable
+        position is `null` and the selection is simply left where it is.
+      */
+      let position: number | null = null;
+      try {
+        position = created.posAtCoords(at);
+      } catch {
+        position = null;
+      }
+      const selection = created.state.selection.main;
+      const inSelection =
+        !selection.empty && position !== null && position >= selection.from && position <= selection.to;
+      if (!inSelection && position !== null && !created.state.readOnly) {
+        created.dispatch({ selection: { anchor: position } });
+      }
+
+      const empty =
+        editorMenuItems({
+          canEdit: !created.state.readOnly,
+          hasSelection: !created.state.selection.main.empty,
+          apple: isApplePlatform(),
+        }).length === 0;
+      if (empty) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      setTableAt(null);
+      setMenuAt(at);
+    };
+    created.contentDOM.addEventListener("contextmenu", onContextMenu);
+
     view.current = created;
     latestValue.current = value;
     forms.generation = (forms.generation ?? 0) + 1;
@@ -692,6 +781,7 @@ export function LiveEditor({
       handlers.current.controls?.(null);
       created.contentDOM.removeEventListener("focus", reportFocus);
       created.contentDOM.removeEventListener("blur", reportBlur);
+      created.contentDOM.removeEventListener("contextmenu", onContextMenu);
       created.destroy();
       view.current = null;
     };
@@ -742,12 +832,142 @@ export function LiveEditor({
     closeFindPanel(current);
   }, [notePath]);
 
+  /*
+    The menu belongs to the note it was opened over.
+
+    Same argument as the find bar above, and the same failure without it: this
+    editor is built once and has notes swapped through it, so a menu left
+    standing across a note change is a set of verbs aimed at a document that is
+    no longer here — and "Bold" would then wrap a selection in the *new* note at
+    an offset taken from the old one.
+  */
+  useEffect(() => {
+    setMenuAt(null);
+    setTableAt(null);
+  }, [notePath]);
+
+  /**
+   * One menu id, run against the live editor.
+   *
+   * Every arm goes through the same two modules the keymap and the accessory
+   * bar go through — `runCommand` for the verbs that already existed, and
+   * `markdownFormat.ts` for the markers — so this is a *router*, not a third
+   * implementation of markdown editing. That matters beyond tidiness:
+   * `NoteEditor` re-attaches a note's frontmatter in front of every edit on a
+   * phone, so an arm that wrote to the buffer by any other route would silently
+   * drop the YAML block of every captured note (`noteAccessory.test.ts` pins
+   * exactly that for the bar).
+   *
+   * `readOnly` is checked once, here, and again inside `runCommand` and again
+   * by `editability`'s `changeFilter`. That is three gates for one rule and all
+   * three are wanted — see `editability`, which argues it at length. The menu's
+   * own contribution is that Copy stays available on a note nobody may write.
+   */
+  const runMenuAction = useCallback((id: EditorMenuId) => {
+    const current = view.current;
+    if (current === null) return;
+
+    if (id === "copy" || id === "cut") {
+      const { from, to } = current.state.selection.main;
+      const text = current.state.sliceDoc(from, to);
+      if (text !== "") {
+        /*
+          Fire-and-forget deliberately. `writeClipboard` already falls back to
+          `execCommand` where the async API is refused, and there is nowhere in
+          this component to report a failure to — the editor has no toast. A
+          cut whose copy failed would be the one unacceptable outcome, so the
+          delete waits for the answer and is skipped if it never came.
+        */
+        void writeClipboard(text).then((ok) => {
+          if (!ok || id !== "cut") return;
+          const editor = view.current;
+          if (editor === null || editor.state.readOnly) return;
+          /*
+            The positions were read before an `await`, and an autosave
+            conflict or a note being opened underneath can replace the
+            document in that window. Deleting a range that no longer holds
+            what was copied would take out whatever moved into it, so the
+            range has to still say what it said — and if it does not, the
+            copy stands and nothing is removed.
+          */
+          if (editor.state.sliceDoc(from, to) !== text) return;
+          editor.dispatch({ changes: { from, to, insert: "" }, userEvent: "delete.cut" });
+        });
+      }
+      current.focus();
+      return;
+    }
+
+    if (id === "table") {
+      setTableAt(menuAt);
+      return;
+    }
+
+    const marker = id === "bold" || id === "italic" || id === "strikethrough" || id === "code"
+      ? MARKERS[id]
+      : null;
+    if (marker !== null) {
+      if (!current.state.readOnly) toggleWrap(current, marker.before, marker.after);
+      current.focus();
+      return;
+    }
+
+    if (id === "link") {
+      runCommand(current, { name: "insertLink" });
+      return;
+    }
+
+    const prefix = LINE_PREFIXES[id];
+    if (prefix !== undefined) {
+      runCommand(current, { name: "toggleLinePrefix", prefix });
+      return;
+    }
+    // `heading` is the submenu's own id and is never dispatched — `Menu` opens
+    // its `items` instead. Reaching here with it is a no-op rather than a
+    // silent rewrite of the caret's line, which is the whole reason it is not
+    // spelled `heading1`. See `editorMenu.ts`.
+  }, [menuAt]);
+
+  /*
+    Stable identities, because the picker registers two `document` listeners
+    keyed on them and this component re-renders on every keystroke — an inline
+    arrow would tear those listeners down and rebuild them for each character
+    typed into the note behind the picker.
+  */
+  const pickTableSize = useCallback(({ rows, columns }: { rows: number; columns: number }) => {
+    const current = view.current;
+    if (current === null || current.state.readOnly) return;
+    // `rows` counts the header, which is the row the grid drew; the command
+    // takes body rows. The subtraction lives here, once.
+    insertTable(current, rows - 1, columns);
+    current.focus();
+  }, []);
+  const closeTablePicker = useCallback(() => setTableAt(null), []);
+
   return (
-    <div
-      ref={host}
-      className="cm-lp-root"
-      aria-label={accessibilityLabel}
-      style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
-    />
+    <>
+      <div
+        ref={host}
+        className="cm-lp-root"
+        aria-label={accessibilityLabel}
+        style={{ flex: 1, minHeight: 0, overflow: "hidden" }}
+      />
+      {menuAt === null || view.current === null ? null : (
+        <Menu<EditorMenuId>
+          items={editorMenuItems({
+            canEdit: !view.current.state.readOnly,
+            hasSelection: !view.current.state.selection.main.empty,
+            apple: isApplePlatform(),
+          })}
+          anchor={menuAt}
+          title="Format"
+          onSelect={runMenuAction}
+          onDismiss={() => setMenuAt(null)}
+        />
+      )}
+      {tableAt === null ? null : (
+        <TableSizePicker anchor={tableAt} onPick={pickTableSize} onDismiss={closeTablePicker} />
+      )}
+    </>
   );
 }
