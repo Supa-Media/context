@@ -67,8 +67,14 @@ const RESERVED_PLUMBING_NAMES = new Set(["privacy.md", "scopes.yml"]);
  * Mirrors the adapter's own `decodeSegment`: a malformed escape is left
  * literal rather than thrown on, because that is what the layer this has to
  * agree with does.
+ *
+ * Exported for `@context/communications`, whose `normalizeDestinationFolder`
+ * needs the same answer at its own door and already takes `normalizeRoot` from
+ * here. A third copy of decode-then-compare would be the copy that drifts —
+ * and it is the DECODING that is subtle, not the comparison, so each caller
+ * still states its own segment rule.
  */
-function decodeSegment(segment) {
+export function decodeSegment(segment) {
   if (!segment.includes("%")) return segment;
   try {
     return decodeURIComponent(segment);

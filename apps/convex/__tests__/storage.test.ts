@@ -205,6 +205,37 @@ describe("bindStorage", () => {
     ).toBe("INVALID_ROOT_PREFIX");
   });
 
+  /*
+    The adapter's `describeKeyProblem` percent-decodes every segment before it
+    compares, so `%2E%2E` is a ".." there and was a ".." at no door above it.
+    A prefix this refuses is refused on the screen it was typed into; a prefix
+    only the adapter refuses is a saved binding whose probe fails and whose
+    every later request throws — the outcome `normalizeRootPrefix`'s own
+    neighbours argue against, since a probe's job is to record a status rather
+    than to explain a value.
+
+    Equality per segment, not `includes`: the adapter compares whole segments,
+    so `a%2E%2Eb` is a prefix it accepts and refusing it here would refuse a
+    folder no layer objects to.
+  */
+  test("refuses a percent-encoded traversal in a root prefix, where the adapter does", async () => {
+    const t = setupTest();
+    const owner = await createUser(t, "owner@example.invalid");
+    const workspaceId = await createWorkspace(t, owner, "atlas");
+
+    for (const rootPrefix of ["%2E%2E/escape", "notes/%2e%2e/escape", "notes/%2E"]) {
+      expect(
+        errorCode(await captureError(() => bindFakeStorage(t, owner, workspaceId, { rootPrefix }))),
+      ).toBe("INVALID_ROOT_PREFIX");
+    }
+
+    await bindFakeStorage(t, owner, workspaceId, { rootPrefix: "notes/a%2E%2Eb" });
+    const binding = await asUser(t, owner).query(api.functions.storage.getStorageBinding, {
+      workspaceId,
+    });
+    expect(binding?.rootPrefix).toBe("notes/a%2E%2Eb/");
+  });
+
   test("requires authentication", async () => {
     const t = setupTest();
     const owner = await createUser(t, "owner@example.invalid");
