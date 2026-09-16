@@ -156,6 +156,48 @@ have no owner and cannot acquire one — and the catalogue refuses to build at a
 if two plugins claim one tool, because a tool whose switch is ambiguous is on
 for one reader and off for another.
 
+### A member the shim lacks is a limitation, except when it is extended
+
+`PLANNED_MEMBERS` always held two kinds, and `surface.js` always said so:
+**inert** (reachable, accepts, does nothing — `addSettingTab`) and **absent**
+(not on the shim at all — `SuggestModal`). The data did not distinguish them,
+and the scanner treated both as a limitation on a row that could still read
+`runs`.
+
+That is right about a call and wrong about a base class. `class X extends
+api.SuggestModal {}` evaluates `extends undefined` and throws where it stands,
+so the bundle never finishes loading and **nothing** of the plugin arrives —
+reported, until this, as `runs` with a "not yet" footnote under a heading that
+says "everything these use, Context implements". The same asymmetry this area
+already rests on, arriving one level down: `runs` rests on evidence we did not
+find, and here the evidence was found and filed as a footnote.
+
+So the map is two maps, `INERT_MEMBERS` and `ABSENT_MEMBERS`, with
+`PLANNED_MEMBERS` derived as their union so every reader that only wants
+"name → sentence" is unchanged. A bundle extending an absent member is
+`wont-run` — `files-only` where curation says we read its format, mirroring the
+blocker path rather than special-casing — and the name is named, so the row says
+`SuggestModal` rather than "incompatible".
+
+**Both maps are checked against the shim rather than asserted.**
+`pluginSandboxGuest.test.ts` walks the real sandbox and holds that every inert
+name is reachable on it and every absent name is not. The guard could not prove
+that direction before and its own comment said so; it needed only "reachable or
+not", which the walk answers exactly.
+
+Found on Bible Reference (`obsidian-bible-reference`), which extends
+`SuggestModal` and today is held off this path only by the 4MB read cap — so the
+bug was live for any smaller plugin doing the same.
+
+**What a simplification costs.** Collapsing the two maps restores a crash
+reported as a missing feature. Dropping the `extends` prefix from the matcher
+misses every namespaced base class, which is what a bundler emits. Letting the
+name stay in `limitations` as well puts "does not run" and "one part will not
+work" on one row. The checks are `a bundle extending a class the shim does not
+provide will not run here`, `a bare identifier works too`, `it is not reported
+as a limitation on a row that says it runs`, `and every member called absent
+really is not there` — each sabotage-confirmed.
+
 ### And a switch has to actually do something
 
 The other half of the same rule, learned the expensive way. **Drawings was

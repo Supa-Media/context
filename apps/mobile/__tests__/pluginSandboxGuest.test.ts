@@ -24,6 +24,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
 import {
+  ABSENT_MEMBERS,
+  INERT_MEMBERS,
   PLANNED_MEMBERS,
   SUPPORTED_MEMBERS,
   pluginSandboxDocument,
@@ -357,10 +359,13 @@ describe("the guest can already be told to run a command", () => {
   here, which is the only place it can: the scanner cannot run the sandbox, and
   a browser test proves isolation rather than surface.
 
-  It cannot prove the opposite direction — a member that is reachable and does
-  nothing, like `addSettingTab` — so those are hand-named in `PLANNED_MEMBERS`
-  with the sentence to say about them, and the test below only holds that the
-  two lists do not both claim the same name.
+  It now proves the opposite direction too. "Reachable and does nothing" was
+  hand-named and unchecked, on the grounds that a walk cannot tell an inert
+  method from a working one — true, and not what the split needs. What it needs
+  is only *reachable or not*, which this walk answers exactly: every name in
+  `INERT_MEMBERS` must be on the shim, and every name in `ABSENT_MEMBERS` must
+  not. That is the difference between a plugin loading with one part missing and
+  a plugin that never loads, and `scan.js` reports them as different verdicts.
 */
 describe("the scanner's claim about this shim is true", () => {
   const REACH = `
@@ -434,6 +439,31 @@ describe("the scanner's claim about this shim is true", () => {
       expect(typeof reason === "string" && reason.length > 10).toBe(true);
       expect(name).not.toBe("");
     }
+  });
+
+  test("every member called inert is actually reachable on the shim", () => {
+    const found = new Set(reachable());
+    const missing = Object.keys(INERT_MEMBERS).filter((name) => !found.has(name));
+    expect(missing).toEqual([]);
+  });
+
+  /*
+    The half that carries the verdict. An absent member used with `extends` is
+    `wont-run` in `scan.js`, because the bundle throws before it finishes
+    loading — so a name moving onto the shim without moving off this map would
+    make the scanner fail a plugin that works.
+  */
+  test("and every member called absent really is not there", () => {
+    const found = new Set(reachable());
+    const present = Object.keys(ABSENT_MEMBERS).filter((name) => found.has(name));
+    expect(present).toEqual([]);
+  });
+
+  test("the union is exactly the two kinds, with nothing claimed twice", () => {
+    const inert = Object.keys(INERT_MEMBERS);
+    const absent = Object.keys(ABSENT_MEMBERS);
+    expect(inert.filter((name) => absent.includes(name))).toEqual([]);
+    expect(Object.keys(PLANNED_MEMBERS).sort()).toEqual([...inert, ...absent].sort());
   });
 });
 

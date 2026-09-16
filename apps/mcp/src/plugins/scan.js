@@ -32,6 +32,7 @@
  */
 
 import {
+  ABSENT_MEMBERS,
   BLOCKED_MEMBERS,
   BLOCKED_MODULES,
   BLOCKED_MODULE_NAMES,
@@ -255,6 +256,23 @@ export function scanBundle(source) {
   const presentPartial = namesPresent(source, PARTIAL_MATCHER);
   const partial = Object.keys(PARTIAL_MEMBERS).filter((name) => presentPartial.has(name));
 
+  /*
+    The one way a member the shim does not have stops being a limitation and
+    becomes a blocker: a bundle extending it never finishes evaluating, so no
+    part of the plugin arrives rather than one part of it missing. Carried
+    separately from `blocked` because the reason differs — nothing here reaches
+    outside the sandbox, it reaches for something inside that is not built yet.
+  */
+  const missingBases = [
+    ...new Set([...source.matchAll(MISSING_BASE_MATCHER)].map((match) => match[1])),
+  ]
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => ({
+      id: name,
+      kind: "member",
+      reason: `used as a base class, and ${ABSENT_MEMBERS[name]}`,
+    }));
+
   return {
     unreadable: null,
     dynamic,
@@ -263,12 +281,22 @@ export function scanBundle(source) {
     supported,
     planned,
     partial,
+    missingBases,
     hosts: network.length ? literalHosts(source) : [],
   };
 }
 
 function emptyScan({ unreadable }) {
-  return { unreadable, dynamic: [], blocked: [], network: [], supported: [], planned: [], hosts: [] };
+  return {
+    unreadable,
+    dynamic: [],
+    blocked: [],
+    network: [],
+    supported: [],
+    planned: [],
+    missingBases: [],
+    hosts: [],
+  };
 }
 
 /**
@@ -307,6 +335,37 @@ function alternation(names) {
   return new RegExp(`\\b(?:${names.join("|")})\\b`, "g");
 }
 
+/**
+ * `class X extends <something the shim does not have>`.
+ *
+ * One alternation like the others, with the `extends` and an optional dotted
+ * prefix in front of it. The prefix is what makes this survive bundling: a
+ * minifier renames the namespace an import lands in — `class extends
+ * Ge.SuggestModal` is real output — but it cannot rename the member, which is
+ * the same property every matcher in this file already rests on.
+ *
+ * `\s*` around the dots rather than none, because a bundler is free to emit
+ * `a . B` and a formatter will. `(?:…)*` rather than `?` so a deeper chain
+ * (`a.b.SuggestModal`) matches too.
+ *
+ * It reads text, so the literal string `"extends SuggestModal"` in a comment
+ * would fail a plugin that works. That trade is this file's existing one rather
+ * than a new one — every matcher here would do the same for `child_process` in
+ * a comment — and this one is the *narrower* end of it: the others match a bare
+ * identifier anywhere, and this needs the keyword immediately in front.
+ *
+ * The nested quantifier is the shape that backtracks catastrophically when two
+ * adjacent parts can match the same character. These cannot — `[\w$]` and `\s`
+ * are disjoint, and each repetition is anchored by a literal dot — and it is
+ * measured rather than argued: 200k dotted segments ending in no match, 100k
+ * spaced ones, and 100k near-misses each scan in ~25ms, the same as 4MB of
+ * ordinary text.
+ */
+const MISSING_BASE_MATCHER = new RegExp(
+  `\\bextends\\s+(?:[A-Za-z_$][\\w$]*\\s*\\.\\s*)*(${Object.keys(ABSENT_MEMBERS).join("|")})\\b`,
+  "g"
+);
+
 const SUPPORTED_MATCHER = alternation(SUPPORTED_MEMBERS);
 const PLANNED_MATCHER = alternation(Object.keys(PLANNED_MEMBERS));
 const PARTIAL_MATCHER = alternation(Object.keys(PARTIAL_MEMBERS));
@@ -332,9 +391,21 @@ export function verdictFor({ manifest, scan }) {
     reason rather than one per member, so a plugin naming all four link-graph
     members says the link graph is not exposed, once.
   */
+  /*
+    A name that is *extended* is reported as the blocker it is, below, and not
+    also as a limitation here. Both would be one row saying the plugin does not
+    run and, underneath, that one part of it will not — which reads as a
+    contradiction and buries the sentence that matters.
+  */
+  const extended = new Set((scan.missingBases || []).map((entry) => entry.id));
   const limitations = [
-    ...[...new Set((scan.planned || []).map((name) => PLANNED_MEMBERS[name]))]
-      .map((reason) => `Not yet, so that part will not work: ${reason}.`),
+    ...[
+      ...new Set(
+        (scan.planned || [])
+          .filter((name) => !extended.has(name))
+          .map((name) => PLANNED_MEMBERS[name])
+      ),
+    ].map((reason) => `Not yet, so that part will not work: ${reason}.`),
     /*
       And the other kind, which arrived with the read preview: a member that is
       answered within a bound. "Not yet" would be false about it and silence
@@ -384,6 +455,35 @@ export function verdictFor({ manifest, scan }) {
       notes,
       limitations,
       reason: curated.formatSupported ? "runs-in-obsidian-format-read-here" : "reaches-outside-the-sandbox",
+      supported: scan.supported,
+      planned: scan.planned,
+    });
+  }
+
+  /*
+    A base class the shim does not have, which is the one member failure that is
+    not a limitation: `class X extends api.SuggestModal {}` evaluates `extends
+    undefined` and throws where it stands, so the bundle never finishes loading
+    and nothing of the plugin arrives.
+
+    Ordered here — after a blocker, before the network and before `runs` — for
+    the reason the header states: every path that could turn missing evidence
+    into a confident `runs` is taken first. A plugin that cannot load does not
+    need a host approved.
+
+    Curation moves the label exactly as it does for a blocker, and never more
+    than the label: a plugin whose format Context reads strands no data, whatever
+    it cannot do here. Mirrored rather than special-cased so the two paths cannot
+    drift into disagreeing about one plugin.
+  */
+  if ((scan.missingBases || []).length) {
+    return result(curated.formatSupported ? "files-only" : "wont-run", {
+      evidence: scan.missingBases,
+      notes,
+      limitations,
+      reason: curated.formatSupported
+        ? "runs-in-obsidian-format-read-here"
+        : "extends-a-class-the-shim-does-not-have",
       supported: scan.supported,
       planned: scan.planned,
     });

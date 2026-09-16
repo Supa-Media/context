@@ -287,6 +287,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A switch removes a capability and never a protection
 - The switch is enforced twice, because the listing is cached
 - What may never be a plugin
+- A member the shim lacks is a limitation, except when it is extended
 - And a switch has to actually do something
 - A vault copy and a managed install are one plugin, and the duplicate is not created
 - One panel, one box, and the registry is still a deliberate press

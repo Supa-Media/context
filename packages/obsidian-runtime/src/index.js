@@ -14,4 +14,10 @@ export {
   sandboxFrameIsOurs,
 } from "./sandbox.js";
 
-export { PARTIAL_MEMBERS, PLANNED_MEMBERS, SUPPORTED_MEMBERS } from "./surface.js";
+export {
+  ABSENT_MEMBERS,
+  INERT_MEMBERS,
+  PARTIAL_MEMBERS,
+  PLANNED_MEMBERS,
+  SUPPORTED_MEMBERS,
+} from "./surface.js";
