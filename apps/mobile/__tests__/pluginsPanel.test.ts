@@ -298,6 +298,77 @@ describe("the ready list", () => {
     expect(opened(panel(READY), "obsidian-git").textContent).toContain("child_process");
   });
 
+  /*
+    Two sentences on that screen that nothing was holding.
+
+    This file's own header states the property the move was supposed to keep:
+    *"A sentence that stopped being rendered anywhere still fails here … the
+    risk in a change like this is not that the words move, it is that they
+    quietly stop existing and nothing notices."* Measured against the whole
+    mobile suite, by deleting each line from `PluginDetail` in turn:
+
+    | line removed from the detail screen | tests reddened |
+    | --- | --- |
+    | the named findings (`child_process — …`) | **3** |
+    | **`Hosts it names: …`** | **0** |
+    | **the manifest error** | **0** |
+    | (for contrast) the consent card's own host list | **1** |
+
+    Neither was a regression — both were unasserted on the panel before the
+    move too, and the fixture above is why: no plugin in `READY` carries
+    `hosts` or a `manifestError`, so those two branches had never rendered in
+    a test at all. The claim was simply wider than the assertions under it,
+    which is this repository's most-repeated finding pointed at its own suite.
+
+    **What is NOT at stake, and it matters for how hard to lean on this:** the
+    sentence somebody actually decides by is the consent card's own
+    `It will be able to reach:` list, and that one *is* held (the 1 above).
+    Nobody approves a plugin blind because of this. What these two lines are is
+    the *account of the bundle* — what the scan read, what it could not — sitting
+    above the control, and an account nothing checks is an account that can
+    quietly stop being given.
+  */
+  const NAMES_HOSTS: PluginsView = {
+    state: "ready",
+    inventory: {
+      found: 2,
+      scanned: 2,
+      truncated: false,
+      checkedAt: "2026-09-12T09:41:00.000Z",
+      plugins: [
+        plugin({
+          id: "weather-sidebar",
+          name: "Weather Sidebar",
+          verdict: "needs-approval",
+          hosts: ["api.example-weather.test", "cdn.example-weather.test"],
+        }),
+        plugin({
+          id: "broken-manifest",
+          name: "Broken Manifest",
+          verdict: "unknown",
+          manifestError: "its manifest.json is not valid JSON",
+        }),
+      ],
+    },
+  };
+
+  test("the hosts a plugin names survive to its screen", () => {
+    const text = opened(panel(NAMES_HOSTS), "weather-sidebar").textContent ?? "";
+    // Both, and by name: a list that rendered only its first entry would be a
+    // reader told about one of the two servers a plugin reaches.
+    expect(text).toContain("api.example-weather.test");
+    expect(text).toContain("cdn.example-weather.test");
+  });
+
+  test("and so does the reason a manifest could not be read", () => {
+    // The scan's own words, not a category. A plugin whose manifest did not
+    // parse is `unknown` for a reason the reader can act on, and the group
+    // heading cannot carry it because it is this plugin's alone.
+    expect(opened(panel(NAMES_HOSTS), "broken-manifest").textContent ?? "").toContain(
+      "its manifest.json is not valid JSON",
+    );
+  });
+
   test("every plugin that cannot run here is told where it still runs", () => {
     expect(opened(panel(READY), "obsidian-git").textContent).toContain(
       "Keep it in Obsidian — Context reads what it writes.",
