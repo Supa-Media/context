@@ -50,6 +50,7 @@ import {
   query,
 } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { decodeSegment } from "../../mcp/src/store/index.js";
 import {
   CredentialCryptoError,
   decryptSecret,
@@ -348,6 +349,33 @@ function normalizeRootPrefix(
       code: "INVALID_ROOT_PREFIX",
       message: "The root prefix must not contain '..'.",
     });
+  }
+  /*
+    AND THE SAME RULE ON THE DECODED SEGMENT.
+
+    The check above compares raw text; the adapter's `describeKeyProblem` does
+    not — it percent-decodes each segment before comparing, so `%2E%2E` is a
+    ".." to the layer that finally builds the request and to no layer above it.
+    A prefix refused only there is a binding that saves, probes into `error`,
+    and throws on every request afterwards, which is the outcome the addressing
+    check below is written to avoid: a probe records a status, it cannot explain
+    a value, and the screen where the value was typed is where it can be.
+
+    `decodeSegment` is the adapter's own, imported rather than restated — the
+    decoding is the subtle half, and `apps/convex` already bundles this module.
+    Equality per segment rather than `includes`, because the adapter compares
+    whole segments: `a%2E%2Eb` is a prefix it accepts, and refusing it here
+    would refuse a folder no layer objects to. Nothing escapes a bucket either
+    way — the adapter holds — so this is about which door says so.
+  */
+  for (const segment of trimmed.split("/")) {
+    const decoded = decodeSegment(segment);
+    if (decoded === "." || decoded === "..") {
+      throw new ConvexError({
+        code: "INVALID_ROOT_PREFIX",
+        message: "The root prefix must not contain '..'.",
+      });
+    }
   }
   return `${trimmed}/`;
 }

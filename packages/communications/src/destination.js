@@ -30,7 +30,7 @@
 // wrong: "Use a folder, or a pattern ending in /YYYY-MM-DD.md" rather than
 // "invalid destination".
 
-import { normalizeRoot } from "../../meetings/src/paths.js";
+import { decodeSegment, normalizeRoot } from "../../meetings/src/paths.js";
 
 /**
  * The date token a pattern ends with, and the only one there is.
@@ -66,6 +66,18 @@ export const DESTINATION_SEGMENT_LIMIT = 96;
  */
 function isReservedSegment(segment) {
   return segment.startsWith(".") || segment === "privacy.md";
+}
+
+/**
+ * A segment that IS a traversal once the storage layer has decoded it.
+ *
+ * The rule the adapter enforces, stated at this door too — see the comment at
+ * the check for why it is equality rather than `includes`, and for what a
+ * destination refused only at the adapter costs the person who typed it.
+ */
+function decodesToTraversal(segment) {
+  const decoded = decodeSegment(segment);
+  return decoded === "." || decoded === "..";
 }
 
 /**
@@ -108,6 +120,36 @@ export function normalizeDestinationFolder(value) {
   }
 
   const segments = normalized.split("/");
+  /*
+    AND THE SAME TRAVERSAL RULE ON THE DECODED SEGMENT.
+
+    `normalizeRoot` compares raw text, so `%2E%2E` is not `".."` to it — and it
+    is `".."` to the storage adapter, whose `describeKeyProblem` percent-decodes
+    each segment before comparing. Without this line a destination the console
+    accepted, the mutation stored and Save reported as saved made every
+    subsequent write of that channel throw `unsafe storage key` at the adapter,
+    forever, for a value typed into a field whose whole purpose is to refuse
+    before the round trip. Nothing escaped the bucket — the adapter is the layer
+    that matters and it held — but "one list of rules, one set of messages" is
+    the claim at the top of this file, and a rule stated at neither of the two
+    doors above the one that enforces it is not on that list.
+
+    `normalizeMeetingFolder` has carried this rule, and the reasoning for it,
+    since before this module existed; it did not come with the validator when
+    the validator moved out of the control plane. When one of two siblings is
+    the odd one out, the odd one is the finding.
+
+    EQUALITY, not `includes`, and the asymmetry with `normalizeRoot`'s raw rule
+    is deliberate for the same reason it is deliberate there: the adapter
+    compares whole segments, so `a%2E%2Eb` is a key it accepts and refusing it
+    here would refuse a folder no layer objects to.
+  */
+  if (segments.some(decodesToTraversal)) {
+    return refuse(
+      "DESTINATION_INVALID",
+      "Use a folder path inside this context, without '..' or backslashes.",
+    );
+  }
   if (segments.some(isReservedSegment)) {
     return refuse("DESTINATION_RESERVED", "That folder is reserved for Context internals.");
   }

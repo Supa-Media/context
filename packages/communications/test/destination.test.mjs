@@ -14,6 +14,8 @@
 //   suggest the exact folder already typed                         -> 3 checks failed
 //   suggest reserved folders                                       -> 4 checks failed
 //   resolve with toISOString instead of local parts                -> 0, then 1
+//   accept a segment that only DECODES to ".." (the %2E%2E case)   -> 2 checks failed
+//   compare the decoded segment with includes rather than equality -> 4 checks failed
 //
 // The last row is why this table is run rather than written. `toISOString`
 // noticed **nothing**: CI runs in UTC, where the local date and the UTC date
@@ -78,6 +80,21 @@ export function runDestinationChecks(check) {
   check(
     "...and so is a backslash, which is a segment on one platform and a separator on another",
     normalizeDestinationFolder("2-areas\\comms").ok === false,
+  );
+  check(
+    "a percent-encoded traversal is refused HERE, because the layer that decodes it is below this one",
+    normalizeDestinationFolder("2-areas/%2E%2E/etc").ok === false &&
+      normalizeDestinationFolder("%2e%2e").ok === false &&
+      normalizeDestinationFolder("0-inbox/%2E/mail").ok === false,
+  );
+  check(
+    "...as a value this field can render, rather than the storage error every sync would have thrown",
+    normalizeDestinationFolder("2-areas/%2E%2E/etc").code === "DESTINATION_INVALID",
+  );
+  check(
+    "...and only where the DECODED segment IS the traversal, which is where the adapter draws it",
+    normalizeDestinationFolder("0-inbox/a%2E%2Eb").ok === true &&
+      normalizeDestinationFolder("0-inbox/%2Email").ok === true,
   );
   check(
     "normalizeRoot throws and this never does — the refusal is a value a field can render",
