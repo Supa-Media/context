@@ -117,7 +117,20 @@ assert.deepEqual(parsePluginSandboxMessage({
   type: "command-result",
   id: "say-hello",
   ok: true,
-}, "secret"), { type: "command-result", id: "say-hello", ok: true, error: null });
+}, "secret"), {
+  type: "command-result",
+  id: "say-hello",
+  ok: true,
+  error: null,
+  /*
+    `reason` is part of the shape, and `null` is the ordinary answer. It says
+    why a command changed nothing when that is Context's sentence rather than
+    the plugin's — it asked for the open note and there was none, or the owner
+    has not let it write. A guest that omits the field means "nothing to say",
+    never "some other reason".
+  */
+  reason: null,
+});
 assert.deepEqual(parsePluginSandboxMessage({
   source: "context-plugin-sandbox",
   version: 1,
@@ -131,7 +144,76 @@ assert.deepEqual(parsePluginSandboxMessage({
   id: "throws",
   ok: false,
   error: "the command failed",
+  reason: null,
 });
+// And a reason outside the closed set is dropped rather than carried: the
+// console turns this word into a sentence, so an unknown one would be a guest
+// choosing which of Context's sentences a reader sees.
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "asked",
+  ok: false,
+  reason: "not-allowed",
+}, "secret"), {
+  type: "command-result",
+  id: "asked",
+  ok: false,
+  error: null,
+  reason: "not-allowed",
+});
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "command-result",
+  id: "asked",
+  ok: false,
+  reason: "the owner is a fool",
+}, "secret"), {
+  type: "command-result",
+  id: "asked",
+  ok: false,
+  error: null,
+  reason: null,
+});
+/*
+  `suggest-modal-picked` — how the reader's choice went.
+
+  The same closed set as `command-result`'s, and the same reason for it: every
+  way a pick fails looks identical from the reader's side, so the console has to
+  say which it was, and it says it in its own words. A guest naming a reason
+  outside the set gets `null`, which draws nothing at all.
+*/
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-modal-picked",
+  seq: 4,
+  reopened: false,
+  reason: "no-note",
+}, "secret"), { type: "suggest-modal-picked", seq: 4, reopened: false, reason: "no-note" });
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-modal-picked",
+  seq: 4,
+  reopened: false,
+}, "secret"), { type: "suggest-modal-picked", seq: 4, reopened: false, reason: null });
+assert.deepEqual(parsePluginSandboxMessage({
+  source: "context-plugin-sandbox",
+  version: 1,
+  nonce: "secret",
+  type: "suggest-modal-picked",
+  seq: 4,
+  reopened: false,
+  reason: { toString: () => "not-allowed" },
+}, "secret"), { type: "suggest-modal-picked", seq: 4, reopened: false, reason: null });
+
 // A result for a command the host never asked about is still well-formed; the
 // host decides whether it was waiting. What must not parse is a malformed one.
 assert.equal(parsePluginSandboxMessage({

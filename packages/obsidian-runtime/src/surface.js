@@ -74,6 +74,16 @@ export const SUPPORTED_MEMBERS = Object.freeze([
 
   // Workspace: which note the console has open, and events when it changes.
   "getActiveFile",
+  /*
+    And that note as something a plugin can write into, while Context is running
+    a command, a ribbon press or a dialog choice for it. It sat in
+    `INERT_MEMBERS` answering null, which made the ending of nearly every
+    "insert this" flow a silent no-op: `getActiveViewOfType(MarkdownView)?.editor`
+    on null is a pick that does nothing and reports nothing. It is bounded
+    rather than complete — see `PARTIAL_MEMBERS` — because the view exists only
+    inside that window and carries an editor rather than a leaf.
+  */
+  "getActiveViewOfType",
 
   // The suggestion dialog, by the same inversion as `registerEditorSuggest`:
   // the plugin's `getSuggestions` and `renderSuggestion` run in the sandbox and
@@ -140,6 +150,8 @@ export const SUPPORTED_MEMBERS = Object.freeze([
 export const PARTIAL_MEMBERS = Object.freeze({
   registerMarkdownPostProcessor:
     "a processor runs against the note's links rather than its whole rendered text, so one that decorates headings, code or embeds finds nothing to work on",
+  getActiveViewOfType:
+    "the open note is there while Context runs one of this plugin's commands, ribbon actions or dialog choices, as a MarkdownView carrying a file and an editor; outside that there is nothing to hand back, the caret starts at the end of the note, and no other view type exists here",
 });
 
 /**
@@ -175,7 +187,6 @@ export const PARTIAL_MEMBERS = Object.freeze({
  */
 export const INERT_MEMBERS = Object.freeze({
   registerEditorExtension: "editor decorations are accepted and not applied yet",
-  getActiveViewOfType: "the console has no views for this to find yet",
   getLeavesOfType: "the console has no leaves for this to find yet",
 });
 

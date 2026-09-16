@@ -31,6 +31,38 @@ export function pluginSandboxDocument() {
   // only: no content crosses this boundary, and a plugin that wants the body
   // asks for it through the same audited read as any other file.
   let activeFile = null;
+  /*
+    THE OPEN NOTE AS AN EDITOR, WHILE CONTEXT IS RUNNING SOMETHING FOR THE PLUGIN.
+
+    getActiveViewOfType is how an Obsidian plugin reaches the note somebody is
+    looking at, and it is the ending of nearly every "insert this" flow there
+    is. It answered null here, for ever, which made a whole class of plugin
+    silently inert: Bible Reference's verse lookup ends in
+
+        this.app.workspace.getActiveViewOfType(MarkdownView)?.editor
+          .replaceRange(verse, editor.getCursor())
+
+    and an optional chain on null is a pick that does nothing, reports nothing
+    and looks exactly like a dialog whose rows cannot be pressed.
+
+    So a view exists while — and only while — Context is running a piece of work
+    the plugin was asked for: a command, a ribbon press, or a choice made in a
+    dialog it opened. withActiveEditor reads the note before that work and
+    writes it back after, through the audited RPC the editorCallback path
+    already used. Outside that window this is null, because there is nothing to
+    write back into and an editor a plugin could keep would be an editor whose
+    edits go nowhere.
+  */
+  let activeEditor = null;
+  /*
+    Whether the plugin reached for that view during the current piece of work.
+
+    The difference between "it had nowhere to write" and "it never wanted to
+    write", which is the difference between a failure worth putting in front of
+    a reader and silence. A translation-switch dialog touches no note and must
+    not make the console say a note was needed.
+  */
+  let viewAsked = false;
   // name -> Set(callback). One registry for vault, metadata and workspace
   // events, keyed by the name Obsidian uses, so on() can return a real
   // reference with a working off() instead of the dead handle it used to.
@@ -165,7 +197,23 @@ export function pluginSandboxDocument() {
     on(name, callback) { return subscribe('workspace:' + name, callback); },
     off(name, callback) { const set = listeners.get('workspace:' + name); if (set) set.delete(callback); },
     getActiveFile() { return activeFile; },
-    getActiveViewOfType() { return null; },
+    /*
+      The open note's view, while there is one. Asking is recorded even when the
+      answer is null: a plugin that reached for an editor and was handed nothing
+      is a failure the reader should be told about, and one that never reached
+      is not.
+
+      The type is honoured rather than ignored. A plugin asking for its own view
+      class, or for anything else this shim does not draw, gets null — answering
+      a MarkdownView to a question about somebody else's view is how a plugin
+      ends up calling methods that are not there.
+    */
+    getActiveViewOfType(type) {
+      viewAsked = true;
+      if (activeEditor === null) return null;
+      if (typeof type === 'function' && !(activeEditor.view instanceof type)) return null;
+      return activeEditor.view;
+    },
     getLeavesOfType() { return []; },
   };
 
@@ -415,7 +463,14 @@ export function pluginSandboxDocument() {
   async function answerSuggest(message) {
     const line = typeof message.line === 'string' ? message.line : '';
     const ch = Math.max(0, Math.min(line.length, Number(message.ch) || 0));
-    const editor = editorFor(line);
+    /*
+      The caret goes where the host says it is, rather than being left at the
+      end by default. What arrives is the line up to the caret, so the two are
+      the same position today — and they stop being the same the moment the
+      host sends more of the line, which is exactly the kind of change that
+      should not quietly move a plugin's insertion point.
+    */
+    const editor = editorFor(line, ch);
     const cursor = { line: 0, ch };
     offered = null;
     for (const suggester of suggesters) {
@@ -476,7 +531,13 @@ export function pluginSandboxDocument() {
     for (const value of values) {
       const el = document.createElement('div');
       try { modal.renderSuggestion(value, el); } catch (_) {}
-      items.push({ text: String(el.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200) });
+      /*
+        The escape is doubled on purpose: this whole file is a template
+        literal, so a lone \\s reaches the guest as a plain 's' and the row
+        that was meant to collapse whitespace quietly deleted every letter s
+        in it. "the sons of the prophets" arrived as "the  on  of the prophet ".
+      */
+      items.push({ text: String(el.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 200) });
     }
     // Replaced wholesale, so a pick can only land on the list now on screen.
     openModal.values = values;
@@ -507,10 +568,37 @@ export function pluginSandboxDocument() {
     // plugin that reopens from inside onChooseSuggestion must not then have its
     // new dialog's onClose fired by this one's tidy-up.
     try { modal.onClose(); } catch (_) {}
+    /*
+      WITH THE OPEN NOTE IN FRONT OF IT, AND A WORD FOR WHY NOT.
+
+      onChooseSuggestion is where a dialog does its work, and for the plugins
+      this inversion was built for that work is "write the thing they picked
+      into the note". It reaches the note through getActiveViewOfType, which
+      answered null until this — so a pick ran the plugin's handler, the
+      handler's optional chain stopped on nothing, and the reader saw a row
+      they had pressed and a note that never changed.
+
+      A reason travels back rather than being swallowed, because every way this
+      fails looks identical from the outside: the row was pressed, the dialog
+      closed, nothing appeared.
+    */
+    let reason = null;
     if (value !== undefined) {
-      try { await modal.onChooseSuggestion(value, {}); } catch (_) {}
+      /*
+        Caught here rather than inside, and this is load-bearing: the console
+        closes its dialog on suggest-modal-picked and on nothing else, so a
+        handler that threw its way past this line would leave the reader in
+        front of a dialog that no longer answers. A throw is the plugin's own
+        failure and the message still goes out.
+        (No backticks: this whole file is inside a template literal.)
+      */
+      try {
+        reason = await withActiveEditor(() => modal.onChooseSuggestion(value, {}), false);
+      } catch (error) {
+        reason = reasonFor(error);
+      }
     }
-    send('suggest-modal-picked', { seq: message.seq, reopened: openModal !== null });
+    send('suggest-modal-picked', { seq: message.seq, reopened: openModal !== null, reason });
   }
 
   /*
@@ -927,7 +1015,35 @@ export function pluginSandboxDocument() {
   }
 
 
-  class MarkdownView {}
+  /*
+    The view a plugin is handed for the open note.
+
+    Obsidian's carries a leaf, a mode, a preview renderer and its own DOM; this
+    carries the two members every "write into the current note" path actually
+    uses — file and editor — plus the handful of methods that read them. It is a
+    real class rather than an object literal because plugins test what they are
+    given with instanceof, and getActiveViewOfType answers null for any other
+    type asked for.
+  */
+  class MarkdownView {
+    constructor(appValue, target, editor) {
+      this.app = appValue;
+      this.file = target === undefined ? null : target;
+      this.editor = editor === undefined ? null : editor;
+      this.containerEl = createDiv();
+      this.contentEl = createDiv();
+    }
+    getViewType() { return 'markdown'; }
+    // Source, always: the console's editor is a text editor, and a plugin that
+    // branches on the mode should take the branch that writes Markdown.
+    getMode() { return 'source'; }
+    getDisplayText() { return this.file === null ? '' : this.file.basename; }
+    getViewData() { return this.editor === null ? '' : this.editor.getValue(); }
+    setViewData(value) { if (this.editor !== null) this.editor.setValue(value); }
+    // The write-back happens when the work finishes, so a plugin asking for a
+    // save has already had one arranged rather than needing one now.
+    save() { return Promise.resolve(); }
+  }
   class ItemView {}
   class EditorSuggest { constructor(appValue) { this.app = appValue; } }
 
@@ -1448,10 +1564,36 @@ export function pluginSandboxDocument() {
     throw new Error('Context sandbox does not provide module: ' + String(name));
   }
 
-  function editorFor(text) {
+  /**
+   * The document a plugin edits, with a caret it can write at.
+   *
+   * ## Why there is a caret at all
+   *
+   * Obsidian's Editor has one, and the whole of "insert this here" is written
+   * against it: onChooseSuggestion ends in replaceRange(text, editor.getCursor())
+   * and an editorCallback ends in replaceSelection(text). Neither existed here,
+   * so both were a TypeError inside a handler nobody awaits — nothing on screen,
+   * nothing in the log, the exact shape of "I click the verse and nothing
+   * happens".
+   *
+   * ## Where it starts, and why that is honest rather than a guess
+   *
+   * At the position the host named, and at the END OF THE DOCUMENT when it
+   * named none. The console's real caret lives in a CodeMirror view in the
+   * trusted realm; the two places a plugin writes from — a command pressed on
+   * the plugins pane and a dialog it opened — are both places where the reader
+   * is not in the note at all, so there is no caret to carry. Appending is the
+   * one answer that is always visible and never silently overwrites something
+   * they were looking at.
+   *
+   * A suggestion is the case where the host DOES know: it is answering for a
+   * line somebody is typing, and it passes that offset in.
+   */
+  function editorFor(text, startCh) {
     let value = String(text);
     let revision = 0;
     const lines = () => value.split('\\n');
+    const clamp = at => Math.max(0, Math.min(value.length, Number.isFinite(at) ? at : value.length));
     const offset = position => {
       const all = lines();
       const line = Math.max(0, Math.min(all.length - 1, Number(position && position.line) || 0));
@@ -1460,21 +1602,101 @@ export function pluginSandboxDocument() {
       for (let index = 0; index < line; index += 1) found += all[index].length + 1;
       return found;
     };
-    return {
+    const positionAt = at => {
+      const before = value.slice(0, clamp(at)).split('\\n');
+      return { line: before.length - 1, ch: before[before.length - 1].length };
+    };
+    /*
+      Anchor and head as offsets rather than positions, because every edit moves
+      them: an offset survives a change above it by arithmetic, where a
+      {line, ch} would have to be re-derived and would silently drift.
+    */
+    let anchor = clamp(startCh === undefined ? value.length : Number(startCh));
+    let head = anchor;
+    /*
+      Where the caret lands after a change. A replacement entirely after it
+      leaves it alone, one before it shifts it by the difference, and one that
+      covers it leaves it at the end of what was inserted — which is where
+      somebody who just inserted a verse expects to carry on typing.
+
+      An insertion exactly AT the caret counts as covering it, deliberately:
+      that is what typing does, and a caret left in front of the text it just
+      inserted would make a plugin's second insertion land before its first.
+    */
+    const moved = (at, start, end, length) => {
+      if (at < start) return at;
+      if (at >= end) return at + (length - (end - start));
+      return start + length;
+    };
+    const splice = (start, end, replacement) => {
+      const text = String(replacement === undefined || replacement === null ? '' : replacement);
+      value = value.slice(0, start) + text + value.slice(end);
+      anchor = moved(anchor, start, end, text.length);
+      head = moved(head, start, end, text.length);
+      revision += 1;
+    };
+    const editor = {
       lineCount() { return lines().length; },
       lastLine() { return lines().length - 1; },
       getLine(line) { return lines()[line] || ''; },
+      setLine(line, text) {
+        const start = offset({ line, ch: 0 });
+        splice(start, start + (lines()[line] || '').length, text);
+      },
       getValue() { return value; },
-      setValue(next) { value = String(next); revision += 1; },
+      setValue(next) {
+        value = String(next);
+        anchor = clamp(anchor);
+        head = clamp(head);
+        revision += 1;
+      },
       getRange(from, to) { return value.slice(offset(from), offset(to)); },
       replaceRange(replacement, from, to) {
         const start = offset(from);
         const end = offset(to || from);
-        value = value.slice(0, start) + String(replacement) + value.slice(end);
-        revision += 1;
+        splice(Math.min(start, end), Math.max(start, end), replacement);
       },
+      /*
+        Obsidian's own vocabulary for the caret and the selection. 'from' and
+        'to' are the ends in document order, 'anchor' and 'head' are where the
+        selection started and where it is being dragged to, and a bare
+        getCursor() is the head — which is what a plugin inserting at the caret
+        means by it.
+      */
+      getCursor(which) {
+        if (which === 'from') return positionAt(Math.min(anchor, head));
+        if (which === 'to') return positionAt(Math.max(anchor, head));
+        if (which === 'anchor') return positionAt(anchor);
+        return positionAt(head);
+      },
+      setCursor(position, ch) {
+        const at = typeof position === 'number' ? offset({ line: position, ch: ch || 0 }) : offset(position);
+        anchor = at;
+        head = at;
+      },
+      setSelection(from, to) {
+        anchor = offset(from);
+        head = to === undefined ? anchor : offset(to);
+      },
+      getSelection() { return value.slice(Math.min(anchor, head), Math.max(anchor, head)); },
+      somethingSelected() { return anchor !== head; },
+      listSelections() { return [{ anchor: positionAt(anchor), head: positionAt(head) }]; },
+      replaceSelection(replacement) {
+        splice(Math.min(anchor, head), Math.max(anchor, head), replacement);
+      },
+      posToOffset(position) { return offset(position); },
+      offsetToPos(at) { return positionAt(at); },
+      // Obsidian's Editor answers getDoc() with something carrying the same
+      // methods; a plugin written against CodeMirror's shape reaches for it and
+      // then calls replaceRange on what comes back.
+      getDoc() { return editor; },
+      focus() {},
+      blur() {},
+      hasFocus() { return false; },
+      refresh() {},
       revision() { return revision; },
     };
+    return editor;
   }
 
   async function settleEditorWork(editor) {
@@ -1489,6 +1711,111 @@ export function pluginSandboxDocument() {
     throw new Error('Plugin command did not settle');
   }
 
+  /**
+   * Run one piece of the plugin's work with the open note in front of it.
+   *
+   * Read, run, settle, write back — the shape the editorCallback path already
+   * had, lifted out so a dialog choice and a plain command get it too. What it
+   * adds is the view: while run() is on the stack, getActiveViewOfType answers
+   * with an editor over the bytes just read, so a plugin that inserts at the
+   * cursor inserts into the note the reader has open.
+   *
+   * The file is pinned before the first await. The owner may open another note
+   * while a plugin's network work is in flight, and the result belongs to the
+   * note the work started on.
+   *
+   * required is the editorCallback case: a command that takes an editor has
+   * nothing to do without one, so no note open is its error rather than a
+   * quieter run. Everything else runs regardless — a command that only shows a
+   * notice must not start failing because nothing is open — and reports
+   * afterwards whether the plugin went looking for an editor it did not get.
+   *
+   * Returns null when there was nothing to report, or one of a closed set of
+   * reasons the caller can turn into a sentence. The strings a plugin or a
+   * refusal produces stay in here: the console says what it means itself.
+   */
+  async function withActiveEditor(run, required) {
+    /*
+      Whether the plugin asked for a view is a question about THIS piece of
+      work, so the flag is saved and restored: a command that opens a dialog
+      and a pick made inside it are two runs, and the first one's asking must
+      not answer for the second.
+    */
+    const wasAsked = viewAsked;
+    viewAsked = false;
+    const previous = activeEditor;
+    let target = activeFile;
+    let before = null;
+    /** Why there is no editor, when the read is what took it away. */
+    let denied = null;
+    if (target !== null) {
+      try {
+        before = await vault.read(target);
+      } catch (error) {
+        if (required) throw error;
+        // A plugin with no read grant still gets to run; it simply has no
+        // editor, and this is only said below if it went looking for one.
+        before = null;
+        target = null;
+        denied = reasonFor(error);
+      }
+    }
+    if (required && before === null) throw new Error('Open a note before running this command');
+    const editor = before === null ? null : editorFor(before);
+    activeEditor = editor === null
+      ? null
+      : { file: target, editor, view: new MarkdownView(app, target, editor) };
+    let reason = null;
+    try {
+      /*
+        What the plugin's own code throws travels on rather than becoming a
+        reason. The caller knows what to do with it — a command reports the
+        message on its own card, the way it always has — and flattening it here
+        would throw away the one sentence that says what broke. Only the read
+        and the write-back, which are Context's half of this, become a word.
+
+        A throw also skips the write-back, which is the editorCallback path's
+        existing rule: half of an edit a plugin abandoned is not an edit
+        anybody asked for.
+      */
+      await run(editor);
+      if (editor !== null && (required || editor.revision() > 0)) await settleEditorWork(editor);
+      if (editor !== null) {
+        const after = editor.getValue();
+        if (after !== before) {
+          try {
+            await vault.modify(target, after);
+          } catch (error) {
+            if (required) throw error;
+            reason = reasonFor(error);
+          }
+        }
+      }
+      // Nowhere to write is a failure only for a plugin that went looking.
+      if (reason === null && editor === null && viewAsked) {
+        reason = denied === null ? 'no-note' : denied;
+      }
+    } finally {
+      activeEditor = previous;
+      viewAsked = wasAsked;
+    }
+    return reason;
+  }
+
+  /*
+    Why a piece of work did not land, as one of three words rather than as
+    whatever string came back.
+
+    CAPABILITY_DENIED is the one worth telling apart: it is not a malfunction,
+    it is the owner not having turned this plugin's write on, and it is the one
+    the reader can do something about. Everything else is the plugin failing,
+    and the message it failed with belongs in the console's log rather than in
+    a banner the plugin would then be writing.
+  */
+  function reasonFor(error) {
+    return error && error.code === 'CAPABILITY_DENIED' ? 'not-allowed' : 'failed';
+  }
+
   async function unload() {
     try { if (instance && typeof instance.onunload === 'function') await instance.onunload(); } catch (_) {}
     while (disposers.length) { try { disposers.pop()(); } catch (_) {} }
@@ -1496,6 +1823,13 @@ export function pluginSandboxDocument() {
     commands.clear();
     listeners.clear();
     activeFile = null;
+    /*
+      And the editor over it. An unloaded plugin holding a view would be one
+      whose writes land on a note nobody asked it to touch, through a session
+      the console has already torn down.
+    */
+    activeEditor = null;
+    viewAsked = false;
     // An unloaded plugin is inert, and a status bar that went on reporting
     // would be a line on the console from a plugin that is no longer running.
     suggesters.length = 0;
@@ -1552,7 +1886,19 @@ export function pluginSandboxDocument() {
       if (!waiting) return;
       pending.delete(message.response.requestId);
       if (message.response.ok) waiting.resolve(message.response.result);
-      else waiting.reject(new Error(message.response.error && message.response.error.message || 'Plugin operation failed'));
+      else {
+        const failed = message.response.error;
+        const error = new Error(failed && failed.message || 'Plugin operation failed');
+        /*
+          The code, kept rather than flattened into the sentence. A refusal the
+          owner can lift — CAPABILITY_DENIED — and a plugin that broke are
+          different things to say to a reader, and the message alone cannot
+          tell them apart. Plugins see this too, as Obsidian's own errors carry
+          fields; it grants nothing they did not already have.
+        */
+        if (failed && typeof failed.code === 'string') error.code = failed.code;
+        waiting.reject(error);
+      }
       return;
     }
     if (nonce === null) {
@@ -1567,23 +1913,29 @@ export function pluginSandboxDocument() {
       const command = commands.get(message.id);
       if (!command) return;
       try {
+        let reason = null;
         if (typeof command.editorCallback === 'function') {
-          if (activeFile === null) throw new Error('Open a note before running this command');
-          // Pin the target before the first await. The owner may open another
-          // note while a plugin's network work is in flight, and the result
-          // still belongs to the note the command was invoked against.
-          const target = activeFile;
-          const before = await vault.read(target);
-          const editor = editorFor(before);
-          await command.editorCallback(editor, null);
-          await settleEditorWork(editor);
-          const after = editor.getValue();
-          if (after !== before) await vault.modify(target, after);
+          await withActiveEditor(
+            editor => command.editorCallback(editor, activeEditor === null ? null : activeEditor.view),
+            true,
+          );
         } else {
           const run = command.callback || command.checkCallback;
-          if (typeof run === 'function') await run();
+          /*
+            A plain callback runs with the open note in front of it too, which
+            is not a widening of what a command may do: Obsidian gives every
+            command the same reach through getActiveViewOfType, and a write
+            still goes through the same audited RPC under the same grant. What
+            it changes is that a plugin which asks for the editor now gets one.
+
+            A reason from here is reported rather than thrown. The plugin did
+            not fail — it asked for something Context could not give it — so
+            what travels is the word for that, and the console writes the
+            sentence.
+          */
+          if (typeof run === 'function') reason = await withActiveEditor(() => run(), false);
         }
-        send('command-result', { id: message.id, ok: true });
+        send('command-result', { id: message.id, ok: reason === null, reason });
       } catch (error) {
         send('command-result', { id: message.id, ok: false, error: String(error && error.message || error).slice(0, 500) });
       }
@@ -1830,6 +2182,31 @@ export const PREVIEW_LINKS_MAX = 24;
 export const PREVIEW_TEXT_MAX = 400;
 
 /**
+ * Why a piece of a plugin's work did not land, as a word rather than a sentence.
+ *
+ * A closed set, and that is the whole point of it being one. Every one of these
+ * ends with the console telling somebody why the thing they pressed did
+ * nothing, and a sentence carried up from the guest would be the plugin writing
+ * Context's error message — over a refusal that is often *about* that plugin.
+ * So the guest names which of three cases it is, and the console keeps the
+ * words: the worst a lying guest achieves is the wrong one of three.
+ *
+ * - `no-note` — it reached for the open note and there was none.
+ * - `not-allowed` — the owner has not given it that reach; a grant fixes it.
+ * - `failed` — it threw, or the write did. The plugin's own problem.
+ */
+export const PLUGIN_WORK_REASONS = Object.freeze(["no-note", "not-allowed", "failed"]);
+
+/** @param {unknown} value */
+function workReason(value) {
+  return typeof value === "string" && PLUGIN_WORK_REASONS.includes(
+    /** @type {typeof PLUGIN_WORK_REASONS[number]} */ (value),
+  )
+    ? /** @type {"no-note" | "not-allowed" | "failed"} */ (value)
+    : null;
+}
+
+/**
  * Strictly recognize messages that may cross from the untrusted frame.
  * @param {unknown} value
  * @param {string} expectedNonce
@@ -1877,6 +2254,14 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
             id: row.id.slice(0, 100),
             ok: row.ok,
             error: typeof row.error === "string" ? row.error.slice(0, 500) : null,
+            /*
+              And why, when the why is one Context can state better than the
+              plugin can. A command that asked for the open note and could not
+              have it did not malfunction, and the card saying "it failed" over
+              a grant the owner simply has not given would send somebody
+              looking for a bug.
+            */
+            reason: workReason(row.reason),
           }
         : null;
     /*
@@ -2123,7 +2508,19 @@ export function parsePluginSandboxMessage(value, expectedNonce) {
     */
     case "suggest-modal-picked":
       return typeof row.seq === "number" && typeof row.reopened === "boolean"
-        ? { type: "suggest-modal-picked", seq: row.seq, reopened: row.reopened }
+        ? {
+            type: "suggest-modal-picked",
+            seq: row.seq,
+            reopened: row.reopened,
+            /*
+              Whether the pick landed. Every way it does not looks the same from
+              where the reader is sitting — the row was pressed, the dialog
+              closed, the note did not change — so this is what turns that into
+              a sentence. `null` is the ordinary case: it worked, or the plugin
+              never wanted the note in the first place.
+            */
+            reason: workReason(row.reason),
+          }
         : null;
     /*
       The line the plugin's own selectSuggestion produced.

@@ -11,10 +11,11 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import type { RuntimeView } from "./runtime";
+import { pluginWorkNote, type RuntimeView } from "./runtime";
 
 /**
  * The dialog a running plugin asked for, drawn by the console.
@@ -59,6 +60,17 @@ export function PluginSuggestDialog({ runtime }: { runtime?: RuntimeView }) {
   const ask = runtime?.actions?.askModalSuggestions;
   const pick = runtime?.actions?.pickModalSuggestion;
   const dismiss = runtime?.actions?.dismissModal;
+  /*
+    What the reader gets when their pick did nothing.
+
+    Drawn here rather than anywhere else because this is the surface they
+    pressed — and it cannot be drawn *inside* the dialog, which is already gone
+    by the time the guest knows: it closes its own modal before running
+    `onChooseSuggestion`, the order Obsidian keeps. So the dialog goes and this
+    takes its place.
+  */
+  const failure = runtime?.pickFailure ?? null;
+  const dismissFailure = runtime?.actions?.dismissPickFailure;
 
   const [query, setQuery] = useState("");
   const [rows, setRows] = useState<{ text: string }[]>([]);
@@ -104,14 +116,56 @@ export function PluginSuggestDialog({ runtime }: { runtime?: RuntimeView }) {
     [pick, rows],
   );
 
-  if (modal === null) return null;
-
   /*
     The same test `Palette` makes, for the same reason: the constraint is the
     room, not the input device, so a desktop browser dragged narrow gets the
     sheet too.
   */
   const touch = Platform.OS !== "web" || width < layout.narrowBreakpoint;
+
+  if (modal === null) {
+    if (failure === null) return null;
+    return (
+      <Modal
+        transparent
+        visible
+        animationType="fade"
+        onRequestClose={() => dismissFailure?.()}
+        testID="plugin-pick-failed"
+      >
+        <Pressable
+          style={styles.scrim}
+          onPress={() => dismissFailure?.()}
+          accessibilityLabel="Close"
+        >
+          <View style={[styles.centre, touch ? styles.centreTouch : styles.centrePointer]}>
+            <View
+              style={[styles.panel, styles.failed, { paddingBottom: touch ? insets.bottom : 0 }]}
+              onStartShouldSetResponder={() => true}
+            >
+              <Text variant="treeMeta" style={styles.who}>
+                {failure.pluginId}
+              </Text>
+              <Text variant="rowTitle">Nothing was inserted</Text>
+              {/*
+                Context's sentence about one of three cases, never a string the
+                plugin wrote — see `pluginWorkNote`. The plugin is named above
+                it, so a reader can tell whose refusal this is.
+              */}
+              <Text variant="rowSub" style={styles.empty} testID="plugin-pick-failed-note">
+                {pluginWorkNote(failure.reason)}
+              </Text>
+              <Button
+                label="Close"
+                onPress={() => dismissFailure?.()}
+                testID="plugin-pick-failed-close"
+              />
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+    );
+  }
 
   return (
     <Modal
@@ -239,6 +293,9 @@ const makeStyles = (colors: Colors) =>
     row: { paddingHorizontal: space.x3, paddingVertical: space.x2 },
     rowActive: { backgroundColor: colors.accentDim },
     empty: { padding: space.x3, color: colors.muted },
+    // The failure panel is prose and a button rather than a list, so it carries
+    // its own padding instead of borrowing the input's and the rows'.
+    failed: { padding: space.x3, gap: space.x2, alignItems: "flex-start" },
     foot: {
       borderTopWidth: 1,
       borderTopColor: colors.line,

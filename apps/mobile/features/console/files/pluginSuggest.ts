@@ -22,16 +22,24 @@ import type { EditorView } from "@codemirror/view";
  * ## The line is the unit, and that is what makes the pick safe
  *
  * `ask` is given the text of the current line up to the cursor. `pick` answers
- * with the whole line the plugin's `selectSuggestion` produced. So applying a
- * suggestion is "replace this line with that line" — which needs no write
- * grant, because the *editor* makes the edit through its normal path. It is the
- * person typing, and it undoes like anything else they typed.
+ * with that same text as the plugin's `selectSuggestion` left it. So applying a
+ * suggestion is "replace what is before the caret with that" — which needs no
+ * write grant, because the *editor* makes the edit through its normal path. It
+ * is the person typing, and it undoes like anything else they typed.
+ *
+ * **Before the caret, and not the whole line.** The guest's one-line editor is
+ * built from what crosses, so it has never contained anything the reader typed
+ * *after* the caret — and this replaced the whole line with it, which silently
+ * deleted that tail. Sending more of the line would fix it in the other
+ * direction and hand the sandbox note content nobody asked it about; the range
+ * it writes is what was wrong, so that is what changed.
  *
  * A pick is asynchronous — it crosses to a sandbox and back — and the document
  * can move underneath it. So the line is re-resolved at apply time and the edit
- * is abandoned unless that line is still character-for-character the one the
- * suggestion was computed from. That is the etag rule this codebase applies to
- * notes, at the scale of one line: **never write over what you did not read.**
+ * is abandoned unless the text before the caret is still character-for-character
+ * what the suggestion was computed from. That is the etag rule this codebase
+ * applies to notes, at the scale of part of a line: **never write over what you
+ * did not read.**
  *
  * ## A source, never an `autocompletion()` of its own
  *
@@ -79,13 +87,13 @@ export function pluginSuggestSource(ref: PluginSuggestRef): CompletionSource {
     if (ask === undefined) return null;
     const line = context.state.doc.lineAt(context.pos);
     const ch = context.pos - line.from;
-    const items = await ask(line.text.slice(0, ch), ch);
+    const asked = line.text.slice(0, ch);
+    const items = await ask(asked, ch);
     if (items.length === 0) return null;
-    const asked = line.text;
     const lineNumber = line.number;
     return {
       from: line.from,
-      to: line.to,
+      to: context.pos,
       /*
         `filter: false`, because the plugin already decided what matches. The
         query it triggered on is its own — `@ John 3:16` — and CodeMirror
@@ -109,9 +117,9 @@ export function pluginSuggestSource(ref: PluginSuggestRef): CompletionSource {
             */
             if (lineNumber > view.state.doc.lines) return;
             const current = view.state.doc.line(lineNumber);
-            if (current.text !== asked) return;
+            if (current.text.slice(0, ch) !== asked) return;
             view.dispatch({
-              changes: { from: current.from, to: current.to, insert: next },
+              changes: { from: current.from, to: current.from + ch, insert: next },
               selection: { anchor: current.from + next.length },
             });
           });

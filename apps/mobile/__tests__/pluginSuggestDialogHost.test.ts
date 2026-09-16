@@ -171,6 +171,56 @@ describe("only the frame that opened the dialog may answer for it", () => {
     expect((await answer).map((item) => item.text)).toEqual(["John 3:16"]);
   });
 
+  /*
+    AND WHAT A PICK THAT LANDED NOWHERE LEAVES BEHIND.
+
+    The guest reports one of a closed set of reasons; the host holds the last
+    one so the console can say it. Without this the reader gets exactly what
+    was reported from the shipped app: the row goes down, the dialog closes,
+    and nothing anywhere explains the note that did not change.
+  */
+  test("a pick that could not be applied is kept, with whose it was", async () => {
+    const host = mount();
+    host.send(OWNER, { type: "suggest-modal", open: true, placeholder: "", instructions: [] });
+    host.send(OWNER, {
+      type: "suggest-modal-picked",
+      seq: 1,
+      reopened: false,
+      reason: "not-allowed",
+    });
+    await settle();
+    expect(host.view().pickFailure).toEqual({
+      pluginId: "bible-reference",
+      reason: "not-allowed",
+    });
+    // The dialog closed with it: the pick is over either way.
+    expect(host.view().modal).toBeNull();
+  });
+
+  test("a pick that landed leaves nothing to say", async () => {
+    const host = mount();
+    host.send(OWNER, { type: "suggest-modal", open: true, placeholder: "", instructions: [] });
+    host.send(OWNER, { type: "suggest-modal-picked", seq: 1, reopened: false, reason: null });
+    await settle();
+    expect(host.view().pickFailure ?? null).toBeNull();
+  });
+
+  test("the next dialog clears the last complaint", async () => {
+    const host = mount();
+    host.send(OWNER, { type: "suggest-modal", open: true, placeholder: "", instructions: [] });
+    host.send(OWNER, { type: "suggest-modal-picked", seq: 1, reopened: false, reason: "no-note" });
+    await settle();
+    expect(host.view().pickFailure).not.toBeNull();
+
+    host.send(OWNER, { type: "suggest-modal", open: true, placeholder: "", instructions: [] });
+    await settle();
+    /*
+      The reader is being asked something new. A note about the last press,
+      left up, would read as a complaint about the dialog now on screen.
+    */
+    expect(host.view().pickFailure ?? null).toBeNull();
+  });
+
   test("and the frame that was asked is still answered normally", async () => {
     const host = mount();
 
