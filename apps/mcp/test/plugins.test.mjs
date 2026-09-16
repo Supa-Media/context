@@ -15,6 +15,8 @@
  * never come back "runs here", and curation must never be able to make it.
  */
 
+import { readFile } from "node:fs/promises";
+
 import { R2Store } from "../src/store/r2.js";
 import {
   MAX_REPORTED_HOSTS,
@@ -1008,4 +1010,47 @@ export async function runPluginChecks(check) {
     checkedAt: "2026-09-02T00:00:00.000Z",
   });
   check("an approval verdict shows the host on the consent path", approvalText.includes("readwise.io"));
+
+  /*
+    THE DOWNLOAD CAP AND THE SCAN CAP ARE ONE NUMBER IN TWO PACKAGES.
+
+    `MAX_SCAN_BYTES` bounds what the gateway reads to check a bundle;
+    `MAX_PLUGIN_ASSET_BYTES` in `functions/obsidianPlugins.ts` bounds what the
+    control plane pulls down in the first place. Both files now say they are
+    deliberately equal, in those words, and the reason is the same on both
+    sides: **a bundle that can be fetched but not checked is the one
+    combination worth ruling out by construction.**
+
+    That is not hypothetical. They HAD drifted — 10MB down, 4MB read — and the
+    account of it is in the Convex file: "a 10MB plugin installed fine and
+    reported 'couldn't be checked' forever after." The invariant was stated
+    twice and held by nobody, which is how it drifted in the first place.
+
+    Divergence fails CLOSED, which is why this is small: `offersInstall` is
+    true only for `runs` and `needs-approval`, so an `unknown` plugin has no
+    install path at all. The cost is a legitimate plugin made permanently
+    uninstallable, not an unscanned one getting in.
+
+    Read from the source rather than imported, because that file is Convex code
+    and the constant is not exported. The MB figure is extracted in the shape
+    both files write it, so a change to either the number or the form fails
+    here instead of silently.
+  */
+  const convexPlugins = await readFile(
+    new URL("../../convex/functions/obsidianPlugins.ts", import.meta.url),
+    "utf8"
+  );
+  const downloadCapMb = Number(
+    /^const MAX_PLUGIN_ASSET_BYTES = (\d+) \* 1024 \* 1024;$/m.exec(convexPlugins)?.[1]
+  );
+  // Non-vacuity first: a regex that stopped matching would make the comparison
+  // below `NaN === NaN`-shaped and quietly prove nothing.
+  check(
+    "the control plane's plugin download cap is readable from its source",
+    Number.isFinite(downloadCapMb) && downloadCapMb > 0
+  );
+  check(
+    "...and it is the same number as the gateway's scan cap, so nothing installs unchecked",
+    downloadCapMb * 1024 * 1024 === MAX_SCAN_BYTES
+  );
 }
