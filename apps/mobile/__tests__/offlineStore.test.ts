@@ -274,7 +274,7 @@ describe("keys", () => {
 
   test("a context that is no longer in the list loses its bucket copies only", () => {
     /*
-      The selector behind row 504's purge, on its own. The set it takes is
+      The selector behind the departed-context purge, on its own. The set it takes is
       narrower than `keysForWorkspace` in both directions, and each narrowing is
       a different promise:
 

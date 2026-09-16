@@ -364,7 +364,7 @@ describe("counting what is waiting on a store that will not answer", () => {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Row 504: the contexts nobody left, and nobody is a member of any more.
+ * The contexts nobody left, and nobody is a member of any more.
  *
  * `forgetContextCopies` fires on the one transition this device can see — the
  * person pressing Leave. Every other way a membership ends happens on somebody

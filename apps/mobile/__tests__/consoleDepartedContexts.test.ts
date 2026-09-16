@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * Row 504, wired: the console's own context list is what takes a removed
+ * The console's own context list is what takes a removed
  * context's copies off the device.
  *
  * `offlineForget.test.ts` proves what `forgetDepartedContexts` does when it is
