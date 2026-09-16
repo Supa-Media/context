@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ContextRowMenu } from "./ContextRowMenu";
 import { Dot } from "../design/components/Dot";
@@ -191,20 +191,44 @@ export function ContextStrip({
         testID="context-strip-scroll"
       >
         {ordered.map((context) => (
-          <Pill
-            key={context.id}
-            label={atName(context.slug)}
-            accessibilityLabel={
-              context.slug === currentSlug
-                ? `${atName(context.slug)}, the context you are in`
-                : `Open ${atName(context.slug)}`
-            }
-            current={context.slug === currentSlug}
-            leading={<Dot tone={toneForKind(context)} />}
-            onPress={() => onOpen(context.slug)}
-            onLongPress={() => setMenuSlug(context.slug)}
-            testID={`context-strip-${context.slug}`}
-          />
+          <Fragment key={context.id}>
+            {/*
+              The divider before the pinned pill, and the whole of what a phone
+              can spend on saying "the next one is not yours".
+
+              A phone gets no hairline-and-a-line-of-prose: this row is 34pt on
+              a 390pt screen and there is nowhere to put a sentence. So the
+              separation is carried by two things that cost no height — this
+              1pt rule, and the pill's own colour — and by one that costs
+              nothing at all, which is that `stripOrder` puts the pinned context
+              last unconditionally. That ordering is what makes the divider
+              mean anything: "everything after this is different" is only true
+              while exactly one pill follows it.
+            */}
+            {context.pinned === true ? (
+              <View style={styles.pinnedDivider} aria-hidden />
+            ) : null}
+            <Pill
+              label={atName(context.slug)}
+              accessibilityLabel={
+                context.slug === currentSlug
+                  ? `${atName(context.slug)}, the context you are in`
+                  : context.pinned === true
+                    ? // Spelled out, because the divider and the colour that
+                      // say this to everybody else say nothing here. The rail's
+                      // rule: a mark with no text is not a mark to a screen
+                      // reader.
+                      `Open ${atName(context.slug)}, Context's own read-only workspace`
+                    : `Open ${atName(context.slug)}`
+              }
+              current={context.slug === currentSlug}
+              pinned={context.pinned === true}
+              leading={<Dot tone={toneForKind(context)} />}
+              onPress={() => onOpen(context.slug)}
+              onLongPress={() => setMenuSlug(context.slug)}
+              testID={`context-strip-${context.slug}`}
+            />
+          </Fragment>
         ))}
 
         {/*
@@ -257,6 +281,8 @@ export function ContextStrip({
           // answer offers Leave on a workspace you own and the press comes back
           // `OWNER_CANNOT_LEAVE`. Same rule as the rail's.
           canLeave={menuContext.role !== "owner"}
+          // Open and nothing else, for the reasons in `contextMenuItems`.
+          pinned={menuContext.pinned === true}
           onSelect={(target) => {
             setMenuSlug(null);
             onSelect(target);
@@ -431,6 +457,7 @@ export function Pill({
   current = false,
   accented = false,
   head = false,
+  pinned = false,
   leading,
   onPress,
   onLongPress,
@@ -440,6 +467,16 @@ export function Pill({
   accessibilityLabel: string;
   /** The context being read. Lit, and always first. */
   current?: boolean;
+  /**
+   * The pinned context — Context's own workspace, which everybody reaches.
+   *
+   * Tinted whether or not it is the one being read, which is the opposite of
+   * every other pill on this row: `current` is a *state* and this is a *fact
+   * about the context*, so it must not go away when you walk into it. A pill
+   * that only looked different while you were elsewhere would stop saying
+   * "these notes are not yours" exactly when somebody is reading them.
+   */
+  pinned?: boolean;
   /** The claim entry, and only that one. See the file comment. */
   accented?: boolean;
   /**
@@ -478,6 +515,15 @@ export function Pill({
       <View
         style={[
           styles.pill,
+          /*
+            Before `current`, deliberately. The lit treatment has to win the
+            background when you are standing in the pinned context, or the row
+            stops answering "where am I" for the one context most likely to be
+            mistaken for somewhere else. What survives either way is the border
+            and the label colour, which `pillPinned` sets and `pillCurrent`
+            does not touch — so the pill still reads as violet while lit.
+          */
+          pinned && styles.pillPinned,
           current && styles.pillCurrent,
           accented && styles.pillAccent,
           pressed && styles.pillPressed,
@@ -503,6 +549,9 @@ export function Pill({
       <Text
         variant={head ? "mono" : "wsSwitch"}
         style={[
+          // Before `current` for the reason the fill is: being lit changes the
+          // ground, and this is what keeps the violet reading after it has.
+          pinned && styles.pillPinnedLabel,
           current && styles.pillCurrentLabel,
           accented && styles.pillAccentLabel,
           head && styles.pillHeadLabel,
@@ -662,6 +711,41 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   /** The claim entry only. See the file comment for why not "New workspace". */
   pillAccent: { backgroundColor: colors.accentDim },
   pillAccentLabel: { color: colors.accentText },
+
+  /**
+   * The pinned context's pill, in the palette's existing "somebody else's
+   * access" pair rather than in a colour invented for it.
+   *
+   * `sharedWash`/`sharedText` are the violet `ContinuityDemo` and the map
+   * already use for exactly this meaning, and `tokens.ts` carries both in each
+   * palette — which is the whole reason this needed no new token: a hardcoded
+   * `#D8C9FF` is legible on the dark ground and invisible on the light one, and
+   * that mistake is already recorded there.
+   *
+   * A border as well as a fill, because the fill is the half that loses: a lit
+   * pinned pill takes `pillCurrent`'s accent ground on top of this one, and the
+   * border and the label are what go on saying whose context it is.
+   */
+  pillPinned: {
+    backgroundColor: colors.sharedWash,
+    borderColor: colors.sharedBorder,
+  },
+  pillPinnedLabel: { color: colors.sharedText },
+
+  /**
+   * The rule before the pinned pill. A phone's whole separation budget.
+   *
+   * `alignSelf: "stretch"` with vertical inset rather than a fixed height, so
+   * it is as tall as the pills beside it however the type scales — a 1×12pt
+   * bar next to a pill that has grown to 40 reads as a stray mark.
+   */
+  pinnedDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: "stretch",
+    marginVertical: space.x1,
+    marginHorizontal: space.x1,
+    backgroundColor: colors.lineStrong,
+  },
 
   /**
    * The trailing falloff.

@@ -52,8 +52,35 @@ export function contextMenuItems(
      * role is what this takes.
      */
     canLeave?: boolean;
+    /**
+     * True for the pinned context — `@context-lc`, which everybody reaches and
+     * nobody joined (`packages/shared/src/pinnedContext.ts`).
+     *
+     * It reduces the menu to **Open**, and each of the three that go are a
+     * control that would fail rather than a control being hidden for tidiness:
+     *
+     *  - **Settings…** is the storage binding and email ingestion, both
+     *    owner-only, and `getStorageBinding` refuses a pinned reader with
+     *    `WORKSPACE_NOT_FOUND` — the pane would draw its own failure.
+     *  - **Manage sharing…** leads to who-can-reach-this, which for this
+     *    workspace is everybody, decided by us and not by the person reading.
+     *  - **Leave** has nothing to remove. There is no membership row, so
+     *    `leaveWorkspace` answers `{ left: false }` and the context is still
+     *    there on the next paint — a menu item that visibly does nothing.
+     *
+     * `canLeave` is deliberately still consulted and still false here rather
+     * than being overridden: a pinned row is `role: "member"`, so `canLeave`
+     * is true on it by the role rule, and *that* is the combination this flag
+     * exists to break.
+     */
+    pinned?: boolean;
   } = {},
 ): ContextMenuItem[] {
+  if (options.pinned) {
+    return [
+      { key: "open", label: "Open", route: { kind: "context", slug, view: "browse" } },
+    ];
+  }
   return [
     { key: "open", label: "Open", route: { kind: "context", slug, view: "browse" } },
     { key: "settings", label: "Settings…", route: { kind: "context", slug, view: "settings" } },

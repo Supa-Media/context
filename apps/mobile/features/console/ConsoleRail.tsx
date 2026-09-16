@@ -20,7 +20,7 @@ import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
 import type { MenuItem } from "./files/menu";
 import { selectContextRoute, type ConsoleRoute } from "./nav";
-import { isOwnWorkspace, railGroup } from "./rail";
+import { isOwnWorkspace, isPinnedContext, railGroup } from "./rail";
 import type { ConsoleData } from "./types";
 
 /**
@@ -314,6 +314,20 @@ export function ConsoleRail({
               open={menuOpenOn(context.slug)}
               onOpenMenu={() => setMenuSlug(context.slug)}
             >
+              {/*
+                The rule above the pinned context, drawn as part of its own row
+                rather than as a sibling between rows.
+
+                It has to be *attached* to the row: `railGroup` orders the
+                pinned context last, and a separator emitted between iterations
+                would keep its place in the list even if that order ever changed
+                — a hairline through the middle of somebody's own workspaces,
+                saying nothing about either side of it. Drawn here it is always
+                immediately above the row it separates, by construction.
+              */}
+              {isPinnedContext(context) ? (
+                <View style={styles.pinnedRule} role="presentation" />
+              ) : null}
               <RailEntry
                 label={atName(context.slug)}
                 // A context has no icon of its own, so the initial stands in —
@@ -351,9 +365,30 @@ export function ConsoleRail({
                     <Text variant="foot" style={styles.yours}>
                       yours
                     </Text>
+                  ) : isPinnedContext(context) ? (
+                    /*
+                      The two marks are mutually exclusive by construction, not
+                      by this ordering: `isOwnWorkspace` needs a personal
+                      context you own and the pinned one is shared and not
+                      yours. The `else` is how the row is written, not what
+                      keeps them apart.
+
+                      "read-only" rather than "viewer", which is the word for
+                      this role everywhere it is a *role*. On a row whose whole
+                      job is telling somebody what they are about to open,
+                      naming the limit beats naming the rank.
+                    */
+                    <Text variant="foot" style={styles.pinnedMark}>
+                      read-only
+                    </Text>
                   ) : null
                 }
               />
+              {isPinnedContext(context) ? (
+                <Text variant="foot" style={styles.pinnedNote}>
+                  Context's own workspace. Docs, changelog, bug tracker.
+                </Text>
+              ) : null}
               {menuOpenOn(context.slug) ? (
                 <ContextRowMenu
                   slug={context.slug}
@@ -362,6 +397,13 @@ export function ConsoleRail({
                   // is only ever for the ones that are not — see
                   // `contextMenuItems`.
                   canLeave={context.role !== "owner"}
+                  /*
+                    Reduces the menu to Open. Every other item would fail: the
+                    settings pane is owner-only queries, sharing is not this
+                    person's to manage, and Leave has no membership row to
+                    remove. See `contextMenuItems`.
+                  */
+                  pinned={isPinnedContext(context)}
                   onSelect={(target) => {
                     setMenuSlug(null);
                     onNavigate(target);
@@ -865,6 +907,54 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * `numberOfLines={1}`) instead of squeezing this out of the row.
    */
   yours: { marginLeft: "auto", flexShrink: 0, color: colors.muted },
+  /**
+   * The separation treatment for the pinned context, which is three quiet
+   * things rather than one loud one.
+   *
+   * A badge was the obvious answer and is the wrong one: the rail's existing
+   * mark is the word "yours" in `muted`, and a filled pill shouting READ-ONLY
+   * next to it would make the *other* person's workspace the loudest row in
+   * somebody's own console. What has to be unmistakable is that the notes
+   * behind this row are not theirs, and position says that more cheaply than
+   * colour — so the rule and the standing line do most of the work and the mark
+   * only has to settle it.
+   *
+   * `sharedText` on `sharedWash` is the palette's existing "somebody else's
+   * access" pair (`ContinuityDemo`, `tokens.ts`), which is why this needed no
+   * new colour: the console already had a word for this and it was spelled in
+   * violet.
+   */
+  pinnedRule: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: colors.line,
+    marginTop: space.x3,
+    marginBottom: space.x2,
+    marginHorizontal: 9,
+  },
+  /**
+   * The one line of prose in the rail, and the only row that gets one.
+   *
+   * `rail.ts` retired the headed groups because a heading over each of two
+   * kinds was "a division with nothing to divide". This is not that: it is one
+   * row, and what it has to say is whose the notes are — a fact no amount of
+   * grouping conveys, and one a person needs before they click, not after.
+   */
+  pinnedNote: {
+    paddingHorizontal: 9,
+    paddingBottom: space.x2,
+    color: colors.muted,
+  },
+  pinnedMark: {
+    marginLeft: "auto",
+    flexShrink: 0,
+    color: colors.sharedText,
+    backgroundColor: colors.sharedWash,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.sharedBorder,
+    borderRadius: radii.pill,
+    paddingHorizontal: space.x2,
+    overflow: "hidden",
+  },
   entryOn: { backgroundColor: colors.accentDim },
   entryOnLabel: { color: colors.accentText },
   glyph: { color: colors.text2, fontSize: 14 },

@@ -49,6 +49,25 @@ export interface ConsoleContext {
    * console would be a second place for it to drift.
    */
   meetingsFolder?: string;
+  /**
+   * True on the pinned context — `@context-lc`, which every account reaches
+   * without being invited (`packages/shared/src/pinnedContext.ts`).
+   *
+   * **Not derivable from anything else on this row.** It looks like an ordinary
+   * `shared`/`member` context and that is exactly what it is not: a shared
+   * context with `member` is one somebody put you in, and this one nobody did.
+   * The difference decides where the row is drawn (last, under a rule), what it
+   * says (read-only, whose it is), which of its verbs exist (Open, and nothing
+   * else), and — the one that is not cosmetic — whether the console fans its
+   * per-workspace subscriptions out over it. `listGrants`, `getStorageBinding`
+   * and `listGoogleConnections` all go through `requireWorkspaceAccess`, which
+   * has no membership row to find, so subscribing on this row means three
+   * failing queries per paint.
+   *
+   * Optional, and absent is false, so the demo console and the landing page's
+   * picture of the rail keep rendering unchanged.
+   */
+  pinned?: boolean;
 }
 
 /**
