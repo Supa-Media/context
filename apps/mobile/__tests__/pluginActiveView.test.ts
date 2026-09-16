@@ -108,6 +108,28 @@ function drain() {
       continue;
     }
     if (kind === "vault.modify") {
+      /*
+        THIS BROKER REFUSES WHAT THE REAL ONE REFUSES.
+
+        It used to accept every write whatever `expectedEtag` said, which made
+        the conditional write a decoration in every test in this file: the one
+        below that asserts the etag could see the value, and nothing could see
+        what it was FOR. A fake that cannot conflict cannot show a conflict
+        being mishandled, and one was — see "a second run must not lend its
+        etag to the first".
+      */
+      if (operation.expectedEtag !== note.etag) {
+        toHost({
+          type: "rpc-result",
+          response: {
+            version: 1,
+            requestId,
+            ok: false,
+            error: { code: "ETAG_MISMATCH", message: "That note changed while the plugin was working" },
+          },
+        });
+        continue;
+      }
       note.text = String(operation.text);
       note.etag = `${note.etag}+`;
       toHost({
@@ -154,6 +176,7 @@ const BUNDLE = `
   module.exports = class extends Plugin {
     async onload() {
       globalThis.__seen = { views: [], cursors: [] };
+      globalThis.__seen.gate = new Promise(resolve => { globalThis.__seen.openGate = resolve; });
       this.addCommand({
         id: 'insert-at-cursor',
         name: 'Insert at the cursor',
@@ -180,6 +203,20 @@ const BUNDLE = `
         name: 'Wants nothing',
         callback: () => { globalThis.__seen.ranQuietly = true; },
       });
+      /*
+        A command that waits, which is what a plugin fetching a verse does.
+        The test holds the gate open, runs another piece of this plugin's work
+        to completion underneath it, and then lets this one finish.
+      */
+      this.addCommand({
+        id: 'slow-at-the-cursor',
+        name: 'Slow at the cursor',
+        callback: async () => {
+          const editor = this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+          await globalThis.__seen.gate;
+          if (editor) editor.replaceRange('[slow]', editor.getCursor());
+        },
+      });
       this.addCommand({
         id: 'through-the-editor',
         name: 'Through the editor',
@@ -201,6 +238,7 @@ function seen() {
       ranQuietly?: boolean;
       editorView?: string;
       openDialog: () => void;
+      openGate: () => void;
     };
   }).__seen!;
 }
@@ -264,6 +302,59 @@ describe("a command can write into the note the console has open", () => {
     const write = operations()[1]!.operation;
     expect(write.path).toBe(note.path);
     expect(write.expectedEtag).toBe("etag-1");
+  });
+
+  /*
+    THE ETAG A RUN WRITES WITH MUST BE THE ONE THAT RUN READ.
+
+    `withActiveEditor` reads the open note, hands the plugin an editor over
+    those bytes, and writes the result back under `expectedEtag` — which it
+    took off the shared `activeFile`, not off its own read. So a second piece
+    of the same plugin's work, finishing while the first was still awaiting,
+    re-stamped that file with the etag ITS write produced, and the first run
+    then wrote with an etag it had never seen. The conditional write was
+    satisfied, and the second run's edit was gone: no conflict, no error,
+    nothing to retry. Two overlapping runs is ordinary — a ribbon press while
+    a command is fetching, or a pick in a dialog a command opened, which this
+    file's own helper saves and restores `viewAsked` across.
+
+    The fix pins the etag beside the text at the moment of the read, so the
+    stale run is refused and says so.
+
+    SABOTAGE RECORD for that fix, since the numbers say something:
+      write with the shared file again                      -> 1 (this test)
+      let this broker accept any expectedEtag               -> 1 (this test)
+      pin by reading target.etag back AFTER the await       -> 0
+    The last one is honest and worth leaving written down: that version fixes
+    the case below too, and nothing here can tell it from the one that shipped.
+    The reason it is not what shipped is an argument about a microtask window,
+    stated at the fix — not a defect anybody has demonstrated.
+  */
+  test("a second run must not lend its etag to the first", async () => {
+    toHost({ type: "active-file", path: note.path, etag: note.etag });
+    posted = [];
+    answered = 0;
+
+    toHost({ type: "command", id: "slow-at-the-cursor" });
+    await settle(3);
+    // Underneath it, a second run of the same plugin reads, writes and lands.
+    toHost({ type: "command", id: "insert-at-cursor" });
+    await settle(6);
+    expect(note.text).toBe("# Study\nA line I was writing.inserted");
+
+    seen().openGate();
+    await settle();
+
+    const writes = operations()
+      .filter((one) => String(one.operation.kind) === "vault.modify")
+      .map((one) => one.operation);
+    expect(writes).toHaveLength(2);
+    // Each write carries the version its own run read, so the later one is a
+    // conflict rather than a silent overwrite.
+    expect(writes[0]!.expectedEtag).toBe("etag-1");
+    expect(writes[1]!.expectedEtag).toBe("etag-1");
+    // And the edit that did land is still there.
+    expect(note.text).toBe("# Study\nA line I was writing.inserted");
   });
 
   test("an editorCallback is handed the same view, not a null", async () => {

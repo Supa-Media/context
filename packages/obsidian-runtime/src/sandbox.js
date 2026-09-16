@@ -1745,12 +1745,48 @@ export function pluginSandboxDocument() {
     viewAsked = false;
     const previous = activeEditor;
     let target = activeFile;
+    /*
+      THE VERSION THIS RUN READ, PINNED BESIDE THE TEXT IT READ.
+
+      vault.read stamps the etag onto the TFile and vault.modify takes it back
+      off, which is the right shape for a plugin holding a file and no idea
+      what an etag is — and the wrong one here, because activeFile is ONE
+      object shared by every run. Two pieces of this plugin's work overlap the
+      moment one of them awaits: a ribbon press while a command is fetching, or
+      a pick inside a dialog that command opened, which is why viewAsked above
+      is saved and restored rather than simply cleared. The second run to
+      finish re-stamped the file with the etag its own write produced, and the
+      first then wrote with a version it had never read. The conditional write
+      was satisfied, the second run's edit was gone, and nothing anywhere said
+      so — a lost write with no error, which is the one failure mode this
+      product does not get to have.
+
+      So the read is made here rather than through vault.read: the text and the
+      etag come off ONE result object, with no shared state between them.
+
+      Taking the pin off target.etag AFTER the await instead would close the
+      case above just as well, and the test for it cannot tell the two apart —
+      measured, that version reddens nothing. It is not what is written here,
+      for a reason that is an argument rather than a demonstration: another
+      run's read can stamp that field in the microtask between this read
+      resolving and the next line running, and a pinned value whose provenance
+      is still the shared object is the same class of mistake one layer down.
+      One result object costs nothing and has no such window.
+
+      The stamp onto the shared file is kept, because plugin code that reads
+      the open note through Context and then modifies it itself still expects
+      to find a version there.
+    */
+    let pinnedEtag = target !== null && typeof target.etag === 'string' ? target.etag : null;
     let before = null;
     /** Why there is no editor, when the read is what took it away. */
     let denied = null;
     if (target !== null) {
       try {
-        before = await vault.read(target);
+        const opened = await request({ kind: 'vault.read', path: target.path });
+        before = opened && typeof opened.text === 'string' ? opened.text : '';
+        if (opened && typeof opened.etag === 'string') pinnedEtag = opened.etag;
+        if (typeof pinnedEtag === 'string') target.etag = pinnedEtag;
       } catch (error) {
         if (required) throw error;
         // A plugin with no read grant still gets to run; it simply has no
@@ -1783,8 +1819,11 @@ export function pluginSandboxDocument() {
       if (editor !== null) {
         const after = editor.getValue();
         if (after !== before) {
+          // The pinned version, never the file's current one — see above.
+          const version = { path: target.path, etag: pinnedEtag };
           try {
-            await vault.modify(target, after);
+            await vault.modify(version, after);
+            if (typeof version.etag === 'string') target.etag = version.etag;
           } catch (error) {
             if (required) throw error;
             reason = reasonFor(error);
