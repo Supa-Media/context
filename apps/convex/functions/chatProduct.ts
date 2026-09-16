@@ -69,7 +69,7 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
-import { mailConnectEnabled } from "./googleConnect";
+import { defaultGoogleDestinationFolder, mailConnectEnabled } from "./googleConnect";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -581,7 +581,15 @@ export const applyChatConnectionBinding = internalMutation({
         spaceSettings: existing?.chat?.spaceSettings,
         cursors: existing?.chat?.cursors,
         nonceSeed: existing?.chat?.nonceSeed ?? generateNonceSeed(),
-        destinationFolder: existing?.chat?.destinationFolder,
+        // Recorded at connect, the way Gmail's always has been, rather than
+        // left absent for `defaultGoogleDestinationFolder` to answer again on
+        // every pass. A Chat pass re-renders every day the contribution store
+        // still holds, so a later edit to that constant would rewrite a year
+        // of somebody's conversations at new keys — and an exception they had
+        // set on one of those days (`note_overrides` names one exact path)
+        // would not follow, the way `remapPrivacy` makes it follow a move.
+        destinationFolder:
+          existing?.chat?.destinationFolder ?? defaultGoogleDestinationFolder("chat", undefined),
         lastSyncedAt: existing?.chat?.lastSyncedAt,
       },
       health: (starved.length ? "reconnect_required" : "backfilling") as

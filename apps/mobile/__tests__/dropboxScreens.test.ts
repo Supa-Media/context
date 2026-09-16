@@ -457,6 +457,11 @@ function consoleData(storage: Partial<ConsoleStorage>): ConsoleData {
     // whatever else it is showing, and its view has no tolerable absent member.
     // `loading` is where a live console rests until the read lands.
     contextPlugins: { state: "loading" },
+    // And again for the third plugin read. This fixture is `as never`, so a
+    // field added to `ConsoleData` does not fail typecheck here — it fails at
+    // render, which is how this one arrived. `loading` is where a live console
+    // rests until the pointer read lands.
+    pluginInstalls: { state: "loading", read: async () => {} },
     pluginGrants: { grants: [], loading: false },
     pluginBrowse: { query: "", limit: 20, searching: false, failure: null },
     pluginRuntime: { states: [], loading: false },

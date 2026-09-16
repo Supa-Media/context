@@ -164,9 +164,11 @@ function text(): string {
   return document.body.textContent ?? "";
 }
 
-async function configure(): Promise<{ store: Store; recorder: Recorder }> {
+async function configure(
+  capability?: Partial<Recorder["capability"]>,
+): Promise<{ store: Store; recorder: Recorder }> {
   const store = memoryStore();
-  const recorder = fakeRecorder();
+  const recorder = fakeRecorder(capability);
   await act(async () => {
     meetings.reset();
     await meetings.configure({
@@ -369,6 +371,73 @@ describe("what the sheet offers", () => {
     press("meeting-destination-claim");
     expect(claims).toEqual([1]);
     mounted.unmount();
+  });
+});
+
+/**
+ * THE SWITCH'S DEFAULT FOLLOWS THE SURFACE, BECAUSE THE TWO OFFERS COST
+ * DIFFERENT THINGS.
+ *
+ * `capability.systemAudio` is one boolean covering two mechanisms. Inside the
+ * desktop shell it is a loopback tap: on by default is right, because somebody
+ * recording a call on a machine that can hear the call means the call, and
+ * turning it on costs nothing and asks nothing. In a browser the same `true`
+ * opens a screen-share picker in front of **every** meeting anybody records,
+ * including the in-person ones — which is how a feature gets switched off
+ * wholesale rather than used.
+ *
+ * So the default is read off `systemAudioNeedsPicker`, and a choice the person
+ * makes outranks it. These are the checks that keep a picker out of the way of
+ * somebody who only wanted to record the room.
+ */
+describe("the whole-call switch defaults to what the surface costs", () => {
+  async function startWith(
+    capability: Partial<Recorder["capability"]>,
+    press_: (() => void) | null = null,
+  ): Promise<Recorder> {
+    const { store, recorder } = await configure(capability);
+    const mounted = mount(
+      createElement(Harness, {
+        contexts: [OWN],
+        page: { contextSlug: "testagent1", path: "index.md", isNote: true },
+        store,
+      }),
+    );
+    await settle();
+    press("mic");
+    press_?.();
+    press("meeting-destination-start");
+    await settle();
+    mounted.unmount();
+    return recorder;
+  }
+
+  test("the shell's silent tap is on, because it costs nothing to take", async () => {
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: false });
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("the browser's picker is off, because it costs a prompt every meeting", async () => {
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true });
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+  });
+
+  test("...and pressing the switch is what turns it on", async () => {
+    const recorder = await startWith({ systemAudio: true, systemAudioNeedsPicker: true }, () =>
+      press("meeting-system-audio"),
+    );
+    expect(recorder.startedWith?.systemAudio).toBe(true);
+  });
+
+  test("a surface with no offer sends no answer at all", async () => {
+    const recorder = await startWith({ systemAudio: false, systemAudioNeedsPicker: false });
+    /*
+      Not `false`. The controller's own fallback is what decides for a caller
+      that never drew the switch, and sending this layer's unused state would be
+      the app inventing an answer on somebody's behalf.
+    */
+    expect(recorder.startedWith?.systemAudio).toBe(false);
+    expect(shown("meeting-system-audio")).toBe(false);
   });
 });
 

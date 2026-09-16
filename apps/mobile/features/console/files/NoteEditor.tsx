@@ -358,6 +358,29 @@ export function NoteEditor({
   const scroller = useRef<ScrollView | null>(null);
   const offset = useRef(0);
   /*
+    The note's find bar, into Escape's reach.
+
+    ⌘F opens a bar over the document (`findInNote.ts`), and CodeMirror's own
+    Escape only reaches it while the caret is in the note or in the query
+    field. Click a tree row, a tab or the accessory bar and the key goes to the
+    console's `dismiss` command instead — `frame.closeOverlays()`, which knows
+    about the panels the frame renders and knew nothing about this one. That is
+    the whole of "isn't dismissable", and this is the registration that answers
+    it.
+
+    Through the ref, never a captured handle: the bar this closes is whichever
+    editor is mounted at the moment Escape is pressed, and the handle arrives
+    after this effect has already run. `closeFind` is web-only and optional, so
+    on a phone this closer answers `false` and Escape falls through exactly as
+    it did.
+  */
+  const { registerDismissable } = frame;
+  useEffect(
+    () => registerDismissable(() => controls.current?.closeFind?.() ?? false),
+    [registerDismissable],
+  );
+
+  /*
     Tell the frame while the accessory bar is up, so it puts its own toolbar
     away. Two floating bars in the same 66pt of glass is worse than either, and
     the reference has no bottom bar in its editing screenshot — while the

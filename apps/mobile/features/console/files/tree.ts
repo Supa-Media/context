@@ -36,7 +36,7 @@
  * the whole sentence out. What is dropped is a label, not a control.
  */
 
-import { baseName, displayName, isMarkdown } from "./paths";
+import { baseName, displayName, isFolderPlaceholder, isMarkdown } from "./paths";
 import type { FileEntry, FolderListing, Visibility } from "./types";
 
 export interface TreeRow {
@@ -171,12 +171,47 @@ export function orderedEntries(
 }
 
 /**
+ * The entries of one folder, as the console shows them: the placeholder
+ * dropped, then ordered.
+ *
+ * **The tree and the folder page both call this**, which is the point of it
+ * existing rather than each filtering its own copy. They are one listing shown
+ * twice, and a file that is a row on one surface and absent on the other is
+ * worse than the row it was hiding.
+ *
+ * `keep` is the open note's path, and it is the reason nothing is trapped: a
+ * placeholder reached from search, from a `[[link]]`, or from a restored tab is
+ * drawn while it is the thing you are looking at, so the tree still shows where
+ * you are. It goes back to being unlisted when you leave it.
+ *
+ * The filter is by name, not by contents — `isFolderPlaceholder` says why, and
+ * what that costs.
+ */
+export function listedEntries(
+  entries: readonly FileEntry[],
+  options: { descending?: boolean; keep?: string | null } = {},
+): readonly FileEntry[] {
+  const keep = options.keep ?? null;
+  const listed = entries.filter(
+    // `kind === "file"`, because a FOLDER somebody called `README.md` is a
+    // folder — pathological, and `isFolderPlaceholder` is a path predicate with
+    // no way to tell. Hiding it would make it unreachable in the console
+    // instead of merely unlisted, which is the one outcome this rule promises
+    // never to produce.
+    (entry) =>
+      entry.kind !== "file" || entry.path === keep || !isFolderPlaceholder(entry.path),
+  );
+  return orderedEntries(listed, options.descending ?? false);
+}
+
+/**
  * Flatten to rows, depth-first, in listing order.
  *
  * Listing order is the server's — folders first, then files, each
  * case-insensitively alphabetical — so re-sorting here would only introduce a
  * second opinion. `descending` reverses the *presentation* of that one order;
- * see `orderedEntries`.
+ * see `orderedEntries`. What is dropped on the way in is the folder
+ * placeholder; see `listedEntries`.
  */
 export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
   const rows: TreeRow[] = [];
@@ -198,7 +233,17 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
       });
       return;
     }
-    if (listing.entries.length === 0) {
+    /*
+      The placeholder is dropped before the count, so a folder holding nothing
+      but the key that makes it exist reads as empty rather than as a folder
+      with one file in it. That is the truthful sentence for this surface: it
+      says what there is to open, and there is nothing.
+    */
+    const entries = listedEntries(listing.entries, {
+      descending: options.descending,
+      keep: options.selectedPath,
+    });
+    if (entries.length === 0) {
       rows.push({
         kind: "empty",
         key: `${folder}::empty`,
@@ -214,7 +259,7 @@ export function buildTreeRows(options: BuildTreeOptions): TreeRow[] {
       return;
     }
 
-    for (const entry of orderedEntries(listing.entries, options.descending)) {
+    for (const entry of entries) {
       const expanded = entry.kind === "folder" && options.expanded.has(entry.path);
       rows.push({
         // The folder this entry sits in is the one being walked, so its default

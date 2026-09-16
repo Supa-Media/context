@@ -24,6 +24,7 @@ export function PluginSandbox({
   modalQuery,
   modalPick,
   modalDismiss,
+  textModalDismiss,
   preview,
 }: PluginSandboxProps) {
   const frame = useRef<WebView | null>(null);
@@ -160,6 +161,17 @@ export function PluginSandbox({
     post({ type: "suggest-modal-dismiss", seq: modalDismiss.seq });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, post, modalDismiss?.seq]);
+
+  /*
+    The plain dialog's only message back. It carries no result, so unlike the
+    suggestion dialog there is nothing to wait for — the console has already
+    closed it, and this tells the plugin so its `onClose` runs.
+  */
+  useEffect(() => {
+    if (!loaded || textModalDismiss === undefined) return;
+    post({ type: "text-modal-dismiss", seq: textModalDismiss.seq });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, post, textModalDismiss?.seq]);
 
   useEffect(() => {
     if (!loaded || preview === undefined) return;

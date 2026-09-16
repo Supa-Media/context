@@ -117,7 +117,26 @@ export function stripOrder(
     .sort((a, b) => rank.get(a.slug)! - rank.get(b.slug)!);
   const unvisited = rest.filter((context) => !rank.has(context.slug));
 
-  return [...visited, ...unvisited];
+  /*
+    The pinned context is last, whatever the recency log says.
+
+    This is the one place the strip overrules "most recently visited first", and
+    it is a drawing rule rather than an ordering preference. A phone has no room
+    for the rail's hairline-and-a-line-of-prose, so what tells somebody that
+    `@context-lc` is not theirs is a divider immediately before it plus the
+    pill's own colour — and a divider only means "everything after this is
+    different" while the pinned pill is the only thing after it. Let recency
+    move it into the middle and the divider lands between two of the person's
+    own workspaces, saying nothing about either.
+
+    Filed under the same principle as `rail.ts`'s pin of the own workspace: the
+    ends of this row are positions with meanings, and the order in between is
+    the recency log's.
+  */
+  const ordered = [...visited, ...unvisited];
+  const pinned = ordered.filter((context) => context.pinned === true);
+  if (pinned.length === 0) return ordered;
+  return [...ordered.filter((context) => context.pinned !== true), ...pinned];
 }
 
 /** The two verbs that live at the end of the strip. See `stripEntries`. */

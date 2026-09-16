@@ -9,23 +9,36 @@ import type { ConsoleRoute } from "./nav";
  * corner; the rail entry is the thing a person already knows is *the
  * context*, so the context's verbs belong on it too.
  *
- * Three items, every one an existing destination:
+ * Two items, every one an existing destination:
  *
  *  - **Open** — what a left click already does, present so the menu's first
  *    entry is never a surprise.
- *  - **Settings…** — the context's own pane: storage binding, email
- *    ingestion. The ellipsis is the menu convention for "leads somewhere".
- *  - **Manage sharing…** — who has access lives in Connections
- *    (`MembersSection` is mounted there, because "who can reach this" is an
- *    access question, not a storage one), so that is where the item honestly
- *    goes. When sharing moves into per-context settings, this row follows it
- *    by changing one route here.
+ *  - **Settings…** — the context's own pane: who can reach it, storage
+ *    binding, email ingestion. The ellipsis is the menu convention for "leads
+ *    somewhere".
+ *
+ * There was a third, **Manage sharing…**, pointing at the app-level
+ * Connections pane, and its own comment named the condition for dropping it:
+ * *when sharing moves into per-context settings, this row follows it*. It has.
+ * `MembersSection` — the same component, imported rather than copied — is
+ * mounted under Settings → **People**, beside Groups and Shared links, which is
+ * where somebody looking for "who can see this" now looks. So the row sent
+ * people *out* of the context they had just right-clicked to answer a question
+ * that context's own settings already answer, and the owner's call was to take
+ * it off.
+ *
+ * That leaves `/console/connections` with no door, which is a real consequence
+ * and is recorded where it belongs rather than here: `features/app/reachability.ts`
+ * lists it beside `/console/map`, the route and pane untouched and one entry
+ * point from coming back. Nothing on it is lost — the endpoint and the
+ * connected-app list are Settings → AI apps (`settings/AccountSections.tsx`),
+ * from the same components.
  *
  * A pure function over the slug rather than markup in the rail, so the menu's
  * contents are testable without a renderer and the rail only draws.
  */
 export interface ContextMenuItem {
-  key: "open" | "settings" | "sharing" | "leave";
+  key: "open" | "settings" | "leave";
   label: string;
   /** Absent on `leave`, which is an action on the membership, not a place. */
   route?: ConsoleRoute;
@@ -52,12 +65,36 @@ export function contextMenuItems(
      * role is what this takes.
      */
     canLeave?: boolean;
+    /**
+     * True for the pinned context — `@context-lc`, which everybody reaches and
+     * nobody joined (`packages/shared/src/pinnedContext.ts`).
+     *
+     * It reduces the menu to **Open**, and each of the two that go is a control
+     * that would fail rather than a control being hidden for tidiness:
+     *
+     *  - **Settings…** is the storage binding and email ingestion, both
+     *    owner-only, and `getStorageBinding` refuses a pinned reader with
+     *    `WORKSPACE_NOT_FOUND` — the pane would draw its own failure.
+     *  - **Leave** has nothing to remove. There is no membership row, so
+     *    `leaveWorkspace` answers `{ left: false }` and the context is still
+     *    there on the next paint — a menu item that visibly does nothing.
+     *
+     * `canLeave` is deliberately still consulted and still false here rather
+     * than being overridden: a pinned row is `role: "member"`, so `canLeave`
+     * is true on it by the role rule, and *that* is the combination this flag
+     * exists to break.
+     */
+    pinned?: boolean;
   } = {},
 ): ContextMenuItem[] {
+  if (options.pinned) {
+    return [
+      { key: "open", label: "Open", route: { kind: "context", slug, view: "browse" } },
+    ];
+  }
   return [
     { key: "open", label: "Open", route: { kind: "context", slug, view: "browse" } },
     { key: "settings", label: "Settings…", route: { kind: "context", slug, view: "settings" } },
-    { key: "sharing", label: "Manage sharing…", route: { kind: "app", section: "connections" } },
     ...(options.canLeave
       ? [{ key: "leave" as const, label: `Leave @${slug}…` }]
       : []),

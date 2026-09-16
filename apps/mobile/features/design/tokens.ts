@@ -77,6 +77,16 @@ export const darkColors = {
    */
   sharedWash: "rgba(139,92,246,0.13)",
   sharedText: "#D8C9FF",
+  /**
+   * The edge of that wash, for the one place the wash alone cannot carry it:
+   * the pinned context's pill on the phone strip, which takes the lit pill's
+   * accent ground on top of `sharedWash` when somebody is standing in it. The
+   * border and the label are what go on saying whose context it is.
+   *
+   * Same alpha relationship the `ok`/`warn`/`crit` families use between their
+   * own wash and border, so it sits in the palette rather than beside it.
+   */
+  sharedBorder: "rgba(139,92,246,0.30)",
 
   /** Inverse ink, used on the white CTA and on the "You" node in the map. */
   ink: "#08080A",
@@ -237,6 +247,7 @@ export const lightColors: Colors = {
 
   sharedWash: "rgba(124,58,237,0.10)",
   sharedText: "#5B21B6",
+  sharedBorder: "rgba(124,58,237,0.30)",
 
   /** See the note above: the CTA fill is dark here, and its ink is white. */
   ink: "#FFFFFF",

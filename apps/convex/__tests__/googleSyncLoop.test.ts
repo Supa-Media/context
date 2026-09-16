@@ -931,7 +931,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       kind: "run",
       product: "chat",
       address: "person@example.invalid",
-      destinationFolder: "2-areas/communications/daily",
+      destinationFolder: "0-inbox/google-chat",
       cursors: { "spaces/alpha": "2026-09-12T10:00:00.000Z" },
       spaceSettings: { "spaces/quiet": "paused" },
     });
@@ -1718,7 +1718,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(view.sync.everSynced).toBe(true);
     expect(view.sync.cursorReady).toBe(true);
     const written = backend.snapshot();
-    expect(written["2-areas/communications/daily/2026-09-12.md"]).toContain(
+    expect(written["0-inbox/google-chat/2026-09-12.md"]).toContain(
       "Ship the live Chat bridge",
     );
     expect(Object.entries(written)).toContainEqual([
@@ -1914,7 +1914,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect((await readConnection(t, connectionId)).chat?.cursors?.["spaces/alpha"]).toBe(
       "2026-09-12T09:00:00.000Z",
     );
-    expect(backend.snapshot()["2-areas/communications/daily/2026-09-12.md"]).toBeUndefined();
+    expect(backend.snapshot()["0-inbox/google-chat/2026-09-12.md"]).toBeUndefined();
     expect(
       Object.keys(backend.snapshot()).some((path) =>
         path.startsWith(".context/communications/google-chat/contributions/"),
@@ -2227,5 +2227,49 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(result).toMatchObject({ status: "skipped", errorCode: "GOOGLE_DISCONNECTED" });
     expect(google.calls).toEqual([]);
     expect(backend.requests).toEqual([]);
+  });
+});
+
+describe("the sweep records where a connection is filing, for rows written before it was recorded", () => {
+  /*
+    The other half of the rule `chatProduct.test.ts` states in full under
+    "a connection records the folder it files into": connects made before that
+    pin exists left `destinationFolder` absent, so their folder goes on being
+    whatever `defaultGoogleDestinationFolder` says in source TODAY. Editing
+    that constant relocates them — and a Chat pass re-renders every retained
+    day, so the relocation is a year of somebody's conversations appearing at
+    new keys, unannounced, with any `note_overrides` exception they had set
+    left behind on the old paths (`remapPrivacy` carries an exception across a
+    move; nothing carries one across a re-render).
+
+    The sweep already patches this row to claim it. Recording the folder it is
+    filing into at that moment costs nothing, changes no key, and turns the
+    live rows from floating into pinned.
+
+    Sabotage: drop the `destinationFolder` branch from the claim patch and the
+    folder stays absent.
+  */
+  beforeEach(() => enableMailSync());
+
+  test("claiming a connection with no recorded folder records the one it is already using", async () => {
+    const { t, connectionId } = await scenario();
+    expect((await readConnection(t, connectionId)).gmail?.destinationFolder).toBeUndefined();
+
+    expect((await sweep(t)).started).toBe(1);
+
+    const row = await readConnection(t, connectionId);
+    expect(row.gmail?.destinationFolder).toBe("0-inbox/email/person-at-example-invalid");
+  });
+
+  test("...and never moves one that is already recorded", async () => {
+    const { t, connectionId } = await scenario();
+    const row = await readConnection(t, connectionId);
+    await patchConnection(t, connectionId, {
+      gmail: { ...row.gmail!, destinationFolder: "2-areas/mail" },
+    });
+
+    expect((await sweep(t)).started).toBe(1);
+
+    expect((await readConnection(t, connectionId)).gmail?.destinationFolder).toBe("2-areas/mail");
   });
 });

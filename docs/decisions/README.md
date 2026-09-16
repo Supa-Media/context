@@ -56,6 +56,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A third-party OAuth callback carries a secret the browser kept, not just `state`
 - The same derived-subjects shape closes a teardown gap, not just a binding gap
 - One connection reaches every context its person belongs to
+- One context is pinned for everybody, and the pin is reach rather than membership
 - A grant is one person's tooling, and the refusal follows the listing
 - An invitation is addressed to a string, and its token is stored in the clear
 - An invitation is delivered, and the delivery is scheduled rather than sent
@@ -108,7 +109,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Authority is decided once, never per protocol era
 - An absent `Origin` is allowed; `null` is not
 - Orientation is the front door, and `index.md` is the part we do not generate
+- Recency ranks attention, and automated capture is collapsed, not excluded
 - `search` and `fetch` exist because ChatGPT's chats can call nothing else
+- The advertised `inputSchema` is enforced, and it is enforced in one place
+- Reach is described from the clamp that will decide it, on both surfaces
 
 ## [Markdown forms](./forms.md)
 
@@ -164,6 +168,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
+- A folder's placeholder is not a row
 - A phone gets a path bar, which is half of the line that was deleted
 - A copy is one press, and it is confirmed outside the modal
 - A copy on the device is bounded by who read it, when, and whether the server said no
@@ -193,6 +198,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One file per meeting, and `read_meeting` is what that costs
 - A meeting note is a note, and `privacy.md` decides it with no bypass
 - Nothing joins the call
+- A browser records the whole call only if somebody hands it the call
 - Transcription is cloud on the paid tier and on-device on the free tier, and that seam is disclosed, not glossed
 - The cloud path knows _who_ is asking, opaquely, and the ceiling is the control plane's
 - The desktop is an OAuth client of the gateway, and it asks for the tier its meetings are filed at

@@ -80,8 +80,11 @@ export interface ContextStanding {
    */
   owned: number;
   /**
-   * Every context this account can open — its own and other people's. This is
-   * what decides whether the console has anything to show.
+   * Every context this account can open — its own and other people's, and
+   * **never the pinned one**, which everybody can open and nobody has. See
+   * `WorkspaceStandingRow.pinned` for what counting it cost.
+   *
+   * This is what decides whether the console has anything to show.
    */
   reachable: number;
   /** Invitations addressed to this account and still answerable. */
@@ -92,6 +95,37 @@ export interface ContextStanding {
 export interface WorkspaceStandingRow {
   kind: string;
   role: string;
+  /**
+   * True on the pinned context — `@context-lc`, which every account reaches
+   * without being invited to it (`packages/shared/src/pinnedContext.ts`).
+   *
+   * **It is not a context this person has, and the `(app)` gate would have read
+   * it as one.** That gate asks "is there anything here for you" by counting
+   * this list, so once the control plane started appending a row for everybody,
+   * every brand-new account arrived with `reachable: 1`, rendered the console
+   * instead of redirecting, and never saw `/welcome` — no claimed name, no
+   * bucket, nothing of their own, and no route to any of it. A pinned context
+   * is somewhere to read our docs and file a bug; it is not somewhere to go
+   * instead of onboarding.
+   *
+   * Optional, and absent is false, so a caller that has not been taught about
+   * the flag counts exactly what it counted before.
+   */
+  pinned?: boolean;
+}
+
+/**
+ * The rows that are this person's own reach, with the pinned context dropped.
+ *
+ * One filter, used by both numbers below, rather than a `.filter()` at each
+ * site: the two gates already disagreed once about what they were counting
+ * (see the header), and the fix for that was to name the question rather than
+ * to write the same predicate twice.
+ */
+function ownReach(
+  workspaces: readonly WorkspaceStandingRow[],
+): readonly WorkspaceStandingRow[] {
+  return workspaces.filter((w) => w.pinned !== true);
 }
 
 /**
@@ -106,7 +140,15 @@ export function ownedContexts(
   workspaces: readonly WorkspaceStandingRow[] | undefined,
 ): number | undefined {
   if (workspaces === undefined) return undefined;
-  return workspaces.filter((w) => w.kind === "personal" && w.role === "owner").length;
+  /*
+    The pinned context could never satisfy this predicate anyway — it is
+    `shared`/`member` — so the filter is belt and braces rather than the fix.
+    It is here because "pinned rows are not yours" is the rule, and a version of
+    it that happens to be true for today's values is one that stops being true
+    the day the pinned context is somebody's personal workspace.
+  */
+  return ownReach(workspaces).filter((w) => w.kind === "personal" && w.role === "owner")
+    .length;
 }
 
 /**
@@ -167,6 +209,8 @@ export function standingFrom(
 ): ContextStanding | undefined {
   const owned = ownedContexts(workspaces);
   if (owned === undefined || workspaces === undefined) return undefined;
+  // Everything below counts *this person's* contexts. See `WorkspaceStandingRow.pinned`.
+  const mine = ownReach(workspaces);
 
   if (invitations === undefined) {
     // The workspace list has landed and the invitation list has not — either
@@ -186,11 +230,11 @@ export function standingFrom(
     // still there once the query recovers — while leaving them in an empty
     // console costs them the product. Anybody with a context to open is
     // rendered as before, because the invitation count cannot change that.
-    if (workspaces.length > 0) return undefined;
+    if (mine.length > 0) return undefined;
     return { owned, reachable: 0, invitations: 0 };
   }
 
-  return { owned, reachable: workspaces.length, invitations: invitations.length };
+  return { owned, reachable: mine.length, invitations: invitations.length };
 }
 
 /** Is this URL the onboarding flow? Query and hash are not part of the answer. */

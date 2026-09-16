@@ -178,6 +178,14 @@ module.exports = [
       "babel.config.js",
       "web-build/**",
       "public/drawing-assets/**",
+      /*
+        And the same argument for the real community-plugin releases
+        `e2e/webkit/fetch-bundles.mjs` downloads: megabytes of somebody else's
+        minified code, git-ignored, and linting it reports on their source. It
+        produced 200 `console is not defined` errors at four-digit column
+        numbers before it was listed here.
+      */
+      "e2e/webkit/bundles/**",
     ],
   },
   {

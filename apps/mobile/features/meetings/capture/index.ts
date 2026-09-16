@@ -95,20 +95,41 @@ export interface RecorderCapability {
    * Whether this build can hear the **machine's own** audio — the far side of
    * a call on headphones — as well as the microphone.
    *
-   * False everywhere except inside the desktop shell, and false there too on a
-   * build macOS has not verified: a loopback tap is ScreenCaptureKit and an
-   * unsigned app is refused one. So it is asked of the shell at runtime rather
-   * than inferred from the fact that a shell is present, which is
-   * `docs/decisions/desktop.md`'s rule — *`version` gates the shape;
-   * `capabilities()` gates the feature.*
+   * True in two places and false everywhere else, and the two are not the same
+   * thing underneath. Inside the desktop shell it is a **loopback tap** — and
+   * false there too on a build macOS has not verified, because a tap is
+   * ScreenCaptureKit and an unsigned app is refused one, so it is asked of the
+   * shell at runtime rather than inferred from the fact that a shell is
+   * present: `docs/decisions/desktop.md`'s rule — *`version` gates the shape;
+   * `capabilities()` gates the feature.* In a browser it is a **source the
+   * person hands over**, through `getDisplayMedia`, mixed into the recording —
+   * see `systemAudioNeedsPicker` below, which is what keeps the two from being
+   * offered in the same words.
    *
-   * It is on this interface rather than only inside the desktop recorder
-   * because the **sheet** has to know: a switch offering something this machine
-   * cannot do is exactly what `docs/decisions/meetings.md` forbids, and a
-   * browser must go on saying plainly that the far side of a call is not in the
-   * recording.
+   * It is on this interface rather than only inside the recorders because the
+   * **sheet** has to know: a switch offering something this machine cannot do
+   * is exactly what `docs/decisions/meetings.md` forbids, and a phone — which
+   * can do neither — must go on saying plainly that the far side of a call is
+   * not in the recording.
    */
   systemAudio: boolean;
+  /**
+   * Whether turning `systemAudio` on costs the person a source picker.
+   *
+   * The desktop shell's loopback tap is silent: the switch is on, the machine's
+   * output is in the recording, and nothing is asked again. A browser cannot do
+   * that — it has to ask for a tab or a screen, every meeting, and the person
+   * has to tick the option that shares that source's audio. Same capability by
+   * the name on this interface and a genuinely different thing to agree to, so
+   * the **sheet** has to be able to tell them apart: `false` offers the switch
+   * as the shell's, `true` says a picker is coming and what to pick.
+   *
+   * It is a second field rather than a third value of `systemAudio` because
+   * every caller that only asks *"is this on offer"* — the controller, the
+   * recorders themselves — reads a boolean and is right, and only the one
+   * surface that writes a sentence about it reads this.
+   */
+  systemAudioNeedsPicker: boolean;
   transcribesAt: TranscribesAt;
   /**
    * Why not, in words somebody can read, when `audio` is false. `null` when it

@@ -36,6 +36,7 @@ export function notesOnlyRecorder(platform: "ios" | "android" | "web"): MeetingR
       // Nothing is captured at all, so there is nothing to be honest about
       // twice. `audio: false` already says the whole of it.
       systemAudio: false,
+      systemAudioNeedsPicker: false,
       transcribesAt: "nowhere",
       unavailableReason:
         platform === "web"
