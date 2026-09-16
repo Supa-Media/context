@@ -269,7 +269,15 @@ function parseManagedPointer(text, expectedId) {
     const pointer = JSON.parse(text);
     if (!pointer || typeof pointer !== "object" || Array.isArray(pointer)) return null;
     if (pointer.id !== expectedId || !isSafeManagedValue(pointer.version)) return null;
-    return { id: pointer.id, version: pointer.version };
+    // The repository is what the release came from and is screened by the same
+    // rule as the rest of the pointer, because it is drawn to a person beside
+    // the plugin's name. It is not required: a pointer written before this
+    // field existed is a valid install, and `null` says so.
+    return {
+      id: pointer.id,
+      version: pointer.version,
+      repository: isSafeManagedValue(pointer.repository) ? pointer.repository : null,
+    };
   } catch {
     return null;
   }
@@ -415,4 +423,88 @@ export async function inventoryPlugins(store, { cap = PLUGIN_SCAN_CAP } = {}) {
     truncated: listingTruncated || locations.length > selected.length,
     checkedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * What Context itself installed here, without opening any of it.
+ *
+ * ## Why this exists beside `inventoryPlugins`
+ *
+ * The full report waits to be asked, and the reason is written above it: it
+ * opens every bundle in somebody's vault, dozens of object reads they did not
+ * request. That was the right rule for a *scan* and the wrong rule for the
+ * question a person actually arrives with, which is "what have I got".
+ *
+ * The cost of that was not theoretical. The console rested at "Read the plugins
+ * in this bucket", so a plugin installed last week was nowhere on the screen
+ * that installs plugins, and the registry beside it — with no inventory to
+ * compare against — offered Install on a row that was already installed. The
+ * install had persisted perfectly; nothing had ever read it back. So people
+ * installed it again, and again, and reported that installs do not stick.
+ *
+ * This answers that question for the price of a listing and one small pointer
+ * per install: no manifest, no bundle, no stylesheet, no scan. It is Context's
+ * own directory rather than `.obsidian/`, so the "another program's files"
+ * argument does not apply either — these are the files this product wrote.
+ *
+ * What it deliberately does NOT say is whether any of them will run. That is
+ * the scan's answer and stays behind the press, because it is the expensive
+ * half and the half a stale answer would misreport.
+ *
+ * A listing that fails comes back `available: false` rather than empty. An
+ * empty answer here reads as "you have installed nothing", which is the exact
+ * false statement this function was written to stop.
+ */
+export async function listManagedInstalls(store, { cap = PLUGIN_SCAN_CAP } = {}) {
+  let folders;
+  let listingTruncated = false;
+  try {
+    ({ folders, listingTruncated } = await listManagedPluginFolders(store));
+  } catch (error) {
+    return {
+      available: false,
+      reason: String(error?.message || error).slice(0, 200),
+      installs: [],
+      truncated: false,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
+  const selected = folders.slice(0, cap);
+  const installs = [];
+  for (const folder of selected) {
+    // A folder that will not decode is still an install, and is named by the
+    // segment it lives under. Dropping it would be the same lie as an empty
+    // list — `inventoryPlugins` makes that call one function up, and it is the
+    // same call for the same reason.
+    const id = decodeManagedSegment(folder) || folder;
+    installs.push(await readManagedInstall(store, folder, id));
+  }
+
+  return {
+    available: true,
+    reason: null,
+    installs,
+    truncated: listingTruncated || folders.length > selected.length,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * One install's pointer, and nothing else in its folder.
+ *
+ * A `version` of `null` is an install whose pointer could not be read or does
+ * not name a release — a corrupt one, or the fence a half-finished operation
+ * leaves behind. Both are installs, and both are things a person needs to see;
+ * neither is a version, and claiming one would be worse than admitting to none.
+ */
+async function readManagedInstall(store, folder, id) {
+  try {
+    const object = await readText(store, `${MANAGED_PLUGIN_PREFIX}${folder}/current.json`);
+    const pointer = parseManagedPointer(object?.text, id);
+    if (!pointer) return { id, version: null, repository: null };
+    return { id, version: pointer.version, repository: pointer.repository };
+  } catch {
+    return { id, version: null, repository: null };
+  }
 }

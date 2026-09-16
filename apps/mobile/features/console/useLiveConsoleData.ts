@@ -23,6 +23,7 @@ import { useShares } from "./shares/useShares";
 import { useAdvanced } from "./advanced/useAdvanced";
 import { usePlugins } from "./plugins/usePlugins";
 import { useContextPlugins } from "./plugins/useContextPlugins";
+import { useManagedInstalls } from "./plugins/useManagedInstalls";
 import { useGrants } from "./plugins/useGrants";
 import { useLifecycle } from "./plugins/useLifecycle";
 import { useRuntime } from "./plugins/useRuntime";
@@ -685,10 +686,32 @@ export function useLiveConsoleData(): ConsoleData {
     plugins.state === "loading" || plugins.state === "withheld"
       ? undefined
       : plugins.actions?.read;
+  /*
+    What Context installed, read on arrival rather than on a press — see
+    `useManagedInstalls` for why that is a different cost from the scan above,
+    and for what the missing answer cost.
+  */
+  const managedInstalls = useManagedInstalls({
+    workspaceId: selectedContextId,
+    role: selected?.role,
+  });
+  /*
+    Both reads follow an install, and both are needed.
+
+    The scan is the only thing that knows whether the new plugin runs; the
+    pointer read is the only one that answers at all when no scan has been run,
+    which is the state a first visit is in. Refreshing only the scan would leave
+    the registry still offering Install for what was just installed — the bug
+    this pair exists to close.
+  */
+  const rereadInstalls = managedInstalls.state === "withheld" ? undefined : managedInstalls.read;
+  const afterLifecycleChange = useCallback(async () => {
+    await Promise.all([rereadInstalls?.(), rereadPlugins?.()]);
+  }, [rereadInstalls, rereadPlugins]);
   const pluginBrowse = useLifecycle({
     workspaceId: membershipContextId,
     role: selected?.role,
-    onChanged: rereadPlugins,
+    onChanged: afterLifecycleChange,
   });
 
   // Shared links — owner-only on the backend (`listShares`/`revokeShare`), so
@@ -914,6 +937,7 @@ export function useLiveConsoleData(): ConsoleData {
     advanced,
     plugins,
     contextPlugins,
+    pluginInstalls: managedInstalls,
     pluginGrants,
     pluginBrowse,
     pluginRuntime,

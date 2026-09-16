@@ -65,6 +65,12 @@ apps/mobile/web-build/
 apps/mobile/e2e/webkit/playwright-report/
 apps/mobile/e2e/webkit/test-results/
 
+# The real community-plugin releases `e2e/webkit/pluginBundles.spec.ts` runs
+# through the shim, fetched by `e2e/webkit/fetch-bundles.mjs`. Megabytes of
+# third-party minified code, and this repository is public; the spec skips when
+# they are absent, so the suite still runs offline.
+apps/mobile/e2e/webkit/bundles/
+
 # The standalone drawing editor and its fonts, built by
 # `scripts/build-drawing-editor.mjs` so the console can serve them from its own
 # origin instead of a CDN (see `features/console/files/drawingBridge.ts` for

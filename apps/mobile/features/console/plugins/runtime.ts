@@ -114,6 +114,14 @@ export interface RuntimeView {
    * first exactly as it does in the guest.
    */
   modal?: OpenModal | null;
+  /**
+   * The plain dialog a plugin currently has open, or `null`.
+   *
+   * Separate from `modal` rather than folded into it: one asks the reader to
+   * choose and routes an index back, the other only shows them something. One
+   * field for both would make every consumer re-derive which kind it had.
+   */
+  textModal?: OpenTextModal | null;
   /** Absent for anyone the server would refuse, and in the demo. */
   actions?: RuntimeActions;
 }
@@ -134,6 +142,21 @@ export interface OpenModal {
   instructions: { command: string; purpose: string }[];
 }
 
+/**
+ * A plain dialog a plugin has open: a title, a body, and who is showing it.
+ *
+ * The text is the guest's `textContent` and nothing else — a plugin cannot put
+ * markup, a link, an image or a script in front of a reader, the same boundary
+ * the suggestion dialog keeps.
+ */
+export interface OpenTextModal {
+  pluginId: string;
+  /** The exact frame, so a dismissal reaches the plugin that opened it. */
+  nonce: string;
+  title: string;
+  text: string;
+}
+
 export interface ActiveSandbox {
   bundle: import("./sandboxTypes").PluginRuntimeBundle;
   nonce: string;
@@ -142,6 +165,8 @@ export interface ActiveSandbox {
 
 export interface RuntimeActions {
   start: (pluginId: string, bundleFingerprint: string) => Promise<void>;
+  /** Close the plain dialog, telling the plugin that opened it. */
+  dismissTextModal?: () => void;
   stop: (pluginId: string, bundleFingerprint: string) => Promise<void>;
   /**
    * Ask a running plugin to run one of the commands it registered.

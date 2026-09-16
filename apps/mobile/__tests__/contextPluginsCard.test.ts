@@ -24,6 +24,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ContextPluginsCard } from "../features/console/settings/panels/ContextPluginsCard";
 import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
+import type { ManagedInstallsView } from "../features/console/plugins/managedInstalls";
 import {
   contextCountLabel,
   contextEmptyNote,
@@ -43,6 +44,14 @@ import type { PluginsView } from "../features/console/plugins/plugins";
 import type { GrantsView } from "../features/console/plugins/grants";
 import type { BrowseView } from "../features/console/plugins/lifecycle";
 import type { RuntimeView } from "../features/console/plugins/runtime";
+
+/** No scan, nothing installed — the state a bucket with no plugins is really in. */
+const NO_INSTALLS: ManagedInstallsView = {
+  state: "ready",
+  installs: [],
+  truncated: false,
+  read: async () => {},
+};
 
 const roots: Array<() => void> = [];
 afterEach(() => {
@@ -278,6 +287,7 @@ function panel(view: PluginsView, contextPlugins: ContextPluginsView = ready()):
     createElement(PluginsPanel, {
       view,
       contextPlugins,
+      installs: NO_INSTALLS,
       grants: NO_GRANTS,
       browse: NO_BROWSE,
       runtime: NO_RUNTIME,
@@ -303,7 +313,10 @@ describe("the built-ins survive every state the vault half can be in", () => {
       state: "ready",
       inventory: { found: 0, scanned: 0, truncated: false, checkedAt: "2026-09-14", plugins: [] },
     });
-    expect(container.textContent).toContain("No Obsidian plugins in this bucket");
+    // Reworded when the panel stopped claiming it only looks in `.obsidian/`.
+    // What this test is about is unchanged: the vault half's empty state is on
+    // screen and the built-ins beside it survived it.
+    expect(container.textContent).toContain("No plugins in this bucket");
     expect(container.textContent).toContain("Markdown forms");
   });
 
@@ -315,7 +328,7 @@ describe("the built-ins survive every state the vault half can be in", () => {
 
   test("a scan nobody has run does not hide them behind a button", () => {
     const container = panel({ state: "idle" });
-    expect(container.textContent).toContain("Read my plugins");
+    expect(container.textContent).toContain("Check my plugins");
     expect(container.textContent).toContain("Markdown forms");
   });
 });
