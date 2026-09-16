@@ -509,6 +509,43 @@ describe("the app being killed mid-meeting", () => {
     // somebody a meeting with nothing anywhere saying it existed.
     expect(controller.getSnapshot().unreadable).toBe(1);
   });
+
+  test("a store that cannot be listed leaves the screen usable rather than loading forever", async () => {
+    /*
+      `loadMeetings` is the one caller of `keys()` in this app that is a read
+      rather than a clear, and it is the only one that must absorb a listing
+      failure instead of reporting it.
+
+      The port lets a failed listing reject on both real stores, because every
+      other caller is a *clear* and a clear that reads an empty listing as
+      "done" claims to have emptied a device it could not look at. Here the
+      opposite stance is right, and the reason is this assertion: `configure()`
+      is awaited from an effect in `useMeetings` that holds no `catch`, so a
+      rejection would leave `status` at `loading` for the life of the screen and
+      take the notepad — which needs no storage at all — down with the list.
+
+      `unreadable` stays 0 rather than being inflated: nothing was read, so
+      there is no count to report, and a number nobody could measure is the one
+      thing this feature does not print.
+    */
+    const store: KeyValueStore = {
+      ...memoryStore(),
+      keys: async () => {
+        throw new Error("database disk image is malformed");
+      },
+    };
+
+    const { controller } = await harness({ store });
+
+    expect(controller.getSnapshot().status).toBe("ready");
+    expect(controller.getSnapshot().records).toEqual([]);
+    expect(controller.getSnapshot().unreadable).toBe(0);
+
+    // And the feature still works: a meeting started after an unreadable launch
+    // is a meeting, not a screen that refuses.
+    const id = await controller.start({ title: "After a bad launch" });
+    expect(controller.getSnapshot().records.some((record) => record.session.id === id)).toBe(true);
+  });
 });
 
 describe("ending a meeting", () => {

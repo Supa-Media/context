@@ -116,7 +116,34 @@ export async function loadMeetings(
   const records: MeetingRecord[] = [];
   let unreadable = 0;
 
-  for (const key of meetingKeysForWorkspace(await store.keys(), workspaceId)) {
+  /*
+    The one caller of `keys()` in this app that is a **read** rather than a
+    clear, and therefore the one that has to absorb a listing failure rather
+    than report it.
+
+    The port deliberately lets a failed listing reject, because every other
+    caller is a clear and a clear that reads an empty listing as "done" claims
+    to have emptied a device it could not look at. Here the opposite stance is
+    the right one: `configure()` awaits this from an effect that holds no
+    `catch` of its own, so a rejection would leave the controller at `loading`
+    for the life of the screen and take the notepad — which needs no storage at
+    all — down with the list.
+
+    Not silent, though. The line follows this feature's own convention — a
+    structured event name and named fields, carrying the workspace and nothing
+    else: a meeting title is a person's calendar and a transcript is their
+    words, and neither belongs in a log for the same reason
+    `meeting_segment_misaddressed` carries counts and ids rather than text.
+  */
+  let held: string[];
+  try {
+    held = await store.keys();
+  } catch {
+    console.warn(`meeting_store_unlistable workspace=${workspaceId} restored=0`);
+    return { records, unreadable };
+  }
+
+  for (const key of meetingKeysForWorkspace(held, workspaceId)) {
     const record = parseRecord(await store.get(key), workspaceId);
     if (record === null) {
       unreadable += 1;

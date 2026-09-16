@@ -64,10 +64,24 @@ import { openStore } from "./store";
  * sentence in a comment that nothing does — which is exactly the state this
  * module was written to end. So the clear is *verified*: it re-lists the keys it
  * owns afterwards rather than trusting that its removals landed, and returns
- * that verdict. Both real stores swallow their own failures (`remove` catches,
- * `keys` answers `[]`), so a clear that did nothing cannot announce itself any
- * other way — and a store that lies about its own keys cannot be checked from
+ * that verdict. A store that lies about its own keys cannot be checked from
  * here at all, which is stated rather than defended against.
+ *
+ * **That verification depended on something that was not true, and this is the
+ * record of it.** This paragraph used to end: *"Both real stores swallow their
+ * own failures (`remove` catches, `keys` answers `[]`), so a clear that did
+ * nothing cannot announce itself any other way."* Both halves were accurate
+ * about the code and the conclusion was backwards — a `keys()` that answers
+ * `[]` when it cannot list is not a clear unable to announce itself, it is a
+ * clear **announcing `cleared`** over a device it never read. Measured through
+ * the real `localStorage` store with listing broken: verdict `cleared`, no
+ * warning, and the note body still in the bucket afterwards.
+ *
+ * So the port changed rather than this file: `keys()` now rejects on both real
+ * stores, which is what makes the `catch` below reachable and the `unmeasured`
+ * verdict real. `remove` still swallows, and that is still right — a key that
+ * could not be removed is caught by the re-listing, which is the whole reason
+ * the re-listing exists.
  *
  * Every verdict but `cleared` is warned about once, with a count and no path
  * and no note text — the same rule that keeps note content out of structured
@@ -247,9 +261,10 @@ async function clearEverything(): Promise<ForgetResult> {
     }
     return { verdict: "cleared" };
   } catch {
-    // Neither real store can reject — see the file comment — so this is a
-    // substituted store or a platform that broke its own contract. Reporting
-    // failure is the honest answer; refusing to sign out is not.
+    // Reachable on both real stores since `keys()` stopped swallowing a failed
+    // listing — a blocked or full `localStorage`, a corrupt or full AsyncStorage
+    // database — as well as by a substituted store. Reporting failure is the
+    // honest answer; refusing to sign out is not.
     warnStoreUnusable("sign-out");
     return { verdict: "unmeasured" };
   }
