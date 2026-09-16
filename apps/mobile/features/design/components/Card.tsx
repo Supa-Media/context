@@ -55,9 +55,23 @@ export function Row({
 }
 
 /** `.row .grow` — the flexible middle of a row, allowed to truncate. */
-export function Grow({ children, style }: { children: ReactNode; style?: ViewStyle }) {
+export function Grow({
+  children,
+  style,
+  testID,
+}: {
+  children: ReactNode;
+  style?: ViewStyle;
+  /** Same as `Card`'s, and for the same reason: a test needs a handle on the
+   * block rather than on a string inside it. */
+  testID?: string;
+}) {
   const styles = useThemedStyles(makeStyles);
-  return <View style={[styles.grow, style]}>{children}</View>;
+  return (
+    <View style={[styles.grow, style]} testID={testID}>
+      {children}
+    </View>
+  );
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({

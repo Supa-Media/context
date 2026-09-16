@@ -138,6 +138,26 @@ function panel(): HTMLElement {
   );
 }
 
+/**
+ * Open one plugin's own screen inside a mounted panel.
+ *
+ * The plugin row now answers "is it on" and nothing else — the evidence, the
+ * refusals and the route out moved to the plugin's own screen. That is a
+ * placement change and never a licence to drop any of it, so the checks below
+ * press through to where the words went rather than being deleted with the
+ * wall they were part of.
+ */
+function open(container: HTMLElement, pluginId: string): HTMLElement {
+  const details = container.querySelector(
+    `[data-testid='plugin-details-${pluginId}']`,
+  ) as HTMLElement | null;
+  if (details === null) throw new Error(`no Details control for ${pluginId}`);
+  act(() => {
+    details.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+  return container;
+}
+
 /** Everything a pointer or a screen reader can act on. */
 function controls(container: HTMLElement): Element[] {
   return Array.from(container.querySelectorAll("[role='button'], [role='checkbox']"));
@@ -165,7 +185,7 @@ describe("nothing in this section is carried by colour alone", () => {
   });
 
   test("a refusal names its call in text", () => {
-    expect(panel().textContent).toContain("child_process");
+    expect(open(panel(), "plugin-wont-run").textContent).toContain("child_process");
   });
 
   test("the count of each verdict is a number beside its name", () => {
@@ -283,13 +303,15 @@ describe("nothing is lost at phone width", () => {
   test("every verdict group, its evidence and the floor line all survive", () => {
     const text = panel().textContent ?? "";
     for (const verdict of VERDICT_ORDER) expect(text).toContain(verdictHeading(verdict));
-    expect(text).toContain("child_process");
     expect(text).toContain("floor, not a guarantee");
     expect(text).toContain("shared into this context");
+    // The evidence is a fact about one plugin, so it is on that plugin's screen
+    // — still a screen a phone has to fit, which is what this block is for.
+    expect(open(panel(), "plugin-wont-run").textContent).toContain("child_process");
   });
 
   test("the route out of a refusal is not what gets cut for width", () => {
-    expect(panel().textContent).toContain("Keep it in Obsidian");
+    expect(open(panel(), "plugin-wont-run").textContent).toContain("Keep it in Obsidian");
   });
 
   test("controls stay reachable rather than being clipped away", () => {
@@ -309,11 +331,29 @@ describe("nothing is lost at phone width", () => {
       }),
     );
     /*
-      The two verdicts that can be approved each offer their controls — now a
-      primary Enable and the form behind it, rather than one button into a form.
+      THE LIST'S controls, which are now two per row and no more: the press that
+      changes the plugin's state, and the way to everything else. Five plugins,
+      so ten — and the check that matters is the shape rather than the count:
+      every row has a Details, and only the two verdicts Context can run have a
+      press of their own.
     */
     const names = controls(container).map(accessibleName);
-    expect(names.filter((name) => /^Enable$/.test(name))).toHaveLength(1);
-    expect(names.filter((name) => /Choose what it can do/.test(name))).toHaveLength(1);
+    expect(names.filter((name) => name === "Details")).toHaveLength(5);
+    /*
+      One press of its own, on the one plugin that has one. `plugin-runs` can be
+      approved here; `plugin-needs-approval` names hosts and this fixture has no
+      egress, so it cannot be approved at all and is offered no door to a screen
+      that could only refuse it. The other three cannot run in Context.
+    */
+    expect(names.filter((name) => name === "Enable…")).toHaveLength(1);
+    expect(names.filter((name) => name === "Approve…")).toHaveLength(0);
+
+    /*
+      And the consent form is still reachable, one screen in. It was on the row
+      before; deleting the wall must not have deleted the way to it.
+    */
+    const inside = controls(open(container, "plugin-runs")).map(accessibleName);
+    expect(inside.filter((name) => /^Enable$/.test(name))).toHaveLength(1);
+    expect(inside.filter((name) => /Choose what it can do/.test(name))).toHaveLength(1);
   });
 });

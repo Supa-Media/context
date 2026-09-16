@@ -1555,3 +1555,48 @@ refusing it inserts the wrong verse. `apps/mobile/__tests__/nativePluginSuggest.
 holds the conversation and `nativePluginSuggestWiring.test.ts` holds the
 component — the second exists because every test in the first builds the bridge
 itself, and the bug that shipped was a component that never built one.
+
+## A plugin row answers "is it on"; everything else is one press away
+
+Reported from a phone, looking at a single plugin that filled the screen:
+*"there is soooo much jargon text here, people just want to enable or disable a
+plugin, push details into another screen or something."*
+
+They were right, and the shape of being right matters: **none of the words were
+wrong.** The author's blurb, the named findings, the hosts it calls, the fold of
+limitations, what was read, where it came from, the route out of a refusal — each
+of those exists because something went wrong without it, and each has a decision
+in this file behind it. What was wrong was that all of them were on a **row in a
+list**, and a list exists to choose from. Nothing in that wall helps choose.
+
+So the row now carries a name, an id, one pill, and at most two presses; the rest
+is `PluginDetail`, unabridged. **Nothing was shortened to fit** — the wall was a
+placement problem and shortening the sentences would have been the wrong repair
+twice over, since the wording is the part that is load-bearing.
+
+**The pill is "is this on", so it is absent where there is no such answer.** A
+`wont-run` plugin is not off; it is not a thing that has an on. Filling its pill
+with the verdict would repeat the group heading directly above it, on every row,
+which is a good part of what the wall was made of.
+
+**A running plugin's own state outranks the scan and the grant.** The scan reads
+a bundle and a grant is permission; neither is evidence about now. A row reading
+"Needs approval" over a plugin that is running is the panel preferring its own
+taxonomy to the facts.
+
+**One press, or a door.** Start and Stop are complete and happen on the row.
+Enabling is not — it needs capabilities chosen and hosts named — so it opens the
+detail screen and says so with an ellipsis. And a door with nothing behind it is
+worse than no door: a plugin naming hosts on a deployment with no egress cannot
+be approved at all, so it is offered Details rather than an "Approve…" that can
+only ever land on the sentence explaining why not.
+
+**What a simplification costs.** Putting the detail back on the row is the
+original report. Letting the verdict fill the pill is the group heading twice per
+row. Letting the scan outrank the runtime hides the Stop from the only person who
+can press it. Gating the consent door on the *runtime* — which the first draft
+did — puts an Enable on no row at all in a console that can approve but whose
+runtime has not loaded, and `pluginsAccess.test.ts` caught exactly that.
+`pluginRowSummary.test.ts` holds the decision, `pluginsPanel.test.ts` holds that
+every sentence still reaches a reader through the press, and six sabotages
+confirm both.
