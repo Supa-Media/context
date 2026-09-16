@@ -427,6 +427,53 @@ const OBSIDIAN_NAMESPACE_MATCHER =
   /(?:^|[^\w$])(?:var|let|const)\s+([A-Za-z_$][\w$]*)\s*=\s*require\s*\(\s*["']obsidian["']\s*\)/g;
 
 /**
+ * The same binding written the other three ways every plugin is written.
+ *
+ * `var x = require("obsidian")` is what esbuild emits, and reading only that
+ * left the check blind to the form the official sample plugin uses — measured:
+ * `var eo = require("obsidian"); class V extends eo.Unknown {}` answered
+ * `wont-run`, and `const { Unknown } = require("obsidian")` answered `runs`,
+ * for the same unknown base class.
+ *
+ *  - `const { Modal, Events } = require("obsidian")` — hand-written `main.js`
+ *    and rollup's CJS output.
+ *  - `import { Modal } from "obsidian"` — the ESM source form, which reaches a
+ *    scan whenever a plugin ships unbundled or bundles to ESM.
+ *  - `import * as obsidian from "obsidian"` — the ESM namespace, the twin of
+ *    the `require` form above.
+ *
+ * All four key off the module string for the reason the first one does: a
+ * minifier renames the local binding freely and cannot rename `"obsidian"`.
+ */
+const OBSIDIAN_ESM_NAMESPACE_MATCHER =
+  /\bimport\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\s*["']obsidian["']/g;
+const OBSIDIAN_DESTRUCTURE_MATCHER =
+  /(?:^|[^\w$])(?:var|let|const)\s*\{([^}]*)\}\s*=\s*require\s*\(\s*["']obsidian["']\s*\)/g;
+const OBSIDIAN_NAMED_IMPORT_MATCHER =
+  /\bimport\s*\{([^}]*)\}\s*from\s*["']obsidian["']/g;
+
+/**
+ * `{ Modal, Events as Bus }` → the local name each one is reachable by, with
+ * the **export** it stands for.
+ *
+ * The export is what gets reported, because the export is what the shim would
+ * have to provide: a bundle extending `Bus` is extending `obsidian.Events`, and
+ * "Context does not provide Bus" would name a local variable at somebody
+ * reading a plugin card.
+ */
+function boundMembers(clause) {
+  const bindings = [];
+  for (const part of String(clause).split(",")) {
+    const pair = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*([A-Za-z_$][\w$]*)\s*|\s+as\s+([A-Za-z_$][\w$]*)\s*)?$/.exec(part);
+    if (pair === null) continue;
+    const exported = pair[1];
+    const local = pair[2] ?? pair[3] ?? exported;
+    bindings.push({ local, exported });
+  }
+  return bindings;
+}
+
+/**
  * Every Obsidian class this bundle extends that the shim does not export.
  *
  * Returns names, in source order, deduplicated. A name already caught by
@@ -437,9 +484,16 @@ const OBSIDIAN_NAMESPACE_MATCHER =
  */
 export function undeclaredBases(source) {
   const namespaces = [
-    ...new Set([...source.matchAll(OBSIDIAN_NAMESPACE_MATCHER)].map((match) => match[1])),
+    ...new Set([
+      ...[...source.matchAll(OBSIDIAN_NAMESPACE_MATCHER)].map((match) => match[1]),
+      ...[...source.matchAll(OBSIDIAN_ESM_NAMESPACE_MATCHER)].map((match) => match[1]),
+    ]),
   ];
-  if (namespaces.length === 0) return [];
+  const members = [
+    ...[...source.matchAll(OBSIDIAN_DESTRUCTURE_MATCHER)],
+    ...[...source.matchAll(OBSIDIAN_NAMED_IMPORT_MATCHER)],
+  ].flatMap((match) => boundMembers(match[1]));
+  if (namespaces.length === 0 && members.length === 0) return [];
   const exported = new Set(SANDBOX_MODULE_EXPORTS);
   const found = new Set();
   for (const namespace of namespaces) {
@@ -452,6 +506,18 @@ export function undeclaredBases(source) {
     for (const match of source.matchAll(matcher)) {
       if (!exported.has(match[1])) found.add(match[1]);
     }
+  }
+  /*
+    A name bound straight out of the module is extended by its local name, so
+    the bundle is searched for that and the EXPORT is what gets reported. The
+    same caveat the namespace half carries applies: a local rebound later in the
+    file is still judged by its binding here, which is the trade that keeps this
+    a scan rather than an interpreter.
+  */
+  for (const { local, exported: name } of members) {
+    if (exported.has(name)) continue;
+    const matcher = new RegExp(`\\bextends\\s+${local}\\b`, "g");
+    if (matcher.test(source)) found.add(name);
   }
   return [...found];
 }
