@@ -558,6 +558,46 @@ export function writesAnywhere(session) {
 }
 
 /**
+ * What this connection may actually do in a context where its person holds
+ * `role` — the tier it reads at there, and whether it may write.
+ *
+ * `writesAnywhere`'s question asked of one context instead of all of them, and
+ * here for the same reason that one is: the clamp that answers it is this
+ * module's, and a second copy of `effectiveScopes` reasoning is the drift this
+ * file exists to prevent. `orient` describes every context a connection
+ * reaches, and it described them from the *role* alone — which is neither
+ * half of the answer. A read-only grant held by an `editor` was announced as
+ * writable; an `owner` was described as reading private notes on a grant that
+ * carries no `context:private` and reads that context at `team`.
+ *
+ * It answers from the grant's own scopes, never the connection's already
+ * clamped set, exactly as `sessionForContext` does: re-clamping intersects two
+ * roles and would describe a context somebody owns by the role they hold
+ * somewhere else.
+ *
+ * This is a description, never a decision. The gate in `callToolForSession`
+ * still decides, from the session `sessionForContext` builds — but both read
+ * the same clamp, so what orientation promises and what the call does cannot
+ * disagree.
+ */
+export function reachForRole(session, role) {
+  const granted = session?.grantScopes || session?.scopes || [];
+  const scopes = effectiveScopes(granted, role);
+  return {
+    tier: visibilityTierForGrant(scopes, role),
+    canWrite: scopes.includes(SCOPE_WRITE),
+    /*
+      Which of the two halves said no, because the remedies differ and
+      `callToolForSession` already refuses in exactly these two voices. A grant
+      that was never given write is a reconnection the person can make; a role
+      that cannot back one up is not, and telling them to reconnect for write
+      they can never hold there sends them round a loop that cannot end.
+    */
+    grantWrites: new Set(granted).has(SCOPE_WRITE),
+  };
+}
+
+/**
  * Whether this connection reads at the private tier in ANY context it covers.
  *
  * `writesAnywhere`'s argument, for the other tier. A tool that only an owner
