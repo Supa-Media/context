@@ -304,19 +304,26 @@ export function Explorer({
       setMenu({ target, title, anchor, items });
       return true;
     },
-    // `files.canSetVisibility` is read above and belongs here. It is
-    // `canEdit && isOwner`, so it moves independently of the other three — and
-    // `<Explorer>` is mounted without a `key` in a layout that survives a
-    // context switch, so owning one context and editing the next keeps
-    // `canEdit` true while ownership goes away. Left out, this callback kept
-    // the first context's ownership and offered the owner-only submenu to
-    // somebody the server refuses. eslint reported it as a warning throughout;
-    // `lint` exits 0 on warnings.
-    // `files.canShare` belongs here for exactly the reason `canSetVisibility`
-    // does, one paragraph up: it is `canEdit && isOwner`, so it moves
-    // independently of `canEdit`, and a stale copy offers an owner-only control
-    // to somebody the server refuses. `explorerMenuStaleGate.test.ts` is what
-    // holds both.
+    /*
+      `files` whole, rather than the four fields off it this reads.
+
+      It used to name them — `canEdit`, `canSetVisibility`, `canShare`,
+      `clipboard` — and the reason that list existed is still the reason this
+      array matters, so it is worth keeping: `canSetVisibility` and `canShare`
+      are each `canEdit && isOwner`, so they move *independently* of `canEdit`,
+      and `<Explorer>` is mounted without a `key` in a layout that survives a
+      context switch. Owning one context and merely editing the next therefore
+      keeps `canEdit` true while ownership goes away, and a callback holding a
+      stale copy went on offering the owner-only submenu to somebody the server
+      refuses.
+
+      Depending on the object closes that by construction instead of by
+      enumeration. `files` is memoized over every field it carries, so it
+      changes whenever any of the four does — this can no longer be stale, and
+      it can no longer be made stale by a fifth field being read here and not
+      added to a list. `explorerMenuStaleGate.test.ts` still holds it either
+      way, which is what makes the swap checkable rather than asserted.
+    */
     [files, platform],
   );
 

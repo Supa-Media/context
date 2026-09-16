@@ -354,7 +354,21 @@ function FolderRow({
 const ROW_SLOP = layout.explorerRowSlop;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  folder: { gap: space.x2 },
+  /**
+   * `flexGrow` so the listing *is* the pane, not just the rows in it.
+   *
+   * The right-click target is this whole view (see the render), and without
+   * this the view is exactly as tall as its content — so on a folder with three
+   * notes in it the large empty area underneath belonged to the pane rather
+   * than to the folder, and a right-click there went on reaching the browser.
+   * That area is most of the screen on most folders, and it is the obvious
+   * place to aim for "new note here".
+   *
+   * Inert where it should be: on a phone this sits inside `BrowsePane`'s
+   * scroller, whose content container does not stretch its children, so the
+   * page goes on being as long as what is in it.
+   */
+  folder: { gap: space.x2, flexGrow: 1 },
   folderCompact: { paddingHorizontal: layout.readingMargin },
   head: { flexDirection: "row", alignItems: "flex-start", gap: space.x2 },
   title: { flexGrow: 1, flexShrink: 1, minWidth: 0 },

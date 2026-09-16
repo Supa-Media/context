@@ -775,6 +775,20 @@ function Popover<Id extends string = MenuActionId>({
           event.preventDefault();
           const item = list[at];
           if (item === undefined) return;
+          /*
+            A disabled row refuses the keyboard exactly as it refuses a click.
+
+            The pointer path drops `onPress`, which is invisible from here — so
+            without this check a row that was dimmed, inert to a click and
+            marked `aria-disabled` fired anyway for anybody driving the menu
+            from the keyboard. That is the one group most likely to be reading
+            the `aria-disabled` that promised it would not.
+
+            Arrows still land on it, deliberately: `aria-disabled` means "here
+            and unavailable", and skipping it would hide from a screen-reader
+            user a row everybody else can see.
+          */
+          if (item.disabled === true) return;
           // A parent is never dispatched — `menu.ts` gives it an id with no
           // handler precisely so a slip here is a no-op rather than a privacy
           // change, and this is the check that keeps it from being either.

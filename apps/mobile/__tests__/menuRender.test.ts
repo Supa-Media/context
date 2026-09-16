@@ -442,6 +442,8 @@ interface Popover {
 function mountPopover(
   anchor: { x: number; y: number },
   view: { width: number; height: number } = DESKTOP,
+  /** Override the items, for the rules that need a shape `itemsFor` never makes. */
+  custom?: MenuItem[],
 ): Popover {
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: view.width,
@@ -453,14 +455,16 @@ function mountPopover(
   });
   window.dispatchEvent(new Event("resize"));
 
-  const items = itemsFor({
-    target: { kind: "row", row: note("1-projects/plan.md") },
-    canEdit: true,
-    canSetVisibility: true,
-    canShare: true,
-    clipboard: null,
-    platform: "web",
-  });
+  const items =
+    custom ??
+    itemsFor({
+      target: { kind: "row", row: note("1-projects/plan.md") },
+      canEdit: true,
+      canSetVisibility: true,
+      canShare: true,
+      clipboard: null,
+      platform: "web",
+    });
 
   const selected: MenuActionId[] = [];
   const state = { dismissals: 0 };
@@ -1086,5 +1090,70 @@ describe("a disabled row is present, dimmed, and does not fire", () => {
     const menu = mountSheet(ITEMS);
     menu.press("menu-item-archive");
     expect(menu.selected).toEqual(["archive"]);
+  });
+});
+
+describe("a disabled row refuses the keyboard as well as the pointer", () => {
+  /**
+   * The bug this was written for: the popover's own arrow-key navigation
+   * dispatches on Enter, and it did so without consulting `disabled`. So a row
+   * that was dimmed, inert to a click and marked `aria-disabled` fired anyway
+   * for anybody driving the menu from the keyboard — which is the one group
+   * most likely to be reading the `aria-disabled` that promised it would not.
+   *
+   * Arrows still *land* on it, deliberately: `aria-disabled` means "here and
+   * unavailable", and skipping it would hide from a screen-reader user a row
+   * everybody else can see.
+   */
+  const ITEMS: MenuItem[] = [
+    { id: "archive", label: "Archive" },
+    { id: "restore", label: "Reopen closed", disabled: true },
+  ];
+
+  /**
+   * One `act` per key, deliberately.
+   *
+   * Batching the presses into a single `act` looks tidier and moves the focus
+   * exactly once: the listener closes over `focus`, so two dispatches inside
+   * one batch both read the same stale value and both land on the first row.
+   * That is not a subtlety of this menu — it is how the component actually
+   * behaves under a real keyboard, one event per frame — and a helper that
+   * hides it silently tests the wrong row.
+   */
+  const arrowTo = (index: number) => {
+    for (let at = 0; at <= index; at += 1) {
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+    }
+  };
+
+  const enter = () => {
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+  };
+
+  test("Enter on it dispatches nothing", () => {
+    const menu = mountPopover({ x: 100, y: 100 }, DESKTOP, ITEMS);
+    arrowTo(1);
+    enter();
+    expect(menu.selected).toEqual([]);
+  });
+
+  test("while Enter on the row above it still does", () => {
+    const menu = mountPopover({ x: 100, y: 100 }, DESKTOP, ITEMS);
+    arrowTo(0);
+    enter();
+    expect(menu.selected).toEqual(["archive"]);
+  });
+
+  test("and the menu stays open rather than closing on a press that did nothing", () => {
+    const menu = mountPopover({ x: 100, y: 100 }, DESKTOP, ITEMS);
+    arrowTo(1);
+    enter();
+    expect(menu.dismissals).toBe(0);
   });
 });
