@@ -1187,6 +1187,9 @@ function Shortcuts({
           case "toggleRail":
             frame.toggleRail();
             return true;
+          case "toggleFocus":
+            frame.toggleFocus();
+            return true;
           case "dismiss":
             // `keymap.ts` says Escape "closes whatever is open, wherever you
             // are", and until this the console answered for nothing but the

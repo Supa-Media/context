@@ -190,6 +190,32 @@ function TogglesProbe() {
   );
 }
 
+/** Hover in and out of a node, which is how react-native-web reports `onHoverIn`. */
+function hover(node: HTMLElement) {
+  return {
+    in: () =>
+      act(() => {
+        node.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+        node.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }));
+      }),
+    out: () =>
+      act(() => {
+        node.dispatchEvent(new MouseEvent("mouseout", { bubbles: true }));
+        node.dispatchEvent(new MouseEvent("mouseleave", { bubbles: true }));
+      }),
+  };
+}
+
+/** ⌘\\, the same way `console/_layout.tsx` reaches it. */
+function FocusProbe() {
+  const frame = useFrame();
+  return createElement(
+    "button",
+    { "data-testid": "probe-toggle-focus", onClick: frame.toggleFocus },
+    "toggle focus",
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 
 describe("the frame owns the viewport", () => {
@@ -370,8 +396,55 @@ describe("a phone", () => {
       expect(app.find("frame-drawer")).toBeNull();
       expect(app.find("frame-nav-sheet")).toBeNull();
       expect(app.find("frame-scrim")).toBeNull();
+      // The peek is a panel over the editor too, and at rest it is not up —
+      // nothing has folded the tree away, so there is no seam to rest on.
+      expect(app.find("explorer-peek")).toBeNull();
       app.unmount();
     }
+  });
+
+  /**
+   * **`rail: "hidden"` has left the kept-but-unreachable list, and this is the
+   * assertion that says which density reaches it.**
+   *
+   * The block above asserts that three drawings stay unreachable. That claim
+   * used to cover a fourth thing implicitly — the rail's `hidden` arm — and
+   * focus mode reaches it now at medium and wide. Stating *where* is what stops
+   * "kept" from quietly becoming "reachable again" in the other direction:
+   * without this, deleting focus mode's branch would leave the arm unreachable
+   * and nothing would notice.
+   */
+  test("focus mode is the one thing that reaches the rail's hidden arm", () => {
+    for (const width of [1024, 1440]) {
+      const app = mountFrame(width, createElement(FocusProbe));
+      expect(app.find("rail-full") ?? app.find("rail-icons")).not.toBeNull();
+
+      app.press("probe-toggle-focus");
+
+      expect(app.find("rail-full")).toBeNull();
+      expect(app.find("rail-icons")).toBeNull();
+      expect(app.find("rail-sheet")).toBeNull();
+      expect(app.find("explorer")).toBeNull();
+      // And nothing came in over the note in its place.
+      expect(app.find("frame-scrim")).toBeNull();
+      expect(app.find("explorer-peek")).toBeNull();
+      app.unmount();
+    }
+  });
+
+  test("a phone has no focus mode, because it has no panels to fold", () => {
+    const app = mountFrame(390, createElement(FocusProbe));
+
+    app.press("probe-toggle-focus");
+
+    // Unchanged, and in particular still carrying its bottom row: a chord that
+    // wrote `focus` here would be setting a mode compact never reads, which is
+    // the ⌘B failure this frame has had twice.
+    expect(app.find("bottom")).not.toBeNull();
+    expect(app.find("frame-focus-edge")).toBeNull();
+    expect(app.find("rail-full")).toBeNull();
+
+    app.unmount();
   });
 
   /**
@@ -731,8 +804,77 @@ describe("dragging the explorer's edge", () => {
     drag(app, 100, [1400]);
     expect(columnWidth(app)).toBe(layout.explorerMaxWidth);
 
-    drag(app, 400, [-900]);
+    /*
+      **The floor still refuses to render anything narrower, and that is the
+      half of this test that must not change.** What changed is only what a
+      release past it means: the second half used to drag 900px left and assert
+      the column sat at the floor afterwards, which now folds it away instead —
+      so the claim is made *during* the gesture, where it is actually about the
+      clamp, and the release is a separate test below.
+    */
+    const widths = drag(app, 400, [380, 360, 340, 300]).slice(0, -1);
+    expect(widths.every((width) => width >= layout.explorerMinWidth)).toBe(true);
+
+    app.unmount();
+  });
+
+  test("dragging past the floor and releasing folds the column away", () => {
+    // The clamp's own comment gave the reason it refused rather than closing:
+    // dragging to zero is how somebody hides a region and then wonders where it
+    // went. That reason is answered by the seam left standing, not by the
+    // refusal — so the drag can mean something past the floor now.
+    const app = mountFrame(1440);
+    const handle = app.find("explorer-resizer")!;
+    const pointer = pointerOn(handle);
+
+    pointer.down(400);
+    pointer.move(400 - (layout.explorerWidth - layout.explorerMinWidth) - 60);
+    // Armed, and saying so, before anything has been decided.
+    expect(app.find("explorer-seam-arming")).not.toBeNull();
+    expect(app.find("explorer")).not.toBeNull();
+
+    pointer.up(400 - (layout.explorerWidth - layout.explorerMinWidth) - 60);
+
+    expect(app.find("explorer")).toBeNull();
+    expect(app.find("explorer-seam-closed")).not.toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("a drag that stops short of the overshoot snaps back instead", () => {
+    // The gap between the floor and the close is what stops a pull that
+    // overshoots by a few pixels from folding the tree by accident.
+    const app = mountFrame(1440);
+    const handle = app.find("explorer-resizer")!;
+    const pointer = pointerOn(handle);
+
+    const justInside =
+      400 - (layout.explorerWidth - layout.explorerMinWidth) - layout.explorerCloseOvershoot + 4;
+    pointer.down(400);
+    pointer.move(justInside);
+    expect(app.find("explorer-seam-arming")).toBeNull();
+    pointer.up(justInside);
+
+    expect(app.find("explorer")).not.toBeNull();
     expect(columnWidth(app)).toBe(layout.explorerMinWidth);
+
+    app.unmount();
+  });
+
+  test("the width somebody dragged to survives the fold", () => {
+    // `explorerHidden` and `explorerWidth` are two fields precisely so that
+    // re-opening does not have to invent a width.
+    const app = mountFrame(1440);
+
+    drag(app, 100, [180]);
+    expect(columnWidth(app)).toBe(layout.explorerWidth + 80);
+
+    app.press("status-toggle-explorer");
+    expect(app.find("explorer")).toBeNull();
+    app.press("explorer-seam-closed");
+
+    expect(columnWidth(app)).toBe(layout.explorerWidth + 80);
 
     app.unmount();
   });
@@ -775,34 +917,67 @@ describe("what toggling the explorer means", () => {
     );
   }
 
-  test("on a desktop it does nothing at all, rather than something else", () => {
-    // `explorerToggleFor` answers `null` wherever the explorer is a permanent
-    // column, and `null` has to mean nothing happened. This used to collapse
-    // the rail, which made ⌘⇧E a second ⌘B — a command named after the one
-    // region it never touched.
+  test("on a desktop it folds the column away and leaves the rail alone", () => {
+    /*
+      **This reverses the assertion it replaces, and the old one is worth
+      stating because it guarded a real defect.** It read "on a desktop it does
+      nothing at all, rather than something else": `explorerToggleFor` answered
+      `null` wherever the explorer was a permanent column, and `null` had to
+      mean nothing happened, because this command used to collapse the *rail* —
+      making ⌘⇧E a second ⌘B, a command named after the one region it never
+      touched.
+
+      The half that guarded the defect is kept exactly: the rail is asserted
+      untouched. What changed is that the explorer now has something to do.
+    */
     const app = mountFrame(1440, createElement(CommandProbe));
 
     app.press("probe-toggle-explorer");
 
+    expect(app.find("explorer")).toBeNull();
     expect(app.find("rail-full")).not.toBeNull();
     expect(app.find("rail-icons")).toBeNull();
+    expect(app.find("frame-drawer")).toBeNull();
+    expect(app.find("frame-scrim")).toBeNull();
+
+    // And back, through the seam left where it was.
+    app.press("explorer-seam-closed");
     expect(app.find("explorer")).not.toBeNull();
+    expect(app.find("rail-full")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("on a tablet it folds the column and hands the rail its labels back", () => {
+    // Medium pays for the column with the rail's labels. With no column there
+    // is nothing left to pay for — and a tablet that bought 260pt of editor by
+    // making its own navigation unreadable would be a bad trade made silently.
+    const app = mountFrame(1024, createElement(CommandProbe));
+
+    expect(app.find("rail-icons")).not.toBeNull();
+
+    app.press("probe-toggle-explorer");
+
+    expect(app.find("explorer")).toBeNull();
+    expect(app.find("rail-full")).not.toBeNull();
+    expect(app.find("rail-icons")).toBeNull();
     expect(app.find("frame-drawer")).toBeNull();
     expect(app.find("frame-scrim")).toBeNull();
 
     app.unmount();
   });
 
-  test("on a tablet it does nothing either, and cannot summon a drawer", () => {
-    const app = mountFrame(1024, createElement(CommandProbe));
+  test("on a pane with no tree it still does nothing at all", () => {
+    // Map and Connections. Writing `explorerHidden` here would set a preference
+    // on a pane that cannot show it, discovered later as a missing tree back on
+    // Browse — the same shape as the defect the test above records.
+    const app = mountFrame(1440, createElement(CommandProbe), { explorer: false });
 
     app.press("probe-toggle-explorer");
 
-    expect(app.find("rail-icons")).not.toBeNull();
-    expect(app.find("rail-full")).toBeNull();
-    expect(app.find("explorer")).not.toBeNull();
-    expect(app.find("frame-drawer")).toBeNull();
-    expect(app.find("frame-scrim")).toBeNull();
+    expect(app.find("rail-full")).not.toBeNull();
+    expect(app.find("explorer-seam-closed")).toBeNull();
+    expect(app.find("status-toggle-explorer")).toBeNull();
 
     app.unmount();
   });
@@ -863,5 +1038,315 @@ describe("what toggling the explorer means", () => {
 
       app.unmount();
     }
+  });
+});
+
+describe("the seams", () => {
+  test("the rail's seam collapses it and then expands it again", () => {
+    // ⌘B did this and nothing on the screen said so. The seam is where the
+    // control belongs: you fold a panel at its own edge, so the control that
+    // unfolds it is where the panel was, rather than forty points up and to the
+    // right in a toolbar.
+    const app = mountFrame(1440);
+
+    expect(app.find("rail-full")).not.toBeNull();
+    app.press("rail-seam-toggle");
+    expect(app.find("rail-icons")).not.toBeNull();
+    expect(app.find("rail-full")).toBeNull();
+
+    app.press("rail-seam-toggle");
+    expect(app.find("rail-full")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("there is no seam where there is no panel behind it", () => {
+    // A control that folds something already folded is a button that lies. The
+    // rail's seam belongs to the rail, so focus mode takes it with the rail.
+    const app = mountFrame(1440, createElement(FocusProbe));
+    expect(app.find("rail-seam-toggle")).not.toBeNull();
+
+    app.press("probe-toggle-focus");
+    expect(app.find("rail-seam-toggle")).toBeNull();
+    expect(app.find("explorer-seam-closed")).toBeNull();
+
+    app.unmount();
+  });
+
+  test("a phone has neither seam", () => {
+    const app = mountFrame(390);
+    expect(app.find("rail-seam-toggle")).toBeNull();
+    expect(app.find("explorer-seam-closed")).toBeNull();
+    expect(app.find("explorer-resizer")).toBeNull();
+    app.unmount();
+  });
+
+  test("the closed seam stays put underneath a peek", () => {
+    // If it did not, the pointer resting on it would be resting on nothing the
+    // moment the peek arrived, and the peek would close as fast as it opened.
+    jest.useFakeTimers();
+    const app = mountFrame(1440);
+    app.press("status-toggle-explorer");
+
+    const seam = app.find("explorer-seam-closed")!;
+    hover(seam).in();
+    act(() => {
+      jest.advanceTimersByTime(400);
+    });
+
+    expect(app.find("explorer-peek")).not.toBeNull();
+    expect(app.find("explorer-seam-closed")).not.toBeNull();
+
+    app.unmount();
+    jest.useRealTimers();
+  });
+});
+
+describe("the peek", () => {
+  /** A desktop with the tree folded away, which is the only state that peeks. */
+  function folded(): Mounted {
+    const app = mountFrame(1440);
+    app.press("status-toggle-explorer");
+    return app;
+  }
+
+  test("resting on the closed seam brings the tree back over the editor", () => {
+    jest.useFakeTimers();
+    const app = folded();
+    expect(app.find("explorer")).toBeNull();
+
+    hover(app.find("explorer-seam-closed")!).in();
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(app.find("explorer-peek")).not.toBeNull();
+    expect(app.find("explorer")).not.toBeNull();
+    /*
+      No scrim, which is the whole reason `peek` is an arm of `Regions.explorer`
+      rather than the `drawer` with its scrim suppressed. A scrim would grey out
+      and make inert the note being peeked at in order to reach.
+    */
+    expect(app.find("frame-scrim")).toBeNull();
+
+    app.unmount();
+    jest.useRealTimers();
+  });
+
+  test("crossing the seam on the way somewhere else opens nothing", () => {
+    // The delay is the whole of what separates a rest from a traverse, and a
+    // panel that opened on every pass would make the seam unusable.
+    jest.useFakeTimers();
+    const app = folded();
+    const seam = app.find("explorer-seam-closed")!;
+
+    hover(seam).in();
+    act(() => {
+      jest.advanceTimersByTime(120);
+    });
+    hover(seam).out();
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+
+    expect(app.find("explorer-peek")).toBeNull();
+
+    app.unmount();
+    jest.useRealTimers();
+  });
+
+  test("leaving the panel closes it; leaving the seam does not", () => {
+    /*
+      The pointer leaving the seam is usually the pointer moving *onto* the
+      panel that just opened beside it. Closing on the seam's hover-out would
+      make the peek impossible to reach — it would vanish in the gap between the
+      two elements.
+    */
+    jest.useFakeTimers();
+    const app = folded();
+
+    hover(app.find("explorer-seam-closed")!).in();
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+    hover(app.find("explorer-seam-closed")!).out();
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+    expect(app.find("explorer-peek")).not.toBeNull();
+
+    // The pointer arrives on the panel — which is where it was going when it
+    // left the seam — and only then leaves for good.
+    hover(app.find("explorer-peek")!).in();
+    hover(app.find("explorer-peek")!).out();
+    expect(app.find("explorer-peek")).toBeNull();
+
+    app.unmount();
+    jest.useRealTimers();
+  });
+
+  test("the panel is not a tab stop, because it is a hover surface", () => {
+    /*
+      `Pressable` gives every instance a `tabIndex`, and this file's scrim
+      carries the rule: labelled and roleless, a screen reader announces a stop
+      it cannot describe. This one would be roleless *and* nameless, sitting in
+      the tab order between the rail and the note. The tree inside it keeps its
+      own semantics, which is the whole reason the wrapper needs none.
+
+      Asserted as an attribute rather than trusted to a prop, because the
+      obvious spelling — `focusable={false}` — compiles, reads correctly, and
+      does nothing: react-native-web's `Pressable` honours `tabIndex` and
+      ignores `focusable`. This test is how that was found.
+    */
+    jest.useFakeTimers();
+    const app = folded();
+
+    hover(app.find("explorer-seam-closed")!).in();
+    act(() => {
+      jest.advanceTimersByTime(300);
+    });
+
+    expect(app.find("explorer-peek")!.getAttribute("tabindex")).toBe("-1");
+    // The seam that summoned it is the opposite case and is reachable, named.
+    expect(app.find("explorer-seam-closed")!.getAttribute("aria-label")).toBe("Open the file tree");
+
+    app.unmount();
+    jest.useRealTimers();
+  });
+
+  test("pressing the seam opens the column for good, and cancels the peek", () => {
+    jest.useFakeTimers();
+    const app = folded();
+
+    hover(app.find("explorer-seam-closed")!).in();
+    app.press("explorer-seam-closed");
+
+    expect(app.find("explorer")).not.toBeNull();
+    expect(app.find("explorer-peek")).toBeNull();
+    expect(app.find("explorer-seam-closed")).toBeNull();
+
+    // And the timer that was pending does not bring a peek back afterwards,
+    // beside a column that is already there.
+    act(() => {
+      jest.advanceTimersByTime(600);
+    });
+    expect(app.find("explorer-peek")).toBeNull();
+
+    app.unmount();
+    jest.useRealTimers();
+  });
+
+  test("a pending peek is cancelled when the frame goes away", () => {
+    /*
+      Navigating from Browse to Map with the pointer sitting on the seam.
+
+      **Asserted against the timer itself, and the version this replaces is
+      worth recording because it was the exact failure `docs/decisions/testing`
+      is about.** It unmounted, advanced the clock and expected no throw — and
+      it passed with the cleanup deleted, because React 19 removed the
+      setState-on-an-unmounted-tree warning that the assertion was silently
+      relying on. A guard nobody has checked is not a guard; the sabotage run
+      is what checked it.
+
+      Counting pending timers is the claim that actually fails: a timer left
+      behind is a timer left behind whether or not anything downstream
+      complains about it today.
+    */
+    jest.useFakeTimers();
+    const app = folded();
+    const before = jest.getTimerCount();
+
+    hover(app.find("explorer-seam-closed")!).in();
+    expect(jest.getTimerCount()).toBe(before + 1);
+
+    app.unmount();
+    expect(jest.getTimerCount()).toBe(before);
+
+    jest.useRealTimers();
+  });
+});
+
+describe("the status bar's panel toggles", () => {
+  test("both are there on a desktop, and they say what is folded", () => {
+    // The seam is the gesture and the status bar is the state. This is the half
+    // that never moves, and the only one a keyboard reaches by tabbing.
+    const app = mountFrame(1440);
+
+    const rail = app.find("status-toggle-rail")!;
+    const tree = app.find("status-toggle-explorer")!;
+    expect(rail.getAttribute("aria-checked")).toBe("true");
+    expect(tree.getAttribute("aria-checked")).toBe("true");
+
+    app.press("status-toggle-explorer");
+    expect(app.find("status-toggle-explorer")!.getAttribute("aria-checked")).toBe("false");
+    expect(app.find("explorer")).toBeNull();
+
+    app.press("status-toggle-explorer");
+    expect(app.find("explorer")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("the rail's toggle reports its three states rather than two", () => {
+    // `icons` is not `off`: the rail is still there and still navigable. A
+    // two-state readout would say the panel was gone while it was on screen.
+    const app = mountFrame(1440);
+
+    expect(app.find("status-toggle-rail")!.getAttribute("aria-checked")).toBe("true");
+    app.press("status-toggle-rail");
+    expect(app.find("status-toggle-rail")!.getAttribute("aria-checked")).toBe("true");
+    expect(app.find("rail-icons")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("a phone has no status bar to put them in", () => {
+    const app = mountFrame(390);
+    expect(app.find("status-toggle-rail")).toBeNull();
+    expect(app.find("status-toggle-explorer")).toBeNull();
+    app.unmount();
+  });
+
+  test("the tree's toggle is absent on a pane with no tree", () => {
+    const app = mountFrame(1440, "the note", { explorer: false });
+    expect(app.find("status-toggle-rail")).not.toBeNull();
+    expect(app.find("status-toggle-explorer")).toBeNull();
+    app.unmount();
+  });
+
+  test("they survive focus mode, which is what makes it leavable", () => {
+    // Focus removes the panels, not the instruments. A mode that hides its own
+    // escape hatch is one people enter exactly once.
+    const app = mountFrame(1440, createElement(FocusProbe));
+
+    app.press("probe-toggle-focus");
+
+    expect(app.find("status")).not.toBeNull();
+    expect(app.find("status-toggle-rail")).not.toBeNull();
+    expect(app.find("frame-focus-edge")).not.toBeNull();
+
+    // And pressing one of them is a way out: a command naming a panel that is
+    // not on the screen brings the panels back rather than writing a preference
+    // nobody can see change.
+    app.press("status-toggle-rail");
+    expect(app.find("rail-full")).not.toBeNull();
+    expect(app.find("explorer")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  test("the focus edge offers a way back before the pointer reaches a toggle", () => {
+    const app = mountFrame(1440, createElement(FocusProbe));
+    app.press("probe-toggle-focus");
+
+    const edge = app.find("frame-focus-edge")!;
+    expect(app.find("frame-focus-exit")).toBeNull();
+    hover(edge).in();
+    expect(app.find("frame-focus-exit")).not.toBeNull();
+
+    app.press("frame-focus-edge");
+    expect(app.find("rail-full")).not.toBeNull();
+
+    app.unmount();
   });
 });

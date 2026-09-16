@@ -479,6 +479,39 @@ export const layout = {
   explorerMinWidth: 200,
   explorerMaxWidth: 460,
   /**
+   * How far past the floor a drag has to go before releasing folds the column
+   * away instead of snapping back to it.
+   *
+   * `clampExplorerWidth` still refuses to *render* anything narrower than
+   * `explorerMinWidth` — the floor is where a kebab-case name under two indents
+   * stops being readable, and that has not changed. What changes is what
+   * happens when somebody keeps pulling: the drag arms a close rather than
+   * meeting a wall. 28 is far enough that overshooting the floor by a few
+   * pixels does not close the tree by accident, and near enough that a
+   * deliberate pull reaches it without a shove.
+   */
+  explorerCloseOvershoot: 28,
+  /**
+   * The seam between two panels: a hairline that is also a 7pt target.
+   *
+   * Wide enough to hit without looking, narrow enough to read as the rule it
+   * draws. The closed seam is wider because it is the only thing left standing
+   * where a whole panel was, and it is the control that brings the panel back.
+   */
+  seamWidth: 7,
+  seamClosedWidth: 10,
+  /** The chevron pill centred on a seam, revealed under the pointer. */
+  seamPillWidth: 18,
+  seamPillHeight: 42,
+  /**
+   * The warm strip down the leading edge in focus mode.
+   *
+   * Nothing is drawn in it. It exists so that a pointer sent to the edge of the
+   * window — which is where a hand goes looking for a panel that was there a
+   * moment ago — finds something rather than the note.
+   */
+  focusEdgeWidth: 12,
+  /**
    * The smallest target a thumb can be asked to hit, in points.
    *
    * 44 is Apple's HIG minimum and Android's 48dp rounds down to about the same
