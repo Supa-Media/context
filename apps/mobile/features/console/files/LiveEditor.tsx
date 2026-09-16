@@ -109,6 +109,8 @@ export function LiveEditor({
   onVoteForm,
   onUpdateFormResponse,
   onRetractFormResponse,
+  onSuggest,
+  onPickSuggestion,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -171,6 +173,8 @@ export function LiveEditor({
     onVoteForm,
     onUpdateFormResponse,
     onRetractFormResponse,
+    onSuggest,
+    onPickSuggestion,
   });
   handlers.current = {
     onChange,
@@ -186,6 +190,8 @@ export function LiveEditor({
     onVoteForm,
     onUpdateFormResponse,
     onRetractFormResponse,
+    onSuggest,
+    onPickSuggestion,
   };
 
   /**
@@ -296,6 +302,24 @@ export function LiveEditor({
           onRetractFormResponse: (change) =>
             handlers.current.onRetractFormResponse?.(change) ??
             Promise.resolve({ ok: false, message: "Deleting is unavailable here." }),
+          /*
+            Off the ref for the reason every callback here is, and with a
+            sharper consequence than most: `askSuggestions` is rebuilt whenever
+            the set of running sandboxes changes, so a version captured at mount
+            would go on asking the frames that were alive when this note was
+            opened — which is a plugin that answers nothing after the first
+            restart, and answers it silently.
+
+            Always supplied rather than conditional on the prop, like the form
+            sinks above: this bridge is built once, so choosing the sink from a
+            prop's value at mount would freeze the first render's answer. What
+            varies is `setSuggest` below, which is a message and can be sent
+            again.
+          */
+          onSuggest: (line, ch) =>
+            handlers.current.onSuggest?.(line, ch) ?? Promise.resolve([]),
+          onPickSuggestion: (index) =>
+            handlers.current.onPickSuggestion?.(index) ?? Promise.resolve(null),
         },
       ),
     [keepCaretClear],
@@ -368,6 +392,22 @@ export function LiveEditor({
   useEffect(() => {
     bridge.setLinks(notePath ?? null, notePaths);
   }, [bridge, notePath, notePaths]);
+
+  /*
+    Whether a plugin can be asked for suggestions right now.
+
+    Its own effect, and the one piece of this that has to be a message rather
+    than a sink: the guest's completion source asks nothing at all while this is
+    false, which is what keeps a note on a phone with no plugin running free of
+    a bridge round trip per keystroke. `onSuggest` is absent on every surface
+    with no runtime behind it — a member's console, the demo — and present the
+    moment one appears, so this is the prop's presence and nothing else. The
+    bridge drops a repeat, so the identity churn in `askSuggestions` as
+    sandboxes come and go costs one comparison rather than a message.
+  */
+  useEffect(() => {
+    bridge.setSuggest(onSuggest !== undefined);
+  }, [bridge, onSuggest]);
 
   /**
    * KEEPING THE CARET OFF THE KEYBOARD, and it is answered differently at the

@@ -124,7 +124,15 @@ describe("the ready handshake", () => {
     // `links` before `doc` for a sharper reason: the guest decorates links
     // when the document changes, so a note that arrived before its own path
     // would paint once with every relative link in it as plain text.
-    expect(types).toEqual(["editable", "theme", "inset", "links", "doc"]);
+    //
+    // `suggest` is in the list at all because a reloaded `WebView` is a guest
+    // that has forgotten whether a plugin can answer it, and the one it
+    // forgets to is the one that asks nothing — a plugin that stops
+    // suggesting after a memory warning, silently, until the note is
+    // reopened. Its position is the only one here that does not matter: it
+    // configures a completion source rather than anything the first paint
+    // reads.
+    expect(types).toEqual(["editable", "theme", "inset", "links", "suggest", "doc"]);
     expect(JSON.parse(sent[types.indexOf("doc")]).text).toBe("# note\n");
   });
 

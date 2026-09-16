@@ -1499,3 +1499,59 @@ network its owner did not grant. Removing `fetch` from `NETWORK_MEMBERS` grants
 the network without anybody being asked. `e2e/webkit/pluginNetwork.spec.ts`,
 `e2e/webkit/pluginSandbox.spec.ts` and `apps/mcp/test/plugins.test.mjs` hold
 these, all four sabotage-confirmed, the first against the real release.
+
+## A plugin's suggestions cross the `WebView` bridge, and the guest asks nothing until told there is somebody to ask
+
+`LiveEditorProps` declared `onSuggest` and `onPickSuggestion`; `LiveEditor.web.tsx`
+installed the completion source with them and `LiveEditor.tsx` destructured
+neither. On a phone a plugin could show **Running**, hold a grant its owner had
+approved, and offer nothing in any note — silently, because nothing was broken.
+That is the one shape this area keeps ruling out: a capability neither provided
+nor reported. It is the same failure as the blank note editor — arithmetic in a
+module nothing reads — and the same failure as `addSettingTab` being listed
+inert, in a place nobody looked because the web console worked.
+
+**The split is the one the web half already makes**, and it had to be, because
+the editor is the trusted realm on both surfaces: the plugin decides what to
+offer and what a pick produces, CodeMirror decides how a list looks and how keys
+behave, and only strings cross. What is new is that on native there is a second
+boundary in the middle — the editor is inside a `WebView` and the plugins are
+outside it — so `pluginSuggest.ts`'s ref is filled in from across the bridge
+instead of from props.
+
+**The guest is told whether anyone can answer, rather than finding out by
+asking.** A `suggest` message carries one boolean, and while it is false
+`pluginSuggestSource` returns `null` without sending anything. Without it every
+completion — which CodeMirror runs on every keystroke — would be a bridge round
+trip returning an empty list, on every note, on every surface with no plugin
+running. It is resent on `ready` with the rest of the desired state, because a
+WKWebView can reload itself after a memory warning and the state it would come
+back in is the one that asks nothing.
+
+**Asking is a read and picking is a write, and they are gated differently.** The
+ask is not gated on `editable`: it sends the caret's line to a plugin, and
+whether a plugin may see note content is `maySeeContent` against `vault:read`,
+decided where the sandboxes are — a member on a read-only note is exactly who a
+suggesting plugin is for. The pick *is* gated, in the host, because a pick exists
+to produce an edit and `EditorView.editable.of(false)` does not stop a
+programmatic one. That is the second of the three refusals every edit meets here,
+on the far side of a process boundary from the guest's own `changeFilter`.
+
+**A malformed item list is refused whole, never filtered.** A pick crosses back
+as an *index* into that list. Dropping the one bad row and offering the rest is
+the obvious kindness and renumbers everything after it: the reader picks the
+label they read and the plugin rewrites their line from the row below it. Nothing
+legitimate trips this — the items reach the host already parsed out of a sandbox
+message — which is the point. If it fires, something upstream is wrong and
+guessing is the worst available answer.
+
+**What a simplification costs.** Taking the `suggest` message out and asking
+unconditionally is a bridge round trip per keystroke forever, for an empty list,
+on every phone with no plugin running. Not resending it on `ready` is a plugin
+that stops suggesting after a memory warning until the note is reopened.
+Ungating the pick lets a read-only note's completion reach the plugin and rely on
+one `changeFilter` to be the only refusal. Filtering the item list instead of
+refusing it inserts the wrong verse. `apps/mobile/__tests__/nativePluginSuggest.test.ts`
+holds the conversation and `nativePluginSuggestWiring.test.ts` holds the
+component — the second exists because every test in the first builds the bridge
+itself, and the bug that shipped was a component that never built one.

@@ -291,6 +291,19 @@ export interface HostSink {
     formId: string;
     responseId: string;
   }) => Promise<{ ok: boolean; message: string }>;
+  /**
+   * Ask the running plugins what they would offer at this point in the line.
+   *
+   * Absent means this surface has no plugin runtime behind it, and the guest is
+   * told so with `setSuggest(false)` rather than left asking — but the guest is
+   * a separate bundle that can be paired with a host it does not know, so the
+   * `suggest-ask` case below still answers when this is missing. An empty list
+   * is a real answer; a dropped request is a completion that never resolves.
+   */
+  onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
+  /** Take the pick. Resolves to the rewritten line, or `null` if nothing
+   * answered — including when nobody was asked. */
+  onPickSuggestion?: (index: number) => Promise<string | null>;
 }
 
 export interface HostBridge {
@@ -317,6 +330,15 @@ export interface HostBridge {
    * frontmatter.
    */
   run: (command: EditorCommand) => void;
+  /**
+   * Whether a plugin can be asked for in-editor suggestions right now.
+   *
+   * The console knows this and the guest cannot: the plugins run out here, in
+   * their own sandboxes. Told rather than asked, so that a note on a surface
+   * with no plugin running costs no bridge traffic per keystroke — see the
+   * `suggest` message.
+   */
+  setSuggest: (available: boolean) => void;
   /** A raw `onMessage` payload. */
   receive: (raw: string) => void;
   /** Testing seam: what the guest is believed to hold. */
@@ -372,6 +394,13 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
   let known = "";
   let linkPath: string | null = null;
   let linkPaths: readonly string[] | undefined;
+  /**
+   * Whether a plugin can answer a suggestion right now.
+   *
+   * `false` to start, which is what every surface is before its plugins have
+   * loaded, and resent on `ready` with everything else.
+   */
+  let suggesting = false;
 
   const post = (message: ToGuest) => {
     if (!ready) return;
@@ -433,6 +462,11 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
       linkPaths = capped;
       post({ v: PROTOCOL_VERSION, type: "links", path, paths: capped });
     },
+    setSuggest: (available) => {
+      if (available === suggesting && ready) return;
+      suggesting = available;
+      post({ v: PROTOCOL_VERSION, type: "suggest", available });
+    },
     /**
      * The first of the three refusals a bar key meets.
      *
@@ -463,6 +497,7 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           send(encode({ v: PROTOCOL_VERSION, type: "theme", vars }));
           send(encode({ v: PROTOCOL_VERSION, type: "inset", bottom: inset }));
           send(encode({ v: PROTOCOL_VERSION, type: "links", path: linkPath, paths: linkPaths }));
+          send(encode({ v: PROTOCOL_VERSION, type: "suggest", available: suggesting }));
           send(encode({ v: PROTOCOL_VERSION, type: "doc", text: doc }));
           known = doc;
           return;
@@ -602,6 +637,67 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
             .catch((error: unknown) =>
               reply(false, error instanceof Error ? error.message : "Those changes didn’t save."),
             );
+          return;
+        }
+        /*
+          Asking is a read and picking is a write, and they are gated
+          differently for that reason alone.
+
+          The ask is not gated on `editable`: it sends the caret's line to a
+          plugin, and whether a plugin may see note content is decided by
+          `maySeeContent` against the `vault:read` grant, out where the
+          sandboxes are. A member on a read-only note is exactly who a
+          suggesting plugin is for — the same argument the form cases make one
+          block up.
+
+          The pick IS gated, because a pick exists to produce an edit.
+          `EditorView.editable.of(false)` does not stop a programmatic one, so
+          this is the second of the three refusals every edit meets here, on the
+          other side of a process boundary from the guest's own `changeFilter`.
+          There is no legitimate pick on a note the viewer may not write, so the
+          plugin is not troubled for an answer that would be thrown away.
+        */
+        case "suggest-ask": {
+          const { token } = message;
+          if (typeof token !== "string") return;
+          const reply = (items: { text: string }[]): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "suggest-result", token, items }));
+          const ask = sink.onSuggest;
+          /*
+            The guest is the least trusted thing in this app — it is rendering
+            somebody's markdown — and `line` is about to be handed to a
+            third-party plugin. A shape check rather than a length cap: the line
+            is a line of the note the host itself sent in, so there is no size
+            here that is suspicious, but a `line` that arrived as an object
+            would reach the sandbox as `[object Object]`.
+          */
+          if (
+            ask === undefined ||
+            typeof message.line !== "string" ||
+            !Number.isInteger(message.ch) ||
+            message.ch < 0
+          ) {
+            reply([]);
+            return;
+          }
+          ask(message.line, message.ch)
+            .then(reply)
+            .catch(() => reply([]));
+          return;
+        }
+        case "suggest-pick": {
+          const { token } = message;
+          if (typeof token !== "string") return;
+          const reply = (text: string | null): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "suggest-pick-result", token, text }));
+          const pick = sink.onPickSuggestion;
+          if (pick === undefined || !acceptsChange(editable) || !Number.isInteger(message.index)) {
+            reply(null);
+            return;
+          }
+          pick(message.index)
+            .then((text) => reply(typeof text === "string" ? text : null))
+            .catch(() => reply(null));
           return;
         }
         case "form-retract": {

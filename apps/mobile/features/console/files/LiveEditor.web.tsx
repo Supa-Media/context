@@ -203,6 +203,14 @@ export interface LiveEditorProps {
    * completion extension is then not installed at all, rather than installed
    * over a source that always answers nothing. `onPickSuggestion` comes with
    * it; one without the other is a menu that cannot be accepted.
+   *
+   * **Both halves honour these.** They were accepted and dropped on native for
+   * a release: the props were destructured nowhere, so a plugin showing
+   * **Running** on a phone, with a grant its owner had approved, offered
+   * nothing in any note and said nothing about why — the one shape that neither
+   * reports an absent capability nor provides it. The `WebView` guest now holds
+   * the same completion source this file installs, asking across the bridge;
+   * see the `suggest` messages in `webview/protocol.ts`.
    */
   onSuggest?: (line: string, ch: number) => Promise<{ text: string }[]>;
   onPickSuggestion?: (index: number) => Promise<string | null>;
