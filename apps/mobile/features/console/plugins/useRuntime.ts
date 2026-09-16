@@ -11,6 +11,7 @@ import type {
   CommandOutcome,
   InvokeRequest,
   OpenModal,
+  OpenTextModal,
   PendingCommand,
   PreviewRequest,
   SuggestRequest,
@@ -161,6 +162,17 @@ export function useRuntime(options: {
     { seq: number; pluginId: string; nonce: string; index: number } | undefined
   >(undefined);
   const [modalDismiss, setModalDismiss] = useState<
+    { seq: number; pluginId: string; nonce: string } | undefined
+  >(undefined);
+  /*
+    The plain dialog, held beside the suggestion one rather than in it.
+
+    Also one at a time, and also replaced by whoever opens next. It carries no
+    query and no pick — a `Modal` shows something — so the only thing that
+    travels back is a dismissal.
+  */
+  const [textModal, setTextModal] = useState<OpenTextModal | null>(null);
+  const [textModalDismiss, setTextModalDismiss] = useState<
     { seq: number; pluginId: string; nonce: string } | undefined
   >(undefined);
   /*
@@ -535,6 +547,21 @@ export function useRuntime(options: {
     setModal(null);
   }, [modal]);
 
+  /*
+    Same rule as `dismissModal`: the dialog goes now and the guest is told.
+    A reader closing a dialog must not be waiting on the plugin that opened it.
+  */
+  const dismissTextModal = useCallback(() => {
+    if (textModal === null) return;
+    modalSeq.current += 1;
+    setTextModalDismiss({
+      seq: modalSeq.current,
+      pluginId: textModal.pluginId,
+      nonce: textModal.nonce,
+    });
+    setTextModal(null);
+  }, [textModal]);
+
   const askPreviews = useCallback(async (links: LinkPreview[]) => {
     if (!isOwner || links.length === 0) return [];
     previewWalk.current += 1;
@@ -656,6 +683,23 @@ export function useRuntime(options: {
               placeholder: event.placeholder,
               instructions: event.instructions,
             }
+          : null,
+      );
+      return;
+    }
+    if (event.type === "text-modal") {
+      /*
+        Recorded against the frame that sent it, like the suggestion dialog and
+        for the same reason: a dismissal has to reach the plugin that opened it,
+        and a plugin restarted under a new nonce is not that plugin.
+
+        An update to a dialog already open replaces it in place — the guest
+        re-sends on every change to its own content, which is how an async
+        `onOpen` arrives at all.
+      */
+      setTextModal(
+        event.open
+          ? { pluginId, nonce: sandbox.nonce, title: event.title, text: event.text }
           : null,
       );
       return;
@@ -872,7 +916,7 @@ export function useRuntime(options: {
     host: isOwner
       ? createElement(PluginSandboxFarm, {
           sandboxes, onEvent, activeFile, vaultEvent, invoke, suggest, suggestApply, preview, grants,
-          modalQuery, modalPick, modalDismiss,
+          modalQuery, modalPick, modalDismiss, textModalDismiss,
         })
       : undefined,
     registrations,
@@ -886,6 +930,7 @@ export function useRuntime(options: {
     */
     openNote: activeFile?.path ?? null,
     modal,
+    textModal,
     actions: isOwner && workspaceId !== null
       ? {
           start,
@@ -897,6 +942,7 @@ export function useRuntime(options: {
           askModalSuggestions,
           pickModalSuggestion,
           dismissModal,
+          dismissTextModal,
         }
       : undefined,
   };

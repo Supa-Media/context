@@ -74,7 +74,13 @@ import {
   GoogleOAuthError,
   type GoogleProduct,
 } from "./lib/googleOAuth";
-import { readGoogleClientSecret, refuseAttempt, requireActor, requireGoogleClientId } from "./googleConnect";
+import {
+  defaultGoogleDestinationFolder,
+  readGoogleClientSecret,
+  refuseAttempt,
+  requireActor,
+  requireGoogleClientId,
+} from "./googleConnect";
 
 /** Same width and lifetime as the Gmail attempt — see `googleConnect.ts`. */
 const ATTEMPT_TTL_MS = 10 * 60 * 1000;
@@ -499,7 +505,14 @@ export const applyCalendarConnectionBinding = internalMutation({
         // A reconnect keeps the cursor: it is the same account, and
         // resetting it would force a needless full resync. Cleared only by
         // `disconnectGoogleConnection`, exactly like Gmail's `historyId`.
-        destinationFolder: existing?.calendar?.destinationFolder,
+        // Recorded at connect, like Gmail's — see `applyChatConnectionBinding`
+        // for the whole argument. An absent folder is one a later edit to
+        // `defaultGoogleDestinationFolder` answers differently, which would
+        // move where an existing customer's days are written without them
+        // doing anything.
+        destinationFolder:
+          existing?.calendar?.destinationFolder ??
+          defaultGoogleDestinationFolder("calendar", undefined),
         syncToken: existing?.calendar?.syncToken,
         lastFullSyncDate: existing?.calendar?.lastFullSyncDate,
         lastSyncedAt: existing?.calendar?.lastSyncedAt,

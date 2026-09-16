@@ -68,6 +68,14 @@ export type SandboxEvent =
       placeholder: string;
       instructions: { command: string; purpose: string }[];
     }
+  /**
+   * A plain dialog the plugin filled in, or closed.
+   *
+   * No query and no pick — a `Modal` shows something rather than asking. The
+   * text arrives again whenever the plugin changes it, because a plugin may
+   * fill it after an await and the one this was built for does.
+   */
+  | { type: "text-modal"; open: boolean; title: string; text: string }
   | { type: "suggest-modal-results"; seq: number; items: { text: string }[] }
   /*
     `reopened` says whether the plugin opened another dialog while handling the
@@ -238,6 +246,7 @@ export interface PluginSandboxProps {
   modalPick?: { seq: number; index: number };
   /** They closed it without choosing, so the plugin's own onClose still runs. */
   modalDismiss?: { seq: number };
+  textModalDismiss?: { seq: number };
   /**
    * The links to preview.
    *

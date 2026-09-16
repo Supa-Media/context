@@ -183,7 +183,12 @@ export const RECOVER_CONFIRMATION = "RECOVER_PLUGIN" as const;
  */
 export function annotateResults(
   results: CommunityPlugin[],
-  installed: ConsolePlugin[],
+  /*
+    Only the two fields this reads, so the cheap pointer list can answer it as
+    well as a full scan. Which of the two is asking is not this function's
+    business — what it needs to know is an id and where the copy lives.
+  */
+  installed: Array<Pick<ConsolePlugin, "id" | "source">>,
 ): Array<CommunityPlugin & { already: "managed" | "vault" | null }> {
   return results.map((row) => {
     const match = installed.find((plugin) => plugin.id === row.id);

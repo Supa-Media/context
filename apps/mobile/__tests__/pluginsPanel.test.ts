@@ -31,6 +31,7 @@ jest.mock("react-native-safe-area-context", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
+import type { ManagedInstallsView } from "../features/console/plugins/managedInstalls";
 import type { GrantsView } from "../features/console/plugins/grants";
 import type { BrowseView } from "../features/console/plugins/lifecycle";
 import type { RuntimeView } from "../features/console/plugins/runtime";
@@ -41,6 +42,14 @@ import {
   type PluginVerdict,
   type PluginsView,
 } from "../features/console/plugins/plugins";
+
+/** No scan, nothing installed — the state a bucket with no plugins is really in. */
+const NO_INSTALLS: ManagedInstallsView = {
+  state: "ready",
+  installs: [],
+  truncated: false,
+  read: async () => {},
+};
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -71,6 +80,8 @@ function panel(
     settingsError: null,
     canManage: false,
   },
+  /* Last, so every positional call above this one keeps meaning what it did. */
+  installs: ManagedInstallsView = NO_INSTALLS,
 ): HTMLElement {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -81,7 +92,14 @@ function panel(
   });
   act(() => {
     root.render(
-      createElement(PluginsPanel, { view, contextPlugins, grants, browse, runtime }),
+      createElement(PluginsPanel, {
+        view,
+        contextPlugins,
+        installs,
+        grants,
+        browse,
+        runtime,
+      }),
     );
   });
   return container;
@@ -599,5 +617,125 @@ describe("a row leads with what the plugin is for", () => {
       },
     });
     expect(container.querySelector("[data-testid='plugin-blurb-quiet']")).toBeNull();
+  });
+});
+
+/*
+  WHAT IS INSTALLED, BEFORE ANYBODY HAS SCANNED.
+
+  The reported bug: install a plugin, come back tomorrow, and the panel that
+  installs plugins names none of them. The install had persisted; the panel
+  rested at "check my plugins" and nothing had ever read the bucket back. People
+  reasonably concluded the install had not stuck — and, since every sentence on
+  this panel talked about `.obsidian/`, that Context only ever looks there.
+
+  Four checks, and the first is the bug: the names are on the screen with no
+  press. The rest are the ways this could have been "fixed" into a new lie —
+  claiming a verdict the scan has not reached, drawing an empty list over a read
+  that failed, and telling somebody nothing is installed when the read never
+  happened.
+*/
+describe("what Context has installed, before a scan", () => {
+  const INSTALLED: ManagedInstallsView = {
+    state: "ready",
+    truncated: false,
+    read: async () => {},
+    installs: [
+      { id: "obsidian-bible-reference", version: "26.08.07", repository: "tim-hub/x" },
+      { id: "half-written", version: null, repository: null },
+    ],
+  };
+
+  test("an install is named on arrival, with nothing pressed", () => {
+    const container = panel({ state: "idle" }, undefined, undefined, undefined, undefined, INSTALLED);
+    const card = container.querySelector("[data-testid='plugins-installed']");
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("obsidian-bible-reference 26.08.07");
+    expect(card?.textContent).toContain("2 installed by Context");
+  });
+
+  test("and no verdict is claimed for it, because none has been reached", () => {
+    const container = panel({ state: "idle" }, undefined, undefined, undefined, undefined, INSTALLED);
+    const card = container.querySelector("[data-testid='plugins-installed']");
+    // The scan's vocabulary, none of which this read is entitled to.
+    for (const word of ["Runs here", "Won't run", "Needs approval", "couldn't be checked"]) {
+      expect(card?.textContent ?? "").not.toContain(word);
+    }
+  });
+
+  test("a pointer naming no release is shown as unfinished rather than as a version", () => {
+    const container = panel({ state: "idle" }, undefined, undefined, undefined, undefined, INSTALLED);
+    const card = container.querySelector("[data-testid='plugins-installed']");
+    expect(card?.textContent).toContain("half-written");
+    expect(card?.textContent).toContain("Unfinished");
+  });
+
+  test("a read that failed says so rather than drawing an empty list", () => {
+    const container = panel(
+      { state: "idle" },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { state: "failed", reason: "the bucket refused the listing", read: async () => {} },
+    );
+    expect(container.querySelector("[data-testid='plugins-installed']")).toBeNull();
+    const failed = container.querySelector("[data-testid='plugins-installed-failed']");
+    expect(failed?.textContent).toContain("the bucket refused the listing");
+    // The sentence that stops a storage failure reading as "nothing installed".
+    expect(failed?.textContent).toContain("only that the list could not be read");
+  });
+
+  test("once the scan has run the list is not drawn twice", () => {
+    const container = panel(
+      READY,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      INSTALLED,
+    );
+    expect(container.querySelector("[data-testid='plugins-installed']")).toBeNull();
+  });
+
+  /*
+    The half that made people press Install twice. `PluginBrowse` decides the
+    verb from what it is told is installed, and with no scan it used to be told
+    nothing.
+  */
+  test("a registry row for something already installed offers an update, not an install", async () => {
+    const container = panel(
+      { state: "idle" },
+      undefined,
+      {
+        query: "",
+        limit: 20,
+        searching: false,
+        failure: null,
+        results: [{
+          id: "obsidian-bible-reference",
+          name: "Bible Reference",
+          author: "tim-hub",
+          description: "Verses",
+          repository: "tim-hub/x",
+        }],
+        actions: {
+          search: async () => {},
+          install: async () => {},
+          uninstall: async () => {},
+          recover: async () => {},
+        },
+      },
+      undefined,
+      undefined,
+      INSTALLED,
+    );
+    act(() => {
+      container
+        .querySelector("[data-testid='plugin-browse-open']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const browse = container.querySelector("[data-testid='plugin-browse']");
+    expect(browse?.textContent).toContain("Update to the latest release");
   });
 });

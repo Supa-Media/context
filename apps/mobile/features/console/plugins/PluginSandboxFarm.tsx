@@ -24,6 +24,7 @@ export function PluginSandboxFarm({
   modalQuery,
   modalPick,
   modalDismiss,
+  textModalDismiss,
   preview,
   grants,
 }: {
@@ -57,6 +58,7 @@ export function PluginSandboxFarm({
   modalQuery?: { seq: number; pluginId: string; nonce: string; query: string };
   modalPick?: { seq: number; pluginId: string; nonce: string; index: number };
   modalDismiss?: { seq: number; pluginId: string; nonce: string };
+  textModalDismiss?: { seq: number; pluginId: string; nonce: string };
   /**
    * The open note's links, aimed at one frame, for its markdown post-processor.
    *
@@ -124,6 +126,13 @@ export function PluginSandboxFarm({
                 ? { seq: modalPick.seq, index: modalPick.index }
                 : undefined
             }
+            textModalDismiss={
+              textModalDismiss !== undefined &&
+              textModalDismiss.pluginId === sandbox.bundle.pluginId &&
+              textModalDismiss.nonce === sandbox.nonce
+                ? { seq: textModalDismiss.seq }
+                : undefined
+            }
             modalDismiss={
               modalDismiss !== undefined &&
               modalDismiss.pluginId === sandbox.bundle.pluginId &&
@@ -149,6 +158,7 @@ function SandboxSlot({
   modalQuery,
   modalPick,
   modalDismiss,
+  textModalDismiss,
   preview,
 }: {
   sandbox: ActiveSandbox;
@@ -161,6 +171,7 @@ function SandboxSlot({
   modalQuery?: { seq: number; query: string };
   modalPick?: { seq: number; index: number };
   modalDismiss?: { seq: number };
+  textModalDismiss?: { seq: number };
   preview?: PreviewMessage;
 }) {
   const receive = useCallback(
@@ -180,6 +191,7 @@ function SandboxSlot({
       modalQuery={modalQuery}
       modalPick={modalPick}
       modalDismiss={modalDismiss}
+      textModalDismiss={textModalDismiss}
       preview={preview}
     />
   );

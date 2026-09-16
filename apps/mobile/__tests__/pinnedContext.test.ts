@@ -328,25 +328,31 @@ describe("the pinned context's menu", () => {
     ).toEqual(["open"]);
   });
 
-  /*
-    THE CONTROL ROW FOR THE PIN, AND IT IS READ OFF THE MENU AS IT IS RATHER
-    THAN AS IT WAS.
-
-    This asserted `["open", "settings", "sharing", "leave"]` and landed red on
-    `main`: #578 took "Manage sharing…" off every context's menu — it pointed at
-    the app-level Connections pane, so right-clicking a context to ask about
-    *that* context took you out of it, and `MembersSection` now answers the
-    question under Settings → People — and #577 merged a minute later with this
-    list written against the menu of an hour earlier. Neither pull request's CI
-    could see the other, which is what a base branch is for.
-
-    The correction is here rather than in `contextMenuItems`: three items is
-    what that function now returns, deliberately and with the argument in its
-    own header. What this test is *for* is unchanged — a pinned row's menu is
-    smaller than an ordinary one's, and the ordinary one is the control that
-    makes that a fact about the flag rather than about the menu.
-  */
+  /**
+   * The control case: whatever the pinned flag takes away, it takes away from
+   * *this*, so this list has to be the ordinary menu and nothing else.
+   *
+   * It said `["open", "settings", "sharing", "leave"]` when it landed, and
+   * `main` was red between that merge and this line: #578 took "Manage
+   * sharing…" off the context menu in parallel — it pointed at the app-level
+   * Connections pane, so it led *out* of the context you had just right-clicked
+   * — and this file was written against the menu as it stood an hour earlier.
+   * Two correct changes, one stale expectation. `contextMenu.ts` is the side
+   * that decided; this follows it.
+   */
   test("an ordinary context somebody is a member of is unchanged", () => {
+    /*
+      `sharing` was in this list and is not in the menu: #577 added this test
+      against the menu as it was, #578 took **Manage sharing…** off it, and the
+      two landed without either one seeing the other — so `main` went red on an
+      expectation that had been correct an hour earlier.
+
+      The source is the side that is right. `contextMenu.ts` carries the whole
+      argument for dropping the row: it sent people *out* of the context they
+      had just right-clicked, to answer a question that context's own Settings →
+      People now answers. This is the assertion catching up, not the menu
+      changing.
+    */
     expect(contextMenuItems("acme", { canLeave: true }).map((i) => i.key)).toEqual([
       "open",
       "settings",

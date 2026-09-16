@@ -1,6 +1,7 @@
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { ContextPluginsView } from "./plugins/contextPlugins";
+import type { ManagedInstallsView } from "./plugins/managedInstalls";
 import type { GrantsView } from "./plugins/grants";
 import type { BrowseView } from "./plugins/lifecycle";
 import type { RuntimeView } from "./plugins/runtime";
@@ -435,6 +436,15 @@ export interface ConsoleData {
    * for whichever half you had.
    */
   contextPlugins: ContextPluginsView;
+  /**
+   * What Context has installed in the selected context's bucket.
+   *
+   * A third kind of fact again, and the cheap one: a pointer per install, read
+   * on arrival rather than on a press. `plugins` is the scan and says what each
+   * one can do; this only says what is there — which is the question a person
+   * opening this screen actually has, and the one it could not answer.
+   */
+  pluginInstalls: ManagedInstallsView;
   /**
    * What each plugin in the selected context has been allowed to do.
    *

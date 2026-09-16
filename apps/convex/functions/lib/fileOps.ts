@@ -1213,7 +1213,7 @@ function byteLength(text: string): number {
 /* -------------------------------------------------------------------------- */
 
 /**
- * Create a folder.
+ * What lands in a folder the moment it is made.
  *
  * S3 has no folders — a folder is a shared key prefix — so an "empty folder"
  * can only exist in a UI's memory unless something is written. Rather than
@@ -1221,6 +1221,33 @@ function byteLength(text: string): number {
  * invisible to the very tools this is for), a new folder gets a `README.md`,
  * exactly as the PARA scaffold does. The folder is then real for Obsidian,
  * rclone, the gateway and everything else that reads the bucket.
+ *
+ * **It says it is a placeholder, because it is one.** It used to be `# <name>`
+ * — the shape of a note somebody had started writing, on a file nobody wrote,
+ * at the top of every folder they made. A person who opened it found an empty
+ * overview page they had not asked for and could not tell whether they were
+ * supposed to fill in. So the body names itself and says why it is there, which
+ * is the only thing it knows. The console does not list it at all
+ * (`isFolderPlaceholder`); this text is for the tools that do.
+ *
+ * `renderFolderPlaceholder` is exported so the copy is pinned by a test rather
+ * than being a string literal nobody would notice changing.
+ */
+export function renderFolderPlaceholder(folder: string): string {
+  return [
+    "Folder placeholder.",
+    "",
+    `Object storage has no empty folders, so this file is what makes ${folder}/`,
+    "exist. Context does not list it; Obsidian and anything else that reads your",
+    "bucket will. Delete it once the folder holds something else, or write in it —",
+    "it is an ordinary note.",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Create a folder — which means writing the one key that makes its prefix
+ * exist. See `renderFolderPlaceholder` for what that key holds and why.
  */
 export async function createFolder(
   store: FileStore,
@@ -1257,7 +1284,7 @@ export async function createFolder(
   }
   await writeFile(store, {
     path: readme,
-    text: `# ${baseName(folder)}\n`,
+    text: renderFolderPlaceholder(folder),
     scope: options.scope,
     now: options.now,
   });

@@ -42,6 +42,7 @@ jest.mock("react-native-safe-area-context", () => ({
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { PluginsPanel } from "../features/console/settings/panels/PluginsPanel";
+import type { ManagedInstallsView } from "../features/console/plugins/managedInstalls";
 import { PluginGrantCard } from "../features/console/settings/panels/PluginGrantCard";
 import { PluginBrowse } from "../features/console/settings/panels/PluginBrowse";
 import { VERDICT_ORDER, verdictHeading, type ConsolePlugin, type PluginsView } from "../features/console/plugins/plugins";
@@ -49,6 +50,14 @@ import { ALL_CAPABILITIES, capabilityLabel, isDestructive, type GrantsView } fro
 import type { BrowseView } from "../features/console/plugins/lifecycle";
 import type { RuntimeView } from "../features/console/plugins/runtime";
 import type { ContextPluginsView } from "../features/console/plugins/contextPlugins";
+
+/** No scan, nothing installed — the state a bucket with no plugins is really in. */
+const NO_INSTALLS: ManagedInstallsView = {
+  state: "ready",
+  installs: [],
+  truncated: false,
+  read: async () => {},
+};
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -121,6 +130,7 @@ function panel(): HTMLElement {
     createElement(PluginsPanel, {
       view: EVERY_VERDICT,
       contextPlugins: NO_CONTEXT_PLUGINS,
+      installs: NO_INSTALLS,
       grants: NO_GRANTS,
       browse: NO_BROWSE,
       runtime: NO_RUNTIME,
@@ -287,6 +297,7 @@ describe("nothing is lost at phone width", () => {
       createElement(PluginsPanel, {
         view: EVERY_VERDICT,
         contextPlugins: NO_CONTEXT_PLUGINS,
+        installs: NO_INSTALLS,
         grants: {
           grants: [],
           loading: false,

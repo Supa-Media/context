@@ -39,6 +39,7 @@ export {
   ABSENT_MEMBERS,
   PARTIAL_MEMBERS,
   PLANNED_MEMBERS,
+  SANDBOX_MODULE_EXPORTS,
   SUPPORTED_MEMBERS,
 } from "../../../../packages/obsidian-runtime/src/surface.js";
 
