@@ -931,7 +931,7 @@ describe("the pass re-asks every gate before it opens a credential", () => {
       kind: "run",
       product: "chat",
       address: "person@example.invalid",
-      destinationFolder: "2-areas/communications/daily",
+      destinationFolder: "0-inbox/google-chat",
       cursors: { "spaces/alpha": "2026-09-12T10:00:00.000Z" },
       spaceSettings: { "spaces/quiet": "paused" },
     });
@@ -1718,7 +1718,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(view.sync.everSynced).toBe(true);
     expect(view.sync.cursorReady).toBe(true);
     const written = backend.snapshot();
-    expect(written["2-areas/communications/daily/2026-09-12.md"]).toContain(
+    expect(written["0-inbox/google-chat/2026-09-12.md"]).toContain(
       "Ship the live Chat bridge",
     );
     expect(Object.entries(written)).toContainEqual([
@@ -1914,7 +1914,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect((await readConnection(t, connectionId)).chat?.cursors?.["spaces/alpha"]).toBe(
       "2026-09-12T09:00:00.000Z",
     );
-    expect(backend.snapshot()["2-areas/communications/daily/2026-09-12.md"]).toBeUndefined();
+    expect(backend.snapshot()["0-inbox/google-chat/2026-09-12.md"]).toBeUndefined();
     expect(
       Object.keys(backend.snapshot()).some((path) =>
         path.startsWith(".context/communications/google-chat/contributions/"),

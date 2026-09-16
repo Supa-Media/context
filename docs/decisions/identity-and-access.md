@@ -492,6 +492,107 @@ Four rules hold that, and each fails a test:
   It is handed a store with no opener, so it names the rest: one tool call opens
   one context beyond its own, never a chain.
 
+### One context is pinned for everybody, and the pin is reach rather than membership
+
+`@context-lc` — our own workspace: the docs, the changelog, the bug tracker —
+is in every account's context list without an invitation, read-only, with the
+form tools still open to it. Asked for by the owner (2026-09-16): *"pin the
+@context-lc workspace to everyone's context, and make them viewers (should
+still be able to submit bug requests and stuff)."*
+
+`vocabulary-and-workspaces.md` had already described it as "the shared context
+every user is a member of", and that was a sentence rather than a mechanism:
+nothing outside `createWorkspace` and `acceptInvitation` had ever written a
+`workspaceMembers` row, so the context everybody was supposedly in had exactly
+the people who had been invited to it one at a time.
+
+**Nobody gets a membership row, and that is the decision rather than an
+optimisation.** `listMembers` returns every member's name and email to any
+member. A row per account would make that query a directory of everybody on the
+platform, readable by everybody on the platform — enumeration with the contact
+details attached, which is precisely what non-negotiable #4 refuses. So the pin
+is computed, in three narrow places, and `requireWorkspaceAccess` — the tenant
+boundary, ~90 call sites — is not touched:
+
+- `contextsForGrant` appends it to what an MCP session covers, at role `member`,
+  last and after the cap. **The gateway needed no change at all**, which is the
+  property that made this cheap: `sessionForContext` clamps it like any other
+  covered context, and `openStorageBinding` picks the binding to open out of
+  that same set — so a pin added anywhere else would resolve a session and then
+  fail to open a store, which presents as a context that is visible and empty.
+- `listMyWorkspaces` appends it flagged `pinned: true`, after the sort. It is
+  older than almost every account that will see it, so sorting it in by
+  `createdAt` puts it at the *head* of everybody's list, above their own
+  workspace.
+- `authorizeFileAccess` grants it on the `minimum === "member"` branch only. The
+  five callers that ask for `member` are exactly the five reads; everything that
+  changes a byte asks for `editor` or `owner` and goes to `requireWorkspaceRole`,
+  which knows nothing about the pin. A pinned reader is therefore refused a
+  write by the same code that refuses a stranger, rather than by a second check
+  somebody could forget to add.
+
+So the member list, the audit trail, billing, the storage binding, grants,
+shares, groups and invitations all answer a pinned reader exactly as they answer
+somebody who has never heard of the workspace. Blended search is untouched as
+well: `searchContexts` only ever authorizes contexts `searchableContextsFor`
+already returned, and that is driven off real memberships — the pin does not
+point every account's cross-context search at one bucket.
+
+**"Viewer" is the `member` role, and there is no fourth one.** `member` is
+already read-only, `effectiveScopes` already drops `context:write` for it, and
+`participatesInForms` already carves out a form answer as the one write it
+permits — written in so many words so that "a view-only workspace" is not
+"useless for collecting a bug report". That carve-out is what makes the bug
+tracker work, and it is a plain ```` ```form ```` fence with `submit: member` in
+a note in our bucket: nothing about it is special-cased for us, and any customer
+can write the same line in their own.
+
+**A real membership always wins.** The people who run that workspace are `owner`
+and `editor` in it through ordinary invitations, and the row appears once — two
+would make `sessionForContext`'s `.find()` answer with the pinned `member` one
+and silently demote them. The test that catches the other direction is an owner
+*reading* in the pinned context: it must come back `private`, and a resolver
+that skipped the membership check would answer `team` and hide every private
+note from the people who wrote it. A sabotage sweep found nothing covering that
+case; two tests were added for it.
+
+**There is no opt-out**, decided with the cost stated: pinned means pinned. It
+needs no code, because `leaveWorkspace` deletes a membership row and there is
+none — it answers `{ left: false }` and the context is still there. If that ever
+stops being true, a test fails.
+
+**The slug is a hardcoded constant**, also decided rather than defaulted. The
+name is already in this repository in prose and in `functions/lib/names.ts`, so
+naming it in `packages/shared` discloses nothing new. The cost lands on
+self-hosting, which is a supported path: a self-hoster gets a pinned context
+only if a workspace with that slug exists in *their* control plane, and on a
+fresh deployment none does — `pinnedContextWorkspace` answers `null` and the
+feature is simply absent, which is the right answer for somebody who has no
+reason to want our bug tracker in their rail.
+
+**What the console had to be told.** A row nobody joined breaks rules that were
+correct while every row was the reader's own. `needsOnboarding` counts
+`listMyWorkspaces` to ask "is there anything here for you", so the pin made that
+count never zero and a brand-new account rendered the console instead of
+`/welcome` — no claimed name, no bucket, no route to either. `defaultContext`'s
+`?? contexts[0]` fallback exists for somebody who owns nothing, which is exactly
+who signs in with the pin as their only row, so signing in landed them in our
+docs. And eleven member-scoped subscriptions would have failed silently behind
+`usable()`, each rendering `undefined` as "still loading" forever. One
+derivation — `membershipContextId`, `null` when the selection is pinned — turns
+all eleven off, and `useFileBrowser` alone keeps the real id.
+
+**Drawn as somebody else's workspace, in three quiet things rather than one loud
+one**: last in the rail under a hairline, with the only line of prose any row
+gets and a `read-only` mark in the palette's existing somebody-else's-access
+violet; on a phone, a divider and the pill's own tint, since a 34pt row has
+nowhere to put a sentence. Both orderings pin it last themselves rather than
+trusting the order the control plane sent, because the separation is
+*positional* — "everything after this is different" is only true while exactly
+one row follows it. A badge shouting READ-ONLY was the obvious answer and is the
+wrong one: it would make another party's workspace the loudest row in somebody's
+own console, and what has to be unmistakable is whose the notes are.
+
 ### A grant is one person's tooling, and the refusal follows the listing
 
 `listGrants` showed every grant in a context to `owner` and `editor` alike. The

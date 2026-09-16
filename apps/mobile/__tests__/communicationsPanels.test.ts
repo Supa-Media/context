@@ -144,7 +144,7 @@ function panel(contextId: string, section: SettingsSectionKey): string {
 */
 const MAIL_DESTINATION = "0-inbox/email/someone/YYYY-MM-DD.md";
 const CALENDAR_DESTINATION = "0-inbox/calendar/YYYY-MM-DD.md";
-const CHAT_DESTINATION = "2-areas/communications/daily/YYYY-MM-DD.md";
+const CHAT_DESTINATION = "0-inbox/google-chat/YYYY-MM-DD.md";
 
 /** One Google account with all three services on, so narrowing has work to do. */
 const THREE_SERVICE_ACCOUNT: GoogleConnection = {
@@ -166,7 +166,7 @@ const THREE_SERVICE_ACCOUNT: GoogleConnection = {
     syncCursorReady: true,
   },
   chat: {
-    destinationFolder: "2-areas/communications/daily",
+    destinationFolder: "0-inbox/google-chat",
     destinationPath: CHAT_DESTINATION,
     cursorCount: 2,
   },

@@ -52,6 +52,7 @@ import {
 } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
+import { pinnedContextRow } from "./lib/pinnedContext";
 import { getMembership } from "./lib/workspaceAuth";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
@@ -142,6 +143,34 @@ const MAX_SESSION_CONTEXTS = 50;
  * that is not in the covered set. A person in fifty-one contexts must lose
  * reach into the fifty-first, never the ability to open the one they actually
  * authorized.
+ *
+ * ## The pinned context is appended here, and only here
+ *
+ * `@context-lc` is reachable by every account without an invitation. This is
+ * the one place that is decided for an MCP session, and it needs no change in
+ * the gateway at all — which is the property worth stating, because it is what
+ * makes the pin cheap and what would make a second implementation expensive:
+ *
+ *  - `sessionForContext` finds it in this set like any other covered context,
+ *    then applies the clamps it applies to all of them. `effectiveScopes`
+ *    intersects the grant with `member`, which drops `context:write`;
+ *    `visibilityTierForGrant` answers `team` for anybody who is not the owner.
+ *    So the pin reaches notes and refuses writes without a line of gateway code
+ *    knowing it exists.
+ *  - `openStorageBinding` selects the binding to open from *this same set*, by
+ *    matching an id it then drops. A pinned context that were reachable but not
+ *    in this list would resolve a session and then fail to open a store, which
+ *    presents as a context that is visible and empty.
+ *
+ * It is appended **last and after the cap**, for the same reason the grant's
+ * own context is first: somebody in fifty contexts must not lose the one they
+ * authorized, and must not lose the bug tracker either. Appending after the
+ * truncation costs one row over `MAX_SESSION_CONTEXTS` in the worst case, which
+ * is a bounded overshoot of one rather than an unbounded read.
+ *
+ * A real membership wins — an owner or editor of that workspace is already in
+ * `rows`, and `pinnedContextRow` stands down when the id is already covered, so
+ * nobody is demoted to a viewer in a context they run.
  */
 async function contextsForGrant(
   ctx: QueryCtx,
@@ -183,6 +212,15 @@ async function contextsForGrant(
       kind: workspace.kind,
     });
   }
+
+  // See the header. Last, after the cap, and skipped when a real membership
+  // already put this workspace in the set.
+  const pinned = await pinnedContextRow(
+    ctx,
+    new Set(rows.map((row) => row.workspaceId)),
+  );
+  if (pinned !== null) rows.push(pinned);
+
   return rows;
 }
 

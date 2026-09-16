@@ -501,10 +501,26 @@ export function routeForPath(pathname: string): ConsoleRoute {
  * Generic over the row, because the live hook answers this from the raw
  * workspace list before it has built any `ConsoleContext`s out of it.
  */
-export function defaultContext<T extends { role: string }>(
+export function defaultContext<T extends { role: string; pinned?: boolean }>(
   contexts: ReadonlyArray<T>,
 ): T | null {
-  return contexts.find((context) => context.role === "owner") ?? contexts[0] ?? null;
+  /*
+    The pinned context is never a landing place.
+
+    `@context-lc` is reachable by everybody and owned by nobody who is reading
+    this, so it is `role: "member"` in every list it appears in — which means
+    the `?? contexts[0]` fallback picks it for exactly the person the fallback
+    was written for: somebody who owns nothing yet. Signing in and landing in
+    our own docs, filtered to team level, with a read-only banner across the
+    top, is a worse first screen than the empty one this fallback replaced.
+
+    Dropped before either clause rather than only from the fallback, so there is
+    no arrangement of roles in which it can be chosen.
+  */
+  const candidates = contexts.filter((context) => context.pinned !== true);
+  return (
+    candidates.find((context) => context.role === "owner") ?? candidates[0] ?? null
+  );
 }
 
 /**
@@ -520,7 +536,7 @@ export function defaultContext<T extends { role: string }>(
  * job, not the URL's.
  */
 export function landingHref(
-  contexts: ReadonlyArray<{ slug: string; role: string }>,
+  contexts: ReadonlyArray<{ slug: string; role: string; pinned?: boolean }>,
 ): string | null {
   const first = defaultContext(contexts);
   return first === null ? null : browseHref(first.slug);
