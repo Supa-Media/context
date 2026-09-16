@@ -442,6 +442,8 @@ interface Popover {
 function mountPopover(
   anchor: { x: number; y: number },
   view: { width: number; height: number } = DESKTOP,
+  /** Override the items, for the rules that need a shape `itemsFor` never makes. */
+  custom?: MenuItem[],
 ): Popover {
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: view.width,
@@ -453,14 +455,16 @@ function mountPopover(
   });
   window.dispatchEvent(new Event("resize"));
 
-  const items = itemsFor({
-    target: { kind: "row", row: note("1-projects/plan.md") },
-    canEdit: true,
-    canSetVisibility: true,
-    canShare: true,
-    clipboard: null,
-    platform: "web",
-  });
+  const items =
+    custom ??
+    itemsFor({
+      target: { kind: "row", row: note("1-projects/plan.md") },
+      canEdit: true,
+      canSetVisibility: true,
+      canShare: true,
+      clipboard: null,
+      platform: "web",
+    });
 
   const selected: MenuActionId[] = [];
   const state = { dismissals: 0 };
@@ -974,5 +978,182 @@ describe("Cancel stays centred", () => {
     const menu = mountWeb(PHONE, "touch");
     expect(styleOf(menu.find("menu-item-cancel")!, "justify-content")).toBe("center");
     expect(styleOf(menu.find("menu-labels-cancel")!, "flex-grow")).not.toBe("1");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/*                      the setting in force, on the glass                    */
+/* -------------------------------------------------------------------------- */
+
+describe("a row that carries a state draws it, and says so", () => {
+  /**
+   * `menu.ts` decides which of the three visibility items is in force; this is
+   * the half that puts it on screen. Both are needed and neither is enough: a
+   * model that marks the right row and a sheet that draws no marks is a menu
+   * that still makes you experiment on somebody's access to find out what it
+   * is currently set to.
+   *
+   * The sheet is checked here rather than only the popover because it is the
+   * **only** presentation on a phone. Left out, "which visibility is this note
+   * actually on" would be a question the pointer layout answers and the phone
+   * does not.
+   */
+  const VISIBILITY: MenuItem[] = [
+    { id: "visibilityPrivate", label: "Make private", checked: false },
+    { id: "visibilityTeam", label: "Share with the team", checked: false },
+    {
+      id: "visibilityFollow",
+      label: "Use the folder's setting",
+      checked: true,
+      detail: "Currently team — from 1-projects.",
+    },
+  ];
+
+  test("the row in force has a mark and the others have none", () => {
+    const menu = mountSheet(VISIBILITY);
+    expect(menu.find("menu-check-visibilityFollow")?.children.length).toBe(1);
+    expect(menu.find("menu-check-visibilityPrivate")?.children.length).toBe(0);
+    expect(menu.find("menu-check-visibilityTeam")?.children.length).toBe(0);
+  });
+
+  /**
+   * `false` and `undefined` are different, and this is why: an unchecked row
+   * still reserves the gutter, so the three labels start on one vertical line
+   * and the list does not appear to re-order itself as the setting changes.
+   */
+  test("an unchecked row still reserves the gutter", () => {
+    const menu = mountSheet(VISIBILITY);
+    expect(menu.find("menu-check-visibilityPrivate")).not.toBeNull();
+  });
+
+  test("a row with no state draws no gutter at all", () => {
+    const menu = mountSheet([{ id: "archive", label: "Archive" }]);
+    expect(menu.find("menu-check-archive")).toBeNull();
+  });
+
+  /**
+   * A screen reader announcing "Use the folder's setting" with no mention of
+   * its being the one in force has given a blind reader strictly less than the
+   * check gives everybody else — on the control that decides who can read a
+   * note.
+   */
+  test("the state reaches the accessible tree, not only the glass", () => {
+    const menu = mountSheet(VISIBILITY);
+    const on = menu.find("menu-item-visibilityFollow");
+    const off = menu.find("menu-item-visibilityPrivate");
+    expect(on?.getAttribute("aria-checked")).toBe("true");
+    expect(off?.getAttribute("aria-checked")).toBe("false");
+    expect(on?.getAttribute("role")).toBe("menuitemradio");
+  });
+
+  test("and a row with no state is a plain menu item, with no checked claim", () => {
+    const menu = mountSheet([{ id: "archive", label: "Archive" }]);
+    const row = menu.find("menu-item-archive");
+    expect(row?.getAttribute("aria-checked")).toBeNull();
+    expect(row?.getAttribute("role")).not.toBe("menuitemradio");
+  });
+
+  /** The one line the submenu earns — what "the folder's setting" actually is. */
+  test("the follow row carries the value it is following", () => {
+    const menu = mountSheet(VISIBILITY);
+    expect(menu.find("menu-detail-visibilityFollow")?.textContent).toBe(
+      "Currently team — from 1-projects.",
+    );
+  });
+});
+
+describe("a disabled row is present, dimmed, and does not fire", () => {
+  /**
+   * The rule the file menu never uses and the tab menu's "Reopen closed" does.
+   * Adding the field without drawing it would have shipped a row that looks
+   * ordinary, invites a press and silently does nothing — worse than either
+   * absence or a greyed row, because it is the only one of the three that
+   * lies.
+   */
+  const ITEMS: MenuItem[] = [
+    { id: "archive", label: "Archive" },
+    { id: "restore", label: "Reopen closed", disabled: true },
+  ];
+
+  test("it is still in the list", () => {
+    // The sheet appends its own Cancel row — see the top of this file.
+    expect(mountSheet(ITEMS).labels()).toEqual(["Archive", "Reopen closed", "Cancel"]);
+  });
+
+  test("pressing it dispatches nothing", () => {
+    const menu = mountSheet(ITEMS);
+    menu.press("menu-item-restore");
+    expect(menu.selected).toEqual([]);
+  });
+
+  test("while the row beside it still does", () => {
+    const menu = mountSheet(ITEMS);
+    menu.press("menu-item-archive");
+    expect(menu.selected).toEqual(["archive"]);
+  });
+});
+
+describe("a disabled row refuses the keyboard as well as the pointer", () => {
+  /**
+   * The bug this was written for: the popover's own arrow-key navigation
+   * dispatches on Enter, and it did so without consulting `disabled`. So a row
+   * that was dimmed, inert to a click and marked `aria-disabled` fired anyway
+   * for anybody driving the menu from the keyboard — which is the one group
+   * most likely to be reading the `aria-disabled` that promised it would not.
+   *
+   * Arrows still *land* on it, deliberately: `aria-disabled` means "here and
+   * unavailable", and skipping it would hide from a screen-reader user a row
+   * everybody else can see.
+   */
+  const ITEMS: MenuItem[] = [
+    { id: "archive", label: "Archive" },
+    { id: "restore", label: "Reopen closed", disabled: true },
+  ];
+
+  /**
+   * One `act` per key, deliberately.
+   *
+   * Batching the presses into a single `act` looks tidier and moves the focus
+   * exactly once: the listener closes over `focus`, so two dispatches inside
+   * one batch both read the same stale value and both land on the first row.
+   * That is not a subtlety of this menu — it is how the component actually
+   * behaves under a real keyboard, one event per frame — and a helper that
+   * hides it silently tests the wrong row.
+   */
+  const arrowTo = (index: number) => {
+    for (let at = 0; at <= index; at += 1) {
+      act(() => {
+        document.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+    }
+  };
+
+  const enter = () => {
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+  };
+
+  test("Enter on it dispatches nothing", () => {
+    const menu = mountPopover({ x: 100, y: 100 }, DESKTOP, ITEMS);
+    arrowTo(1);
+    enter();
+    expect(menu.selected).toEqual([]);
+  });
+
+  test("while Enter on the row above it still does", () => {
+    const menu = mountPopover({ x: 100, y: 100 }, DESKTOP, ITEMS);
+    arrowTo(0);
+    enter();
+    expect(menu.selected).toEqual(["archive"]);
+  });
+
+  test("and the menu stays open rather than closing on a press that did nothing", () => {
+    const menu = mountPopover({ x: 100, y: 100 }, DESKTOP, ITEMS);
+    arrowTo(1);
+    enter();
+    expect(menu.dismissals).toBe(0);
   });
 });

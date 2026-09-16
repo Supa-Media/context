@@ -77,6 +77,14 @@ export type TabsAction =
   | { type: "saved"; path: string }
   | { type: "closed"; path: string }
   | { type: "closedOthers"; path: string }
+  /**
+   * Close everything to the right of a tab, keeping it and everything left.
+   *
+   * The close "Close others" cannot express: it takes the tabs on the left too,
+   * and those are usually the ones still being worked through. Six tabs opened
+   * from a search and one of them worth keeping is the case.
+   */
+  | { type: "closedToRight"; path: string }
   | { type: "reopened" }
   | { type: "activated"; path: string }
   /** A rename must follow the tab, draft and all. */
@@ -209,6 +217,36 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
         tabs: [{ ...kept, preview: false }],
         activePath: kept.path,
         closed: remember(state.closed, others.map((tab) => tab.path)),
+      };
+    }
+
+    case "closedToRight": {
+      const at = state.tabs.findIndex((tab) => tab.path === action.path);
+      if (at === -1) return state;
+      const dropped = state.tabs.slice(at + 1);
+      // The rightmost tab has nothing to its right. Returning `state` itself
+      // rather than an equal copy keeps the strip from re-rendering and keeps
+      // the reopen stack from growing an empty entry.
+      if (dropped.length === 0) return state;
+      const kept = state.tabs.slice(0, at + 1);
+      return {
+        tabs: kept,
+        /*
+          The active tab may be one of the ones that went, and it must not be
+          left pointing outside the strip — that is a pane drawing a note with
+          nothing selected above it. It falls back to the tab you kept, which is
+          the one under the pointer and the only defensible choice.
+
+          A tab to the *left* of the cut is still in `kept`, so it stays where
+          it was: this close is about the right-hand side and must not move
+          somebody off what they were reading.
+        */
+        activePath: kept.some((tab) => tab.path === state.activePath)
+          ? state.activePath
+          : action.path,
+        // In strip order, like `closedOthers`, so ⌘⇧T walks left to right and
+        // rebuilds the strip in the order it had.
+        closed: remember(state.closed, dropped.map((tab) => tab.path)),
       };
     }
 

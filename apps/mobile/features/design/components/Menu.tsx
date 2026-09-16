@@ -83,6 +83,8 @@ function SheetRow({
   detail,
   accessibilityLabel,
   danger = false,
+  checked,
+  disabled = false,
   leading,
   trailing,
   align = "left",
@@ -102,6 +104,21 @@ function SheetRow({
    */
   accessibilityLabel?: string;
   danger?: boolean;
+  /**
+   * The setting in force, where "in force" is a question with an answer.
+   *
+   * The sheet carries it for the same reason the popover does and it is not
+   * optional parity: this is the *only* presentation on a phone, so leaving it
+   * out would make "which visibility is this note actually on" a question the
+   * pointer layout answers and the phone does not. `false` reserves the
+   * gutter, `undefined` draws none. See `MenuItem.checked`.
+   */
+  checked?: boolean;
+  /**
+   * Present, drawn dimmed, and does not fire. See `MenuItem.disabled` for why
+   * this exists at all when the file menu's rule is absence.
+   */
+  disabled?: boolean;
   /** A mark before the label. Decorative — the accessible name is `label`. */
   leading?: ReactNode;
   trailing?: ReactNode;
@@ -111,18 +128,35 @@ function SheetRow({
   testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   return (
     <PressRow
       accessibilityLabel={accessibilityLabel ?? label}
-      onPress={onPress}
+      // The state, in the accessible tree as well as on the glass. See
+      // `roleFor` in `Menu.web.tsx` for why this is not decoration.
+      ariaChecked={checked}
+      onPress={disabled ? undefined : onPress}
       radius={radii.md}
       testID={testID ?? `menu-item-${id}`}
       // `PressRow` takes one style object rather than an array, so the two
       // shapes are merged here rather than layered.
-      style={StyleSheet.flatten([styles.row, align === "center" && styles.rowCentered])}
+      style={StyleSheet.flatten([
+        styles.row,
+        align === "center" && styles.rowCentered,
+        disabled && styles.rowOff,
+      ])}
       hoverStyle={styles.rowHover}
     >
       {leading}
+      {/*
+        The radio gutter, at the sheet's own scale. Reserved on every row of a
+        group that has one so the labels line up under each other.
+      */}
+      {checked === undefined ? null : (
+        <View style={styles.checkGutter} testID={`menu-check-${id}`}>
+          {checked ? <Icon name="check" size={15} color={colors.text} /> : null}
+        </View>
+      )}
       {/*
         The label and its detail are one column so the row stays a row: a
         second `Text` beside the first would sit next to it and push the
@@ -262,6 +296,8 @@ export function Menu<Id extends string = MenuActionId>({
                   label={item.label}
                   detail={item.detail}
                   danger={item.danger === true}
+                  checked={item.checked}
+                  disabled={item.disabled === true}
                   testID={item.testID}
                   trailing={
                     item.items === undefined ? null : (
@@ -331,6 +367,10 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   titleDetail: { color: colors.muted },
   list: { flexGrow: 0 },
   listContent: { paddingVertical: space.x1 },
+  /** The radio gutter, at the sheet's 44pt scale. */
+  checkGutter: { width: 16, alignItems: "center", justifyContent: "center" },
+  /** Present but unavailable. See `MenuItem.disabled`. */
+  rowOff: { opacity: 0.4 },
   row: {
     flexDirection: "row",
     alignItems: "center",
