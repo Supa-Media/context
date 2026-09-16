@@ -305,7 +305,7 @@ export function ConsoleRail({
             />
           ) : null}
           {group.contexts.map((context) => (
-            // Right-clicking a context offers its verbs — Settings, sharing
+            // Right-clicking a context offers its verbs — Open, Settings…
             // — because the rail entry is the visible handle for the
             // context, and the storage pill in the corner was findable only
             // by people who already knew it was there.

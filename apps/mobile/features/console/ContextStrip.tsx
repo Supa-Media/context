@@ -81,13 +81,13 @@ import type { ConsoleContext } from "./types";
  * ## The menu is outside the scroller, and that is not a detail
  *
  * A long press opens `ContextRowMenu` — the same menu the rail opens on a
- * right-click, reused rather than reimplemented, so Open / Settings… / Manage
- * sharing… / Leave are one list with one set of rules about when Leave is
- * offered. It is rendered as a child of the strip's root rather than of the
- * pill, because the pills live in a horizontally scrolling view: a dropdown
- * inside that view is clipped by it, which on the web is a menu that simply
- * does not appear. Anchored to the strip it drops below the whole row, which is
- * also where a thumb already is.
+ * right-click, reused rather than reimplemented, so Open / Settings… / Leave
+ * are one list with one set of rules about when Leave is offered. It is
+ * rendered as a child of the strip's root rather than of the pill, because the
+ * pills live in a horizontally scrolling view: a dropdown inside that view is
+ * clipped by it, which on the web is a menu that simply does not appear.
+ * Anchored to the strip it drops below the whole row, which is also where a
+ * thumb already is.
  */
 export function ContextStrip({
   contexts,
