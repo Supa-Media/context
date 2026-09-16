@@ -328,11 +328,28 @@ describe("the pinned context's menu", () => {
     ).toEqual(["open"]);
   });
 
+  /*
+    THE CONTROL ROW FOR THE PIN, AND IT IS READ OFF THE MENU AS IT IS RATHER
+    THAN AS IT WAS.
+
+    This asserted `["open", "settings", "sharing", "leave"]` and landed red on
+    `main`: #578 took "Manage sharing…" off every context's menu — it pointed at
+    the app-level Connections pane, so right-clicking a context to ask about
+    *that* context took you out of it, and `MembersSection` now answers the
+    question under Settings → People — and #577 merged a minute later with this
+    list written against the menu of an hour earlier. Neither pull request's CI
+    could see the other, which is what a base branch is for.
+
+    The correction is here rather than in `contextMenuItems`: three items is
+    what that function now returns, deliberately and with the argument in its
+    own header. What this test is *for* is unchanged — a pinned row's menu is
+    smaller than an ordinary one's, and the ordinary one is the control that
+    makes that a fact about the flag rather than about the menu.
+  */
   test("an ordinary context somebody is a member of is unchanged", () => {
     expect(contextMenuItems("acme", { canLeave: true }).map((i) => i.key)).toEqual([
       "open",
       "settings",
-      "sharing",
       "leave",
     ]);
   });
