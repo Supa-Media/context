@@ -593,7 +593,7 @@ describe("names a service must not hand out", () => {
     }
   });
 
-  test("spellings of the official shared context every user is a member of", () => {
+  test("spellings of the official context pinned into every account's list", () => {
     for (const name of ["contextlc", "contexts", "the-context", "getcontext", "context-team", "context-support", "context-official"]) {
       refuses(name);
     }

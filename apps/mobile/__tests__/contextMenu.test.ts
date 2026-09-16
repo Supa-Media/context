@@ -28,12 +28,26 @@ import type { ConsoleRoute } from "../features/console/nav";
 describe("what the menu offers", () => {
   test("every item is a real destination", () => {
     const items = contextMenuItems("agent");
-    expect(items.map((item) => item.key)).toEqual(["open", "settings", "sharing"]);
+    expect(items.map((item) => item.key)).toEqual(["open", "settings"]);
     expect(items[0].route).toEqual({ kind: "context", slug: "agent", view: "browse" });
     expect(items[1].route).toEqual({ kind: "context", slug: "agent", view: "settings" });
-    // Sharing lives in Connections (MembersSection is mounted there), so the
-    // item goes where the answer actually is.
-    expect(items[2].route).toEqual({ kind: "app", section: "connections" });
+  });
+
+  test("nothing sends anybody out of the context they right-clicked", () => {
+    /*
+      "Manage sharing…" pointed at the app-level Connections pane. Sharing has
+      since moved into the context's own settings — `MembersSection` is mounted
+      under Settings → People — so the row answered a per-context question by
+      navigating away from the context, and the owner took it off.
+
+      Pinned as a property rather than as a missing key: every route this menu
+      offers is *this context's*, which is the rule the removed row broke and
+      the one a re-added app-level row would break again.
+    */
+    for (const item of contextMenuItems("agent", { canLeave: true })) {
+      if (!item.route) continue;
+      expect(`${item.key}: ${item.route.kind}`).toBe(`${item.key}: context`);
+    }
   });
 
   test("a shared context also offers Leave; an owned one never does", () => {

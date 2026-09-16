@@ -34,10 +34,39 @@
 
 import type { ConsoleContext } from "./types";
 
+/**
+ * Is this the pinned context — `@context-lc`, which everybody reaches and
+ * nobody joined?
+ *
+ * Read off the flag the control plane sets, never off the slug. The rail must
+ * not be a second place that decides which name is special: the control plane
+ * already answered that, and a client-side name comparison would go on drawing
+ * the mark after the row stopped being pinned.
+ */
+export function isPinnedContext(context: ConsoleContext): boolean {
+  return context.pinned === true;
+}
+
 export interface RailGroup {
   heading: string;
-  /** The contexts, own personal workspace first. */
+  /**
+   * The contexts, own personal workspace first and the pinned one last.
+   *
+   * One list still, because the pin is not a second *section* — see the header
+   * for why the headed groups went away and did not come back. What separates
+   * it is the position, a hairline, and the mark the row carries; those are
+   * `ConsoleRail`'s to draw, and this decides only the order.
+   */
   contexts: ConsoleContext[];
+  /**
+   * The pinned context, if this person has one in the list.
+   *
+   * Named rather than left to be re-found, for the reason `ownWorkspace` is
+   * exported: "there is at most one" is a claim worth stating in one place, and
+   * the rail needs it twice — once to know where to draw the rule, and once to
+   * decide the row's own mark and menu.
+   */
+  pinned: ConsoleContext | null;
   /**
    * Whether to draw the "Claim your @name" entry, which takes the **pinned
    * top slot** — it is the placeholder for exactly the row that would be
@@ -85,6 +114,21 @@ export function ownWorkspace(
   return contexts.find(isOwnWorkspace) ?? null;
 }
 
+/**
+ * The pinned context in this list, or `null`.
+ *
+ * At most one, for a stronger reason than `ownWorkspace`'s: the control plane
+ * appends exactly one row with the flag and skips it entirely when a real
+ * membership already covers that workspace, so a second one would be a bug
+ * upstream rather than a case to handle here. `find` rather than a filter says
+ * that.
+ */
+export function pinnedContext(
+  contexts: readonly ConsoleContext[],
+): ConsoleContext | null {
+  return contexts.find(isPinnedContext) ?? null;
+}
+
 export function railGroup({
   contexts,
   claimable,
@@ -101,17 +145,30 @@ export function railGroup({
   creatable?: boolean;
 }): RailGroup {
   const own = ownWorkspace(contexts);
-  // Your own workspace first, and everything else in the order it arrived.
-  // `filter` is stable, so this is a pin rather than a sort: the control plane
-  // decides the rest of the order and this does not second-guess it.
+  const pinned = pinnedContext(contexts);
+  /*
+    Your own workspace first, the pinned context last, and everything else in
+    the order it arrived. `filter` is stable, so both ends are pins rather than
+    a sort: the control plane decides the rest of the order and this does not
+    second-guess it.
+
+    The pinned row is held to the end here as well as sent last by the control
+    plane, and that is not redundant. The order this receives is the transport's
+    and a client that is one deploy behind, or a list the console has merged
+    from a cache, can present it in any order at all — and the separation the
+    rail draws is *positional*, so a hairline above a row that is not last is
+    a rule through the middle of somebody's workspaces.
+  */
   const ordered = [
     ...(own === null ? [] : [own]),
-    ...contexts.filter((context) => context !== own),
+    ...contexts.filter((context) => context !== own && context !== pinned),
+    ...(pinned === null ? [] : [pinned]),
   ];
 
   return {
     heading: "Workspaces",
     contexts: ordered,
+    pinned,
     // The claim entry occupies the pinned slot, so it cannot be offered beside
     // the row it stands in for. `offerOwnContext` already counts owned
     // personal contexts before asking; this is the second lock, in the one
