@@ -2469,6 +2469,62 @@ round, one model change silently transcribes nothing while every health check
 stays green, which is the exact failure shape `isReadableAnswer` was added for.
 Six checks stand on that line, which is more than stand on the refusal itself.
 
+#### The rule was armed, and could not fire, because nobody had asked the engine to run its VAD
+
+Reported by the owner after all of the above shipped: *"when things are silent
+it transcribes a bunch of random things."* Still. The refusal was in place, the
+thresholds were the engine authors' own, and quiet chunks were still coming back
+with sentences in them.
+
+The section below had already written down why, without drawing the conclusion:
+***`vad_filter` defaults to `false` on that model***, and with VAD off
+`faster-whisper` sets `duration_after_vad = duration`. So rule 1 read a positive
+number on every chunk, had no opinion on every chunk, and was — exactly as
+documented — *"armed for a deployment that turns VAD on"*. Nobody turned it on.
+That left rule 2 alone, and rule 2 is the one this file says is *"either
+redundant or the whole fix, depending on a serving detail nobody outside
+Cloudflare can read"*. It was redundant.
+
+**So the Worker asks for it: `env.AI.run(TURBO_MODEL, { audio, vad_filter: true })`.**
+This is not a new policy and no threshold of ours appears in it. It turns on the
+engine's own front end so that the engine's own evidence exists, which is the
+deployment rule 1 was written for. Two things follow and both are wanted: a
+chunk that is entirely non-speech comes back with `duration_after_vad: 0` and
+rule 1 fires; and a chunk that is *mostly* quiet has its silence cut **before
+decoding**, which is where the hallucinations come from in the first place. The
+second half needs no rule at all — it is the engine not being handed the
+silence.
+
+**Only the turbo model is asked.** `@cf/openai/whisper` declares `audio` and
+nothing else, reports no `duration_after_vad` to arm anything with, and is the
+only path an account without the turbo model has. An undeclared key there would
+risk turning that path into a 502 to arm a rule the model cannot feed.
+
+**What it costs, stated.** Silero VAD decides what speech is, and speech it
+drops is speech nobody transcribes — the same trade rule 2 already takes, moved
+one step earlier and taken by the engine's own front end rather than by a number
+in this repository. It is visible rather than silent: a wholly refused chunk
+puts one sentence on the recorder's screen while the meeting runs. **How a wrong
+call here would show up** is that sentence appearing during a meeting people are
+talking in, or a transcript with holes where a quiet speaker was — the first
+thing to look at if anybody reports a short transcript.
+
+**What this does not touch** is the half of the defect that happens at full
+volume. The counting-script inventions were confidently decoded segments over
+real audio; VAD keeps that audio, correctly, and `TRANSCRIPT_CAVEAT` is still
+the only honest answer to it.
+
+**And an audio gate is still not shipped.** The owner asked for "some basic
+noise gate" in the same message, and the measurement below still says a loudness
+threshold cannot separate this room's silence from this room's speech — the
+medians are identical and the silent room's peak is louder than speech's 90th
+percentile. The one measurement that would reopen it is named there and still
+does not exist. Turning the engine's VAD on is the gate, taken by the thing that
+has a voice model rather than by a number over a level meter.
+
+The checks are `asks the turbo model to run its VAD, which is what arms the
+silence rule` and `does not send the older model a key it does not declare`.
+
 #### Whether either rule can fire is a property of how the engine is run, and adversarial review checked it against the vendor's schema
 
 The numbers above were taken from the engine authors on trust; review went and
