@@ -89,7 +89,17 @@ import {
 // already taken in a workspace — is what makes the choice made once, at
 // connect time, and never recomputed against a different `taken` set.
 // eslint-disable-next-line import/extensions
-import { chooseMailboxSlug } from "../../../packages/communications/src/paths.js";
+import { chooseMailboxSlug, SLUG_FALLBACK } from "../../../packages/communications/src/paths.js";
+/*
+  And the folders those notes land in are the package's too, for the same
+  reason the slug is: a second spelling of `0-inbox/google-chat` here is a
+  second answer to "where does a day of this channel go", and the two are only
+  ever compared by somebody reading a bucket.
+*/
+// eslint-disable-next-line import/extensions
+import { CHANNEL_FOLDERS } from "../../../packages/communications/src/protocol.js";
+// eslint-disable-next-line import/extensions
+import { CALENDAR_FOLDER } from "../../../packages/communications/src/calendar/protocol.js";
 /*
   The folder rule is the package's, not this file's. It was private here and
   threw `ConvexError`, which made it unreachable from the console — so the
@@ -238,14 +248,35 @@ function validateBackfillDays(value: number | undefined): number {
  * Exported for `googleSync.ts`, which needs the same answer when it hands a
  * pass its destination — one implementation, so a synced day and the console's
  * own "daily file pattern" can never name two different folders.
+ *
+ * **Every branch is a package constant, and Chat's used to be a string.** It
+ * read `"2-areas/communications/daily"` while `channelFolder("google-chat")`
+ * — the answer `planChannelDay` falls back to when a caller passes no folder —
+ * said `0-inbox/google-chat`, so a Chat connection that had never been given a
+ * destination wrote its days *outside the Inbox entirely*: not under the
+ * folder `docs/decisions/communications.md` decided ("A channel lands in
+ * `0-inbox`"), not routed by `classifyCommsPath` to the console's channel
+ * view, not collapsed by `classifyCaptureKind` out of `orient`'s recency list,
+ * and beside `2-areas/communications/contacts/` in the buckets where an older
+ * importer had left one — two contacts folders, one of them the product's.
+ * Gmail and Calendar had the right answer spelled out longhand beside it,
+ * which is exactly how a third spelling goes unnoticed: nothing compares
+ * these strings to the package's, so only a person reading their own bucket
+ * ever finds out. They are the same constants now.
+ *
+ * Changing this moves nothing already written. A pass that ran before it
+ * leaves its days where they were, the same as changing the destination in
+ * the console does (`updateGoogleSyncDestination` patches the row and never
+ * touches the bucket) — the notes are the customer's, and moving a year of
+ * them is `move_folder`'s job and their decision.
  */
 export function defaultGoogleDestinationFolder(
   service: GoogleSyncService,
   mailboxSlug: string | undefined,
 ): string {
-  if (service === "gmail") return `0-inbox/email/${mailboxSlug ?? "mailbox"}`;
-  if (service === "calendar") return "0-inbox/calendar";
-  return "2-areas/communications/daily";
+  if (service === "gmail") return `${CHANNEL_FOLDERS.email}/${mailboxSlug ?? SLUG_FALLBACK}`;
+  if (service === "calendar") return CALENDAR_FOLDER;
+  return CHANNEL_FOLDERS["google-chat"];
 }
 
 /**
