@@ -1453,3 +1453,49 @@ feature that is dead on arrival and green in every test that does not drive the
 hook — which is why the guard is a host-level test, `pluginSettingsHost.test.ts`,
 that presses Settings… through the real `useRuntime` rather than handing a
 component a pane it did not ask for.
+
+## A plugin's `fetch` goes through the grant, and the CSP still denies the frame
+
+The sandbox is `connect-src 'none'`, so the frame reaches nothing on its own.
+That is the boundary and it has not moved. What had moved without anybody
+noticing is which calls a plugin could *make*: only `requestUrl` was brokered,
+and Obsidian offers both.
+
+So a plugin using plain `fetch` got a `TypeError` with no explanation. Measured
+on the real Bible Reference release, which fetches its verses that way: its call
+was refused by the CSP, its own handler swallowed the failure, and it served
+**bundled fallback text labelled with the translation the reader had asked for
+and had not got**. A grant the owner had approved, a capability the card
+claimed, and a wrong verse on the page — the worst shape a failure can take
+here, because nothing anywhere said so.
+
+`fetch` is now routed through the same `network.request` broker `requestUrl`
+uses: same runtime token, same grant, same host allowlist, same audit. This
+widens what a plugin may *call*, never what it may *reach* —
+`brokerNetworkRequest` is the gate and has not changed.
+
+It behaves like `fetch`, which is the point: a 4xx **resolves** with `ok: false`
+so a plugin's own error handling runs, and a refusal **rejects with a
+`TypeError`** carrying the host's sentence, so a plugin falls into the path it
+already has for being offline rather than an error shape it will not handle.
+
+**`XMLHttpRequest` is deliberately not shimmed.** It is synchronous-capable with
+a large surface, and a half-built one is the present-and-inert trap this area
+keeps having to undo. Absent, it throws where it stands, the scanner reports it,
+and it doubles as the direct-egress probe in `pluginSandbox.spec.ts` — the thing
+that proves the CSP is still the only answer to a frame opening its own
+connection.
+
+**The scanner had to move with it.** `fetch` was missing from `NETWORK_MEMBERS`,
+which was harmless while the CSP refused every direct call — the reading was
+wrong about the code and right about the effect. Once brokered it reaches
+outward for real, so a bundle calling it is `needs-approval` and its owner names
+the hosts.
+
+**What a simplification costs.** Dropping the override returns every
+plain-`fetch` plugin to silent failure. Throwing on a 4xx sends plugins down
+their catch path with the wrong reason. Resolving a refusal hands a plugin the
+network its owner did not grant. Removing `fetch` from `NETWORK_MEMBERS` grants
+the network without anybody being asked. `e2e/webkit/pluginNetwork.spec.ts`,
+`e2e/webkit/pluginSandbox.spec.ts` and `apps/mcp/test/plugins.test.mjs` hold
+these, all four sabotage-confirmed, the first against the real release.

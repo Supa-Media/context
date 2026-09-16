@@ -11,8 +11,27 @@ async function readSandboxDocument(): Promise<string> {
 
 /**
  * A real engine proof for the boundary jsdom cannot enforce: the plugin frame
- * has an opaque origin, cannot reach the parent DOM, cannot fetch directly,
- * and can still read through the one RPC door the trusted host answers.
+ * has an opaque origin, cannot reach the parent DOM, cannot open a connection
+ * of its own, and can still read through the one RPC door the trusted host
+ * answers.
+ *
+ * ## What changed here when `fetch` started being brokered, and what did not
+ *
+ * This used to assert that a plugin's `fetch` **throws**. It did, because the
+ * frame's CSP refused it — and that was a true statement about the effect and a
+ * misleading one about the boundary, because it made a silent failure look like
+ * the protection. The protection is that the frame reaches nothing on its own
+ * and the *host* decides; whether a call fails in the frame or is refused by
+ * the host is a question about honesty, not about isolation.
+ *
+ * So the claim is now stronger in both directions:
+ *
+ *  - `XMLHttpRequest` is **not** shimmed, so it is the direct-egress probe: it
+ *    must still be refused by the CSP, which is what proves the frame cannot
+ *    open a connection by itself.
+ *  - `fetch` must arrive at the host as a `network.request` and be **refused**
+ *    when the host says no — so a plugin without a grant is stopped by the
+ *    party that holds the grant, and sees a real failure rather than silence.
  */
 test("a plugin has no ambient authority and reaches notes only through RPC", async ({
   page,
@@ -50,11 +69,25 @@ test("a plugin has no ambient authority and reaches notes only through RPC", asy
               async onload() {
                 let parentBlocked = false;
                 try { parent.document.querySelector("#host").textContent = "owned"; } catch (_) { parentBlocked = true; }
-                let networkBlocked = false;
-                try { await fetch("https://example.com/private"); } catch (_) { networkBlocked = true; }
+                // The direct-egress probe. XMLHttpRequest is deliberately not
+                // shimmed, so this is the frame trying to open a connection on
+                // its own, and the CSP is the only thing standing there.
+                let directBlocked = false;
+                try {
+                  await new Promise((resolve, reject) => {
+                    const xhr = new XMLHttpRequest();
+                    xhr.open("GET", "https://example.com/private");
+                    xhr.onerror = () => reject(new Error("refused"));
+                    xhr.onload = resolve;
+                    xhr.send();
+                  });
+                } catch (_) { directBlocked = true; }
+                // And the brokered one, which the host refuses below.
+                let fetchRefused = false;
+                try { await fetch("https://example.com/private"); } catch (_) { fetchRefused = true; }
                 const target = { path: "1-projects/proof.md" };
                 const text = await this.app.vault.read(target);
-                new Notice(JSON.stringify({ parentBlocked, networkBlocked, text }));
+                new Notice(JSON.stringify({ parentBlocked, directBlocked, fetchRefused, text }));
               }
             };
           `,
@@ -63,7 +96,32 @@ test("a plugin has no ambient authority and reaches notes only through RPC", asy
         );
       }
       if (message.type === "rpc") {
-        const request = message.request as { requestId: string };
+        const request = message.request as {
+          requestId: string;
+          operation: { kind: string };
+        };
+        /*
+          The host refuses the network and answers the note. That pairing is the
+          whole point: one door is open because this plugin was granted it, the
+          other is shut because it was not, and both decisions are made out here.
+        */
+        if (request.operation.kind === "network.request") {
+          frame.contentWindow?.postMessage(
+            {
+              source: "context-plugin-host",
+              version: 1,
+              type: "rpc-result",
+              response: {
+                version: 1,
+                requestId: request.requestId,
+                ok: false,
+                error: { code: "NOT_GRANTED", message: "no host in this grant" },
+              },
+            },
+            "*",
+          );
+          return;
+        }
         frame.contentWindow?.postMessage(
           {
             source: "context-plugin-host",
@@ -111,19 +169,30 @@ test("a plugin has no ambient authority and reaches notes only through RPC", asy
       host: document.querySelector("#host")?.textContent,
       sandbox: document.querySelector("#plugin")?.getAttribute("sandbox"),
       notice: JSON.parse(notice.message),
-      rpc: messages.find((message) => message.type === "rpc"),
+      rpcs: messages
+        .filter((message) => message.type === "rpc")
+        .map((message) => (message.request as { operation: unknown }).operation),
     };
   });
   expect(proof.host).toBe("trusted");
   expect(proof.sandbox).toBe("allow-scripts");
   expect(proof.notice).toEqual({
     parentBlocked: true,
-    networkBlocked: true,
+    // The frame could not open a connection itself…
+    directBlocked: true,
+    // …and the one call it was allowed to make was refused by the host.
+    fetchRefused: true,
     text: "# Through the broker",
   });
-  expect(proof.rpc).toMatchObject({
-    request: { operation: { kind: "vault.read", path: "1-projects/proof.md" } },
-  });
+  /*
+    Both doors, in order. The network call reached the host as a request rather
+    than as traffic, and the note came back through the same one door it always
+    did — a plugin still reads nothing except by asking.
+  */
+  expect(proof.rpcs).toMatchObject([
+    { kind: "network.request", url: "https://example.com/private" },
+    { kind: "vault.read", path: "1-projects/proof.md" },
+  ]);
 });
 
 test("the browser gives the frame an opaque origin", async ({ page }) => {

@@ -101,6 +101,21 @@ export const BLOCKED_MEMBERS = Object.freeze({
  */
 export const NETWORK_MEMBERS = Object.freeze({
   requestUrl: "uses Obsidian's requestUrl to call a server",
+  /*
+    `fetch` was missing from this table, and the omission stopped being harmless
+    the moment the sandbox started brokering it. While the frame's CSP refused
+    every direct call, a plugin that used plain `fetch` reached nothing — so
+    scanning it as "no network" was wrong about the code and right about the
+    effect. Now the shim routes `fetch` through the same broker `requestUrl`
+    uses, so it reaches outward for real, and a plugin using it has to land on
+    `needs-approval` where its owner names the hosts.
+
+    It matches a method call on some other object too — `store.fetch(...)` — and
+    that is this file's existing trade, in the direction it always takes: a
+    plugin wrongly asked for approval is a question, and a plugin wrongly
+    granted silence is a surprise.
+  */
+  fetch: "calls a server over the network",
   XMLHttpRequest: "makes HTTP requests",
   WebSocket: "opens a WebSocket",
   EventSource: "opens a server-sent event stream",
