@@ -105,6 +105,35 @@ function panel(
   return container;
 }
 
+/**
+ * Open one plugin's own screen, and hand back the container showing it.
+ *
+ * ## Why half this file now goes through here
+ *
+ * None of the guarantees below changed. Every sentence a plugin's row carried
+ * still has to reach a reader: the call named rather than the category, the
+ * route out of a refusal, how much of a bundle was read, the limitations fold.
+ * What changed is **where** — reported from a phone as "soooo much jargon text;
+ * people just want to enable or disable a plugin", and they were right: a list
+ * exists to choose from, and none of that helps choose.
+ *
+ * So the list answers "is it on and what turns it on", and the rest is one
+ * press away. These tests press it. A sentence that stopped being rendered
+ * anywhere still fails here, which is the property worth keeping — the risk in
+ * a change like this is not that the words move, it is that they quietly stop
+ * existing and nothing notices.
+ */
+function opened(container: HTMLElement, pluginId: string): HTMLElement {
+  const details = container.querySelector(
+    `[data-testid='plugin-details-${pluginId}']`,
+  ) as HTMLElement | null;
+  if (details === null) throw new Error(`no Details control for ${pluginId}`);
+  act(() => details.click());
+  const screen = container.querySelector(`[data-testid='plugin-detail-${pluginId}']`);
+  if (screen === null) throw new Error(`pressing Details did not open ${pluginId}`);
+  return container;
+}
+
 function plugin(over: Partial<ConsolePlugin> & { verdict: PluginVerdict }): ConsolePlugin {
   return {
     id: over.id ?? `plugin-${over.verdict}`,
@@ -266,11 +295,11 @@ describe("the ready list", () => {
   });
 
   test("names the call rather than the category", () => {
-    expect(panel(READY).textContent).toContain("child_process");
+    expect(opened(panel(READY), "obsidian-git").textContent).toContain("child_process");
   });
 
   test("every plugin that cannot run here is told where it still runs", () => {
-    expect(panel(READY).textContent).toContain(
+    expect(opened(panel(READY), "obsidian-git").textContent).toContain(
       "Keep it in Obsidian — Context reads what it writes.",
     );
   });
@@ -281,7 +310,10 @@ describe("the ready list", () => {
     the group heading and blurb, and the row carries the part they do not.
   */
   test("an unchecked plugin is told it was not read, and how much was", () => {
-    const text = panel(READY).textContent ?? "";
+    // The group heading and blurb are on the list; the reading and the route
+    // are the plugin's own, so they are on the plugin's own screen.
+    expect(panel(READY).textContent ?? "").toContain("could not read these");
+    const text = opened(panel(READY), "dataview").textContent ?? "";
     expect(text).toContain("could not read these");
     expect(text).toContain("512 KB of 1.8 MB read");
     expect(text).toContain("Run it in Obsidian meanwhile.");
@@ -361,11 +393,20 @@ describe("the ready list", () => {
         actions: { start: async () => {}, stop, run: () => {} },
       },
     );
-    const button = [...container.querySelectorAll("[role='button'], button")]
-      .find((one) => one.textContent === "Stop") as HTMLElement;
+    /*
+      The row's own Stop, not the detail screen's. A running plugin's row is the
+      one place somebody reaches for this, and it was two presses away for as
+      long as the control lived only on the card underneath.
+    */
+    const button = container.querySelector(
+      "[data-testid='plugin-primary-highlightr-plugin']",
+    ) as HTMLElement;
+    expect(button.textContent).toBe("Stop");
     await act(async () => button.click());
     expect(stop).toHaveBeenCalledWith("highlightr-plugin", "fp-highlightr-plugin");
-    expect(container.textContent).toContain("Allowed to");
+    // What it is allowed to do is a question about consent, so it is on the
+    // plugin's own screen rather than under every row in the list.
+    expect(opened(container, "highlightr-plugin").textContent).toContain("Allowed to");
   });
 });
 
@@ -550,13 +591,13 @@ describe("a column of limitations collapses to a line you can open", () => {
   };
 
   test("the five lines are one line until somebody asks", () => {
-    const container = panel(WORDY);
+    const container = opened(panel(WORDY), "youversion-linker");
     expect(container.textContent).toContain("5 limits on what this one does here");
     expect(container.textContent).not.toContain("the icon set is not exposed");
   });
 
   test("opening it gives every sentence back, unedited", () => {
-    const container = panel(WORDY);
+    const container = opened(panel(WORDY), "youversion-linker");
     const toggle = [...container.querySelectorAll("[role='button']")]
       .find((one) => (one.textContent ?? "").includes("5 limits"));
     expect(toggle).toBeDefined();
@@ -577,7 +618,7 @@ describe("a column of limitations collapses to a line you can open", () => {
         })],
       },
     };
-    const container = panel(brief);
+    const container = opened(panel(brief), "brief");
     expect(container.textContent).toContain("Not yet: one thing.");
     expect(container.textContent).not.toContain("limits on what this one does here");
   });
@@ -600,7 +641,7 @@ describe("a row leads with what the plugin is for", () => {
         })],
       },
     });
-    expect(container.textContent).toContain(
+    expect(opened(container, "youversion-linker").textContent).toContain(
       "Automatically link bible verses in your notes to YouVersion bible.",
     );
   });
@@ -616,7 +657,7 @@ describe("a row leads with what the plugin is for", () => {
         plugins: [plugin({ id: "quiet", name: "Quiet", verdict: "runs", description: "" })],
       },
     });
-    expect(container.querySelector("[data-testid='plugin-blurb-quiet']")).toBeNull();
+    expect(opened(container, "quiet").querySelector("[data-testid='plugin-blurb-quiet']")).toBeNull();
   });
 });
 

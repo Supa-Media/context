@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { usePluginPower } from "../../plugins/usePluginPower";
 import { StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Grow, Row } from "../../../design/components/Card";
@@ -48,32 +48,29 @@ export function PluginRuntimeCard({
   grants: GrantsView;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  /*
+    Shared with the row, which grew its own Start and Stop when the list stopped
+    carrying this card. Two copies of "await it, and say something useful if it
+    throws" is two copies of the sentence somebody reads when their plugin will
+    not start — and that sentence answers the only question they have, which is
+    whether their notes are all right.
+  */
+  const power = usePluginPower(plugin, view);
   if (view.states === undefined || grants.grants === undefined) return null;
 
   const state = runtimeFor(plugin, view.states);
   const standing = standingFor(plugin, grants.grants);
   const fingerprint = plugin.bundleFingerprint;
   const canStart = standing.kind === "active" && fingerprint !== null && view.actions !== undefined;
-
-  async function act(action: "start" | "stop") {
-    if (!canStart || fingerprint === null) return;
-    setBusy(true);
-    setFailure(null);
-    try {
-      await view.actions?.[action](plugin.id, fingerprint);
-    } catch (error) {
-      const data = (error as { data?: { message?: unknown } } | null)?.data;
-      setFailure(typeof data?.message === "string"
-        ? data.message
-        : action === "start"
-          ? "The plugin did not start. Its access and your notes are unchanged."
-          : "The plugin could not be stopped here. Revoke its access to stop it immediately.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const busy = power.busy;
+  const failure = power.failure;
+  const act = async (action: "start" | "stop"): Promise<void> => {
+    // The card's own gate, kept: the hook will post to a runtime that has the
+    // action, and `canStart` is the separate question of whether this bundle's
+    // grant still covers it.
+    if (!canStart) return;
+    await power.act(action);
+  };
 
   if (state === null) {
     if (!canStart) return null;

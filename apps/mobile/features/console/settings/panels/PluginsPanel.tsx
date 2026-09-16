@@ -10,13 +10,14 @@ import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { ContextPluginsCard } from "./ContextPluginsCard";
+import { PluginDetail } from "./PluginDetail";
 import { PluginBrowse } from "./PluginBrowse";
-import { PluginGrantCard } from "./PluginGrantCard";
-import { PluginManagedCard } from "./PluginManagedCard";
-import { PluginRuntimeCard } from "./PluginRuntimeCard";
 import type { RuntimeView } from "../../plugins/runtime";
 import type { BrowseView } from "../../plugins/lifecycle";
-import type { GrantsView } from "../../plugins/grants";
+import { approvalOffer, standingFor, type GrantsView } from "../../plugins/grants";
+import { runtimeFor } from "../../plugins/runtime";
+import { pluginRowSummary } from "../../plugins/pluginRow";
+import { usePluginPower } from "../../plugins/usePluginPower";
 import {
   INSTALLED_NOTE,
   installLabel,
@@ -37,14 +38,7 @@ import {
   SCOPE_NOTE,
   foundLabel,
   groupPlugins,
-  limitationSummary,
-  pluginBlurb,
-  runsHereNote,
-  namedEvidence,
-  readLabel,
-  routeOut,
   scanCoverage,
-  sourceNote,
   verdictBlurb,
   verdictCounts,
   verdictHeading,
@@ -370,6 +364,18 @@ function VaultInventory({
   query: string;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    Which plugin is open, as an id rather than the object.
+
+    An id survives a re-scan: these rows are rebuilt whenever the vault is read
+    again, and a held object would go on describing the bundle as it was before.
+    It is looked up below, so a plugin that is genuinely gone falls back to the
+    list rather than leaving a detail page for something that is not there.
+
+    Here rather than in `PluginsPanel` because the panel never sees a plugin —
+    it sees five states, only one of which has a list to open anything from.
+  */
+  const [detail, setDetail] = useState<string | null>(null);
 
   if (view.state === "withheld") {
     return (
@@ -481,6 +487,36 @@ function VaultInventory({
   const shown = inventory.plugins.filter((plugin) => matchesVaultQuery(plugin, query));
   const filtered = shown.length !== inventory.plugins.length;
 
+  /*
+    One plugin, at length, instead of the list — the list/section shape the
+    settings overlay already uses one level up, for the same reason: a phone
+    shows one thing at a time, and a detail drawn *under* a row is a wall with
+    a fold in it rather than a screen.
+
+    Looked up in the full inventory rather than in `shown`, so a search typed
+    after opening a plugin does not close the screen underneath the reader. A
+    plugin that is genuinely gone — removed, or a re-scan that no longer finds
+    it — falls through to the list, which is the honest answer rather than a
+    page about something that is not there.
+  */
+  const opened = detail === null
+    ? null
+    : inventory.plugins.find((plugin) => plugin.id === detail) ?? null;
+
+  if (opened !== null) {
+    return (
+      <View testID="plugins-detail">
+        <PluginDetail
+          plugin={opened}
+          grants={grants}
+          browse={browse}
+          runtime={runtime}
+          onBack={() => setDetail(null)}
+        />
+      </View>
+    );
+  }
+
   return (
     <View testID="plugins-ready">
       <Card>
@@ -533,8 +569,8 @@ function VaultInventory({
               key={plugin.id}
               plugin={plugin}
               grants={grants}
-              browse={browse}
               runtime={runtime}
+              onOpen={() => setDetail(plugin.id)}
             />
           ))}
         </Card>
@@ -551,133 +587,102 @@ function VaultInventory({
 }
 
 /**
- * One plugin.
+ * One plugin, as a row: is it on, and what turns it on.
  *
- * The closing line is exactly one of two things and never both: the route that
- * still works (`routeOut`), or — for the two verdicts Context can run — the
- * note saying so
- * (`runsHereNote`). Both come from the pure module, so the rule that a row
- * never ends on a refusal is a property a test can hold rather than a habit
- * this component happens to have.
+ * This used to be the whole story — the blurb, the named findings, the hosts,
+ * a fold of limitations, the notes, what was read, where it came from, the
+ * route out, and three cards of controls, per plugin, down a phone screen.
+ * Reported as "soooo much jargon text; people just want to enable or disable a
+ * plugin". All of it still exists, in `PluginDetail`, one press away.
+ *
+ * What is left is the answer to the question a list is for. `pluginRowSummary`
+ * decides both halves — see it for why a running plugin outranks the scan, why
+ * a plugin Context cannot run gets no pill at all, and why some presses act and
+ * others open a door.
  */
 function PluginRow({
   plugin,
   grants,
-  browse,
   runtime,
+  onOpen,
 }: {
   plugin: ConsolePlugin;
   grants: GrantsView;
-  browse: BrowseView;
   runtime: RuntimeView;
+  onOpen: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const power = usePluginPower(plugin, runtime);
   /*
-    Closed by default, and the only state this row has ever needed. Five lines
-    of "Not yet, so that part will not work" between a plugin's name and its
-    controls is a wall; the count stands in for it and every sentence is one
-    press away. See `limitationSummary` for why the wording counts limits
-    rather than claiming things are broken.
+    `undefined` while either list is still loading, which `pluginRowSummary`
+    reads as "do not guess" — a row that assumed "never approved" would put an
+    Enable on a plugin that is already running.
   */
-  const [limitsOpen, setLimitsOpen] = useState(false);
-  const { tone, dashed } = verdictPill(plugin.verdict);
-  const findings = namedEvidence(plugin);
-  const read = readLabel(plugin);
-  const route = routeOut(plugin.verdict);
-  const pending = runsHereNote(plugin.verdict);
-  const limits = limitationSummary(plugin.limitations);
-  const blurb = pluginBlurb(plugin);
-  const from = sourceNote(plugin);
+  const standing =
+    grants.grants === undefined ? null : standingFor(plugin, grants.grants);
+  const state =
+    runtime.states === undefined ? null : runtimeFor(plugin, runtime.states);
+  const { status, primary } = pluginRowSummary({
+    plugin,
+    standing,
+    state,
+    canPower: runtime.actions !== undefined,
+    canGrant: grants.actions !== undefined,
+    approvable: approvalOffer(plugin, grants.egress).kind === "available",
+  });
 
   return (
     <Row divided style={styles.pluginRow}>
-      <Grow>
+      <Grow testID={`plugin-row-${plugin.id}`}>
         <Row style={styles.titleRow}>
           <Grow>
             <Text variant="rowTitle">{plugin.name}</Text>
+            <Text variant="treeMeta" style={styles.meta}>
+              {[plugin.id, plugin.version ? `v${plugin.version}` : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </Text>
           </Grow>
-          <Pill tone={tone} dashed={dashed} leading={tone === "ok" ? <Dot tone="ok" /> : undefined}>
-            {verdictHeading(plugin.verdict)}
-          </Pill>
+          {status === null ? null : (
+            <Pill tone={status.tone} leading={status.live ? <Dot tone="ok" /> : undefined}>
+              {status.label}
+            </Pill>
+          )}
         </Row>
 
-        <Text variant="treeMeta" style={styles.meta}>
-          {[plugin.id, plugin.version ? `v${plugin.version}` : null, plugin.author]
-            .filter(Boolean)
-            .join(" · ")}
-        </Text>
-
-        {/*
-          What it is for, before what it cannot do. The row carried its id, its
-          findings and its refusals and never this — see `pluginBlurb`.
-        */}
-        {blurb ? (
-          <Text variant="rowSub" style={styles.line} testID={`plugin-blurb-${plugin.id}`}>
-            {blurb}
-          </Text>
-        ) : null}
-
-        {plugin.manifestError ? (
-          <Text variant="rowSub" style={styles.line}>
-            {plugin.manifestError}
-          </Text>
-        ) : null}
-
-        {findings.map((finding) => (
-          <Text key={finding.id} variant="rowSub" style={styles.line}>
-            {`${finding.id} — ${finding.reason}`}
-          </Text>
-        ))}
-
-        {plugin.hosts && plugin.hosts.length > 0 ? (
-          <Text variant="rowSub" style={styles.line}>
-            {`Hosts it names: ${plugin.hosts.join(", ")}`}
-          </Text>
-        ) : null}
-
-        {limits === null || limitsOpen ? (
-          plugin.limitations.map((limitation, index) => (
-            <Text key={`${plugin.id}-limitation-${index}`} variant="rowSub" style={styles.line}>
-              {limitation}
-            </Text>
-          ))
-        ) : null}
-
-        {limits !== null ? (
-          <View style={styles.action}>
+        <Row style={styles.controls}>
+          {primary === null ? null : primary.kind === "open" ? (
             <Button
-              label={limitsOpen ? "Hide the details" : limits}
+              label={primary.label}
               variant="mini"
-              onPress={() => setLimitsOpen((was) => !was)}
+              onPress={onOpen}
+              testID={`plugin-primary-${plugin.id}`}
             />
-          </View>
-        ) : null}
+          ) : (
+            <Button
+              label={power.busy ? (primary.kind === "stop" ? "Stopping…" : "Starting…") : primary.label}
+              variant="mini"
+              disabled={power.busy}
+              onPress={() => void power.act(primary.kind)}
+              testID={`plugin-primary-${plugin.id}`}
+            />
+          )}
+          {/*
+            Always here, whatever the row decided, because it is the way to
+            everything the row stopped saying. A plugin Context cannot run has
+            no press of its own and this is its only control — which is exactly
+            the row that most needs one, since the reason is what the reader
+            came for.
+          */}
+          <Button
+            label="Details"
+            variant="mini"
+            onPress={onOpen}
+            testID={`plugin-details-${plugin.id}`}
+          />
+        </Row>
 
-        {plugin.notes.map((note, index) => (
-          <Text key={`${plugin.id}-note-${index}`} variant="rowSub" style={styles.line}>
-            {note}
-          </Text>
-        ))}
-
-        {read ? (
-          <Text variant="rowSub" style={styles.line}>
-            {read}
-          </Text>
-        ) : null}
-
-        {from ? (
-          <Text variant="rowSub" style={styles.line}>
-            {from}
-          </Text>
-        ) : null}
-
-        <Text variant="hint" style={styles.close}>
-          {route ?? pending}
-        </Text>
-
-        <PluginRuntimeCard plugin={plugin} view={runtime} grants={grants} />
-        <PluginGrantCard plugin={plugin} view={grants} runtime={runtime} />
-        <PluginManagedCard plugin={plugin} view={browse} />
+        {power.failure ? <Text variant="error">{power.failure}</Text> : null}
       </Grow>
     </Row>
   );
@@ -698,6 +703,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   head: { alignItems: "flex-start", gap: 12 },
   counts: { flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 12 },
   pluginRow: { alignItems: "flex-start" },
+  // Wrapping, because two labels and their gap can exceed a narrow phone and a
+  // control that has run off the edge is a control that is not there.
+  controls: { flexWrap: "wrap", gap: space.x2, marginTop: 9 },
   titleRow: { alignItems: "flex-start", gap: 12 },
   meta: { marginTop: 2, color: colors.muted },
   line: { marginTop: 4 },
