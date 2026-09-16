@@ -320,6 +320,14 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A file that does not exist yet is scaffolded, once, and edited ever after
 - The editor is cached by a worker scoped to its own directory
 - The message check is an identity check, not an origin check
+- A list of what the shim is missing cannot be written by hand
+- A base class has to be real, and a real dialog is text in one direction
+- The only check that has ever caught a plugin not loading
+- What is installed is a different question from what runs, and a cheaper one
+- A settings pane is described, never forwarded
+- The open note is an editor a plugin can write into, while its work is running
+- A press that does nothing is a bug, even when nothing is broken
+- A check that reads React state from inside `onEvent` is not a check
 
 ## [Testing and guards](./testing.md)
 

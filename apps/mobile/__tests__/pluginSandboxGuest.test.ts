@@ -317,8 +317,22 @@ describe("the guest can already be told to run a command", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(seen()!.ran).toEqual(["say-hello"]);
+    /*
+      `reason: null` is part of the answer now, not noise: a command runs with
+      the open note in front of it, and this field is how the console tells "it
+      ran" from "it asked for the note and could not have it". Nothing to
+      report is the ordinary case and says so explicitly.
+    */
     expect(posted.filter((one) => one.type === "command-result")).toEqual([
-      { source: "context-plugin-sandbox", version: 1, nonce, type: "command-result", id: "say-hello", ok: true },
+      {
+        source: "context-plugin-sandbox",
+        version: 1,
+        nonce,
+        type: "command-result",
+        id: "say-hello",
+        ok: true,
+        reason: null,
+      },
     ]);
   });
 
@@ -1032,6 +1046,30 @@ describe("a plugin's suggestion dialog", () => {
     // `renderSuggestion` built a <strong> in the sandbox; its text is what left.
     expect(results?.items).toEqual([{ text: "Gen 1:1 a" }, { text: "Gen 1:1 b" }]);
     expect(JSON.stringify(results)).not.toContain("strong");
+  });
+
+  /*
+    AND THE ROW SAYS WHAT THE PLUGIN WROTE, LETTER FOR LETTER.
+
+    The whitespace this collapses is written `\\s` because the whole guest is a
+    template literal — and for a while one of the four places that do it was
+    written `\s`, which reaches the sandbox as a plain `s`. The rows of the
+    dialog were run through `/s+/`, so every letter s in a verse became a space:
+    "the sons of the prophets" was shown to the reader as "the  on  of the
+    prophet ". A test whose fixture happens to contain no `s` cannot see that,
+    which is why this one is made of them.
+  */
+  test("whitespace is collapsed and nothing else is", async () => {
+    await loadModalBundle();
+    modalState()?.open();
+    posted = [];
+    toHost({ nonce, type: "suggest-modal-query", seq: 8, query: "the sons  of\n the prophets" });
+    await Promise.resolve();
+    await Promise.resolve();
+    const results = posted.find((message) => message.type === "suggest-modal-results") as
+      | { items: { text: string }[] }
+      | undefined;
+    expect(results?.items[0]?.text).toBe("the sons of the prophets a");
   });
 
   test("a pick runs the plugin's own handler, and the dialog closes", async () => {

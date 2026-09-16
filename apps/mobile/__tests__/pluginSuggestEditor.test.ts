@@ -177,6 +177,30 @@ describe("what a pick writes", () => {
     );
   });
 
+  /*
+    THE REGRESSION THIS RANGE EXISTS FOR.
+
+    The plugin is shown the line up to the caret and never the rest of it, so
+    the answer it gives back describes that span alone. Writing it over the
+    whole line — which is what this did — deleted whatever the person had typed
+    after the caret, silently, as the reward for taking a suggestion in the
+    middle of a sentence they had already written.
+  */
+  test("and what follows the caret is kept, not replaced", async () => {
+    const view = editor({
+      doc: "see @ John 3:16 in the morning",
+      cursor: 15,
+      ask: async () => [{ text: "John 3:16 (NIV)" }],
+      pick: async () => "see [John 3:16](https://example.test/v)",
+    });
+    startCompletion(view);
+    await tick();
+    await pickFirst(view);
+    expect(view.state.doc.toString()).toBe(
+      "see [John 3:16](https://example.test/v) in the morning",
+    );
+  });
+
   test("only that line — the rest of the note is untouched", async () => {
     const view = editor({
       doc: "keep me\nsee @ John 3:16\nand me",
@@ -196,12 +220,12 @@ describe("what a pick writes", () => {
     THE GUARD THIS FILE IS MOST WORTH WRITING FOR.
 
     A pick crosses to a sandbox and back, which is long enough for somebody to
-    keep typing. The plugin computed its line from the line it was shown; if
-    that line has changed since, writing the answer would overwrite the
+    keep typing. The plugin computed its answer from the text before the caret;
+    if that text has changed since, writing the answer would overwrite the
     keystrokes with a completion for text that is gone. The etag rule, at the
-    scale of one line: never write over what you did not read.
+    scale of part of a line: never write over what you did not read.
   */
-  test("a line that changed while the plugin was thinking is left alone", async () => {
+  test("text that changed where the suggestion was computed is left alone", async () => {
     let release: (value: string | null) => void = () => {};
     const view = editor({
       doc: "see @ John 3:16",
@@ -213,11 +237,41 @@ describe("what a pick writes", () => {
     await tick();
     const completion = currentCompletions(view.state)[0]!;
     (completion.apply as (view: EditorView) => void)(view);
-    // The person carries on typing before the sandbox answers.
+    // The person goes back and edits inside what the plugin was shown.
+    view.dispatch({ changes: { from: 4, insert: "really " } });
+    release("see [John 3:16](https://example.test/v)");
+    await tick();
+    expect(view.state.doc.toString()).toBe("see really @ John 3:16");
+  });
+
+  /*
+    And the other half, which used to be thrown away with it.
+
+    What the pick writes is the text BEFORE the caret — that is all the plugin
+    was shown and all it can have rewritten — so something typed after the
+    caret is not a reason to abandon the completion, and it survives it. The
+    check compares that same span rather than the whole line, or every
+    suggestion taken mid-sentence would be dropped for a keystroke it could not
+    have invalidated.
+  */
+  test("and what was typed after the caret survives the pick", async () => {
+    let release: (value: string | null) => void = () => {};
+    const view = editor({
+      doc: "see @ John 3:16",
+      cursor: 15,
+      ask: async () => [{ text: "John 3:16 (NIV)" }],
+      pick: () => new Promise<string | null>((resolve) => { release = resolve; }),
+    });
+    startCompletion(view);
+    await tick();
+    const completion = currentCompletions(view.state)[0]!;
+    (completion.apply as (view: EditorView) => void)(view);
     view.dispatch({ changes: { from: 15, insert: " and more" } });
     release("see [John 3:16](https://example.test/v)");
     await tick();
-    expect(view.state.doc.toString()).toBe("see @ John 3:16 and more");
+    expect(view.state.doc.toString()).toBe(
+      "see [John 3:16](https://example.test/v) and more",
+    );
   });
 
   test("a plugin that never answers leaves the line as it was", async () => {

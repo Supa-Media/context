@@ -16,6 +16,7 @@ import {
   describeRegistrations,
   isOwnerStop,
   isRevocation,
+  pluginWorkNote,
   registrationsFor,
   rollbackTarget,
   runtimeDetail,
@@ -237,7 +238,15 @@ export function PluginRuntimeCard({
                       actually act on is the frame.
                     */
                     `${outcome.name} did not answer. It may still be running — stopping and starting this plugin clears it.`
-                  : `${outcome.name} did not finish. The plugin reported: ${outcome.error}`}
+                  : outcome.reason !== null
+                    ? /*
+                        It ran and asked for something Context could not give
+                        it — the open note, or permission to change it. Not a
+                        malfunction, so nothing is quoted from the plugin and
+                        the sentence says what the owner can do instead.
+                      */
+                      `${outcome.name} changed nothing. ${pluginWorkNote(outcome.reason)}`
+                    : `${outcome.name} did not finish. The plugin reported: ${outcome.error}`}
             </Text>
           ) : null}
         </View>

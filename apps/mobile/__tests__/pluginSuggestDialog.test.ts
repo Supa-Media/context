@@ -210,3 +210,97 @@ describe("the dialog a plugin asked for", () => {
     expect(container.querySelectorAll("[data-testid^='plugin-suggest-row-']")).toHaveLength(0);
   });
 });
+
+/*
+  AND WHAT THE READER GETS WHEN THEIR PICK DID NOTHING.
+
+  The report this whole path was repaired for was "I click on the verse and
+  nothing happens" — which is what a pick with nowhere to write looks like from
+  the outside: the row goes down, the dialog closes, the note is unchanged, and
+  no surface anywhere says why. The dialog itself cannot carry the message,
+  because the guest closes its own before running the plugin's handler, so this
+  takes its place.
+*/
+describe("a pick that did nothing says so", () => {
+  test("nothing is drawn while there is nothing to report", () => {
+    const container = mount(
+      createElement(PluginSuggestDialog, {
+        runtime: view({ modal: null, pickFailure: null, actions: actions() }),
+      }),
+    );
+    expect(container.querySelector("[data-testid='plugin-pick-failed']")).toBeNull();
+  });
+
+  test("the reason is Context's sentence, and the plugin is named beside it", () => {
+    const container = mount(
+      createElement(PluginSuggestDialog, {
+        runtime: view({
+          modal: null,
+          pickFailure: { pluginId: "obsidian-bible-reference", reason: "not-allowed" },
+          actions: actions(),
+        }),
+      }),
+    );
+    const note = container.querySelector("[data-testid='plugin-pick-failed-note']");
+    expect(note?.textContent).toContain("not allowed to change your notes");
+    /*
+      Whose refusal this is. The panel is Context's words about a named
+      plugin — never the plugin's words, which is the rule every surface in
+      this feature keeps.
+    */
+    expect(container.textContent).toContain("obsidian-bible-reference");
+  });
+
+  test("no note open is a different sentence from not being allowed", () => {
+    const container = mount(
+      createElement(PluginSuggestDialog, {
+        runtime: view({
+          modal: null,
+          pickFailure: { pluginId: "obsidian-bible-reference", reason: "no-note" },
+          actions: actions(),
+        }),
+      }),
+    );
+    expect(
+      container.querySelector("[data-testid='plugin-pick-failed-note']")?.textContent,
+    ).toContain("nothing was open");
+  });
+
+  test("the reader can put it away", () => {
+    let dismissed = 0;
+    const container = mount(
+      createElement(PluginSuggestDialog, {
+        runtime: view({
+          modal: null,
+          pickFailure: { pluginId: "obsidian-bible-reference", reason: "failed" },
+          actions: actions({ dismissPickFailure: () => { dismissed += 1; } }),
+        }),
+      }),
+    );
+    act(() => {
+      container
+        .querySelector("[data-testid='plugin-pick-failed-close']")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(dismissed).toBe(1);
+  });
+
+  /*
+    A dialog on screen wins. The plugin reopened one from inside its own
+    handler — the two-step flows do — and putting a complaint about the last
+    pick over the question it is asking now would be answering the wrong thing.
+  */
+  test("a dialog the plugin reopened is drawn instead of the complaint", async () => {
+    const container = mount(
+      createElement(PluginSuggestDialog, {
+        runtime: view({
+          pickFailure: { pluginId: "obsidian-bible-reference", reason: "failed" },
+          actions: actions(),
+        }),
+      }),
+    );
+    await settle();
+    expect(container.querySelector("[data-testid='plugin-suggest-dialog']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='plugin-pick-failed']")).toBeNull();
+  });
+});
