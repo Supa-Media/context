@@ -125,8 +125,8 @@ describe("GoogleConnectionsCard", () => {
               syncCursorReady: false,
             },
             chat: {
-              destinationFolder: "2-areas/communications/daily",
-              destinationPath: "2-areas/communications/daily/YYYY-MM-DD.md",
+              destinationFolder: "0-inbox/google-chat",
+              destinationPath: "0-inbox/google-chat/YYYY-MM-DD.md",
               cursorCount: 2,
             },
           },
@@ -151,7 +151,7 @@ describe("GoogleConnectionsCard", () => {
     // Where each one writes, stated at rest rather than only inside a field.
     expect(text).toContain("0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md");
     expect(text).toContain("0-inbox/calendar/YYYY-MM-DD.md");
-    expect(text).toContain("2-areas/communications/daily/YYYY-MM-DD.md");
+    expect(text).toContain("0-inbox/google-chat/YYYY-MM-DD.md");
     expect(text).toContain("Calendar");
     expect(text).toContain("Connected; waiting for the first scheduled calendar pass");
     expect(text).not.toContain("Start Calendar sync");
