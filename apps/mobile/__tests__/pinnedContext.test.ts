@@ -328,11 +328,22 @@ describe("the pinned context's menu", () => {
     ).toEqual(["open"]);
   });
 
+  /**
+   * The control case: whatever the pinned flag takes away, it takes away from
+   * *this*, so this list has to be the ordinary menu and nothing else.
+   *
+   * It said `["open", "settings", "sharing", "leave"]` when it landed, and
+   * `main` was red between that merge and this line: #578 took "Manage
+   * sharing…" off the context menu in parallel — it pointed at the app-level
+   * Connections pane, so it led *out* of the context you had just right-clicked
+   * — and this file was written against the menu as it stood an hour earlier.
+   * Two correct changes, one stale expectation. `contextMenu.ts` is the side
+   * that decided; this follows it.
+   */
   test("an ordinary context somebody is a member of is unchanged", () => {
     expect(contextMenuItems("acme", { canLeave: true }).map((i) => i.key)).toEqual([
       "open",
       "settings",
-      "sharing",
       "leave",
     ]);
   });
