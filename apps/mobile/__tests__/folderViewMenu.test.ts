@@ -263,3 +263,107 @@ describe("never suppress a menu you are not going to answer", () => {
     expect(seen).toEqual([]);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                            a breadcrumb segment                            */
+/* -------------------------------------------------------------------------- */
+
+const { Breadcrumb } =
+  require("../features/console/files/Breadcrumb") as typeof import("../features/console/files/Breadcrumb");
+
+function mountCrumb(
+  onFolderMenu?: (folder: string, a: { x: number; y: number }) => boolean,
+) {
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  roots.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  act(() => {
+    root.render(
+      createElement(Breadcrumb, {
+        path: "2-areas/health/sleep.md",
+        contextLabel: "@seyi",
+        visibility: "team",
+        inherited: "team",
+        exception: false,
+        readOnly: false,
+        onSelectFolder: () => {},
+        onFolderMenu,
+      } as never),
+    );
+  });
+
+  const segment = (path: string): HTMLElement => {
+    const node = container.querySelector<HTMLElement>(
+      `[data-testid="breadcrumb-folder-${path}"]`,
+    );
+    if (node === null) throw new Error(`no crumb for ${path}`);
+    return node;
+  };
+  const leaf = (): HTMLElement =>
+    container.querySelector<HTMLElement>('[data-testid="breadcrumb-leaf"]')!;
+
+  return { container, segment, leaf };
+}
+
+describe("the breadcrumb's folder segments", () => {
+  /**
+   * The fastest route to a parent folder's verbs, and it offered none: the
+   * crumb naming the folder you are standing in was inert to the second mouse
+   * button, and the tree was the only place that folder could be created in,
+   * addressed, or have its visibility set.
+   */
+  test("right-clicking one opens the menu for that folder", () => {
+    const seen: string[] = [];
+    const bar = mountCrumb((folder) => (seen.push(folder), true));
+
+    act(() => {
+      bar.segment("2-areas").dispatchEvent(rightClick());
+    });
+
+    expect(seen).toEqual(["2-areas"]);
+  });
+
+  test("each segment names its own folder, not the leaf's", () => {
+    const seen: string[] = [];
+    const bar = mountCrumb((folder) => (seen.push(folder), true));
+
+    act(() => {
+      bar.segment("2-areas/health").dispatchEvent(rightClick());
+    });
+
+    expect(seen).toEqual(["2-areas/health"]);
+  });
+
+  /**
+   * The leaf is not a control in this bar — pressing it would re-select what is
+   * already open — and giving it a menu would make it one halfway.
+   */
+  test("the leaf has no menu", () => {
+    const seen: string[] = [];
+    const bar = mountCrumb((folder) => (seen.push(folder), true));
+    const event = rightClick();
+
+    act(() => {
+      bar.leaf().dispatchEvent(event);
+    });
+
+    expect(seen).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  test("a bar with no menu leaves the browser's alone", () => {
+    const bar = mountCrumb(undefined);
+    const event = rightClick();
+
+    act(() => {
+      bar.segment("2-areas").dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+});

@@ -14,7 +14,7 @@ import { writeClipboard } from "../../design/clipboard";
 import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
 import { ExplorerDialogs } from "../files/Explorer";
 import { itemsFor, type MenuTarget } from "../files/menu";
-import { baseName } from "../files/paths";
+import { ancestorsOf, baseName } from "../files/paths";
 import type { FolderMenu } from "../files/FolderView";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
@@ -318,9 +318,39 @@ export function BrowsePane({
       select: files.select,
       setDialog: setFolderDialog,
       writeClipboard: (text) => void writeClipboard(text),
+      /**
+       * Put the tree on a folder: open every ancestor, then select it.
+       *
+       * `toggleFolder` *toggles*, so an ancestor that is already open would be
+       * closed by a blind call — the check is what makes this "reveal" rather
+       * than "flip everything on the way down". `ancestorsOf` owns the path
+       * arithmetic, as it does for every other caller.
+       *
+       * Select last, so the row it lands on is one the tree has been told to
+       * draw.
+       */
+      reveal: (path) => {
+        for (const ancestor of ancestorsOf(path)) {
+          if (!files.expanded.has(ancestor)) files.toggleFolder(ancestor);
+        }
+        files.select(path);
+      },
       inheritedOf: (path) => findEntry(files.listings, path)?.inherited ?? "private",
     }),
     [files, contextLabel],
+  );
+
+  /**
+   * Right-click on a breadcrumb segment.
+   *
+   * The fastest route to a parent folder's verbs, and it offered none of them.
+   * Same menu the tree gives that folder, minus what you must not do to the
+   * ground you are standing on — see `crumbItems` in `menu.ts`.
+   */
+  const openCrumbMenu = useCallback(
+    (folder: string, anchor: { x: number; y: number }) =>
+      openFolderTarget({ kind: "crumb", folder }, baseName(folder) || contextLabel, anchor),
+    [openFolderTarget, contextLabel],
   );
 
   /**
@@ -682,6 +712,7 @@ export function BrowsePane({
             exception={selected.exception}
             readOnly={selected.readOnly}
             onSelectFolder={files.select}
+            onFolderMenu={openCrumbMenu}
           />
         )
       }
@@ -1003,6 +1034,7 @@ export function BrowsePane({
               exception={selected.exception}
               readOnly={selected.readOnly}
               onSelectFolder={files.select}
+              onFolderMenu={openCrumbMenu}
             />
           </View>
           {/*
