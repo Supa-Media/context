@@ -976,3 +976,84 @@ describe("Cancel stays centred", () => {
     expect(styleOf(menu.find("menu-labels-cancel")!, "flex-grow")).not.toBe("1");
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                      the setting in force, on the glass                    */
+/* -------------------------------------------------------------------------- */
+
+describe("a row that carries a state draws it, and says so", () => {
+  /**
+   * `menu.ts` decides which of the three visibility items is in force; this is
+   * the half that puts it on screen. Both are needed and neither is enough: a
+   * model that marks the right row and a sheet that draws no marks is a menu
+   * that still makes you experiment on somebody's access to find out what it
+   * is currently set to.
+   *
+   * The sheet is checked here rather than only the popover because it is the
+   * **only** presentation on a phone. Left out, "which visibility is this note
+   * actually on" would be a question the pointer layout answers and the phone
+   * does not.
+   */
+  const VISIBILITY: MenuItem<MenuActionId>[] = [
+    { id: "visibilityPrivate", label: "Make private", checked: false },
+    { id: "visibilityTeam", label: "Share with the team", checked: false },
+    {
+      id: "visibilityFollow",
+      label: "Use the folder's setting",
+      checked: true,
+      detail: "Currently team — from 1-projects.",
+    },
+  ];
+
+  test("the row in force has a mark and the others have none", () => {
+    const menu = mountSheet(VISIBILITY);
+    expect(menu.find("menu-check-visibilityFollow")?.children.length).toBe(1);
+    expect(menu.find("menu-check-visibilityPrivate")?.children.length).toBe(0);
+    expect(menu.find("menu-check-visibilityTeam")?.children.length).toBe(0);
+  });
+
+  /**
+   * `false` and `undefined` are different, and this is why: an unchecked row
+   * still reserves the gutter, so the three labels start on one vertical line
+   * and the list does not appear to re-order itself as the setting changes.
+   */
+  test("an unchecked row still reserves the gutter", () => {
+    const menu = mountSheet(VISIBILITY);
+    expect(menu.find("menu-check-visibilityPrivate")).not.toBeNull();
+  });
+
+  test("a row with no state draws no gutter at all", () => {
+    const menu = mountSheet([{ id: "archive", label: "Archive" }]);
+    expect(menu.find("menu-check-archive")).toBeNull();
+  });
+
+  /**
+   * A screen reader announcing "Use the folder's setting" with no mention of
+   * its being the one in force has given a blind reader strictly less than the
+   * check gives everybody else — on the control that decides who can read a
+   * note.
+   */
+  test("the state reaches the accessible tree, not only the glass", () => {
+    const menu = mountSheet(VISIBILITY);
+    const on = menu.find("menu-item-visibilityFollow");
+    const off = menu.find("menu-item-visibilityPrivate");
+    expect(on?.getAttribute("aria-checked")).toBe("true");
+    expect(off?.getAttribute("aria-checked")).toBe("false");
+    expect(on?.getAttribute("role")).toBe("menuitemradio");
+  });
+
+  test("and a row with no state is a plain menu item, with no checked claim", () => {
+    const menu = mountSheet([{ id: "archive", label: "Archive" }]);
+    const row = menu.find("menu-item-archive");
+    expect(row?.getAttribute("aria-checked")).toBeNull();
+    expect(row?.getAttribute("role")).not.toBe("menuitemradio");
+  });
+
+  /** The one line the submenu earns — what "the folder's setting" actually is. */
+  test("the follow row carries the value it is following", () => {
+    const menu = mountSheet(VISIBILITY);
+    expect(menu.find("menu-detail-visibilityFollow")?.textContent).toBe(
+      "Currently team — from 1-projects.",
+    );
+  });
+});

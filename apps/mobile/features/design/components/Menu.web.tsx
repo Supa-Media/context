@@ -7,6 +7,7 @@ import {
   StyleSheet,
   View,
   useWindowDimensions,
+  type Role,
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -147,6 +148,16 @@ const MAX_WIDTH = 340;
  */
 const CHAR_WIDTH = 7;
 const ROW_CHROME = 34;
+/**
+ * The radio gutter's width plus its gap — what a `checked` row adds in front of
+ * its label.
+ *
+ * Measured rather than left to the layout for the reason `DETAIL_BLOCK` is:
+ * `widthFor` decides the box's declared `width`, and a row rendered wider than
+ * it was measured is a label clipped mid-word. Every row in a group that has
+ * one reserves it, including the unchecked ones, so three radio rows line up.
+ */
+const CHECK_BLOCK = 18;
 
 /**
  * What a `detail` line adds to a row.
@@ -170,13 +181,17 @@ function widthFor(items: readonly MenuItem<string>[]): number {
   for (const item of items) {
     const chord = item.shortcut === undefined ? 0 : item.shortcut.length + 3;
     const chevron = item.items === undefined ? 0 : 2;
-    widest = Math.max(widest, (item.label.length + chord + chevron) * CHAR_WIDTH + ROW_CHROME);
+    const gutter = item.checked === undefined ? 0 : CHECK_BLOCK;
+    widest = Math.max(
+      widest,
+      (item.label.length + chord + chevron) * CHAR_WIDTH + ROW_CHROME + gutter,
+    );
     // A detail sits under the label with none of the row's trailing furniture
     // beside it, so it is measured on its own. Wrapping is still allowed —
     // `MAX_WIDTH` wins, and the text is capped at two lines — but a sentence
     // that fits should not be broken to keep the box narrow.
     if (item.detail !== undefined) {
-      widest = Math.max(widest, item.detail.length * CHAR_WIDTH + ROW_CHROME);
+      widest = Math.max(widest, item.detail.length * CHAR_WIDTH + ROW_CHROME + gutter);
     }
   }
   return Math.min(MAX_WIDTH, Math.round(widest));
@@ -279,6 +294,29 @@ function fixedAt(box: Box): ViewStyle {
  *    blue under the finger about to release on it is the sheet lying about
  *    what it is offering. Touch lights the background instead.
  */
+/**
+ * `menuitemradio` where the row carries a state, `menuitem` where it does not.
+ *
+ * Saying so is not decoration: a screen reader announcing "Use the folder's
+ * setting" with no mention of its being the one in force has given a blind
+ * reader strictly less than the check gives everybody else — on the control
+ * that decides who can read a note.
+ *
+ * React Native's `Role` union predates this menu and has no `menuitemradio` in
+ * it. react-native-web writes the value straight through to the DOM and on the
+ * web ARIA is the authority, so the cast is correct and it is contained here
+ * rather than spread across the element. `aria-checked` rides with it because
+ * the two are only valid together — a `menuitemradio` with no state and a
+ * `menuitem` with one are each invalid ARIA.
+ */
+function roleFor(checked: boolean | undefined): {
+  role: Role;
+  "aria-checked"?: boolean;
+} {
+  if (checked === undefined) return { role: "menuitem" };
+  return { role: "menuitemradio" as Role, "aria-checked": checked };
+}
+
 function Row({
   id,
   label,
@@ -289,6 +327,7 @@ function Row({
   danger = false,
   shortcut,
   submenu = false,
+  checked,
   align = "left",
   focused = false,
   onActivate,
@@ -307,6 +346,14 @@ function Row({
   danger?: boolean;
   shortcut?: string;
   submenu?: boolean;
+  /**
+   * The setting in force, where "in force" is a question with an answer.
+   *
+   * `false` and `undefined` are different: `false` reserves the gutter so the
+   * rows of one radio group line up under each other, `undefined` draws no
+   * gutter at all. See `MenuItem.checked`.
+   */
+  checked?: boolean;
   align?: "left" | "center";
   focused?: boolean;
   onActivate: () => void;
@@ -321,7 +368,7 @@ function Row({
 
   return (
     <Pressable
-      role="menuitem"
+      {...roleFor(checked)}
       accessibilityLabel={accessibilityLabel ?? label}
       testID={testID ?? `menu-item-${id}`}
       onPress={onActivate}
@@ -339,6 +386,23 @@ function Row({
       ]}
     >
       {leading}
+      {/*
+        The radio gutter. Present on every row of a group that has one, so the
+        labels of the checked and unchecked rows start on the same vertical
+        line — a check that shifts its own label right is a list that appears to
+        re-order itself as you change the setting.
+      */}
+      {checked === undefined ? null : (
+        <View style={styles.checkGutter} testID={`menu-check-${id}`}>
+          {checked ? (
+            <Icon
+              name="check"
+              size={touch ? 15 : 12}
+              color={lit && !touch ? colors.ink : colors.text}
+            />
+          ) : null}
+        </View>
+      )}
       {/*
         One column, so a detail line stacks under its label instead of sitting
         beside it and pushing the chord and the chevron off the edge.
@@ -398,6 +462,7 @@ function ItemRow({
       danger={item.danger === true}
       shortcut={item.shortcut}
       submenu={item.items !== undefined}
+      checked={item.checked}
       focused={focused}
       onActivate={onActivate}
       onHover={onHover}
@@ -905,6 +970,11 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   labelColumn: { flexShrink: 1, gap: 2, justifyContent: "center" },
   labelLit: { color: colors.accentText },
   dangerLabel: { color: colors.critText },
+  /**
+   * The radio gutter. A fixed width, and `CHECK_BLOCK` is that width plus the
+   * row's gap — the two are a pair, and the geometry above measures with it.
+   */
+  checkGutter: { width: 12, alignItems: "center", justifyContent: "center" },
   shortcut: { marginLeft: "auto" },
   chevron: { marginLeft: "auto" },
   separator: {
