@@ -173,6 +173,59 @@ describe("right-click", () => {
 
     expect(event.defaultPrevented).toBe(true);
   });
+
+  /**
+   * The escape hatch, and the reason it is worth one conditional.
+   *
+   * This is a web app people self-host and debug. A console that swallows
+   * `contextmenu` unconditionally has taken Inspect, View Source and "Copy
+   * image" away from everybody who needs them, with no way to ask for them
+   * back — the browser's menu is reachable by no other gesture. Shift is the
+   * modifier VS Code and Figma use for exactly this, so it is the one somebody
+   * is most likely to already know.
+   *
+   * Ours must also *not* open: two menus racing for one gesture is worse than
+   * either alone.
+   */
+  test("shift hands the gesture back to the browser", () => {
+    const seen: string[] = [];
+    const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+    const event = new MouseEvent("contextmenu", {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+    });
+
+    act(() => {
+      tree.rowFor("plan.md").dispatchEvent(event);
+    });
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(seen).toEqual([]);
+  });
+
+  test("and every other modifier still opens ours", () => {
+    // Only shift. ⌘/ctrl-right-click is a selection gesture on some platforms
+    // and alt is the copy modifier for drags; neither is a request for the
+    // browser's menu, and treating one as such would make the app's own menu
+    // unreachable for somebody holding a key out of habit.
+    for (const modifier of ["metaKey", "ctrlKey", "altKey"] as const) {
+      const seen: string[] = [];
+      const tree = mountTree({ onMenu: (r) => seen.push(r.path), drag: DRAG });
+      const event = new MouseEvent("contextmenu", {
+        bubbles: true,
+        cancelable: true,
+        [modifier]: true,
+      });
+
+      act(() => {
+        tree.rowFor("plan.md").dispatchEvent(event);
+      });
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(seen).toEqual(["1-projects/plan.md"]);
+    }
+  });
 });
 
 describe("what may be picked up", () => {

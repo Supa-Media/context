@@ -40,6 +40,22 @@ export { LONG_PRESS_MS } from "./rowInteractionContract";
  * row that gains or loses its menu while mounted is answered by whatever is
  * true now — the same rule every other option in here follows.
  *
+ * ## Shift is the way back to the browser
+ *
+ * Even on a row that *does* have a menu, holding shift skips the suppression
+ * and lets the platform menu through. This repository is public and
+ * self-hosting is a supported path: a console that eats `contextmenu`
+ * unconditionally has taken Inspect, View Source and "Copy image" from
+ * everybody who works on it, and there is no other gesture that asks for them.
+ * VS Code and Figma both spell this escape hatch the same way, so it is the one
+ * a person is most likely to already have in their hands.
+ *
+ * Shift alone, and deliberately not "any modifier": ⌘ or ctrl with a right
+ * click is a selection gesture on some platforms and ⌥ is this app's own copy
+ * modifier for drags, so treating those as a request for the browser's menu
+ * would make the console's own menu unreachable for somebody holding a key out
+ * of habit.
+ *
  * ## The `dragover` rules are counter-intuitive and both matter
  *
  * `preventDefault()` on `dragover` is what *permits* a drop; without it the
@@ -144,6 +160,10 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         // going to answer" above: with no handler this row has no menu, and
         // the browser's own is better than none.
         if (onMenu === undefined) return;
+        // Shift is a request for the browser's menu — see "Shift is the way
+        // back to the browser" in the header. Return before suppressing, so
+        // the platform menu opens and ours does not race it.
+        if (event.shiftKey) return;
         event.preventDefault();
         event.stopPropagation();
         onMenu({ x: event.clientX, y: event.clientY });
