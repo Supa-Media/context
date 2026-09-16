@@ -156,6 +156,47 @@ have no owner and cannot acquire one — and the catalogue refuses to build at a
 if two plugins claim one tool, because a tool whose switch is ambiguous is on
 for one reader and off for another.
 
+## The owner authorizes a plugin over their own workspace; the workspace is the wall
+
+Decided by the owner, 2026-09-16, and it settles a question this file had been
+answering too cautiously. Plugin grants are per workspace. An owner enabling one
+is saying *I authorize this code to work on my data* — which is the same trust
+they already place in Context itself, and the same bargain Obsidian and every
+browser extension store runs on. People are allowed to make that call about
+their own notes, and a product that refuses on their behalf is not protecting
+them, it is choosing for them.
+
+**The boundary that is not theirs to waive is the next workspace along.** A
+plugin enabled in one context may never read or write another, however much its
+owner authorizes it — because the people in that other workspace authorized
+nothing. That is non-negotiable #4 (one workspace is one security boundary)
+applied to plugins, and it is enforced by construction rather than by policy: a
+plugin never names a workspace. `resolveRuntimeSession` derives one from the
+runtime token it was issued, so "which workspace" is not an argument any plugin
+code can reach, and `a plugin's token reaches exactly one workspace` holds it.
+
+Two things follow that are easy to get wrong.
+
+**The permission model was never the thing in the way.** An owner can already
+grant `vault:read`, `vault:write`, `vault:rename`, `vault:delete`,
+`metadata:read`, `settings:read`, `settings:write` and `network:request` — full
+reach over their own workspace's data. What stops a plugin like Bible Reference
+is not a refused permission, it is a *surface Context has not drawn yet*. Those
+are opposite problems and conflating them turns a build task into a policy
+argument.
+
+**Isolation is what makes the wall enforceable, so it is not the part to trade
+away.** The sandbox is not there to second-guess the owner about their own
+notes; it is there because a plugin running in the trusted page holds a session
+that reaches every workspace its person belongs to, which is exactly the one
+thing the owner may not authorize. Widening what a plugin may *do* in its own
+workspace is a grant change. Moving it into the page is not a widening, it is
+removing the wall.
+
+**What a simplification costs.** Letting plugin code into the trusted realm
+makes the cross-workspace rule unenforceable in the only place it is currently
+free. Letting a plugin name its own workspace does the same, more directly.
+
 ### A member the shim lacks is a limitation, except when it is extended
 
 `PLANNED_MEMBERS` always held two kinds, and `surface.js` always said so:
@@ -197,6 +238,34 @@ work" on one row. The checks are `a bundle extending a class the shim does not
 provide will not run here`, `a bare identifier works too`, `it is not reported
 as a limitation on a row that says it runs`, `and every member called absent
 really is not there` — each sabotage-confirmed.
+
+### A read cap is about our memory, never about their storage
+
+`MAX_SCAN_BYTES` was 4MB and Bible Reference is 4.11MB, so it came back
+"couldn't be checked" by 2.7% — a cap that ordinary plugins trip is not
+protecting anything, it is refusing to answer. It is 16MB now, and the two
+sentences worth keeping are why there is a number at all and how it was chosen.
+
+It bounds **what this Worker pulls into memory to check a bundle**, not what a
+customer may keep in their own bucket. Their storage, their plugin; the only
+question is how much of it we read at once.
+
+Sized against the 128MB isolate, with the arithmetic that actually decides it:
+a JavaScript string holds two bytes per code unit, so 16MB of text is a ~33MB
+string, about a quarter of the isolate, beside a report that holds one bundle at
+a time. CPU is not the constraint — 4MB, 8MB and 16MB of real minified
+JavaScript all scan in under a millisecond, because the alternations stop at the
+first match per name.
+
+It is deliberately **equal to `MAX_PLUGIN_ASSET_BYTES`**, which bounds the
+download. Before this they disagreed at 4MB and 10MB, so a plugin could install
+successfully and then report "couldn't be checked" for ever. Installing what we
+cannot check is the one combination worth ruling out by construction.
+
+**What a simplification costs.** Removing the cap entirely lets one plugin OOM
+the isolate and take down the report for every plugin in the bucket — the
+failure this module already refuses in `readPlugin`. Letting the two caps drift
+apart restores the install-then-cannot-check state.
 
 ### And a switch has to actually do something
 

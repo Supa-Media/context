@@ -209,7 +209,7 @@ const BLURBS: Record<PluginVerdict, string> = {
   "needs-approval": "these run, but call a host outside Context — approve the hosts to install",
   "files-only":
     "these stay in Obsidian, and Context reads the files they write, so no data is stranded",
-  "wont-run": "these need a filesystem, a shell, or Obsidian's private internals",
+  "wont-run": "these need a filesystem, a shell, Obsidian's private internals, or a part of its interface Context has not built yet",
   unknown: "the check could not read these; they are not offered as working",
 };
 
@@ -260,9 +260,9 @@ export function routeOut(verdict: PluginVerdict): string | null {
       return null;
     case "wont-run":
     case "files-only":
-      return "Keep it in Obsidian — same bucket, same files, and Context reads whatever it writes.";
+      return "Keep it in Obsidian — Context reads what it writes.";
     case "unknown":
-      return "Not a refusal: the check could not read it. Run it in Obsidian meanwhile.";
+      return "Run it in Obsidian meanwhile.";
   }
 }
 
@@ -425,7 +425,7 @@ export function pluginsPreview(view: PluginsView): string | null {
  */
 export function sourceNote(plugin: ConsolePlugin): string | null {
   return plugin.source === "context"
-    ? "Installed by Context, under .context/plugins/. Your vault is untouched."
+    ? "Installed by Context — your vault is untouched."
     : null;
 }
 
@@ -520,13 +520,19 @@ export function limitationSummary(limitations: string[]): string | null {
  * refusal. It ends on what is true now, and still names the other place the
  * plugin works, because a person deciding whether to enable something here has
  * not stopped using Obsidian.
+ *
+ * ## One sentence, because it is on every working row
+ *
+ * It was two, and the second explained that the plugin keeps working in
+ * Obsidian "against this same bucket either way, and Context reads whatever it
+ * writes" — the bucket mechanics, restated on every row of a list, to a reader
+ * who wanted to know whether to press the button. Both facts survive in one
+ * line; the mechanics are the product's premise and belong where somebody has
+ * asked for them.
  */
 export function runsHereNote(verdict: PluginVerdict): string | null {
   if (!offersInstall(verdict)) return null;
-  return (
-    "This one runs in Context. It keeps working in Obsidian against this same " +
-    "bucket either way, and Context reads whatever it writes."
-  );
+  return "Runs in Context, and still in Obsidian against the same bucket.";
 }
 
 /* -------------------------------------------------------------------------- */

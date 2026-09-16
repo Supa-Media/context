@@ -132,8 +132,7 @@ export const INSTALL_NOTE =
  * promise the storage layer deliberately does not keep.
  */
 export const UNINSTALL_NOTE =
-  "Removing it takes away the active version, so nothing can load it. The downloaded release stays in your " +
-  "bucket so you can go back to it, and your vault is untouched either way.";
+  "Removing it stops it loading; the release stays in your bucket and your vault is untouched.";
 
 /** The registry this searches, named so nobody wonders whose list it is. */
 export const REGISTRY_NOTE =

@@ -47,18 +47,34 @@ import {
 /**
  * The most bundle text one scan will read.
  *
- * Generous — the largest community plugins are a couple of megabytes — and a
- * bundle above it is reported `unknown` rather than scanned partially. Sized
- * against the Workers memory limit, not against what a plugin "should" be.
+ * **This is not a limit on what a customer may store.** It is their bucket and
+ * their plugin; the only question here is how much of a bundle this Worker
+ * pulls into memory to check it, and a bundle over the line is reported
+ * `unknown` — "could not be read" — rather than scanned partially.
+ *
+ * Raised from 4MB, which was too close to real plugins to be a safety margin:
+ * Bible Reference ships 4.11MB because it bundles the scripture text offline,
+ * and came back unreadable by 2.7%. A cap that ordinary plugins trip is not
+ * protecting anything, it is just refusing to answer.
+ *
+ * Sized against the Workers 128MB isolate, which is the real bound, and the
+ * arithmetic that matters is that **a JavaScript string holds two bytes per
+ * code unit**: 16MB of text is a ~33MB string, about a quarter of the isolate,
+ * next to a report that holds one bundle at a time. CPU is not the constraint —
+ * measured on real minified JavaScript, 4MB, 8MB and 16MB all scan in under a
+ * millisecond, because the alternations stop at the first match per name.
+ *
+ * Deliberately equal to `MAX_PLUGIN_ASSET_BYTES` in `functions/obsidianPlugins.ts`,
+ * which bounds the download. Installing something we then cannot check is the
+ * one combination worth ruling out by construction.
  *
  * Compared against `String.length`, which counts UTF-16 code units rather than
  * bytes. The name is the budget's intent and the comparison is the cheap
  * approximation of it; for the ASCII a JavaScript bundle is almost entirely
  * made of the two agree, and where they do not the check admits a larger object
- * than the number says rather than a smaller one. Worth knowing if this ever
- * becomes a memory bound rather than a work bound.
+ * than the number says rather than a smaller one.
  */
-export const MAX_SCAN_BYTES = 4 * 1024 * 1024;
+export const MAX_SCAN_BYTES = 16 * 1024 * 1024;
 
 /** At most this many distinct hosts travel with a `needs-approval` verdict. */
 export const MAX_REPORTED_HOSTS = 12;

@@ -108,7 +108,18 @@ const NETWORK_REQUEST_TIMEOUT_MS = 20_000;
 const COMMUNITY_REGISTRY_URL =
   "https://raw.githubusercontent.com/obsidianmd/obsidian-releases/HEAD/community-plugins.json";
 const MAX_REGISTRY_BYTES = 4 * 1024 * 1024;
-const MAX_PLUGIN_ASSET_BYTES = 10 * 1024 * 1024;
+/*
+  The most one plugin release may weigh, coming down from GitHub.
+
+  Kept equal to the gateway's `MAX_SCAN_BYTES`: installing a bundle we then
+  cannot check is the one combination worth ruling out by construction, and
+  before this the two disagreed — a 10MB plugin installed fine and reported
+  "couldn't be checked" forever after.
+
+  Not a statement about what a customer may keep in their own bucket. It bounds
+  what this action pulls into memory on their behalf.
+*/
+const MAX_PLUGIN_ASSET_BYTES = 16 * 1024 * 1024;
 const RUNTIME_SESSION_MS = 15 * 60 * 1_000;
 const PLUGIN_EGRESS_URL_ENV = "PLUGIN_EGRESS_URL";
 const PLUGIN_EGRESS_SECRET_ENV = "PLUGIN_EGRESS_SECRET";

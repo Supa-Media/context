@@ -286,6 +286,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The switch lives in the bucket, in two lists rather than one
 - A switch removes a capability and never a protection
 - The switch is enforced twice, because the listing is cached
+- The owner authorizes a plugin over their own workspace; the workspace is the wall
+- A read cap is about our memory, never about their storage
 - What may never be a plugin
 - A member the shim lacks is a limitation, except when it is extended
 - And a switch has to actually do something

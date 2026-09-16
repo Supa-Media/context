@@ -264,11 +264,13 @@ export async function runPluginChecks(check) {
     `id` WAS THE ONE FIELD WITH NO BOUND, IN A FILE THAT BOUNDS EVERYTHING ELSE.
 
     Folder ≤200, `str` ≤300, `reason` ≤200, hosts ≤12, plugins ≤20, list pages
-    ≤20, bundle ≤4MB — and `id` only `.trim()`ed. `readText` caps a manifest at
-    `MAX_SCAN_BYTES + 1`, so one manifest can carry a ~4MB id, and `scanPlugin`
-    renders it twice (as `id`, and as `name` when name is absent). Measured: 20
-    such manifests produced 160MB of MCP text and 544MB RSS, against a 128MB
-    isolate limit — an OOM in `lines.join`.
+    ≤20, bundle ≤`MAX_SCAN_BYTES` — and `id` only `.trim()`ed. `readText` caps a
+    manifest at `MAX_SCAN_BYTES + 1`, so one manifest can carry an id that size,
+    and `scanPlugin` renders it twice (as `id`, and as `name` when name is
+    absent). Measured back when the cap was 4MB: 20 such manifests produced
+    160MB of MCP text and 544MB RSS, against a 128MB isolate limit — an OOM in
+    `lines.join`. The cap is 16MB now, so the same bug would cost four times
+    that; `str()` is what stops it, and this is what holds `str()`.
   */
   const huge = parseManifest(JSON.stringify({ id: "x".repeat(500_000) })).manifest;
   check("a manifest id is bounded like every other field", huge.id.length <= 300);
@@ -353,7 +355,10 @@ export async function runPluginChecks(check) {
     That is this file's own asymmetry arriving from a new direction: `runs` rests
     on evidence we did not find, and here we had the evidence and filed it as a
     footnote. Found on Bible Reference (obsidian-bible-reference), which extends
-    `SuggestModal` and is held back from this path today only by the 4MB read cap.
+    `SuggestModal`. It is 4.11MB, so until the read cap moved to 16MB in this
+    same change it never reached this path at all — the bug was live only for
+    smaller plugins doing the same thing, which is the worst way for one to be
+    live: invisible on the plugin that would have shown it to you.
   */
   {
     const base = scanPlugin({
@@ -419,6 +424,35 @@ export async function runPluginChecks(check) {
     it cannot do here. Mirrored rather than special-cased so the two paths
     cannot drift into disagreeing about one plugin.
   */
+  /*
+    The heading has to describe both ways in. It read "these need a filesystem,
+    a shell, or Obsidian's private internals" — true of every plugin that had
+    ever landed there, and false the moment a missing base class could put one
+    there: Bible Reference needs none of those three, it needs a dialog we have
+    not built. A group blurb that does not cover its own rows is the same
+    overclaim as a verdict that does not, one level up.
+  */
+  check(
+    "the won't-run heading covers a plugin held back by us rather than by the sandbox",
+    (() => {
+      const held = scanPlugin({
+        id: "held",
+        manifestText: manifestFor("held"),
+        source: 'const o = require("obsidian");\nclass M extends o.SuggestModal {}\n',
+      });
+      const rendered = renderPluginReport({
+        available: true,
+        reason: null,
+        plugins: [held],
+        counts: summarize([held]),
+        found: 1,
+        scanned: 1,
+        truncated: false,
+        checkedAt: new Date().toISOString(),
+      });
+      return /Context has not built yet/.test(rendered);
+    })()
+  );
   check(
     "a curated format-supported plugin reads files-only rather than wont-run",
     scanPlugin({
