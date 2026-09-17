@@ -708,6 +708,202 @@ export function tableLines(state: EditorState, frontEnd = 0): number[] {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                                  callouts                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One Obsidian callout: a blockquote whose first line opens with `[!type]`.
+ *
+ * ## Why this exists
+ *
+ * Reported with a screenshot of a plugin's output beside the same note in
+ * Obsidian — *"this plugin shows up weird, compare to how it shows up in
+ * obsidian"* — and it was never the plugin. It writes
+ * `> [!bible] [John 3:16 - NIV](…)`, which is an ordinary callout, and this
+ * editor had no idea what one was: `[!bible]` parsed as a shortcut link, its
+ * brackets were hidden like any other `LinkMark`, and the reader was left with
+ * the word `!bible` underlined in blue in front of the reference. Every
+ * `[!note]`, `[!warning]` and `[!tip]` in anybody's vault read the same way; a
+ * plugin is only what finally put one on screen next to its original.
+ *
+ * ## Not in the grammar, so read off the text
+ *
+ * lezer-markdown has no callout node — callouts are Obsidian's extension, not
+ * CommonMark — so this is the same shape as `frontmatterRange` and for the same
+ * stated reason: the tree gives the blockquote, and the first line's text gives
+ * the rest. Matching on the text of a line the tree has already called a
+ * `Blockquote` is what keeps `[!note]` in the middle of a sentence from
+ * becoming a box.
+ *
+ * ## What is deliberately not drawn
+ *
+ * Per-type colours and icons. Obsidian has thirteen of each, and thirteen
+ * palette entries would have to cross the WebView bridge to get here — against
+ * this file's own standing restraint about palette-specific tokens. The icon in
+ * the report's screenshot is not Obsidian's either: it is the plugin's own CSS,
+ * and Context does not load a plugin's stylesheet into the trusted realm.
+ *
+ * Folding is not implemented, and the `+`/`-` that asks for it is consumed as
+ * part of the marker rather than left behind. A callout that will not fold is
+ * legible; half a marker on screen is the bug this whole function is fixing,
+ * one character smaller.
+ */
+export interface Callout {
+  /** Where the `[!type]` marker starts — the callout's first line. */
+  readonly from: number;
+  /** The start of every line in the blockquote, first one first. */
+  readonly lines: readonly number[];
+  /** The type as written, lowercased: `note`, `warning`, `bible`. */
+  readonly type: string;
+  /** The marker and the space after it — what is replaced or hidden. */
+  readonly marker: TextRange;
+  /**
+   * The `>` prefix of each line, which a callout hides and a quote does not.
+   *
+   * This file's `HIDDEN_MARKS` comment is emphatic that `QuoteMark` must never
+   * be hidden — "a blockquote with its `>` removed reflows into the paragraph
+   * above it and the reader cannot see the quote at all" — and that is exactly
+   * right for a quote and exactly wrong for a callout, because the box says the
+   * same thing the `>` was saying. Obsidian hides them for the same reason, and
+   * leaving them in is the last visible difference from the screenshot this
+   * work came from.
+   */
+  readonly marks: readonly TextRange[];
+  /** What the author wrote after the marker, or `null` when they wrote none. */
+  readonly title: string | null;
+}
+
+/**
+ * `[!type]`, optionally `+` or `-`, optionally a title.
+ *
+ * Anchored at the start of the quoted text so a marker further into the line
+ * stays prose — somebody writing *about* a callout inside a quote is not
+ * writing one, and rewriting their sentence into a box would be this editor
+ * editing what it was asked to display.
+ *
+ * The type is `[^\]]+` rather than a list of the thirteen Obsidian knows:
+ * an unknown type is still a callout there, which is exactly why `[!bible]`
+ * worked in the screenshot that started this, and a closed list here would put
+ * this editor back to leaking the marker for every plugin and every vault that
+ * defines one of its own.
+ */
+const CALLOUT_MARKER = /^\[!([^\]\s]+)\]([+-]?)[ \t]*/;
+
+/** Where the `>` markers end and the quoted text begins, on one line. */
+function afterQuoteMarks(text: string): number {
+  let at = 0;
+  while (at < text.length) {
+    const ch = text[at];
+    if (ch === ">" || ch === " " || ch === "\t") at += 1;
+    else break;
+  }
+  return at;
+}
+
+export function callouts(state: EditorState, frontEnd = 0): Callout[] {
+  const found: Callout[] = [];
+  syntaxTree(state).iterate({
+    from: 0,
+    to: state.doc.length,
+    enter(node) {
+      if (node.from < frontEnd) return;
+      if (node.name !== "Blockquote") return;
+      /*
+        A nested `> > [!note]` matches too, and is meant to: Obsidian nests
+        callouts and the marker has to come off either way. What it does not get
+        is a second box — these are line decorations, and a line already inside
+        one cannot be inside another. Its title is still styled as a title, so a
+        nested callout reads as a heading inside the outer box rather than as a
+        box this editor cannot draw.
+      */
+      const first = state.doc.lineAt(node.from);
+      const quoted = afterQuoteMarks(first.text);
+      const match = CALLOUT_MARKER.exec(first.text.slice(quoted));
+      if (match === null) return;
+
+      /*
+        Lines that START inside the quote, which is stricter than `tableLines`'
+        walk and has to be. A Blockquote's `to` can sit on the newline that ends
+        its last line, so "stop once this line reaches `to`" lets the blank line
+        after the callout in — and a line decoration there draws an empty row of
+        box under it. Caught in a real engine rather than in jsdom, which lays
+        nothing out and was perfectly happy with three.
+      */
+      const lines: number[] = [];
+      for (let line = first; line.from < node.to; ) {
+        lines.push(line.from);
+        if (line.to >= state.doc.length) break;
+        line = state.doc.lineAt(line.to + 1);
+      }
+
+      const start = first.from + quoted;
+      const rest = first.text.slice(quoted + match[0].length);
+      const marks: TextRange[] = [];
+      for (const from of lines) {
+        const width = afterQuoteMarks(state.doc.lineAt(from).text);
+        if (width > 0) marks.push({ from, to: from + width });
+      }
+      found.push({
+        from: start,
+        lines,
+        type: match[1].toLowerCase(),
+        marker: { from: start, to: start + match[0].length },
+        marks,
+        title: rest.length > 0 ? rest : null,
+      });
+    },
+  });
+  return found;
+}
+
+/**
+ * The type, drawn as the title of a callout the author gave no title.
+ *
+ * Obsidian does the same, and the alternative is worse than it sounds: hiding
+ * the marker on a bare `> [!warning]` leaves an empty `> `, which reads as a
+ * blank first line of the box rather than as its heading.
+ *
+ * Title-cased on the first letter only. `not-a-real-type` stays as it was
+ * written rather than being prettified into something the file does not say —
+ * this is a label for what is in the note, not a name this editor invents.
+ */
+export function calloutLabel(type: string): string {
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
+export class CalloutTitleWidget extends WidgetType {
+  /**
+   * What the reader sees where the marker was.
+   *
+   * A field rather than something only `toDOM` knows, so the rule is assertable
+   * without a DOM — the rest of this file's tests run against a real tree and no
+   * browser, and a label that could only be checked by rendering would be the
+   * one piece of this feature nothing pinned.
+   */
+  readonly label: string;
+
+  constructor(readonly type: string) {
+    super();
+    this.label = calloutLabel(type);
+  }
+
+  eq(other: CalloutTitleWidget): boolean {
+    return other.type === this.type;
+  }
+
+  toDOM(): HTMLElement {
+    const span = document.createElement("span");
+    span.className = "cm-lp-callout-type";
+    span.textContent = this.label;
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /*                          a table, actually laid out                        */
 /* -------------------------------------------------------------------------- */
 
@@ -1716,6 +1912,22 @@ export function decorationsFor(state: EditorState): DecorationSet {
     note is read-only, so an editable note still gets the mono face on every
     row, and a read-only one whose table `readTable` refused falls back to it.
   */
+  /*
+    The callout box. Line decorations, so they join this block rather than the
+    mark pass — and computed here because the marker's own replacement below
+    needs the same list and must not read the tree twice.
+  */
+  const boxes = callouts(state, frontEnd);
+  for (const box of boxes) {
+    box.lines.forEach((from, index) => {
+      lines.push(
+        Decoration.line({
+          class: index === 0 ? "cm-lp-callout cm-lp-callout-head" : "cm-lp-callout",
+        }).range(from),
+      );
+    });
+  }
+
   const grids = tableGrids(state, frontEnd);
   const insideGrid = (pos: number): boolean =>
     grids.some((grid) => pos >= grid.from && pos < grid.to);
@@ -1761,6 +1973,36 @@ export function decorationsFor(state: EditorState): DecorationSet {
     forms.some((form) => pos >= form.from && pos < form.to) ||
     insideGrid(pos);
 
+  /*
+    THE MARKERS THIS PASS IS ACTUALLY REPLACING, and why the rest of the file
+    has to keep out of them.
+
+    `[!bible]` is a callout marker to Obsidian and a **shortcut link** to lezer,
+    which is precisely how the reported bug looked the way it did: the brackets
+    were hidden as `LinkMark`s and `!bible` was painted `cm-lp-link`, leaving one
+    blue underlined word in front of the reference. Replacing the marker without
+    taking those out does not fix it, it doubles it — two decorations describing
+    the same characters, which this file warns about for tables and previews and
+    is the same hazard one span wide. Measured: the note came out reading
+    `> hn 3:16 - NIV`, three characters eaten by the overlap.
+
+    Empty for a marker the caret is inside, because that one is not being
+    replaced — it is revealed, and a revealed `[!bible]` should be marked up
+    exactly as the text it is.
+
+    Only the *hides* consult this, not the styles. A first version filtered both
+    and the style half was unobservable: a `Decoration.mark` over a range that a
+    `Decoration.replace` covers has no text left to paint, so `!bible` keeping
+    its `cm-lp-link` class changes nothing anybody can see. Sabotaging it
+    reddened no test, which is this repo's own definition of a guard that is not
+    one, so it came back out.
+  */
+  const hiddenMarkers = boxes
+    .map((box) => box.marker)
+    .filter((marker) => !selectionTouches(marker, selection) && !insidePreview(marker.from));
+  const insideMarker = (pos: number): boolean =>
+    hiddenMarkers.some((marker) => pos >= marker.from && pos < marker.to);
+
   const styles: Range<Decoration>[] = [];
   tree.iterate({
     from: 0,
@@ -1779,7 +2021,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
 
   // `hiddenMarkRanges` excludes the frontmatter itself — see its own comment.
   const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc)
-    .filter((range) => !insidePreview(range.from))
+    .filter((range) => !insidePreview(range.from) && !insideMarker(range.from))
     .map((range) => hideMark.range(range.from, range.to));
 
   /*
@@ -1823,6 +2065,41 @@ export function decorationsFor(state: EditorState): DecorationSet {
         block: true,
       }).range(grid.from, grid.to),
     );
+  }
+
+  /*
+    The `[!type]` marker, taken off the screen — the whole of what looked wrong
+    in the report. With a title the author wrote it is hidden outright; without
+    one it is replaced by the type, because hiding it whole would leave an empty
+    `> ` reading as a blank first line rather than as a heading.
+
+    Under the same reveal rule as every other mark here: the caret inside it
+    brings it back, or the type could not be edited. `selectionTouches` is the
+    same predicate `hiddenMarkRanges` uses, so the two cannot disagree about
+    what "inside" means.
+  */
+  for (const box of boxes) {
+    if (insideMarker(box.marker.from)) {
+      hides.push(
+        (box.title === null
+          ? Decoration.replace({ widget: new CalloutTitleWidget(box.type) })
+          : hideMark
+        ).range(box.marker.from, box.marker.to),
+      );
+    }
+    /*
+      And the `>` on each line — per line, not per callout, so the caret on one
+      line does not bring back the quote marks on the four it is not editing.
+      Hidden here rather than by adding `QuoteMark` to `HIDDEN_MARKS`, because
+      that set is global and a plain blockquote must keep its `>`: without it a
+      quote reflows into the paragraph above and stops looking quoted at all.
+      A callout has the box to say so instead.
+    */
+    for (const mark of box.marks) {
+      if (selectionTouches(mark, selection)) continue;
+      if (insidePreview(mark.from)) continue;
+      hides.push(hideMark.range(mark.from, mark.to));
+    }
   }
 
   /*
@@ -2013,6 +2290,38 @@ export const livePreviewStyles = `
   pointer-events: none;
 }
 .cm-lp-quote { color: var(--lp-muted); font-style: italic; }
+/*
+  A CALLOUT — an Obsidian blockquote that opens with [!type].
+
+  A box rather than the quote's italic muted run, because that is the whole
+  point of the syntax: the author is setting this apart from the prose around
+  it. The callout's own lines override the quote styling they inherit, since
+  every line of one is also a Blockquote and would otherwise be drawn as an
+  aside inside its own box.
+
+  NO PER-TYPE COLOUR, deliberately, and it is the restraint this file already
+  states about its palette: Obsidian has thirteen callout types and thirteen
+  colours, and each one here would be another --lp-* token crossing the WebView
+  bridge for a distinction the box and the title already carry. The icon in the
+  report that prompted this is not Obsidian's either — it is the plugin's own
+  stylesheet, which Context does not load into the trusted realm.
+
+  The left bar is the one piece of the quote's vocabulary kept, so a callout
+  still reads as a quoted block rather than as a code fence.
+*/
+.cm-lp-callout {
+  background: var(--lp-code-bg);
+  border-left: 3px solid var(--lp-line-strong);
+  color: var(--lp-content);
+  font-style: normal;
+  padding-left: 10px;
+}
+.cm-lp-callout .cm-lp-quote { color: inherit; font-style: inherit; }
+/* Rounded at the ends, so a run of lines reads as one box. */
+.cm-lp-callout-head { border-top-right-radius: 6px; padding-top: 2px; }
+/* The title line carries the weight; the type stands in when there is none. */
+.cm-lp-callout-head .cm-lp-quote { color: var(--lp-heading); font-weight: 600; }
+.cm-lp-callout-type { color: var(--lp-heading); font-weight: 600; font-style: normal; }
 .cm-lp-link { color: var(--lp-link); text-decoration: underline; }
 /*
   A list item's indent is arithmetic rather than taste, and it is not here: the
