@@ -286,7 +286,6 @@ function mountCrumb(
     root.render(
       createElement(Breadcrumb, {
         path: "2-areas/health/sleep.md",
-        contextLabel: "@seyi",
         visibility: "team",
         inherited: "team",
         exception: false,
@@ -304,8 +303,9 @@ function mountCrumb(
     if (node === null) throw new Error(`no crumb for ${path}`);
     return node;
   };
-  const leaf = (): HTMLElement =>
-    container.querySelector<HTMLElement>('[data-testid="breadcrumb-leaf"]')!;
+  /** Nullable on purpose: this density draws no leaf, which is what is asserted. */
+  const leaf = (): HTMLElement | null =>
+    container.querySelector<HTMLElement>('[data-testid="breadcrumb-leaf"]');
 
   return { container, segment, leaf };
 }
@@ -340,20 +340,31 @@ describe("the breadcrumb's folder segments", () => {
   });
 
   /**
-   * The leaf is not a control in this bar — pressing it would re-select what is
-   * already open — and giving it a menu would make it one halfway.
+   * The leaf is not a control in this bar, and now it is not in this bar.
+   *
+   * It used to be drawn and inert: pressing it would re-select what is already
+   * open, and a menu on it would have made it a control halfway. The pointer
+   * breadcrumb draws folders only now — the note's name is the H1 below the
+   * line and the tab above it — so the question the old assertion answered
+   * cannot arise here at all.
+   *
+   * Asserted as absence rather than deleted, because absence is the stronger
+   * claim and the one a reversal would break: put the leaf back and it is a
+   * segment with no menu handler again, which is where the original hazard
+   * lived. The phone still draws one (`pathOnly`), and `crumbs.ts` still
+   * builds it — `Breadcrumb` filters it out at this density rather than
+   * `crumbsFor` dropping it, so nothing about the phone's line changed.
    */
-  test("the leaf has no menu", () => {
+  test("the leaf is not on this line at all", () => {
     const seen: string[] = [];
     const bar = mountCrumb((folder) => (seen.push(folder), true));
-    const event = rightClick();
 
-    act(() => {
-      bar.leaf().dispatchEvent(event);
-    });
-
+    expect(bar.leaf()).toBeNull();
+    // And the folders it sits between are still here, so this is not passing
+    // because nothing rendered.
+    expect(bar.segment("2-areas")).not.toBeNull();
+    expect(bar.segment("2-areas/health")).not.toBeNull();
     expect(seen).toEqual([]);
-    expect(event.defaultPrevented).toBe(false);
   });
 
   test("a bar with no menu leaves the browser's alone", () => {

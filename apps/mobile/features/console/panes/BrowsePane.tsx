@@ -720,7 +720,6 @@ export function BrowsePane({
                 ? noteHeading(files.editor.draft, selected.path)
                 : undefined
             }
-            contextLabel={contextLabel}
             visibility={selected.visibility}
             inherited={selected.inherited}
             exception={selected.exception}
@@ -1064,7 +1063,6 @@ export function BrowsePane({
                   ? noteHeading(files.editor.draft, selected.path)
                   : undefined
               }
-              contextLabel={contextLabel}
               visibility={selected.visibility}
               inherited={selected.inherited}
               exception={selected.exception}

@@ -1,5 +1,5 @@
 import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
-import { fonts, layout, space } from "../tokens";
+import { fonts, layout, radii, space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Text } from "./Text";
 
@@ -46,6 +46,17 @@ export interface StatusBarSegment {
   detail?: string;
   /** Drawn in the mono face — a key rather than a phrase. */
   mono?: boolean;
+  /**
+   * A 6pt pip in front of the words.
+   *
+   * For the one segment that is a *health* claim rather than a measurement:
+   * where the notes live, and whether that binding is working. The canvas
+   * draws it there and nowhere else, and the reason it is a flag rather than
+   * derived from `tone` is that every segment has a tone — a pip on each of
+   * them is a row of lights, which is the opposite of a status bar you can
+   * read at a glance.
+   */
+  pip?: boolean;
 }
 
 /**
@@ -115,7 +126,7 @@ function Segment({ segment }: { segment: StatusBarSegment }) {
   const webTitle =
     Platform.OS === "web" && segment.detail ? ({ title: segment.detail } as object) : null;
 
-  return (
+  const label = (
     <Text
       variant={segment.mono === true ? "treeMetaMono" : "treeMeta"}
       numberOfLines={1}
@@ -127,9 +138,30 @@ function Segment({ segment }: { segment: StatusBarSegment }) {
       {segment.text}
     </Text>
   );
+
+  if (segment.pip !== true) return label;
+
+  /*
+    The pip is `aria-hidden` and the words are unchanged: it repeats the tone
+    the text already carries, for a reader who is scanning rather than reading.
+    A pip that said something the sentence did not would be a status only a
+    sighted reader gets.
+  */
+  return (
+    <View style={styles.pipped}>
+      <View
+        style={[styles.pip, { backgroundColor: toneColor[segment.tone] }]}
+        aria-hidden
+      />
+      {label}
+    </View>
+  );
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  pipped: { flexDirection: "row", alignItems: "center", gap: 5 },
+  pip: { width: 6, height: 6, borderRadius: radii.pill },
+
   bar: {
     height: layout.statusBarHeight,
     flexDirection: "row",

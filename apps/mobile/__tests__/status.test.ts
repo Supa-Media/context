@@ -75,30 +75,40 @@ describe("counting a draft", () => {
     expect(countWords("read-compare writes are best-effort")).toBe(4);
   });
 
-  test("the characters segment is the string's length in UTF-16 code units", () => {
+  /**
+   * NO CHARACTER COUNT, AND NO COUNTER EITHER.
+   *
+   * "61 words" and "390 characters" are the same fact told twice, and the
+   * second needed a tooltip to explain that it was counting UTF-16 code units
+   * rather than anything a reader can see. The canvas's bar is
+   * `path … words · saved · R2`.
+   *
+   * `countUnits` went with the segment rather than staying as a helper nobody
+   * calls, so what is left to assert is the absence — and it is asserted
+   * beside the count that stayed, so it cannot pass by rendering nothing.
+   */
+  test("the bar does not draw a character count", () => {
     const segments = statusSegments(facts({ editor: editorWith("clean", "abcde") }));
-    expect(byId(segments, "characters")?.text).toBe("5 characters");
-
-    // An astral emoji is a surrogate pair: two code units, not one grapheme.
-    const emoji = statusSegments(facts({ editor: editorWith("clean", "\u{1F600}") }));
-    expect(byId(emoji, "characters")?.text).toBe("2 characters");
-    expect(byId(emoji, "characters")?.detail).toMatch(/UTF-16/);
-    expect(byId(emoji, "characters")?.detail).not.toMatch(/grapheme/i);
+    expect(segments.map((segment) => segment.id)).not.toContain("characters");
+    // Not passing because nothing rendered: the count that stayed is here.
+    expect(byId(segments, "words")?.text).toBe("1 word");
   });
 
   test("singulars read as singulars, and big counts are grouped", () => {
     const one = statusSegments(facts({ editor: editorWith("clean", "solo") }));
     expect(byId(one, "words")?.text).toBe("1 word");
-    expect(byId(one, "characters")?.text).toBe("4 characters");
 
-    const many = statusSegments(facts({ editor: editorWith("clean", "x".repeat(1234)) }));
-    expect(byId(many, "characters")?.text).toBe("1,234 characters");
+    const many = statusSegments(
+      facts({ editor: editorWith("clean", "word ".repeat(1234).trim()) }),
+    );
+    expect(byId(many, "words")?.text).toBe("1,234 words");
   });
 
   test("with nothing open there are no counts about no file", () => {
     const segments = statusSegments(facts({ editor: emptyEditor }));
     expect(byId(segments, "words")).toBeUndefined();
-    expect(byId(segments, "characters")).toBeUndefined();
+    // And the path, which is the other thing that would be about no file.
+    expect(byId(segments, "path")).toBeUndefined();
   });
 });
 
@@ -247,7 +257,6 @@ describe("the storage segment", () => {
     expect(ids).toEqual([
       "path",
       "words",
-      "characters",
       "save",
       "index",
       "conflictCheck",
