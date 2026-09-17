@@ -1209,7 +1209,7 @@ export function BrowsePane({
           onShareWithGroup={
             data.groups?.actions === undefined
               ? undefined
-              : (group) => files.shareWithGroup(sharing, group)
+              : (group) => files.shareWithGroup(sharing, selected.kind, group)
           }
           /*
             Make one here, and point this note at it in the same press. The
@@ -1230,7 +1230,7 @@ export function BrowsePane({
               : (label, userIds) =>
                   data
                     .groups!.actions!.createWith(label, userIds)
-                    .then((name) => files.shareWithGroup(sharing, name))
+                    .then((name) => files.shareWithGroup(sharing, selected.kind, name))
           }
           access={{
             visibility: selected.visibility,

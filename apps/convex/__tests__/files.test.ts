@@ -2568,6 +2568,16 @@ describe("a stranger cannot reach another workspace's files", () => {
           path: "1-projects/shared.md",
           group: "@supa-leads",
         }),
+      // The folder-shaped sibling, on the same terms. It resolves a name
+      // against this workspace too — and now resolves a PERSON's handle as
+      // well as a group, so the refusal ahead of that resolution is also what
+      // stops a stranger asking whether a given handle is a member here.
+      (workspaceId) =>
+        as.action(api.functions.files.setFolderGroup, {
+          workspaceId,
+          path: "1-projects",
+          group: "@supa-leads",
+        }),
     ];
 
     /**

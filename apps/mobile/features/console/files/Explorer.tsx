@@ -103,7 +103,12 @@ export function Explorer({
   access?: {
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
-    onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * `kind` travels with the path because a folder and a note go to different
+     * actions — the note one refuses anything that is not `.md`, which is the
+     * refusal an owner met when this dropped it.
+     */
+    onShareWithGroup?: (path: string, kind: "file" | "folder", group: string) => void;
     /**
      * What a row in the people list can do about somebody, for one path.
      *
@@ -127,6 +132,8 @@ export function Explorer({
      */
     onCreateGroup?: (
       path: string,
+      /** Same reason `onShareWithGroup` carries one: it ends in the same call. */
+      kind: "file" | "folder",
       label: string,
       userIds: readonly string[],
     ) => Promise<unknown>;
@@ -736,7 +743,12 @@ export function ExplorerDialogs({
   access?: {
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
-    onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * `kind` travels with the path because a folder and a note go to different
+     * actions — the note one refuses anything that is not `.md`, which is the
+     * refusal an owner met when this dropped it.
+     */
+    onShareWithGroup?: (path: string, kind: "file" | "folder", group: string) => void;
     /**
      * What a row in the people list can do about somebody, for one path.
      *
@@ -760,6 +772,8 @@ export function ExplorerDialogs({
      */
     onCreateGroup?: (
       path: string,
+      /** Same reason `onShareWithGroup` carries one: it ends in the same call. */
+      kind: "file" | "folder",
       label: string,
       userIds: readonly string[],
     ) => Promise<unknown>;
@@ -866,6 +880,15 @@ export function ExplorerDialogs({
         breach, not the refusal.
       */
       if (!files.canShare) return null;
+      /*
+        Looked up ONCE and used by all four controls below. It was resolved
+        inline four times, and one of those four then threw it away on its way
+        into `onShareWithGroup` — which is how sharing a folder with a group
+        reached the note action and came back "Only markdown notes can have
+        their own visibility". One binding is not tidiness here: it is the
+        thing that makes dropping it visible.
+      */
+      const entryKind = findEntry(files.listings, dialog.path)?.kind ?? "file";
       return (
         <ShareDialog
           path={dialog.path}
@@ -904,32 +927,25 @@ export function ExplorerDialogs({
             every surface goes through — its group guard lives there — and this
             component holds `files` anyway. Owner-only, absent otherwise.
           */
-          entryKind={findEntry(files.listings, dialog.path)?.kind ?? "file"}
+          entryKind={entryKind}
           onSetScope={
             files.canSetVisibility
               ? (from, to) =>
-                  files.setScope(
-                    dialog.path,
-                    findEntry(files.listings, dialog.path)?.kind ?? "file",
-                    from,
-                    to,
-                  )
+                  files.setScope(dialog.path, entryKind, from, to)
               : undefined
           }
-          onRemovalRoute={access?.removalRouteFor?.(
-            dialog.path,
-            findEntry(files.listings, dialog.path)?.kind ?? "file",
-          )}
+          onRemovalRoute={access?.removalRouteFor?.(dialog.path, entryKind)}
           groupSlug={access?.groupSlug}
           onCreateGroup={
             access?.onCreateGroup === undefined
               ? undefined
-              : (label, userIds) => access.onCreateGroup!(dialog.path, label, userIds)
+              : (label, userIds) =>
+                  access.onCreateGroup!(dialog.path, entryKind, label, userIds)
           }
           onShareWithGroup={
             access?.onShareWithGroup === undefined
               ? undefined
-              : (group) => access.onShareWithGroup!(dialog.path, group)
+              : (group) => access.onShareWithGroup!(dialog.path, entryKind, group)
           }
         />
       );

@@ -1104,3 +1104,71 @@ corpus statistics into the ranking of a caller who may see one of them, which is
 the inference channel the table split exists to close, or a table per name,
 which is unbounded. That is a decision with a cost on both sides and it is not
 made here.
+
+### A folder is pointed at somebody by its own action, and its audit row is owner-only
+
+The bug an owner hit, in their own words: "I tried to share a folder with a
+group and it's showing me this." The console answered
+
+> Only markdown notes can have their own visibility. Set the folder's default
+> instead.
+
+— advice that names the right instrument and **cannot be followed**, because
+the control that sets a folder's default takes the two tiers and has no way to
+say a name. `shareWithGroup` threw away the `entryKind` the sheet had held all
+along and called `setNoteGroup` for everything; that action runs
+`fileOps.setVisibility`, which refuses a path that is not `.md`. Nothing in the
+engine was ever in the way — `setFolderVisibility` has taken a `Visibility`,
+and a name is one, since the group namespace existed. Only the route was
+missing.
+
+**`kind` is required rather than defaulted, and that earned its keep
+immediately.** The obvious fix is an optional parameter defaulting to `"file"`,
+which compiles everywhere and silently keeps the bug on every call site nobody
+remembered. Making it required turned the compiler into the search: the fix
+started at two call sites in the Browse pane and the type error named two more
+in the console frame, which would otherwise have gone on calling the note
+action. `__tests__/shareWithGroupRouting.test.ts` lists all four by name and
+carries its own self-test, because the matcher passing everything is the way a
+structural test fails silently.
+
+**One resolver for the note and the folder alike.** `resolveNamedAudience`
+answers both, so the two cannot start disagreeing about the same name — which
+is how a folder accepts an audience a note refuses, or the reverse. It also
+taught the note path to accept a person's handle, which it did not before.
+Every way of failing is one `GROUP_NOT_FOUND`: no such group, a group of
+another workspace, no such handle, a handle belonging to a shared context
+rather than a person, and a person who is not a member here. An owner who could
+tell them apart would have an oracle for which names exist on the platform, and
+the tenant-isolation sweep in `files.test.ts` now drives this endpoint too —
+the refusal has to come from the workspace check *ahead* of the resolution.
+
+**A name that reaches nobody is refused rather than written.** `grantedNamesFor`
+intersects with membership, so a rule naming a non-member grants nothing — but
+it would sit in the owner's manifest looking exactly like access somebody had
+been given. Same reasoning as `addGroupMember` refusing a stranger.
+
+**The audit action is split, and that is the decision rather than a spelling.**
+`visibility.folder` is on `MEMBER_VISIBLE_DETAIL_ACTIONS`, defended there on
+the details it carries: its subject is "one a member already sees first-hand in
+their own listing". That is true of `private` and `team` — a member watching a
+folder learns its default changed the instant their own listing does, so the
+row tells them nothing new. **It stops being true the moment the value can be a
+name.** A member who is not in `@atlas-leads` sees the folder leave their
+listing and learns *that*; the row would additionally hand them the group's
+name, which `listGroups` is owner-only to withhold, "for the reason the note
+census is: a member who could enumerate them could work out the shape of what
+is being kept from them".
+
+So `visibility.folder` goes on meaning the two tiers and stays member-visible,
+and `visibility.folder.named` carries a name and is absent from the allow-list.
+The gate stays purely **per-action**, which is the shape it was deliberately
+given: a value-dependent gate would make a row's shape depend on its contents,
+and `pathsWithheld` is computed from the reader and never from the row for
+exactly that reason. Both directions are sabotage-tested — adding the action to
+the allow-list fails, and recording the named change under the old action fails.
+
+What a member still learns, stated rather than left to be rediscovered: the
+row's action, actor and timestamp are ungated, so "the owner pointed this folder
+at somebody at 14:02" is visible. That is the incidence signal this file already
+leaves open for every other action, and it names nobody.

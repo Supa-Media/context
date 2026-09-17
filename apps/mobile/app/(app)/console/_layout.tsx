@@ -1032,7 +1032,7 @@ export default function ConsoleLayout() {
             onShareWithGroup:
               data.groups?.actions === undefined
                 ? undefined
-                : (path, group) => data.files.shareWithGroup(path, group),
+                : (path, kind, group) => data.files.shareWithGroup(path, kind, group),
             /*
               The same three halves the pane passes, each present only where
               this caller holds it. Built per path rather than once, because
@@ -1042,10 +1042,10 @@ export default function ConsoleLayout() {
             onCreateGroup:
               data.groups?.actions === undefined
                 ? undefined
-                : (path, label, userIds) =>
+                : (path, kind, label, userIds) =>
                     data
                       .groups!.actions!.createWith(label, userIds)
-                      .then((name) => data.files.shareWithGroup(path, name)),
+                      .then((name) => data.files.shareWithGroup(path, kind, name)),
             removalRouteFor: (path, kind) =>
               removalHandler({
                 path,
