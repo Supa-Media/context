@@ -144,7 +144,14 @@ export function ShareScreen() {
       <CenteredScroll>
         {view.kind === "loading" ? <Loading /> : null}
         {view.kind === "unavailable" ? <Unavailable /> : null}
-        {view.kind === "ready" ? (
+        {view.kind !== "ready" ? null : view.note.kind === "folder" ? (
+          <Folder
+            note={view.note}
+            awayFromEntry={view.awayFromEntry}
+            onOpen={open}
+            onBack={backToEntry}
+          />
+        ) : (
           <Note
             note={view.note}
             awayFromEntry={view.awayFromEntry}
@@ -152,7 +159,7 @@ export function ShareScreen() {
             onBack={backToEntry}
             onEdit={edit}
           />
-        ) : null}
+        )}
       </CenteredScroll>
     </View>
   );
@@ -196,6 +203,91 @@ function Unavailable() {
   );
 }
 
+/**
+ * A shared folder: what is directly inside it, and a way in.
+ *
+ * ## Why this is a list and not a rendered document
+ *
+ * A folder has no body. The page a reader wants is the one Drive and Dropbox
+ * give them — the names, each openable, subfolders enterable — and every entry
+ * here has already been through the privacy engine at `team` scope on the
+ * server, so what is drawn is exactly what may be read. There is no filtering
+ * in this component and there must not be: a second place deciding what a
+ * reader sees is a second place for it to be wrong.
+ *
+ * ## An empty folder says so
+ *
+ * A subfolder whose every note is private lists nothing, and so does one that
+ * genuinely holds nothing. The server serves both as an empty listing on
+ * purpose — refusing on emptiness would tell a reader that a folder they can
+ * see the name of has something inside they may not read — so this says "nothing
+ * here", which is true of both and claims neither.
+ *
+ * No edit affordance, deliberately. `editableInContext` names a note the reader
+ * may edit in their own console; a folder is not a document and there is
+ * nothing to open in an editor.
+ */
+function Folder({
+  note,
+  awayFromEntry,
+  onOpen,
+  onBack,
+}: {
+  note: SharedNote;
+  awayFromEntry: boolean;
+  onOpen: (path: string) => void;
+  onBack: () => void;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  const folders = note.entries.filter((entry) => entry.kind === "folder");
+  const files = note.entries.filter((entry) => entry.kind === "file");
+
+  return (
+    <View style={styles.note}>
+      {awayFromEntry ? (
+        <Pressable onPress={onBack} accessibilityRole="button" style={styles.back}>
+          <Text variant="meta">← {linkLabel(note.entryPath)}</Text>
+        </Pressable>
+      ) : null}
+
+      <Card>
+        <View style={styles.head}>
+          <Text variant="eyebrow">
+            {note.openToAnyone ? "SHARED BY LINK" : "SHARED WITH YOU"}
+          </Text>
+          <Text variant="paneTitle" role="heading" aria-level={1}>
+            {linkLabel(note.path)}
+          </Text>
+        </View>
+
+        {note.entries.length === 0 ? (
+          <Text variant="paneSub" testID="share-folder-empty">
+            Nothing here.
+          </Text>
+        ) : (
+          <View testID="share-folder-entries">
+            {/* Folders first, then notes — the order a file browser uses. */}
+            {[...folders, ...files].map((entry) => (
+              <Pressable
+                key={entry.path}
+                onPress={() => onOpen(entry.path)}
+                accessibilityRole="link"
+                accessibilityLabel={entry.name}
+                testID={`share-folder-entry-${entry.path}`}
+                style={styles.back}
+              >
+                <Text variant="paneSub">
+                  {entry.kind === "folder" ? `${entry.name}/` : linkLabel(entry.path)}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        )}
+      </Card>
+    </View>
+  );
+}
+
 function Note({
   note,
   awayFromEntry,
@@ -210,7 +302,13 @@ function Note({
   onEdit: (slug: string, path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const parsed = useMemo(() => parseNote(note.text), [note.text]);
+  /*
+    `?? ""` and not a cast. `text` is null only for a folder, and a folder is
+    rendered by `Folder` above — but a component that threw on the impossible
+    case would take the whole page down over a server that grew a third kind,
+    and an empty document is the failure a reader can act on.
+  */
+  const parsed = useMemo(() => parseNote(note.text ?? ""), [note.text]);
   // The note's own H1 if it has one, and the filename otherwise — a reader
   // wants the document's name, not a path.
   const title = noteTitle(parsed.blocks) ?? linkLabel(note.path);

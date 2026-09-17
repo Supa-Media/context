@@ -2471,7 +2471,17 @@ export function useFileBrowser(options: {
           }
           if (step.on) {
             const ok = await runShare(
-              () => createLinkShareAction({ workspaceId: workspaceId!, path }),
+              () =>
+                createLinkShareAction({
+                  workspaceId: workspaceId!,
+                  path,
+                  // A folder link reaches the folder's whole subtree, filtered
+                  // through the live privacy engine on every read. The server
+                  // refuses a folder argument over a note and the reverse, so
+                  // this is the console saying what it is looking at rather
+                  // than the thing that decides.
+                  kind: kind === "folder" ? "folder" : "note",
+                }),
               // Says the reach, not just the fact. `SHARE_TRAVERSAL_DEPTH` is
               // 1, so a link carries the notes this one links to as well —
               // `ShareDialog` states that beside the personal-share control

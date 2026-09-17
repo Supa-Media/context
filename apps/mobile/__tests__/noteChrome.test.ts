@@ -920,18 +920,24 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
-   * **A folder has two positions, not three.** `createLinkShare` runs
-   * `checkSharePath`, which is note-only, so a third would be a press that
-   * always fails. The old dialog drew "Create link" for a folder regardless.
+   * **A folder has three positions now, and that is a change rather than a
+   * relaxation.** This asserted the opposite, on the ground that
+   * `createLinkShare` was note-only and a third position would be a press that
+   * always fails. A folder link exists: it reaches the folder's whole subtree,
+   * mirroring Drive and Dropbox, and it is stricter than either because every
+   * path is still re-derived through the live `privacy.md` at `team` scope
+   * rather than inherited from the folder.
+   *
+   * The press no longer always fails, so the control no longer hides it.
    */
-  test("a folder's sheet offers no public-link position", () => {
+  test("a folder's sheet offers the public-link position too", () => {
     const app = mountConsole(
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
     app.press(app.find("note-share"));
     expect(sheet("share-audience-private")).not.toBeNull();
     expect(sheet("share-audience-team")).not.toBeNull();
-    expect(sheet("share-audience-anyone")).toBeNull();
+    expect(sheet("share-audience-anyone")).not.toBeNull();
   });
 
   /**

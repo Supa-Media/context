@@ -183,10 +183,29 @@ export function firstParam(value: string | string[] | undefined): string | null 
   return value ?? null;
 }
 
+/** One thing directly inside a shared folder. */
+export interface SharedEntry {
+  path: string;
+  name: string;
+  kind: "file" | "folder";
+}
+
 /** What `readSharedNote` returns, mirrored so this module needs no Convex. */
 export interface SharedNote {
   path: string;
-  text: string;
+  /** The markdown, or `null` when `kind` is `folder`. */
+  text: string | null;
+  /**
+   * Which half of this is filled.
+   *
+   * Reported by the server, never inferred from `text === null` or from the
+   * path's extension: a reader arrives holding only a token and cannot know
+   * what it points at, and a client that guessed would be a second place for
+   * that answer to be wrong.
+   */
+  kind: "note" | "folder";
+  /** What is directly inside, one level, when this is a folder. */
+  entries: SharedEntry[];
   entryPath: string;
   links: string[];
   /** Whether this link needs no session. See the module comment. */

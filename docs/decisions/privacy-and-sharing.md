@@ -383,10 +383,14 @@ read-only for that role too, so the button would lead to the same glass — and 
 is resolved live, because a route offered on the strength of a role somebody
 used to have is a button that leads to a refusal.
 
-**A folder has no third position**, and that is a boundary rather than an
-omission: `createLinkShare` runs the note-only `checkSharePath`, so what a
-folder link would reach is a scope nobody has designed. Do not answer it by
-loosening the path check.
+**A folder had no third position**, and that was a boundary rather than an
+omission: `createLinkShare` ran the note-only `checkSharePath`, so what a folder
+link would reach was a scope nobody had designed. It has been designed — see "A
+folder link reaches a subtree" below — and the instruction that came with this
+paragraph was followed rather than worked around: the path check was **not**
+loosened. `checkSharePath` still refuses everything that is not a note, and a
+folder goes through `checkFolderSharePath` on a kind the caller declares and the
+bucket proves.
 
 Two things a tidy-up would get wrong. The gateway's own copy no longer claims
 "there is no anonymous or internet-public visibility", because that sentence
@@ -1245,3 +1249,77 @@ link*, which is now asserted against `stepsTo`, the model the sheet actually
 drives, where reaching `anyone` from `private` is two steps and the public one
 is confirmed in words. `accessSummary` went the same way, replaced by the shared
 vocabulary rather than left beside it.
+
+### A folder link reaches a subtree, and narrows rather than widens
+
+Asked for by the owner (2026-09-17) on an explicit comparison they made
+themselves: Google Drive and Dropbox both give a folder link the whole subtree —
+recipients browse into subfolders and open anything inside — and the ask was to
+mirror that. **This edits non-negotiable #5**, which said "one note at a time …
+is the single exception". The sentence is rewritten in the same change rather
+than worked around, and the paragraph above — which said a folder has no third
+position and ended "do not answer it by loosening the path check" — is answered
+on its own terms: the path check was not loosened.
+
+**What is widened is a locator, not a tier.** `Scope` is still two-valued, no
+word in `privacy.md` changed, and no *setting* publishes anything. A folder link
+is a share row with `entryKind: "folder"`, exactly as the unlisted note link was
+a row and never a tier.
+
+**And it narrows, which is where we are deliberately stricter than Drive.**
+Drive's model is *inherit unless restricted*: everything under a shared folder is
+shared by virtue of being under it. Ours is the opposite, and it costs nothing to
+keep — every path is re-derived through the live `privacy.md` at `team` scope
+**with no granted names** on every read. So a note held back by name, a private
+subfolder, and a note pointed at a group are all absent through a folder link. It
+publishes what the folder already published to the workspace, and never more.
+That is a property of the read path rather than of a filter written here, which
+is what keeps it true as the manifest changes under a link already pasted.
+
+Six things hold it, and each fails a test in `__tests__/folderLink.test.ts`:
+
+- **The bound is a prefix with a trailing slash.** A note link's traversal is
+  its entry note's own links, depth one; a folder has no such natural edge, so
+  the bound is the folder itself. `withinSharedFolder` is `path === folder ||
+  path.startsWith(folder + "/")`, and **the slash is the whole function**:
+  `startsWith(folder)` hands `1-projects/transition-old` to a link minted on
+  `1-projects/transition`, a different folder whose name merely begins with the
+  shared one's. That case is team-visible in the fixture on purpose, so the
+  refusal can only come from the bound; sabotaging the slash fails it and
+  nothing else.
+- **The bound runs before any bucket byte is spent.** A path outside the folder
+  costs no GET and no LIST, so it cannot be told apart by timing from one inside
+  that does not exist.
+- **The kind is declared and then proved.** A folder and an extensionless file
+  are the same string — `checkTeamSharePath` already recorded that "note or
+  folder" was never implementable from a path — so the caller says which it
+  means and `mintFolderLink` probes with the listing the reader will actually
+  get, at `team` scope. A folder that lists nothing at `team` is refused, which
+  covers a private folder, a folder whose every note is held back, a note wearing
+  a folder's argument, and a path that is not there. One refusal, because at
+  `team` scope those are genuinely indistinguishable.
+- **Every refusal is one refusal.** A sibling, a parent, a prefix twin, a note
+  outside, a path that does not exist, and a token nobody minted come back
+  byte-identical, asserted by collecting the shapes into a set and requiring one.
+- **An empty folder is served, not refused.** A subfolder whose every note is
+  private lists nothing, and so does one that genuinely holds nothing. Refusing
+  on emptiness would tell a reader that a folder they can see the name of has
+  something inside they may not read.
+- **`entryKind` is optional on the row and defaulted at the authorizer.** Every
+  share written before this is a note, and a share's reach must never depend on
+  a backfill having run. Defaulted in `authorizeShareRead`, the one place every
+  reader passes, rather than at each call site — a call site that forgot would
+  widen an old row from one note to a subtree.
+
+**What it costs, stated rather than left to be rediscovered.** It is the same
+cost the unlisted note link already carries, one step wider: an anonymous reader
+has no name, so revocation stops *future* reads and cannot retrieve what was
+already taken — and for a folder that is now a subtree rather than a note. The
+owner is choosing that when they mint it, and the answer to somebody proposing
+to "fix" it with an expiry or a view count is that neither un-publishes
+anything.
+
+**The whole context is never the subject of one.** `checkFolderSharePath`
+refuses the root. A link over `""` is not a folder share with a wide reach, it
+is a different product, and every bound here is expressed relative to a prefix
+that a root would make empty.

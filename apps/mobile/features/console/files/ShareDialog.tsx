@@ -609,7 +609,7 @@ export function ShareDialog({
                   ) : (
                     <AudienceControl
                       scope={scopeOf(access.visibility, openLink !== undefined)}
-                      canOpenLink={entryKind === "file"}
+                      canOpenLink
                       name={baseName(path)}
                       onSet={onSetScope}
                       context={context}
