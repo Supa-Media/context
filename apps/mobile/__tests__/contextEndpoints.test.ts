@@ -23,8 +23,16 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+
+import {
+  GATEWAY_ROUTE_FLOOR,
+  parseGatewayRouteSegments,
+  parseSlugPatternSource,
+} from "@context/shared/src/gatewayRouteSegments";
 
 import { contextEndpoints, endpointForContext } from "../features/console/endpoints";
 import { ConnectionsPane } from "../features/console/panes/ConnectionsPane";
@@ -33,6 +41,20 @@ import type { ConsoleData } from "../features/console/types";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ENDPOINT = "https://mcp.context.test/mcp";
+
+/**
+ * The two files that declare `RESERVED_FIRST_SEGMENTS`, as text.
+ *
+ * Read rather than imported because both declarations are module-private, and
+ * exporting either would mean editing shipped code to satisfy a test. The
+ * control plane reaches `session.js` the same way, through a Vite `?raw` glob;
+ * here `node:fs` is what this suite already uses for the same job.
+ */
+const GATEWAY_SOURCE = readFileSync(join(__dirname, "../../mcp/src/session.js"), "utf8");
+const CONSOLE_SOURCE = readFileSync(
+  join(__dirname, "../features/console/endpoints.ts"),
+  "utf8",
+);
 
 describe("the endpoint for one context", () => {
   test("names the context in the path, the way the gateway reads it", () => {
@@ -61,6 +83,95 @@ describe("the endpoint for one context", () => {
     for (const reserved of ["mcp", "inbox", "oauth", "granola-webhook", "meetings"]) {
       expect(endpointForContext(ENDPOINT, reserved)).toBeNull();
     }
+  });
+
+  /**
+   * ...AND THE ROUTES ARE DERIVED FROM THE GATEWAY, NOT RESTATED BESIDE IT.
+   *
+   * The check above is five strings somebody typed. It cannot notice a route
+   * the gateway adds — and `endpoints.ts` keeps a **third** copy of
+   * `session.js`'s `RESERVED_FIRST_SEGMENTS`, which is exactly the copy that
+   * decides whether this product prints a URL that reaches a context or one
+   * that reaches a route.
+   *
+   * The control plane already holds its own side: `names.test.ts` reads the
+   * gateway's set out of its source and fails if a route it reserves is still
+   * claimable as a name. That guard was written because a real route,
+   * `granola-webhook`, had been claimable for as long as it existed — and its
+   * own docblock names this file's module as one of three things that were
+   * relying on the two lists agreeing. It closed one of the three.
+   *
+   * **What the remaining half costs is not a claimable name, it is a wrong
+   * context.** Reserving a name does not un-claim one: there is no release,
+   * rename or reclaim path anywhere in the control plane, which
+   * `onboarding/name.ts` states as the reason its screen says so before the
+   * field. So a route added next year lands on a namespace where somebody may
+   * already hold that name, this file builds them `…/@name/mcp` out of a stale
+   * copy, and the gateway reads that first segment as the route. It does not
+   * error: `splitWorkspacePath` falls back to "no slug", so every unaddressed
+   * call in that client lands in the grant's *default* context instead — the
+   * exact failure this module's header says it exists to prevent, arriving as
+   * somebody's notes being the wrong somebody's.
+   *
+   * So the gateway's set is read out of its own source, through the one parser
+   * `packages/shared` holds for it. A sixth route fails here on the day it is
+   * added rather than on the day it is printed.
+   */
+  test("refuses every route the gateway reserves, read from the gateway's own source", () => {
+    const gateway = parseGatewayRouteSegments(GATEWAY_SOURCE);
+    // A declaration rewritten into a shape the parser does not match yields an
+    // empty set. The floor is what makes that a failure instead of a guard that
+    // passes because it checked nothing.
+    expect(gateway.size).toBeGreaterThanOrEqual(GATEWAY_ROUTE_FLOOR);
+
+    // Anything left in here names a gateway route and would be printed as the
+    // URL for a context.
+    const printedAsAContext = [...gateway].filter(
+      (segment) => endpointForContext(ENDPOINT, segment) !== null,
+    );
+    expect(printedAsAContext).toEqual([]);
+  });
+
+  /**
+   * And the copy itself, both directions, because only one of them is visible
+   * above.
+   *
+   * A segment this file is *missing* is caught by the behavioural check — it
+   * would build a URL for a route. A segment this file has that the gateway no
+   * longer routes is not: it fails closed, and a context is quietly dropped
+   * from a list the console presents as complete, which is the other half of
+   * the same bug and silent in the other direction.
+   *
+   * The module's own header states which members it needs — *"only the five
+   * that could pass `SLUG_PATTERN` need to be here; `t` is too short and
+   * `.well-known` has a dot in it"*. That is a claim about two files, written
+   * in one of them, that nothing fails when it stops being true. This asserts
+   * it as an equality, and asserts the two `SLUG_PATTERN` declarations are the
+   * same text first — because "could pass SLUG_PATTERN" means nothing if the
+   * two files disagree about what SLUG_PATTERN is.
+   */
+  test("carries exactly the gateway routes a context could be named after", () => {
+    const gatewayPattern = parseSlugPatternSource(GATEWAY_SOURCE);
+    const consolePattern = parseSlugPatternSource(CONSOLE_SOURCE);
+    expect(gatewayPattern).not.toBeNull();
+    // Not equal means this module's restatement of the gateway's SLUG_PATTERN
+    // has drifted, and every "could pass SLUG_PATTERN" claim below it is void.
+    expect(consolePattern).toBe(gatewayPattern);
+
+    // `/^[a-z0-9-]{2,32}$/` back into a RegExp, flags and all, rather than by
+    // trimming slashes off both ends — which quietly drops the flags of a
+    // pattern that grows one.
+    const literal = /^\/(.*)\/([a-z]*)$/.exec(gatewayPattern!)!;
+    const slugShaped = new RegExp(literal[1]!, literal[2]!);
+
+    const gateway = parseGatewayRouteSegments(GATEWAY_SOURCE);
+    const consoleCopy = parseGatewayRouteSegments(CONSOLE_SOURCE);
+    // Same floor argument as above, for this module's own declaration.
+    expect(consoleCopy.size).toBeGreaterThan(0);
+
+    expect([...consoleCopy].sort()).toEqual(
+      [...gateway].filter((segment) => slugShaped.test(segment)).sort(),
+    );
   });
 
   test("refuses a base URL whose first segment is not the gateway's own", () => {

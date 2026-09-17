@@ -7,6 +7,8 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { GATEWAY_ROUTE_FLOOR } from "@context/shared/src/gatewayRouteSegments";
+
 import { gatewayReservedFirstSegments } from "./gatewayRoutes.helpers";
 import { api } from "../_generated/api";
 import {
@@ -135,7 +137,7 @@ describe("validateName (pure rules)", () => {
     expect(
       reservedByGateway.size,
       "the gateway's RESERVED_FIRST_SEGMENTS could not be read",
-    ).toBeGreaterThanOrEqual(6);
+    ).toBeGreaterThanOrEqual(GATEWAY_ROUTE_FLOOR);
 
     const claimable = [...reservedByGateway].filter(
       (segment) => validateName(segment).ok,
