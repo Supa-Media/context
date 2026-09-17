@@ -202,28 +202,33 @@ describe("a binding fires only where it is declared", () => {
   });
 
   /**
-   * ⌘B was `toggleRail` everywhere, including inside a note, where every editor
-   * anybody has ever used means bold by it. The rule that resolved it is not a
-   * special case for this chord: a binding that names a scope beats one that
-   * only reaches that scope as `global`.
+   * ⌘B is the left panel's chord everywhere, including inside a note, where
+   * every editor anybody has ever used means bold by it. The rule that
+   * resolves it is not a special case for this chord: a binding that names a
+   * scope beats one that only reaches that scope as `global`.
+   *
+   * **The global half of the pair used to be `toggleRail`**, and when the rail
+   * folded into the switcher the chord was repointed at the one left panel
+   * that is left rather than retired — see `keymap.ts`. The collision, and
+   * therefore this rule, is exactly what it was.
    */
   describe("a binding that names a scope beats a global one on the same chord", () => {
-    test("⌘B is bold in the note and the rail everywhere else", () => {
+    test("⌘B is bold in the note and the file tree everywhere else", () => {
       expect(resolve(press({ key: "b", mod: true }, true), "editor", true)).toBe("bold");
-      expect(resolve(press({ key: "b", mod: true }, true), "tree", true)).toBe("toggleRail");
-      expect(resolve(press({ key: "b", mod: true }, true), "global", true)).toBe("toggleRail");
+      expect(resolve(press({ key: "b", mod: true }, true), "tree", true)).toBe("toggleExplorer");
+      expect(resolve(press({ key: "b", mod: true }, true), "global", true)).toBe("toggleExplorer");
     });
 
     /**
      * And the precedence is doing the work, rather than the order of the rows.
-     * `bold` is declared **after** `toggleRail` for exactly this reason, so a
-     * resolver that simply took the first match would answer `toggleRail` here
-     * and this file would go green against a rule it had never learned.
+     * `bold` is declared **after** the global ⌘B for exactly this reason, so a
+     * resolver that simply took the first match would answer `toggleExplorer`
+     * here and this file would go green against a rule it had never learned.
      */
     test("the table is ordered so a first-match resolver would get it wrong", () => {
-      const rail = BINDINGS.findIndex((binding) => binding.command === "toggleRail");
+      const panel = BINDINGS.findIndex((binding) => binding.command === "toggleExplorer");
       const bold = BINDINGS.findIndex((binding) => binding.command === "bold");
-      expect(rail).toBeLessThan(bold);
+      expect(panel).toBeLessThan(bold);
     });
 
     test("and the escalation still stops at an overlay", () => {
@@ -435,8 +440,8 @@ describe("no two bindings share a chord in a scope", () => {
           /*
             A binding that is not live in this scope at all was never a
             candidate, so somebody else answering is not a collision: ⌘B in the
-            tree is `toggleRail` because `bold` is declared for the editor and
-            reaches nowhere else.
+            tree is `toggleExplorer` because `bold` is declared for the editor
+            and reaches nowhere else.
           */
           if (!live(binding, scope)) continue;
           const winner = BINDINGS.find((candidate) => candidate.command === got) as Binding;

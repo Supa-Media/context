@@ -114,6 +114,25 @@ export const darkColors = {
   sharedBorder: "rgba(185,163,242,0.30)",
 
   /** Inverse ink, used on the white CTA and on the "You" node in the map. */
+  /**
+   * The two surfaces the application frame is built from.
+   *
+   * The rail, the explorer and the editor were all `surface` — one value, three
+   * regions — so nothing separated them and a hairline border had to be drawn
+   * between each pair. That is the shape the whole redesign argues against: a
+   * line doing work that a value should do, three times, down the middle of the
+   * screen.
+   *
+   * They cannot be spelled `surface`/`surface2` at the call site, because those
+   * two move in **opposite directions** in the two palettes — `surface2` is a
+   * darker tint on paper and a lighter one on graphite — and the rule here is
+   * the same in both: **the page is lighter than the chrome around it**, the way
+   * paper is lighter than the desk. Naming the roles rather than the tints is
+   * what lets one assignment be right in both themes.
+   */
+  chromeSurface: "#191715",
+  pageSurface: "#201E1B",
+
   ink: "#100F0E",
   white: "#EDE8E0",
 
@@ -276,6 +295,10 @@ export const lightColors: Colors = {
   sharedBorder: "rgba(106,70,184,0.30)",
 
   /** See the note above: the CTA fill is dark here, and its ink is white. */
+  /** See `darkColors.chromeSurface`: the page stays lighter than its chrome. */
+  chromeSurface: "#F4F1EA",
+  pageSurface: "#FFFDF9",
+
   ink: "#FFFDF9",
   white: "#1A1714",
 
@@ -610,6 +633,31 @@ export const layout = {
    * would be two things to keep in step for no gain.
    */
   readingMeasureEm: 40,
+
+  /**
+   * The gutter the web editor's scroller keeps either side of the measure.
+   *
+   * `LiveEditor.web.tsx` spends it as `.cm-scroller`'s horizontal padding, and
+   * the measure is centred *inside* what is left — so anything that has to
+   * start at the same character as the note's first line adds this to half the
+   * remainder. `noteGutterFor` in `features/app/frame.ts` is that arithmetic,
+   * in one place, and the breadcrumb above the note is what asks for it.
+   *
+   * The WebView half (`files/webview/styles.ts`) sets `--lp-pad-x: 24`, and
+   * that is a different number for a different surface rather than drift: it
+   * is a phone's reading margin, where the measure never binds and the gutter
+   * is the whole of what governs the column.
+   */
+  notePadX: 16,
+
+  /**
+   * The note's own type size, in the web editor.
+   *
+   * Set on `.cm-scroller` in `LiveEditor.web.tsx`, and the unit
+   * `readingMeasureEm` is multiplied by — so it is half of what decides where
+   * the column's edges are, and `noteGutterFor` needs both.
+   */
+  noteFontSize: 16,
 
   /* ---------------------------------------------------------------------- *
    * The application frame.

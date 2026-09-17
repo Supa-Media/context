@@ -80,6 +80,7 @@ export type StatusTone = "quiet" | "ok" | "warn" | "crit";
 
 export interface StatusSegment {
   id:
+    | "path"
     | "connection"
     | "queue"
     | "words"
@@ -92,6 +93,16 @@ export interface StatusSegment {
   tone: StatusTone;
   /** Longer explanation for a tooltip / a tap. */
   detail?: string;
+  /**
+   * Drawn in the mono face.
+   *
+   * One segment uses it — the note's key — and it is a flag rather than a rule
+   * about the id because what earns the face is being *a path a person could
+   * type*, not being first. The tree, the breadcrumb and the share sheet draw
+   * keys the same way; a bar that drew this one in the prose face would be the
+   * only surface in the product that did.
+   */
+  mono?: boolean;
 }
 
 /**
@@ -332,6 +343,25 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
     if (queue !== null) {
       segments.push({ id: "queue", text: queue.text, tone: queue.tone, detail: queue.detail });
     }
+  }
+
+  /*
+    The note's key, at the leading edge and before everything else.
+
+    **The bar had no path, and that is what made it a row of numbers.** The
+    breadcrumb above the note names the folders and the note's own title; what
+    neither says is the key this note actually has in the bucket — which is the
+    thing a person types into another client, pastes into an agent's tool call,
+    or checks when two notes have the same title in two folders. The whole
+    product is that the file is real and portable, and the one surface that
+    never moves is where its name belongs.
+
+    Leading, like `connection`, and for the opposite reason: this one is what
+    the rest of the bar is *about*, so it reads as a subject with the facts
+    after it rather than as one more fact among them.
+  */
+  if (editor.path !== null) {
+    segments.push({ id: "path", text: editor.path, tone: "quiet", mono: true });
   }
 
   // Counts describe an open note. With nothing open they would be zeroes about

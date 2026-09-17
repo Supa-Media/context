@@ -53,6 +53,7 @@ import { closeFindPanel, findInNote } from "./findInNote";
 import {
   editability,
   editorExtensions,
+  openingCaret,
   replaceDocument,
   runCommand,
   type HandlerRef,
@@ -339,9 +340,22 @@ function ensureStyles(colors: Colors): void {
 .cm-lp-root .cm-editor.cm-focused { outline: none; }
 .cm-lp-root .cm-scroller {
   font-family: ${fonts.body};
-  font-size: 16px;
+  /*
+    The two numbers noteGutterFor needs, spent here and read there.
+
+    (No backticks in this comment: it is inside a template literal, and one
+    would end the string — the same trap frontmatterRange's neighbour records.)
+
+    They were literals, which is fine for a rule nothing else has to line up
+    with — and the breadcrumb above the note does. layout.noteFontSize is what
+    --lp-measure is multiplied by down in .cm-content, and layout.notePadX is
+    the gutter the measure is centred inside; anything drawn over this column
+    adds them the same way or sits four points off the text at one width and
+    level at another.
+  */
+  font-size: ${layout.noteFontSize}px;
   line-height: 1.75;
-  padding: 14px 16px;
+  padding: 14px ${layout.notePadX}px;
   overflow: auto;
 }
 /*
@@ -609,6 +623,13 @@ export function LiveEditor({
 
     const state = EditorState.create({
       doc: value,
+      /*
+        The start of the writing, not the start of the file — see
+        `openingCaret`. Without it a note that opens with a `---` block opens
+        with the caret inside it, and `livePreview.ts` reveals what the caret
+        is in, so hiding the block bought nothing on the one screen it was for.
+      */
+      selection: { anchor: openingCaret(value) },
       // `editorExtensions` rather than `editorStateFor`: the latter is the
       // shared entry point `webview/guest.ts` also calls, and K2's find-in-note
       // keymap (`findInNote`) is web-only — see that module's header for why

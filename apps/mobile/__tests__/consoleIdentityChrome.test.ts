@@ -228,10 +228,36 @@ function mountConsole(next: Shape = {}, width = 1440) {
     root.render(createElement(ConsoleLayout as never));
   });
 
+  /*
+    `document.body`, not the container: the switcher's list is a `Menu`, which
+    react-native-web renders through a portal outside the tree it was declared
+    in. Querying the container alone would report every row as absent.
+  */
   const find = (testId: string) =>
-    container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+
+  const clickNode = (node: HTMLElement | null) => {
+    if (node === null) throw new Error("nothing to press");
+    act(() => {
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
 
   return {
+    /**
+     * Open the workspace switcher, which is where the rail's list went.
+     *
+     * The list used to be a column and its rows were in the tree from the
+     * first render, so these tests read them straight off the console. It is a
+     * menu under the workspace's name now (`SwitcherMenu`), so the rows exist
+     * once it has been opened — which is a press, and the only difference this
+     * fold makes to what they assert.
+     */
+    openSwitcher: () => {
+      clickNode(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+    },
     text: () => container.textContent ?? "",
     find,
     press: (node: HTMLElement | null) => {
@@ -328,26 +354,38 @@ describe("the storage pill on every other binding", () => {
 
 /* -------------------------------------------------------------------------- */
 
-describe("the rail's one context list, rendered", () => {
-  /**
-   * The shape the retired vocabulary left behind. There is one heading, it
-   * says Workspaces, and the word the product no longer uses is nowhere on
-   * the glass — see `docs/decisions/vocabulary-and-workspaces.md`.
-   */
-  test("every context sits in one list, under one heading", () => {
+/**
+ * The one context list, rendered — in the switcher, where the rail's was.
+ *
+ * **Every test here used to read the rows straight off the console**, because
+ * the rail was a column and its entries were in the tree from the first frame.
+ * The rail folded into `SwitcherMenu` (`docs/decisions/app-and-console.md`),
+ * so each one opens the menu first and reads the rows out of it. What they
+ * assert — one list, the pin, the mark, the two offers and where each is drawn
+ * — is unchanged, and that is the point of rewriting them rather than deleting
+ * them: they are §1464's reversal guards, and the decision they guard moved
+ * container without changing.
+ */
+describe("the one context list, rendered", () => {
+  /** Every row in one list, and the retired noun nowhere on the glass. */
+  test("every context sits in one list", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
-    const text = app.text();
+    app.openSwitcher();
+    const text = document.body.textContent ?? "";
 
-    expect(text).toContain("Workspaces");
     expect(text).not.toMatch(/brain/i);
-    // The headings the old splits drew are gone from the rail: the ownership
-    // one it dropped first, and the kind one it drew until the word went.
+    /*
+      The headings the old splits drew are gone, and so is the one that
+      replaced them. "Workspaces" was the rail's, over a column; a six-row menu
+      with a heading over its only group is a row spent saying what the rows
+      already say. `railGroup.heading` is still drawn by `ConsoleShell`, which
+      is the landing page's picture of a console that still has a rail.
+    */
     expect(text).not.toContain("Shared with you");
-    expect(text.match(/Workspaces/g)?.length ?? 0).toBe(1);
     // Every row is still a reachable entry.
-    expect(app.container.querySelector('[aria-label="Open @seyi"]')).not.toBeNull();
-    expect(app.container.querySelector('[aria-label="Open @lk"]')).not.toBeNull();
-    expect(app.container.querySelector('[aria-label="Open @acme-eng"]')).not.toBeNull();
+    expect(app.find("switcher-context-seyi")).not.toBeNull();
+    expect(app.find("switcher-context-lk")).not.toBeNull();
+    expect(app.find("switcher-context-acme-eng")).not.toBeNull();
 
     app.unmount();
   });
@@ -362,17 +400,18 @@ describe("the rail's one context list, rendered", () => {
     const app = mountConsole({
       contexts: [WORKSPACE_GUEST, WORKSPACE_CONTEXT, OWN_CONTEXT, SHARED_CONTEXT],
     });
-    const opened = [...app.container.querySelectorAll("[aria-label]")]
-      .map((node) => node.getAttribute("aria-label") ?? "")
-      .filter((label) => label.startsWith("Open @"));
+    app.openSwitcher();
+    const rows = [...document.body.querySelectorAll("[data-testid]")]
+      .map((node) => node.getAttribute("data-testid") ?? "")
+      .filter((id) => id.startsWith("switcher-context-"));
 
-    expect(opened[0]).toBe("Open @seyi");
+    expect(rows[0]).toBe("switcher-context-seyi");
     // A pin and not a sort: the rest keep the order they came in.
-    expect(opened).toEqual([
-      "Open @seyi",
-      "Open @public-worship",
-      "Open @acme-eng",
-      "Open @lk",
+    expect(rows).toEqual([
+      "switcher-context-seyi",
+      "switcher-context-public-worship",
+      "switcher-context-acme-eng",
+      "switcher-context-lk",
     ]);
 
     app.unmount();
@@ -385,27 +424,24 @@ describe("the rail's one context list, rendered", () => {
    */
   test("only the viewer's own workspace is marked", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT, SHARED_CONTEXT, WORKSPACE_CONTEXT] });
-    expect(app.text().match(/yours/g)?.length ?? 0).toBe(1);
+    app.openSwitcher();
+    expect((document.body.textContent ?? "").match(/yours/g)?.length ?? 0).toBe(1);
 
-    const own = app.container.querySelector('[aria-label="Open @seyi"]');
-    expect(own?.textContent).toContain("yours");
+    expect(app.find("switcher-context-seyi")?.textContent).toContain("yours");
     // Not on somebody else's personal context, and not on a shared workspace
     // the viewer created — `WORKSPACE_CONTEXT` is `role: "owner"`, which is the
     // half of the test that fails if the mark is derived from role alone.
-    expect(
-      app.container.querySelector('[aria-label="Open @lk"]')?.textContent,
-    ).not.toContain("yours");
-    expect(
-      app.container.querySelector('[aria-label="Open @acme-eng"]')?.textContent,
-    ).not.toContain("yours");
+    expect(app.find("switcher-context-lk")?.textContent).not.toContain("yours");
+    expect(app.find("switcher-context-acme-eng")?.textContent).not.toContain("yours");
 
     app.unmount();
   });
 
   test("an account in no shared workspace still gets the new-workspace entry", () => {
     const app = mountConsole({ contexts: [OWN_CONTEXT] });
-    expect(app.text()).toContain("Workspaces");
-    expect(app.find("rail-create-workspace")).not.toBeNull();
+    app.openSwitcher();
+    expect(app.find("switcher-context-seyi")).not.toBeNull();
+    expect(app.find("switcher-new")).not.toBeNull();
     app.unmount();
   });
 
@@ -419,8 +455,9 @@ describe("the rail's one context list, rendered", () => {
    */
   test("an empty account offered a name gets the offer, not 'Nothing here yet'", () => {
     const app = mountConsole({ contexts: [] });
-    expect(app.find("rail-claim-context")).not.toBeNull();
-    expect(app.text()).not.toContain("Nothing here yet");
+    app.openSwitcher();
+    expect(app.find("switcher-claim")).not.toBeNull();
+    expect(document.body.textContent ?? "").not.toContain("Nothing here yet");
     app.unmount();
   });
 
@@ -431,14 +468,16 @@ describe("the rail's one context list, rendered", () => {
    */
   test("an invited-only account sees the claim entry in the pinned top slot", () => {
     const app = mountConsole({ contexts: [WORKSPACE_GUEST] });
+    app.openSwitcher();
     // `offerOwnContext` answers yes for an invitee…
-    const claim = app.find("rail-claim-context");
+    const claim = app.find("switcher-claim");
     expect(claim).not.toBeNull();
-    expect(app.text()).toContain("Workspaces");
-    expect(app.text()).not.toMatch(/brain/i);
+    expect(document.body.textContent ?? "").not.toMatch(/brain/i);
 
-    // …and it leads the list, ahead of the workspace they were let into.
-    const entry = app.container.querySelector('[aria-label="Open @public-worship"]');
+    // …and it leads the list, ahead of the workspace they were let into. The
+    // slot is `railGroup`'s rule — the claim stands in for the row that would
+    // be first — and it survived the move into the menu.
+    const entry = app.find("switcher-context-public-worship");
     expect(entry).not.toBeNull();
     expect(
       claim!.compareDocumentPosition(entry!) & Node.DOCUMENT_POSITION_FOLLOWING,

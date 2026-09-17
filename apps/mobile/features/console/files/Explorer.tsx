@@ -446,6 +446,8 @@ export function Explorer({
    * close, so the two cannot come to disagree about whether closing clears.
    */
   const closeFilter = useCallback(() => setQuery(""), []);
+  const [toolsShown, setToolsShown] = useState(false);
+  const [filterFocused, setFilterFocused] = useState(false);
 
   /**
    * The controls across the top of the column.
@@ -455,7 +457,7 @@ export function Explorer({
    * as much use for a folded tree as its owner does.
    *
    * There is no fifth. A "Close the file tree" button used to be drawn under
-   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘⇧E
+   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘B
    * and the top bar's toggle already do, on the one density where there is
    * nothing covering the note to dismiss.
    *
@@ -506,14 +508,40 @@ export function Explorer({
    * field that takes the caret on mount steals it from whatever somebody was
    * doing. It was autofocused under `touch`, where it was a field that had just
    * been *revealed* by a press, and that arm is gone with the density.
+   *
+   * ## Its box is chrome, so its box arrives on approach
+   *
+   * The *field* is permanent and stays permanent — it is a real input with a
+   * real caret at every moment, and nothing about reaching it changed. What
+   * was permanent and should not have been is the 28pt bordered well it was
+   * drawn in: at rest it was an empty box at the top of a column whose whole
+   * job is to be a quiet list of names, and it was the loudest thing in it —
+   * exactly what the four icon buttons beside it were faded for.
+   *
+   * So at rest it is the word `Filter` in muted type, which reads as the
+   * column's label; the border and the fill come in with the buttons. Kept
+   * while the query is non-empty, because a field somebody has typed into is
+   * not chrome — and while it has focus, so tabbing to it does not land the
+   * caret in something that looks like a heading.
    */
   const filterField = (
     <TextInput
       value={query}
       onChangeText={setQuery}
-      placeholder="Filter"
+      /*
+        Blank until the header is lit, because `Notes` is drawn over the field
+        at rest and two words in one box is what a placeholder underneath a
+        label looks like. The accessible name is unconditional and on the line
+        below, so nothing about reaching this field depends on the word.
+      */
+      placeholder={toolsShown || filterFocused ? "Filter" : ""}
       placeholderTextColor={colors.muted}
-      style={styles.filter}
+      onFocus={() => setFilterFocused(true)}
+      onBlur={() => setFilterFocused(false)}
+      style={[
+        styles.filter,
+        (toolsShown || filterFocused || query !== "") && styles.filterBoxed,
+      ]}
       accessibilityLabel="Filter notes and folders"
       autoCapitalize="none"
       autoCorrect={false}
@@ -523,8 +551,55 @@ export function Explorer({
   );
 
   return (
-    <View style={styles.explorer}>
+    <View
+      style={styles.explorer}
+      /*
+        Chrome on approach.
+
+        Four icon buttons sat lit above the tree at all times. None of them is
+        pressed often enough to earn a resting pixel, and together they were
+        the loudest thing in a column whose job is to be a quiet list of
+        names. They fade in when the pointer enters the column and fade out
+        when it leaves.
+
+        Opacity rather than mounting: the buttons keep their box, so the
+        toolbar does not reflow under the pointer, keyboard focus still
+        reaches them, and the e2e cases that press them by testID still find
+        them where they were. `focusable` chrome that vanishes from the tree
+        is chrome you cannot tab to.
+      */
+      onPointerEnter={() => setToolsShown(true)}
+      onPointerLeave={() => setToolsShown(false)}
+      testID="explorer"
+    >
       <View style={styles.toolbar}>
+        {/*
+          THE COLUMN'S NAME, AT REST, OVER THE FIELD RATHER THAN BESIDE IT.
+
+          The design's tree opens on the word `Notes` — an eyebrow, the way
+          every panel in this product labels itself — and the header's controls
+          arrive with the pointer. What was here instead was the filter's
+          placeholder, which is a different word for a different thing: `Filter`
+          answers "what does this box do" and says nothing about what the
+          column below it is.
+
+          Drawn *over* the field, absolutely, and faded out as the tools fade
+          in — so the field is mounted at every moment, keeps its caret, keeps
+          its place in the tab order, and nothing about the row's geometry
+          depends on which of the two is visible. `pointerEvents="none"` so the
+          label cannot take the press that focuses the field underneath it.
+
+          It goes when the filter has something in it as well as on approach:
+          a column showing eight of its forty rows must say why, and `Notes`
+          over a filtered tree is a label telling a small lie.
+        */}
+        <View
+          style={[styles.eyebrow, (toolsShown || filterFocused || query !== "") && styles.eyebrowGone]}
+          pointerEvents="none"
+          aria-hidden
+        >
+          <Text variant="eyebrow">Notes</Text>
+        </View>
         {filterField}
         {query !== "" ? (
           <IconButton
@@ -535,7 +610,7 @@ export function Explorer({
           />
         ) : null}
         <View style={styles.toolbarSpacer} />
-        {actions}
+        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{actions}</View>
       </View>
 
       <ScrollView
@@ -1022,8 +1097,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 6,
     paddingHorizontal: space.x2,
     paddingVertical: space.x2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
   },
   /**
    * Holds the create buttons at the trailing edge while the filter is away.
@@ -1034,6 +1107,38 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * beside it is revealed.
    */
   toolbarSpacer: { flexGrow: 1, flexShrink: 1 },
+  /* See the column's `onPointerEnter`: present, laid out, and unlit at rest. */
+  tools: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    opacity: 0,
+  },
+  toolsShown: { opacity: 1 },
+  /**
+   * The resting label, in the field's own box.
+   *
+   * Absolute and inset to the field's horizontal padding, so the word starts
+   * at exactly the character the placeholder would have — the two swap without
+   * anything moving. `justifyContent: "center"` because the box is 28pt and
+   * the label is one line of 11pt type.
+   */
+  eyebrow: {
+    position: "absolute",
+    left: space.x2 + space.x2,
+    top: space.x2,
+    height: 28,
+    justifyContent: "center",
+  },
+  eyebrowGone: { opacity: 0 },
+  /**
+   * At rest: type, in the header's own gutter, with no box at all.
+   *
+   * The border is `transparent` rather than absent so the field does not
+   * change size when it gains one — a header that grew 2pt as the pointer
+   * crossed the column would be a layout jumping under the hand reaching for
+   * it, which is the failure `tools` fades opacity to avoid.
+   */
   filter: {
     flex: 1,
     minWidth: 0,
@@ -1041,11 +1146,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x2,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
+    borderColor: "transparent",
     color: colors.text,
     fontSize: t.meta,
   },
+  /** On approach, on focus, or once somebody has typed. */
+  filterBoxed: { borderColor: colors.line, backgroundColor: colors.well },
   iconButton: {
     width: 28,
     height: 28,

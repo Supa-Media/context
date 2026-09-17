@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
-import { densityFor } from "../../app/frame";
+import { densityFor, noteGutterFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
@@ -290,6 +290,15 @@ export function NoteEditor({
   */
   const [focused, setFocused] = useState(false);
   /**
+   * How wide the document column is, so the Properties row can start where the
+   * note's first character does.
+   *
+   * `0` until the first layout, which `noteGutterFor` floors to the plain
+   * gutter — the same answer as a window too narrow for the measure, so the
+   * first frame is never wrong in a direction anybody sees.
+   */
+  const [docWidth, setDocWidth] = useState(0);
+  /**
    * A link somebody long-pressed, waiting on an answer.
    *
    * A press is how a person also starts a text selection, so it cannot navigate
@@ -517,16 +526,63 @@ export function NoteEditor({
         dark: a renderer nothing reaches is a second one to keep in step with
         every future change to the first, which is exactly how this drifted.
       */}
-      <View style={compact ? undefined : styles.document}>
+      <View
+        style={compact ? undefined : styles.document}
+        /*
+          The column's width, so the Properties row can start where the note's
+          own first character does. Measured rather than derived from the
+          window for `BrowsePane`'s reason: this is inside the editor region,
+          and how much of the window that region gets depends on a tree
+          somebody drags.
+        */
+        onLayout={
+          compact ? undefined : (event) => setDocWidth(event.nativeEvent.layout.width)
+        }
+      >
           {/*
             The filing metadata, folded away — see `Properties` below and
-            `frontmatter.ts`. Drawn where there is a block to fold **or** an
-            access-map answer to state; a note with neither gets no row at all
-            rather than an empty disclosure. Not for a passphrase note: its
-            frontmatter is the marker and nothing a person filed.
+            `frontmatter.ts`. Not for a passphrase note: its frontmatter is the
+            marker and nothing a person filed.
+
+            **This was compact only, and it is every density now** — half of
+            the answer to "the desktop shows raw YAML". A phone was handed the
+            body and this disclosure; a pointer layout was handed the file and
+            drew `--- updated: … ---` in a dim mono block above the note's own
+            title, on every note anybody had ever filed anything on.
+
+            The other half is in `livePreview.ts`: the block is *hidden* in the
+            editor until the caret is in it, the way every other mark in live
+            preview behaves. That is what keeps this a reader rather than
+            making it the only route — `frontmatter.ts` argues at length why
+            this codebase must not grow a YAML writer, so the editor is the one
+            thing that can change a note's metadata and a pointer layout keeps
+            it.
+
+            So the pair is: this row says *what is filed*, and the document
+            still holds it for anyone who goes there.
+
+            **What it draws differs by density, because what is beside it
+            does.** A phone's breadcrumb carries no visibility chip, so the
+            access-map answer is a row in here and the panel is drawn for it
+            alone. A pointer layout's breadcrumb says who can see the note one
+            line above, so this is drawn only where there is a block to fold —
+            otherwise it would be an empty disclosure under a line that already
+            answered it.
           */}
-          {compact && !passphraseLocked && (frontmatter !== "" || visibility !== undefined) ? (
-            <Properties frontmatter={frontmatter} visibility={visibility} />
+          {!passphraseLocked && (frontmatter !== "" || (compact && visibility !== undefined)) ? (
+            <Properties
+              frontmatter={frontmatter}
+              visibility={compact ? visibility : undefined}
+              /*
+                A phone pays the note's reading margin; a pointer layout pays
+                whatever puts this at the same character as the first line of
+                the document, which is not a constant — the column is centred
+                and moves with the width. `noteGutterFor` is the sum, and the
+                editor below spends the same one in CSS.
+              */
+              gutter={compact ? layout.readingMargin : noteGutterFor(docWidth)}
+              compact={compact}
+            />
           ) : null}
           {drawing ? (
             /*
@@ -592,6 +648,20 @@ export function NoteEditor({
               themselves only when it differs from what they already hold, and
               after a keystroke it does not — the parent re-splits the very
               draft the editor just produced. No dispatch, so no caret jump.
+
+              **A phone gets the body; a pointer layout gets the file.** That
+              asymmetry is deliberate and it is about *editing*, not about
+              room. `Properties` above is a reader — "there is nothing here
+              that writes", and `frontmatter.ts` argues at length why this
+              codebase must not grow a YAML writer — so the editor is the only
+              thing in the product that can change a note's metadata. Handing
+              it the body at a pointer density would take that away on the one
+              surface that had it.
+              
+              What the pointer layout does instead is hide the block until the
+              caret is in it (`livePreview.ts`, `frontmatterHidden`), which is
+              the same live-preview rule every other mark follows: out of the
+              way while you read, there the moment you go to it.
             */
             value={compact ? body : state.draft}
             editable={editable}
@@ -698,21 +768,43 @@ export function NoteEditor({
         `statusLine` below is where that is decided, and it prints nothing at
         all rather than fall through to the reassuring default.
 
-        An earlier pass drew it on a pointer layout only, arguing that a
-        permanent 26pt strip is a band of chrome across the bottom of a phone
-        that already has a floating toolbar lying on it. That argument is about
-        a *strip*, and this is no longer one: the phone's note is a single
-        full-bleed scroller, so this is the last line of the document rather
-        than a bar pinned under it. It scrolls with the text, sits at the note's
-        own reading margin, and the content padding at the foot of the scroller
-        is what brings it — and the note's last paragraph — out from under the
-        toolbar. Nothing is pinned, so nothing is chrome, and the one sentence
-        that says where somebody's writing actually is stays on the screen.
+        **It is the phone's, and that is a reversal of a reversal.** It was
+        pointer-only once, on the argument that a permanent 26pt strip is a
+        band of chrome across the bottom of a phone that already has a floating
+        toolbar lying on it; that argument was about a *strip*, and the phone's
+        note stopped being one — it is a single full-bleed scroller, so this is
+        the last line of the document rather than a bar pinned under it, it
+        scrolls with the text, and the content padding at the foot brings it
+        out from under the toolbar. All of that still holds, so the sentence
+        stays here at compact.
 
-        Discard sits beside it. It has no other route on a phone: the row menu
-        acts on a file in the tree, and this acts on the draft in front of you.
+        What changed is the other density. A pointer layout has the status bar,
+        and `status.ts`'s `save` segment is **the same claim**: "Saved", "Saved
+        2 minutes ago", "Cached copy", "Queued", "Not saved", each with this
+        sentence as its detail. Measured in Chromium at 1440×900 with the bar
+        finally spread across its row: "Saved in your bucket" sat 40pt above
+        the word "Saved", at the same leading edge, in two visual languages —
+        which is precisely the duplication the Save pill a few lines down was
+        removed for, arriving a second time from the other side. The bar is the
+        surface that never moves, so it keeps it.
+
+        Nothing is lost at that density: the distinctions this sentence exists
+        to draw — in the bucket, on this device, queued, not saved — are arms
+        of `saveSegment` too, and the sentence itself is its `detail`, which is
+        the segment's tooltip and its accessible name.
+
+        Discard sits beside it, at every density. It has no other route on a
+        phone: the row menu acts on a file in the tree, and this acts on the
+        draft in front of you.
       */}
-      {durability !== "" || canDiscard ? (
+      {/*
+        Three things can put this row on screen and each is asked for
+        separately, which is the bug the first draft of the compact-only rule
+        shipped: gating the whole row on the sentence took the Save button —
+        and, in a conflict, Overwrite theirs — off every pointer layout with it,
+        because the row is where that button lives.
+      */}
+      {(durability !== "" && compact) || canDiscard || (!compact && !button.disabled) ? (
         <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
           {/*
             Absent rather than empty. `statusLine` answers `""` for a state it
@@ -720,7 +812,7 @@ export function NoteEditor({
             message never arrived — and an empty `Text` here would be a blank
             line where a claim is supposed to be.
           */}
-          {durability === "" ? null : (
+          {durability === "" || !compact ? null : (
             <Text variant="meta" style={styles.status} testID="note-durability">
               {durability}
             </Text>
@@ -939,6 +1031,8 @@ export function NoteEditor({
 function Properties({
   frontmatter,
   visibility,
+  gutter,
+  compact,
 }: {
   frontmatter: string;
   /** See `NoteEditor`'s prop of the same name. */
@@ -948,6 +1042,17 @@ function Properties({
     exception: boolean;
     readOnly: boolean;
   };
+  /** Where the note's own first character is. See the call site. */
+  gutter: number;
+  /**
+   * Whether this is the phone's row.
+   *
+   * It decides the target's height and nothing else. A thumb needs
+   * `minTouchTarget`; a pointer does not, and a 44pt box around an 11pt label
+   * was the tallest thing between the breadcrumb and the note — which on the
+   * surface with the most room to spare is where the air is least welcome.
+   */
+  compact: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -955,7 +1060,7 @@ function Properties({
   const rows = withVisibility(properties(frontmatter), visibility);
 
   return (
-    <View style={styles.properties}>
+    <View style={[styles.properties, { paddingLeft: gutter, paddingRight: gutter }]}>
       <PressRow
         accessibilityLabel={
           open
@@ -964,7 +1069,7 @@ function Properties({
         }
         onPress={() => setOpen((current) => !current)}
         radius={radii.sm}
-        style={styles.propertiesHead}
+        style={[styles.propertiesHead, compact && styles.propertiesHeadTouch]}
         hoverStyle={styles.propertiesHover}
         testID="note-properties"
       >
@@ -1246,8 +1351,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the first line of the document and anything else here would be visibly out
    * of step with it.
    */
+  /**
+   * A quiet line above the note, at the note's own left margin.
+   *
+   * The margin arrives as a prop rather than being set here, because on a
+   * pointer layout it is not a constant: the note is a centred column and its
+   * first character moves with the width. See `noteGutterFor`.
+   */
   properties: {
-    paddingHorizontal: layout.readingMargin,
     paddingTop: space.x1,
     paddingBottom: space.x2,
   },
@@ -1277,10 +1388,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "center",
     alignSelf: "flex-start",
     gap: 6,
-    minHeight: layout.minTouchTarget,
+    minHeight: 24,
     paddingRight: space.x2,
     borderRadius: radii.sm,
   },
+  /** A thumb's floor, which a pointer does not pay — see the `compact` prop. */
+  propertiesHeadTouch: { minHeight: layout.minTouchTarget },
   propertiesHover: { backgroundColor: colors.surface3 },
   /**
    * One row: mark, key, value.

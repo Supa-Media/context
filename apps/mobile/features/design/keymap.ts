@@ -109,9 +109,9 @@ export type Command =
    * `describeBinding`, and printing it from here rather than from a literal is
    * what stops the menu advertising a chord nothing binds (see `menu.ts`, which
    * has already had that bug). It is also the record of which chords are spoken
-   * for: `toggleRail` is ⌘B, and the reason that is not a collision is that the
-   * note editor answers the press and `useKeymap.web.ts` leaves an answered
-   * keystroke alone.
+   * for: `toggleExplorer` has ⌘B as an alias, and the reason that is not a
+   * collision is that the note editor answers the press and `useKeymap.web.ts`
+   * leaves an answered keystroke alone.
    *
    * Both are also on the accessory bar, which is the rule at the top of this
    * file: no command here may be the only way to do something on a phone.
@@ -124,7 +124,6 @@ export type Command =
   | "strikethrough"
   | "closeTab"
   | "reopenTab"
-  | "toggleRail"
   | "toggleExplorer"
   | "toggleFocus"
   | "nextTab"
@@ -219,8 +218,26 @@ export const BINDINGS: readonly Binding[] = [
   /* Tabs and chrome. */
   { command: "closeTab", key: "w", mod: true, scopes: GLOBAL },
   { command: "reopenTab", key: "t", mod: true, shift: true, scopes: GLOBAL },
-  { command: "toggleRail", key: "b", mod: true, scopes: GLOBAL },
-  { command: "toggleExplorer", key: "e", mod: true, shift: true, scopes: GLOBAL },
+  /**
+   * ⌘B, which is the row that used to be `toggleRail` and the chord that used
+   * to be ⌘⇧E.
+   *
+   * The rail folded into the switcher (`features/app/frame.ts`), so ⌘B had no
+   * panel to act on and the tree was left holding a chord nobody reaches for.
+   * The command is **repointed rather than retired**, and the argument that
+   * briefly said otherwise — "quietly moving a shortcut onto a different panel
+   * than the one its user learned is worse than a shortcut that stops doing
+   * anything" — had its premise wrong. Nobody learned "⌘B narrows the
+   * workspace column"; they learned what VS Code, Zed and Obsidian all mean by
+   * it, which is *fold the left panel and give me the width*. There is exactly
+   * one left panel now, so that is what this does.
+   *
+   * One row, because this table allows a command exactly one chord — see
+   * "every command in the table is unique" in `keymap.test.ts`, which is what
+   * keeps `describeBinding` from having to choose which alias to print. ⌘⇧E is
+   * therefore gone rather than kept beside it.
+   */
+  { command: "toggleExplorer", key: "b", mod: true, scopes: GLOBAL },
   /**
    * Both panels away, for the length of a read.
    *
@@ -228,6 +245,10 @@ export const BINDINGS: readonly Binding[] = [
    * desktop shell claims it — which is why a mode worth a single key gets one
    * rather than a third modifier on top of ⌘B. Escape leaves it too, through
    * `dismiss`, because a mode with one way out is a mode people do not enter.
+   *
+   * "Both panels" is one panel now, the rail having folded into the switcher.
+   * The mode is unchanged and still earns its key: the tree is the only thing
+   * between the note and the edge of the window.
    */
   { command: "toggleFocus", key: "\\", mod: true, scopes: GLOBAL },
   { command: "nextTab", key: "arrowright", mod: true, alt: true, scopes: GLOBAL },
@@ -251,13 +272,16 @@ export const BINDINGS: readonly Binding[] = [
   /*
     THE NOTE'S MARKER CHORDS, AND THEY ARE DOWN HERE DELIBERATELY.
 
-    ⌘B is `toggleRail` above and bold in a note, which `resolve` settles by
+    ⌘B is `toggleExplorer` above and bold in a note, which `resolve` settles by
     scope: a binding that *names* a scope beats one that only reaches it as
     `global`. Put these up in "The editor" beside their siblings and
     first-match-wins would answer `bold` in the editor by coincidence of
     position — the rule would be untested, and `keymap.test.ts` would go green
-    against a resolver that had never learned it. Below `toggleRail`, the
+    against a resolver that had never learned it. Below the global ⌘B, the
     coincidence runs the other way and the test has something to catch.
+
+    That global ⌘B was `toggleRail` until the rail folded into the switcher.
+    The *chord* is what this paragraph is about, and it did not move.
 
     `editorSetup.ts` binds all three inside CodeMirror; nothing dispatches them
     from here. What this table gives them is the printed chord in the editor's

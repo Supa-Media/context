@@ -1,5 +1,6 @@
 import { CHECKOUT_PARAM, checkoutOutcomeFrom } from "@context/shared";
 import { AppFrameFixture } from "./AppFrameFixture";
+import { AppFrameVisualFixture } from "./AppFrameVisualFixture";
 import { E2EFixtureScreen } from "../console/E2EFixtureScreen";
 import { FirstRunStorageFixture } from "../onboarding/FirstRunStorageFixture";
 import { VaultImportFixture } from "../onboarding/VaultImportFixture";
@@ -40,6 +41,9 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
     layout claims, which is the one class jsdom cannot check.
   */
   if (first(params.screen) === "app-frame") return <AppFrameFixture />;
+  // The same frame with real contents, for looking at. See its own header for
+  // why it is a separate screen rather than a flag on the one above.
+  if (first(params.screen) === "app-frame-visual") return <AppFrameVisualFixture />;
 
   /*
     The storage step, which is otherwise on no browser-reachable screen:

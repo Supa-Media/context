@@ -232,8 +232,13 @@ function mountConsole(width = 1440) {
     root.render(createElement(ConsoleLayout as never));
   });
 
+  /*
+    `document.body`, not the container: the switcher's rows are a `Menu`, which
+    react-native-web renders through a portal outside the tree it was declared
+    in. Querying the container alone reports every row in it as absent.
+  */
   const find = (testId: string) =>
-    container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+    document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
 
   return {
     text: () => container.textContent ?? "",
@@ -271,15 +276,27 @@ describe("the signed-in console carries no marketing chrome", () => {
   });
 
   test("the wordmark header is gone", () => {
-    // It existed only to hold a Sign out button, which now lives in the rail.
+    // It existed only to hold a Sign out button, which is in the workspace
+    // switcher on a pointer layout and the account mark on a phone.
     const app = mountConsole();
     expect(app.text()).not.toContain("Context.lc");
     app.unmount();
   });
 
-  test("signing out is in the rail, not floating above the product", () => {
+  test("signing out is under the workspace's name, not floating above the product", () => {
+    /*
+      It was `rail-sign-out`, the power glyph at the foot of the rail's account
+      block, and before that a button in a marketing header. The rail folded
+      into `SwitcherMenu`, so it is a row in the menu under the name already in
+      the title bar — which is where every application of this shape puts it,
+      and still not above the product.
+    */
     const app = mountConsole();
-    expect(app.find("rail-sign-out")).not.toBeNull();
+    expect(app.find("rail-sign-out")).toBeNull();
+
+    app.press(app.find("frame-switcher"));
+    expect(app.find("switcher-sign-out")).not.toBeNull();
+
     app.unmount();
   });
 });
@@ -533,12 +550,21 @@ describe("every context this account can reach is on the screen", () => {
     app.unmount();
   });
 
-  test("a pointer layout offers them too, in the rail", () => {
+  test("a pointer layout offers them too, in the switcher", () => {
+    /*
+      It used to assert `console-rail` and read the rows off the container.
+      The rail folded into the menu under the workspace's name, so the list is
+      behind one press — and a press is what a person makes to reach it, which
+      is the thing this file exists to prove is possible.
+    */
     const app = mountConsole(1440);
 
-    expect(app.find("console-rail")).not.toBeNull();
+    expect(app.find("console-rail")).toBeNull();
     expect(app.find("context-strip")).toBeNull();
-    expect(reachable(app)).toBeGreaterThan(0);
+    expect(app.find("frame-switcher")).not.toBeNull();
+
+    app.press(app.find("frame-switcher"));
+    expect(app.find("switcher-context-public-worship")).not.toBeNull();
 
     app.unmount();
   });
@@ -780,13 +806,27 @@ describe("the phone reaches a destination with nothing opened first", () => {
     mockPathname = "/console/@seyi";
   });
 
-  test("and a pointer layout still keeps it at the foot of the rail", () => {
-    // The positive control for the move: `rail-sign-out` is not deleted, it is
-    // the other density's answer. A rewrite that lost it would pass every
-    // assertion above.
+  test("and a pointer layout reaches it in the switcher instead", () => {
+    /*
+      The positive control for the move: sign-out is not deleted, it is the
+      other density's answer, and a rewrite that lost it would pass every
+      assertion above.
+
+      **It used to be `rail-sign-out`, at the foot of the rail's account
+      block.** The rail folded into `SwitcherMenu`, so this density's route is
+      the same shape the phone's already was — open the control under your own
+      name, then choose — and `AccountBlock`'s `compact` menu stays the phone's
+      alone.
+    */
     const app = mountConsole(1440);
-    expect(app.find("rail-sign-out")).not.toBeNull();
+    expect(app.find("rail-sign-out")).toBeNull();
     expect(app.find("account-menu")).toBeNull();
+
+    app.press(app.find("frame-switcher"));
+    const signOut = app.find("switcher-sign-out");
+    expect(signOut).not.toBeNull();
+    expect(signOut!.textContent).toContain("Sign out");
+
     app.unmount();
   });
 });

@@ -41,11 +41,6 @@ export function AppFrameFixture() {
       topTrailing={<Text variant="treeMeta">actions</Text>}
       accountSlot={<Text variant="treeMeta">you</Text>}
       onSearch={() => {}}
-      rail={(mode) => (
-        <View style={styles.slot} testID={`fixture-rail-${mode}`}>
-          <Text variant="treeMeta">rail</Text>
-        </View>
-      )}
       explorer={
         <View style={styles.slot} testID="fixture-explorer">
           <Text variant="treeMeta">1-projects</Text>
@@ -56,7 +51,7 @@ export function AppFrameFixture() {
     >
       <View style={styles.note} testID="fixture-note">
         <Text variant="body">
-          The console is four regions and the whole of the responsive design is deciding which of
+          The console is three regions and the whole of the responsive design is deciding which of
           them exist at a given width.
         </Text>
       </View>

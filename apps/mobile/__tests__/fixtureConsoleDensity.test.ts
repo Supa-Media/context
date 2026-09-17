@@ -100,11 +100,43 @@ function mountFixture(width: number) {
     container.remove();
   });
 
+  /*
+    Open the workspace switcher, if this density has one.
+
+    A phone's contexts are `NavBand`'s, in the scroller, and are on the screen
+    from the first frame. A pointer layout's are `SwitcherMenu`'s, behind the
+    name in the title bar — so reaching them is a press, which is what a person
+    does too. Pressing nothing when there is no trigger is how the phone's case
+    stays the control it was written to be.
+  */
+  const openSwitcher = () => {
+    const trigger = document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]');
+    if (trigger === null) return;
+    act(() => {
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      trigger.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
+
   /** Every context named by something that can be pressed, wherever it is. */
   const reachable = () => {
-    const labels = Array.from(container.querySelectorAll('[role="button"]')).map(
-      (node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`,
-    );
+    openSwitcher();
+    /*
+      `document.body`, not the container: react-native-web renders a `Menu`
+      through a portal, so the switcher's rows land outside the tree they were
+      declared in.
+    */
+    const labels = Array.from(
+      /*
+        Both roles, because the two surfaces are two kinds of control. The
+        phone's contexts are buttons in `NavBand`; the pointer layout's are
+        rows in a `Menu`, which announces itself as a menu and its rows as
+        `menuitem`. Asking for `button` alone found the switcher's own trigger
+        and none of the workspaces behind it.
+      */
+      document.body.querySelectorAll('[role="button"], [role="menuitem"]'),
+    ).map((node) => `${node.getAttribute("aria-label") ?? ""} ${node.textContent ?? ""}`);
     /*
       The `@` is part of the match on purpose. A bare slug is a substring of
       plenty of ordinary prose — a note called "Talk to @lk" would make this
@@ -114,7 +146,7 @@ function mountFixture(width: number) {
     return CONTEXTS.filter((name) => labels.some((label) => label.includes(name)));
   };
 
-  return { container, reachable };
+  return { container, reachable, openSwitcher };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -131,31 +163,31 @@ describe("the browser-reachable console offers its contexts at every density", (
     expect(mountFixture(1440).reachable()).toEqual(CONTEXTS);
   });
 
-  test("a tablet reaches every context, where the rail is only its marks", () => {
+  test("a tablet reaches every context, from the same one control", () => {
     /*
-      `medium` collapses the rail to icons, which is exactly the presentation
-      that has no visible text — so the accessible name is the whole of what a
-      person or a screen reader has, and `ConsoleRail`'s own rule ("a rail that
-      becomes a row of unlabelled glyphs to a screen reader is not collapsed,
-      it is broken") is what this checks is still true here.
+      `medium` used to collapse the rail to its icons, which was the one
+      presentation with no visible text — so the accessible name was all a
+      person or a screen reader had, and that is what this checked. There is no
+      icon rail any more: `SwitcherMenu` is one control drawn the same way at
+      both pointer densities, and its rows carry their labels as text.
     */
     expect(mountFixture(1000).reachable()).toEqual(CONTEXTS);
   });
 
   test("and never draws two switchers at once", () => {
     /*
-      `frame.ts` is explicit that the strip and the rail are never on one
-      screen: the strip's dot means *kind* and the rail's means *storage
-      status*, and one glyph with two meanings on one screen is worse than
-      either. The fixture is the screen where that would happen first, because
-      it is the one that supplies both.
+      `frame.ts` is explicit that the strip and the title bar's switcher are
+      never on one screen: the strip's dot means *kind* and the switcher's
+      means *storage status*, and one glyph with two meanings on one screen is
+      worse than either. The fixture is the screen where that would happen
+      first, because it is the one that supplies both.
     */
     const desktop = mountFixture(1440);
     expect(desktop.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(0);
-    expect(desktop.container.querySelectorAll('[data-testid="console-rail"]')).toHaveLength(1);
+    expect(desktop.container.querySelectorAll('[data-testid="frame-switcher"]')).toHaveLength(1);
 
     const phone = mountFixture(390);
     expect(phone.container.querySelectorAll('[data-testid="context-strip"]')).toHaveLength(1);
-    expect(phone.container.querySelectorAll('[data-testid="console-rail"]')).toHaveLength(0);
+    expect(phone.container.querySelectorAll('[data-testid="frame-switcher"]')).toHaveLength(0);
   });
 });

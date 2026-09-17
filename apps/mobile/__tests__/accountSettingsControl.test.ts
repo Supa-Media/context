@@ -49,7 +49,7 @@ jest.mock("react-native-safe-area-context", () => ({
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
-import { AccountBlock } from "../features/console/ConsoleRail";
+import { AccountBlock } from "../features/console/AccountBlock";
 
 const roots: (() => void)[] = [];
 afterEach(() => {

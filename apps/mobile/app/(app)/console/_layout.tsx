@@ -6,13 +6,12 @@ import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
   DEFAULT_SETTINGS_SECTION,
 } from "../../../features/console/settings/sections";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, useWindowDimensions } from "react-native";
 import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
-import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
@@ -21,7 +20,8 @@ import { setReadMode, useReadMode } from "../../../features/console/files/readMo
 import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
-import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
+import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
+import { AccountBlock, Avatar } from "../../../features/console/AccountBlock";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
 import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
@@ -40,6 +40,7 @@ import { itemsFromListings } from "../../../features/console/files/palette";
 import { useContextSearch } from "../../../features/console/files/useContextSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
+import { TabStrip } from "../../../features/console/files/TabStrip";
 import { tabAt } from "../../../features/console/files/tabs";
 import {
   canGoBack,
@@ -123,7 +124,6 @@ import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
  * for which context you are in — both unchanged.
  */
 export default function ConsoleLayout() {
-  const styles = useThemedStyles(makeStyles);
   const data = useLiveConsoleData();
   const { width } = useWindowDimensions();
   const router = useRouter();
@@ -483,50 +483,68 @@ export default function ConsoleLayout() {
       <PluginTextDialog runtime={data.pluginRuntime} />
       <PluginSettingsPane runtime={data.pluginRuntime} />
       <AppFrame
-        switcher={
-          insideContext ? (
-            /*
-              A pointer layout's control, and only a pointer layout's.
+        /*
+          The switcher is the rail now.
 
-              `AppFrame` renders this slot in the `!compact` arm — a phone's top
-              row is the pinned account mark and the context strip — so nothing
-              here is ever on a phone. It used to carry a `phone &&
-              styles.switcherCompact` that took the chip's border and fill away,
-              justified by `AppFrame`'s `navToggleCompact` "already drawing a
-              shadowed white capsule around it". That capsule went with the
-              phone's rail toggle; the style it named had no call sites left,
-              and this override had no render to reach. Both are gone.
+          It was a static chip naming the open context, beside a 216pt column.
+          `regionsFor` answers `rail: "hidden"` at every pointer density (see
+          `features/app/frame.ts`), so the column is gone and everything it
+          offered is under the name you already look at to know whose notes are
+          open. `SwitcherMenu` carries `railGroup`'s list unchanged, with the
+          same two offers behind the same conditions.
+
+          Each callback keeps the navigation the rail entry had, including
+          which of `push` and `replace` it used and why — a claim, a new
+          workspace and Meetings all leave the console, so Back has to be the
+          way home.
+        */
+        switcher={
+          <SwitcherMenu
+            data={data}
+            label={insideContext ? contextLabel : "Your context"}
+            kind={
+              insideContext
+                ? (current?.kind ?? "")
+                : data.loading
+                  ? ""
+                  : `${data.contexts.length} reachable`
+            }
+            tone={insideContext ? (current?.status ?? "warn") : "neutral"}
+            onOpenContext={(slug: string) => {
+              const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
+              if (!sameRoute(next, route)) router.replace(hrefFor(next));
+            }}
+            onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
+            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
+            onNewWorkspace={data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)}
+            onOpenSettings={() => {
+              router.setParams({
+                settings:
+                  route.kind === "context"
+                    ? DEFAULT_SETTINGS_SECTION
+                    : DEFAULT_ACCOUNT_SETTINGS_SECTION,
+              });
+            }}
+            /*
+              Leave, on the context you are standing in and only where the
+              server would allow it: `leaveWorkspace` refuses an owner
+              (`OWNER_CANNOT_LEAVE`), so a row offered on your own workspace
+              would be a press whose only outcome is an error. Fire-and-watch,
+              exactly as the rail's row was — the membership row deleting is
+              what takes the context out of the list, through the
+              subscription — and then land on `/console` so nobody is left
+              standing in a context they just left.
             */
-            <View style={styles.switcher}>
-              <Dot tone={current?.status ?? "warn"} />
-              <Text variant="wsSwitch" numberOfLines={1}>
-                {contextLabel}
-              </Text>
-              <Text variant="wsSwitch" style={styles.switcherKind}>
-                {current?.kind ?? ""}
-              </Text>
-            </View>
-          ) : (
-            // Map and Connections are not inside anything, and a context chip
-            // above them would be naming a scope the pane is not in. "Your
-            // context" is the aggregate — everything this person can reach —
-            // which is exactly what these panes span (see CLAUDE.md,
-            // "Vocabulary").
-            <View style={styles.switcher}>
-              <Text variant="wsSwitch">Your context</Text>
-              {/*
-                No number until the list has arrived. `contexts` is empty on a
-                cold launch because nothing has been fetched, and "0 reachable"
-                over somebody's own console is the same accusation the storage
-                banner used to make — see `ConsoleData.storage`.
-              */}
-              {data.loading ? null : (
-                <Text variant="wsSwitch" style={styles.switcherKind}>
-                  {`${data.contexts.length} reachable`}
-                </Text>
-              )}
-            </View>
-          )
+            onLeaveContext={
+              current === null || current.role === "owner" || data.leaveContext === undefined
+                ? undefined
+                : () => {
+                    void data.leaveContext?.(current.id);
+                    router.replace("/console");
+                  }
+            }
+            onSignOut={requestSignOut}
+          />
         }
         /*
           No `switcherLabel`.
@@ -537,6 +555,27 @@ export default function ConsoleLayout() {
           such control now: at compact the panels are gone and the chip is a
           label again, which reads its own text. The prop went with the reader.
         */
+        /*
+          The open notes, in the title bar — see `AppFrame`'s `tabs` prop.
+
+          `browsing && !phone` is exactly the condition `EditorRegion` applied
+          when it drew the strip itself: tabs are Browse's, and they are a
+          pointer instrument. The emptiness check moved here with them, so a
+          route with nothing open passes `undefined` and the frame draws no
+          slot rather than an empty one.
+        */
+        tabs={
+          browsing && !phone && tabs.state.tabs.length > 0 ? (
+            <TabStrip
+              state={tabs.state}
+              onActivate={tabs.activate}
+              onClose={closeTab}
+              onCloseOthers={tabs.closeOthers}
+              onCloseToRight={tabs.closeToRight}
+              onReopen={tabs.reopen}
+            />
+          ) : undefined
+        }
         /*
           Absent on a phone, where both chips have moved to the foot of the
           context's own page — `features/console/files/contextFoot.ts` composes
@@ -703,9 +742,6 @@ export default function ConsoleLayout() {
             }
           />
         }
-        rail={(mode) => (
-          <Rail data={data} route={route} mode={mode} onSignOut={requestSignOut} />
-        )}
         /*
           `browsing`, not `insideContext`.
 
@@ -914,13 +950,7 @@ export default function ConsoleLayout() {
             ) : null,
           }}
         >
-          <EditorRegion
-            browse={browsing}
-            failure={data.failure}
-            tabs={browsing && !phone ? tabs : null}
-            onCloseTab={closeTab}
-            phone={phone}
-          >
+          <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
             <Slot />
           </EditorRegion>
         </NavBandProvider>
@@ -1188,9 +1218,6 @@ function Shortcuts({
           case "toggleExplorer":
             frame.toggleExplorer();
             return true;
-          case "toggleRail":
-            frame.toggleRail();
-            return true;
           case "toggleFocus":
             frame.toggleFocus();
             return true;
@@ -1309,144 +1336,6 @@ function Shortcuts({
 const NUMBERED_TABS = [
   "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9",
 ] as const;
-
-/**
- * The rail, wired to the router — and, on a phone, to the sheet it is inside.
- *
- * A component rather than an inline node in the slot, because it needs
- * `useFrame`, and the slot is rendered *inside* `AppFrame`'s provider while the
- * layout that passes it is above it.
- *
- * Choosing a destination dismisses the sheet, for the same reason choosing a
- * note dismisses the tree drawer: on a phone the panel is covering the thing
- * you just asked for. It dismisses even when the destination is the route you
- * are already on — you asked for that pane, and a sheet that stays put because
- * the router had nothing to do reads as a dead press.
- *
- * `onClaimContext` leaves the console entirely, which is why it is a callback
- * rather than a `ConsoleRoute`: `/welcome` is not under `/console`, and the
- * rail renders the entry only for somebody who owns nothing. See
- * `offerOwnContext`.
- */
-function Rail({
-  data,
-  route,
-  mode,
-  onSignOut,
-}: {
-  data: ConsoleData;
-  route: ConsoleRoute;
-  mode: "full" | "icons" | "sheet";
-  onSignOut: () => void;
-}) {
-  const frame = useFrame();
-  const router = useRouter();
-
-  return (
-    <ConsoleRail
-      data={data}
-      route={route}
-      mode={mode}
-      onNavigate={(next) => {
-        frame.closeNav();
-        // Pressing the rail entry you are already on should do nothing, not
-        // re-enter the route — which on a context would reset the file browser
-        // out from under an open note.
-        if (!sameRoute(next, route)) router.replace(hrefFor(next));
-      }}
-      account={
-        <Account
-          data={data}
-          compact={mode === "icons"}
-          touch={mode === "sheet"}
-          onSignOut={onSignOut}
-          /*
-            The one settings control that is on screen at every density, next
-            to the person's own name. It was reachable only from the storage
-            chip — pointer-only, and reads as a status rather than a control —
-            and from a long press on a context row, which nobody finds.
-          */
-          /*
-            On every route now. It was `route.kind === "context"` only, which
-            put the one always-visible settings control on some console routes
-            and not others — and the routes it was missing from (Map,
-            Connections, Search) are the ones with no storage chip to fall back
-            to either. Off a context, the section opened is an account one:
-            there is no note in the URL to preserve, and the account scope is
-            what a person on `/console/map` can act on without first choosing a
-            context.
-          */
-          onOpenSettings={() => {
-            frame.closeNav();
-            if (route.kind === "context") {
-              router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
-              return;
-            }
-            router.setParams({ settings: DEFAULT_ACCOUNT_SETTINGS_SECTION });
-          }}
-        />
-      }
-      onClaimContext={() => {
-        frame.closeNav();
-        // `push`, not `replace`: somebody who opens this out of curiosity from
-        // inside a context they were given must be able to come back with the
-        // browser's own Back button. Onboarding has no Back of its own — step 1
-        // claims a name out of a global namespace with no release path — so the
-        // one before it is the only one there can be.
-        router.push(WELCOME_ROUTE);
-      }}
-      /*
-        Offered to everybody, and only in the live console.
-
-        `data.demo` is the condition rather than a role or a count: the landing
-        page renders this same rail as a picture, and an entry there would open
-        a flow that immediately refuses for want of a session. How many
-        workspaces one account may own is the control plane's rule, enforced in
-        `createWorkspace`'s transaction, and it is not restated here — see
-        `onCreateWorkspace` on `ConsoleRail`.
-      */
-      onCreateWorkspace={
-        data.demo
-          ? undefined
-          : () => {
-              frame.closeNav();
-              // `push` for `onClaimContext`'s reason, and one more: this flow
-              // is genuinely abandonable up to the moment the name is claimed,
-              // so Back has somewhere real to return to.
-              router.push(NEW_WORKSPACE_ROUTE);
-            }
-      }
-      /*
-        Meeting capture, which until now had no way in from anywhere in the app.
-
-        `push`, not `replace`, for `onClaimContext`'s reason and one more: the
-        meetings screens sit outside the console entirely, so the browser's Back
-        — and the phone's — is the way back to the note somebody left. A
-        `replace` would take that away and leave `/meetings` with no route out
-        of it at all.
-
-        Offered in the live console only, like `onCreateWorkspace`: the landing
-        page mounts the rail as a picture and has nowhere to send anybody.
-      */
-      onOpenMeetings={
-        data.demo
-          ? undefined
-          : () => {
-              frame.closeNav();
-              router.push(MEETINGS_ROUTE);
-            }
-      }
-      onLeaveContext={(id) => {
-        frame.closeNav();
-        // Fire-and-watch: the membership row deleting is what removes the
-        // context from the rail, via the subscription. Land on the Map so the
-        // person is not left standing in a context they just left.
-        void data.leaveContext?.(id);
-        router.replace("/console");
-      }}
-    />
-  );
-}
 
 /**
  * The thumb's half of the console.
@@ -1775,6 +1664,7 @@ function Account({
  * CLAUDE.md) means somebody has to be able to see which one they got.
  */
 function Status({ data }: { data: ConsoleData }) {
+  const styles = useThemedStyles(makeStyles);
   const segments = statusSegments({
     editor: data.files.editor,
     conflictCheck: data.files.editor.conflictCheck,
@@ -1795,12 +1685,26 @@ function Status({ data }: { data: ConsoleData }) {
     sync: data.files.sync,
   });
 
-  return <StatusBar segments={segments} testID="console-status" />;
+  /*
+    Transparent and unpadded, because the frame's own status row already draws
+    the surface, the height, the top rule and the gutter — and puts the tree's
+    toggle inside it. Two copies of that chrome is a second rule under the
+    first and the leading segment indented twice.
+  */
+  return <StatusBar segments={segments} style={styles.statusBar} testID="console-status" />;
 }
 
 export { Avatar };
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  statusBar: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 0,
+    borderTopWidth: 0,
+    backgroundColor: "transparent",
+  },
+
   switcher: {
     flexDirection: "row",
     alignItems: "center",

@@ -432,12 +432,23 @@ function TabItem({
 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  /**
+   * The band the tabs sit in — **and it draws nothing**.
+   *
+   * It had `surface2` behind it and a hairline under it, so the strip was a
+   * third horizontal band stacked between the title bar and the note. The
+   * frame separates its regions by value now (`chromeSurface`/`pageSurface`,
+   * `tokens.ts`), and this band sits on the page: a fill of its own would be a
+   * fourth surface, and the rule would draw a boundary the active tab is
+   * specifically trying not to have.
+   *
+   * `alignItems: "flex-end"` because the tabs are shorter than the band and
+   * hang from its foot, which is what lets the active one meet the note.
+   */
   strip: {
     flexDirection: "row",
-    alignItems: "stretch",
-    backgroundColor: colors.surface2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
+    alignItems: "flex-end",
+    paddingHorizontal: 6,
   },
 
   scroller: {
@@ -458,32 +469,40 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "stretch",
   },
 
+  /**
+   * One tab.
+   *
+   * **It was a cell in a table and it is a tab now.** Every tab carried a
+   * right hairline and a 2pt transparent top border, and the active one was a
+   * `surface` fill under an accent rule — a VS Code strip, which is a row of
+   * boxes that happen to be adjacent. The design draws what a browser draws:
+   * the active tab is the *same surface as the page*, rounded at its top
+   * corners, so it reads as the front edge of what is below it, and the idle
+   * ones are labels with no box at all.
+   *
+   * No borders, so nothing has to reserve space for a highlight it does not
+   * have — which is what the "always two pixels" note was working around.
+   */
   tab: {
     flexDirection: "row",
     alignItems: "center",
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
-    // Always two pixels, so the accent on the active tab does not shift every
-    // other tab down by the height of its own highlight.
-    borderTopWidth: 2,
-    borderTopColor: "transparent",
+    borderTopLeftRadius: radii.sm,
+    borderTopRightRadius: radii.sm,
   },
 
-  tabActive: {
-    backgroundColor: colors.surface,
-    borderTopColor: colors.accent,
-  },
+  /** The page's own surface, which is what makes this the page's front edge. */
+  tabActive: { backgroundColor: colors.pageSurface },
 
-  tabIdle: {
-    backgroundColor: colors.surface2,
-  },
+  tabIdle: { backgroundColor: "transparent" },
 
   hit: {
     flexDirection: "row",
     alignItems: "center",
     flexGrow: 1,
     flexShrink: 1,
-    paddingVertical: 8,
+    // 7 rather than 8: the tab's own 2pt top border is gone, so 8 here would
+    // make the tab a point taller than it was rather than the same height.
+    paddingVertical: 7,
     paddingLeft: 12,
     paddingRight: 6,
   },
@@ -494,7 +513,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     maxWidth: MAX_LABEL_WIDTH,
   },
 
-  labelActive: { color: colors.text },
+  /** The one in front is the one you are reading, so it carries the weight. */
+  labelActive: { color: colors.text, fontWeight: "500" },
   labelIdle: { color: colors.muted },
 
   /** The one cue that says "the next single click replaces this". */

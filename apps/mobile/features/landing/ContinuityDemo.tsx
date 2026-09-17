@@ -201,8 +201,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.hintBorder,
   },
   teamMark: {
-    backgroundColor: "rgba(139,92,246,.13)",
-    borderColor: "rgba(139,92,246,.26)",
+    backgroundColor: colors.sharedWash,
+    borderColor: colors.sharedBorder,
   },
   markText: {
     fontFamily: fonts.mono,

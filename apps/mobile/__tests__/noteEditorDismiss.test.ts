@@ -160,7 +160,6 @@ function mount(): Mounted {
     root.render(
       createElement(AppFrame, {
         switcher: null,
-        rail: () => null,
         status: null,
         onSearch: () => {},
         children: createElement(Host),

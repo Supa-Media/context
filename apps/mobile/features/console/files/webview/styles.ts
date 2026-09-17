@@ -38,9 +38,14 @@ export function guestStyles(): string {
     Defaults, so a bundle whose first theme message never arrives is a readable
     note rather than black text on a black ground. The host overwrites all of
     these on mount; these are the values only a broken bridge sees, and they are
-    deliberately neutral rather than either palette. (No backticks in any
-    comment below: this whole stylesheet is inside a template literal and one
-    would end the string.)
+    deliberately neutral rather than either palette — which the focus ring and
+    the selection were not: both were blue-600 at two alphas, left over from the
+    palette that was retired, in the two variables that paint what somebody has
+    selected in their own note. They are greys now, which is what "neutral"
+    said. The live values are the palette's and come over the bridge; see
+    LiveEditor.web.tsx and host.ts. (No backticks in any comment below: this
+    whole stylesheet is inside a template literal and one would end the
+    string.)
   */
   --lp-bg: #ffffff;
   --lp-content: #222222;
@@ -50,9 +55,9 @@ export function guestStyles(): string {
   --lp-code-bg: rgba(0,0,0,0.06);
   --lp-line: rgba(0,0,0,0.09);
   --lp-line-strong: rgba(0,0,0,0.18);
-  --lp-focus-ring: rgba(37,99,235,0.10);
+  --lp-focus-ring: rgba(0,0,0,0.08);
   --lp-caret: #222222;
-  --lp-selection: rgba(37,99,235,0.20);
+  --lp-selection: rgba(0,0,0,0.14);
   --lp-mono: ui-monospace, Menlo, monospace;
   --lp-body: -apple-system, system-ui, sans-serif;
 

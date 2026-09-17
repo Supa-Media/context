@@ -211,9 +211,19 @@ describe("the one line in the editor that promises durability", () => {
  * of them — a dimmed control that cannot be pressed — reads as an unstyled
  * placeholder rather than as status.
  *
- * The sentence is the one to keep: `NoteEditor`'s own header calls it the
+ * The sentence was the one to keep: `NoteEditor`'s own header calls it the
  * strongest promise in the product, and it is the half that can tell the truth
  * about a queued draft and a cached body, which a one-word pill cannot.
+ *
+ * **The same duplication then arrived from the other side, and the resolution
+ * is the other way round.** `AppFrame`'s status bar spent its whole life
+ * shrunk to its contents at the leading edge; spread across its row, with the
+ * note's path in it, it puts `status.ts`'s `save` segment — "Saved", "Cached
+ * copy", "Queued", "Not saved" — 40pt below this sentence, at the same edge.
+ * One claim, twice, again. The bar wins this time because it is the surface
+ * that never moves and because every distinction the sentence draws is an arm
+ * of `saveSegment` with the sentence itself as its detail. So the editor draws
+ * the sentence **at compact only**, where there is no status bar at all.
  *
  * **The pill is not deleted, because in two states it is not status at all.**
  * `saveButton` is pressable exactly where autosave refuses — a failed save and
@@ -229,19 +239,22 @@ describe("the one line in the editor that promises durability", () => {
 describe("the save status at a pointer width", () => {
   const DESKTOP = 1440;
 
-  test("a desktop says it once, in the sentence, and draws no pill beside it", () => {
+  test("a desktop says it nowhere here, because the status bar says it", () => {
     const editor = mount(opened, DESKTOP);
 
-    expect(editor.text).toContain("Saved in your bucket");
-    // The pill the browser measured at x=1344 — the same claim, one row over.
+    // Not the pill the browser measured at x=1344 — the same claim, one row
+    // over — and not the sentence either: `AppFrame`'s bar carries it, and
+    // this component is not inside one.
     expect(editor.buttons()).not.toContain("Saved");
+    expect(editor.text).not.toContain("Saved in your bucket");
     editor.unmount();
   });
 
-  test("and says exactly what a phone says, in the same words", () => {
+  test("and a phone, which has no status bar, still says it in words", () => {
     /*
       The defect was a difference between form factors, so this is the
-      assertion that the difference is gone rather than moved.
+      assertion that the difference is *deliberate* rather than accidental: one
+      claim per density, in the surface that density has.
 
       **Each is read and unmounted before the next is mounted.** `mount` sets
       the width on the document and fires a `resize`, which every editor still
@@ -252,7 +265,6 @@ describe("the save status at a pointer width", () => {
     */
     const desktop = mount(opened, DESKTOP);
     const desktopSaveControls = desktop.buttons().filter((label) => label.startsWith("Save"));
-    expect(desktop.text).toContain("Saved in your bucket");
     desktop.unmount();
 
     const phone = mount(opened, 390);
@@ -260,6 +272,7 @@ describe("the save status at a pointer width", () => {
     expect(phone.text).toContain("Saved in your bucket");
     phone.unmount();
 
+    // The *controls* are the same at both, which is what this always held.
     expect(desktopSaveControls).toEqual(phoneSaveControls);
   });
 
@@ -273,7 +286,7 @@ describe("the save status at a pointer width", () => {
       editorReducer(opened, { type: "edited", text: "# Pilot\n\nTyped.\n" }),
       { type: "saveStarted" },
     );
-    const savingEditor = mount(saving, DESKTOP);
+    const savingEditor = mount(saving, 390);
     expect(savingEditor.text).toContain("Saving…");
     expect(savingEditor.buttons()).not.toContain("Saving…");
     savingEditor.unmount();
@@ -282,7 +295,7 @@ describe("the save status at a pointer width", () => {
       editorReducer(opened, { type: "edited", text: "changed" }),
       { type: "saveQueued", message: "No connection, so this is written down on this device." },
     );
-    const queuedEditor = mount(queued, DESKTOP);
+    const queuedEditor = mount(queued, 390);
     expect(queuedEditor.text).toContain("written down on this device");
     expect(queuedEditor.buttons()).not.toContain("Queued");
     // The way out of a queued draft is untouched.
@@ -319,9 +332,13 @@ describe("the save status at a pointer width", () => {
     const dirty = editorReducer(opened, { type: "edited", text: "# Pilot\n\nStill typing.\n" });
     const editor = mount(dirty, DESKTOP);
 
-    expect(editor.text).toContain("Saving soon");
+    // The sentence is the phone's; the button is every density's.
     expect(editor.buttons()).toContain("Save");
     editor.unmount();
+
+    const phone = mount(dirty, 390);
+    expect(phone.text).toContain("Saving soon");
+    phone.unmount();
   });
 
   function mountAndRead(state: EditorState): string[] {
