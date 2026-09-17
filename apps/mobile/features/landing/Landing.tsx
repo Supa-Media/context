@@ -26,6 +26,10 @@ import { ContinuityDemo } from "./ContinuityDemo";
 import {
   ALSO_ON_PHONE,
   ARCHITECTURE_CTA,
+  NAV_ARCHITECTURE,
+  NAV_GITHUB,
+  NAV_SIGN_IN,
+  NAV_START,
   DEMO_FOOT,
   HERO_ALSO,
   HERO_LINE_ONE,
@@ -110,13 +114,102 @@ export function Landing() {
         <StageBackdrop />
 
         <View style={styles.wrap}>
+          {/*
+            A NAVIGATION BAR, WHERE THERE WAS A WORDMARK AND A BADGE.
+
+            The canvas opens with one: a mark, a row of links, and the two
+            actions at the trailing edge. What was here was the wordmark alone
+            at the leading edge and the MIT badge at the trailing one — which
+            reads as a title bar rather than as a way around a site, and left
+            "sign in" reachable only by scrolling to a button in the middle of
+            the hero.
+
+            Two links, not the canvas's four. It draws Docs / Architecture /
+            Pricing / GitHub and only two of those have anywhere to go; a nav
+            with a `Docs` link and no docs is a worse page than one with two
+            links. See `copy.ts`.
+
+            The badge is not deleted — it moves into the hero as the eyebrow
+            the canvas draws there, which is where a licence claim belongs:
+            beside the sentence it qualifies rather than opposite the logo.
+          */}
           <View style={styles.top}>
-            <Text variant="mark">
-              Context
-              <Text variant="mark" style={styles.markSuffix}>
-                .lc
+            <View style={styles.navLead}>
+              <View style={styles.navMark} aria-hidden>
+                <View style={styles.navMarkRule} />
+                <View style={styles.navMarkRule} />
+                <View style={[styles.navMarkRule, styles.navMarkRuleShort]} />
+              </View>
+              <Text variant="mark">
+                Context
+                <Text variant="mark" style={styles.markSuffix}>
+                  .lc
+                </Text>
               </Text>
-            </Text>
+            </View>
+
+            <View style={styles.navLinks}>
+              <PressRow
+                accessibilityLabel={ARCHITECTURE_CTA}
+                role="link"
+                radius={radii.xs}
+                style={styles.navLink}
+                hoverStyle={styles.navLinkHover}
+                onPress={() => {
+                  void Linking.openURL(ARCHITECTURE_URL);
+                }}
+              >
+                <Text variant="navLink">{NAV_ARCHITECTURE}</Text>
+              </PressRow>
+              <PressRow
+                accessibilityLabel={LICENCE_BADGE}
+                role="link"
+                radius={radii.xs}
+                style={styles.navLink}
+                hoverStyle={styles.navLinkHover}
+                onPress={() => {
+                  void Linking.openURL(REPO_URL);
+                }}
+              >
+                <Text variant="navLink">{NAV_GITHUB}</Text>
+              </PressRow>
+            </View>
+
+            <View style={styles.navActions}>
+              <PressRow
+                accessibilityLabel={NAV_SIGN_IN}
+                role="link"
+                radius={radii.xs}
+                style={styles.navLink}
+                hoverStyle={styles.navLinkHover}
+                onPress={() => router.push(landingCtaHref(auth))}
+              >
+                <Text variant="navAction">{NAV_SIGN_IN}</Text>
+              </PressRow>
+              <Button
+                label={NAV_START}
+                variant="accent"
+                style={styles.navStart}
+                onPress={() => router.push(landingCtaHref(auth))}
+                testID="landing-nav-cta"
+              />
+            </View>
+          </View>
+
+          <View style={styles.hero}>
+            {/*
+              THE LICENCE CLAIM, BESIDE THE SENTENCE IT QUALIFIES.
+
+              It was a bordered badge opposite the wordmark, where it read as
+              chrome. The canvas puts an eyebrow pill at the head of the text
+              column — "MIT · self-hostable" with a live dot — because "you can
+              take this and run it yourself" is part of the pitch rather than a
+              fact about the header.
+
+              The same target as before: it opens the repository, and its
+              accessible name is still the whole sentence rather than the three
+              words drawn in it.
+            */}
             <PressRow
               accessibilityLabel={LICENCE_BADGE}
               role="link"
@@ -127,17 +220,10 @@ export function Landing() {
                 void Linking.openURL(REPO_URL);
               }}
             >
-              <Text variant="badge" style={styles.badgeStar} aria-hidden>
-                ★
-              </Text>
-              <Text variant="badge" style={styles.badgeStrong}>
-                MIT
-              </Text>
-              <Text variant="badge"> open source</Text>
+              <View style={styles.badgeDot} aria-hidden />
+              <Text variant="badge">{LICENCE_FOOT}</Text>
             </PressRow>
-          </View>
 
-          <View style={styles.hero}>
             {/*
               Two `Text` elements rather than one with a `\n` and a nested span:
               RN-Web lays a nested `<Text>` out as an inline box that does not
@@ -165,7 +251,7 @@ export function Landing() {
               <View style={styles.actionRow}>
               <Button
                 label={landingCtaLabel(auth)}
-                variant="white"
+                variant="accent"
                 onPress={() => router.push(landingCtaHref(auth))}
                 testID="landing-cta"
                 style={styles.actionItem}
@@ -290,29 +376,92 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginHorizontal: "auto",
     paddingHorizontal: layout.gutter,
   },
-  /** `.top` */
+  /**
+   * `.top` — a navigation bar rather than a title row.
+   *
+   * `gap` plus `marginLeft: "auto"` on the actions instead of
+   * `justifyContent: "space-between"`: with three groups, `space-between`
+   * pushes the links to the middle of a 1312pt page, where they read as a
+   * third, unrelated thing. The canvas keeps the mark and the links together
+   * at the leading edge and sends only the actions to the far side.
+   *
+   * 72pt tall, which is the canvas's, and taller than the 52 the old
+   * `paddingVertical: 26` produced around a single line of text.
+   */
   top: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 26,
+    height: 72,
+    gap: 40,
   },
+  navLead: { flexDirection: "row", alignItems: "center", gap: 9 },
+  /**
+   * The mark: three rules in a rounded square, which is the canvas's glyph.
+   *
+   * Drawn as `View`s rather than an `Icon`, because `Icon`'s set is the
+   * application's vocabulary — a gear, a lock, a chevron — and a logo is not a
+   * member of it. Three stacked rules with the last one short is a page of
+   * text, which is what the product holds.
+   */
+  navMark: {
+    width: 22,
+    height: 22,
+    borderRadius: 7,
+    backgroundColor: colors.text,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2.5,
+    paddingHorizontal: 5,
+  },
+  navMarkRule: {
+    height: 1.5,
+    alignSelf: "stretch",
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+  },
+  navMarkRuleShort: { alignSelf: "flex-start", width: 6 },
+  navLinks: { flexDirection: "row", alignItems: "center", gap: 10 },
+  navActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginLeft: "auto",
+  },
+  navLink: { paddingVertical: 8, paddingHorizontal: 8 },
+  navLinkHover: { backgroundColor: colors.surface2 },
+  /*
+    The nav's button is smaller than the hero's, deliberately: they are the
+    same action, and a second full-size CTA 80pt above the first is two
+    primaries on one screen. `Button`'s own `accent` padding is the hero's, so
+    this overrides it rather than adding a variant for one call site.
+  */
+  navStart: { paddingVertical: 8, paddingHorizontal: 16 },
   markSuffix: { color: colors.muted },
-  /** `.badge` */
+  /**
+   * `.badge` — the hero's eyebrow now, not the header's trim.
+   *
+   * Filled rather than outlined, and the fill is a token. It was
+   * `rgba(255,255,255,.03)` over a `lineStrong` border, which is two things
+   * wrong at once: a literal white wash is invisible on paper, where the
+   * ground is already near-white, and an outlined pill at the head of a text
+   * column reads as a control somebody forgot to finish. `rowSelected` is the
+   * canvas's `#E6E1D6` on paper and `#2B2825` on graphite — a step of ground,
+   * which is what an eyebrow wants.
+   */
   badge: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "flex-start",
     gap: 8,
-    paddingVertical: 7,
-    paddingHorizontal: 15,
+    height: 28,
+    paddingHorizontal: 12,
+    marginBottom: 28,
     borderRadius: radii.pill,
-    borderWidth: 1,
-    borderColor: colors.lineStrong,
-    backgroundColor: "rgba(255,255,255,.03)",
+    backgroundColor: colors.rowSelected,
   },
-  badgeHover: { backgroundColor: "rgba(255,255,255,.06)" },
-  badgeStar: { color: colors.warn },
-  badgeStrong: { color: colors.text, fontWeight: "600" },
+  badgeHover: { backgroundColor: colors.surface3 },
+  /** A live dot, in the tone that means "working" everywhere else here. */
+  badgeDot: { width: 6, height: 6, borderRadius: radii.pill, backgroundColor: colors.ok },
 
   /** `.hero` */
   /*
@@ -327,7 +476,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   */
   hero: {
     alignItems: "flex-start",
-    paddingTop: 88,
+    // 72, not 88: the eyebrow pill now sits at the top of this column and
+    // carries 28 of its own beneath it, so the old gap would compound.
+    paddingTop: 72,
   },
   heroHeading: {
     alignItems: "flex-start",

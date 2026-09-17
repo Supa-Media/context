@@ -46,6 +46,34 @@ const variantsFor = (colors: Colors) => ({
     fontWeight: "500",
     color: colors.text2,
   },
+  /**
+   * A link in the landing page's navigation bar.
+   *
+   * `muted` rather than `text`: the nav is how you get around, not what the
+   * page is about, and four items in full ink at the top of a hero is a row
+   * competing with the headline under it. The canvas draws them at 14 in its
+   * mid grey, which is what this is.
+   */
+  navLink: {
+    fontFamily: fonts.body,
+    fontSize: t.meta + 2,
+    lineHeight: leading(t.meta + 2, 1.55),
+    color: colors.muted,
+  },
+  /**
+   * The nav's quiet action — "Sign in" beside the filled one.
+   *
+   * Full ink and a weight, where `navLink` is neither: this is an action, and
+   * the pair either side of the gap has to read as a pair. It is the same
+   * weight as the button's label, in the page's own ink rather than on a fill.
+   */
+  navAction: {
+    fontFamily: fonts.body,
+    fontSize: t.meta + 2,
+    lineHeight: leading(t.meta + 2, 1.55),
+    fontWeight: "500",
+    color: colors.text,
+  },
   /** `.hero .sub` — the paragraph under the hero. Size is passed in (clamped). */
   heroSub: {
     fontFamily: fonts.body,
