@@ -1593,7 +1593,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   empty: { padding: space.x6, gap: space.x2, maxWidth: 520 },
   emptyLine: { marginTop: 2 },
-
-  folder: { gap: 14, maxWidth: 620 },
-  folderAction: { alignSelf: "flex-start" },
 });
