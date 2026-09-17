@@ -15,8 +15,7 @@
 export const FONT_STYLESHEET_ID = "context-fonts";
 
 export const FONT_STYLESHEET_HREF =
-  "https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700" +
-  "&family=Instrument+Sans:wght@400;500;600" +
+  "https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600" +
   "&family=JetBrains+Mono:wght@400;500&display=swap";
 
 export function ensureFontsLoaded(): void {
