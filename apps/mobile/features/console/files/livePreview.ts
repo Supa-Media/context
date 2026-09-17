@@ -427,6 +427,38 @@ export function frontmatterRange(doc: string): { from: number; to: number } | nu
   return null;
 }
 
+/**
+ * The frontmatter block **and the blank lines it is separated from the note
+ * by**, which is what gets put away while nobody is in it.
+ *
+ * `frontmatterRange` stops at the closing fence, because that is where the
+ * YAML document stops and its own tests hold it there. Hiding exactly that
+ * left a 28pt empty line above the note's title — the separator, still
+ * separating, with nothing left on the other side of it. A blank line after a
+ * fence exists because the fence is there; with the fence gone it is a gap
+ * nobody typed for its own sake.
+ *
+ * Returns `null` for the same documents `frontmatterRange` does. The walk
+ * stops at the first line with anything on it, so a note that is frontmatter
+ * and then blank lines and then nothing gives back the whole document — which
+ * is correct and is the case `openingCaret` clamps.
+ */
+export function frontmatterBlock(doc: string): { from: number; to: number } | null {
+  const front = frontmatterRange(doc);
+  if (front === null) return null;
+
+  let to = front.to;
+  for (let at = to + 1; at <= doc.length; ) {
+    const end = doc.indexOf("\n", at);
+    const lineEnd = end === -1 ? doc.length : end;
+    if (doc.slice(at, lineEnd).trim() !== "") break;
+    to = lineEnd;
+    if (end === -1) break;
+    at = end + 1;
+  }
+  return { from: front.from, to };
+}
+
 const frontmatterLine = Decoration.line({ class: "cm-lp-frontmatter" });
 
 /**
@@ -1878,7 +1910,15 @@ export function decorationsFor(state: EditorState): DecorationSet {
     The grammar reads the closing `---` as a setext underline, so without this
     a note's metadata is drawn as its largest heading.
   */
-  const front = frontmatterRange(state.doc.toString());
+  const doc = state.doc.toString();
+  const front = frontmatterRange(doc);
+  /*
+    The block plus the blank lines under it — see `frontmatterBlock`. Used for
+    both halves of the fold, so the range that is hidden is the same range that
+    reveals when the caret reaches it: a caret on a blank line that is not on
+    screen would otherwise be a caret nothing could put anywhere.
+  */
+  const frontBlock = frontmatterBlock(doc);
   /*
     Passed to the three list/table passes below rather than recomputed by each
     of them, which is not only tidiness: `frontmatterRange` reads the whole
@@ -1910,7 +1950,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
    * block is one object: revealing the two keys and not the fences would be
    * the half-hidden state this file's own header calls the worst of both.
    */
-  const frontShown = front !== null && selectionTouches(front, selection);
+  const frontShown = frontBlock !== null && selectionTouches(frontBlock, selection);
 
   const lines: Range<Decoration>[] = [];
   if (front !== null && frontShown) {
@@ -2066,8 +2106,8 @@ export function decorationsFor(state: EditorState): DecorationSet {
     `RangeSet.of` wants document order; everything `hiddenMarkRanges` returned
     is after `front.to`, which its own comment is about.
   */
-  if (front !== null && !frontShown) {
-    hides.unshift(frontmatterHidden.range(front.from, front.to));
+  if (frontBlock !== null && !frontShown) {
+    hides.unshift(frontmatterHidden.range(frontBlock.from, frontBlock.to));
   }
 
   /*

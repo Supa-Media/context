@@ -53,6 +53,7 @@ import { closeFindPanel, findInNote } from "./findInNote";
 import {
   editability,
   editorExtensions,
+  openingCaret,
   replaceDocument,
   runCommand,
   type HandlerRef,
@@ -622,6 +623,13 @@ export function LiveEditor({
 
     const state = EditorState.create({
       doc: value,
+      /*
+        The start of the writing, not the start of the file — see
+        `openingCaret`. Without it a note that opens with a `---` block opens
+        with the caret inside it, and `livePreview.ts` reveals what the caret
+        is in, so hiding the block bought nothing on the one screen it was for.
+      */
+      selection: { anchor: openingCaret(value) },
       // `editorExtensions` rather than `editorStateFor`: the latter is the
       // shared entry point `webview/guest.ts` also calls, and K2's find-in-note
       // keymap (`findInNote`) is web-only — see that module's header for why

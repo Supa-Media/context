@@ -24,6 +24,7 @@ import { highlightTree } from "@lezer/highlight";
 import {
   decorationsFor,
   fenceHighlightStyle,
+  frontmatterBlock,
   frontmatterRange,
   completedTasks,
   hangingIndents,
@@ -39,6 +40,7 @@ import {
   tableGrids,
   tableLines,
 } from "../features/console/files/livePreview";
+import { openingCaret } from "../features/console/files/editorSetup";
 
 /**
  * Positions are clamped to the document, so a test can say "cursor far away"
@@ -1090,7 +1092,7 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
    * reaches CodeMirror.
    */
   function blockHidden(doc: string, cursor: number | [number, number] = 500): boolean {
-    const range = frontmatterRange(doc);
+    const range = frontmatterBlock(doc);
     if (range === null) return false;
     const set = decorationsFor(stateFor(doc, cursor));
     const iter = set.iter();
@@ -1225,6 +1227,84 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
     expect(frontmatterRange("")).toBeNull();
     expect(frontmatterRange("---")).toBeNull();
     expect(frontmatterRange("---\n")).toBeNull();
+  });
+
+  /**
+   * WHERE THE CARET GOES WHEN A NOTE IS OPENED, AND WHY IT IS NOT ZERO.
+   *
+   * **This is the other half of hiding the block, and without it the first
+   * half buys nothing.** The reveal rule is "the selection is in it", a note
+   * opens with the caret at position 0, and position 0 is inside the
+   * frontmatter — so every note with a `---` block opened showing exactly the
+   * four lines that hiding it was for.
+   *
+   * `openingCaret` is `editorSetup.ts`'s, spent by both hosts: the web editor
+   * passes it to `EditorState.create` and `replaceDocument` sets it on every
+   * note switch, so a note opened cold and a note switched to agree.
+   *
+   * The alternative was to make the *reveal* rule cleverer — "touching the
+   * range does not count at its first character" — and it is worse for a
+   * reason worth writing down: ⌘↑ and Home both put the caret at 0
+   * deliberately, and a rule that ignores 0 is a rule that cannot be used to
+   * get there.
+   */
+  describe("the caret opens on the writing, not on the filing", () => {
+    test("past the block and the blank line under it, on the body's first line", () => {
+      const block = frontmatterBlock(FRONT)!;
+      expect(openingCaret(FRONT)).toBe(block.to + 1);
+      // And it really is past it, which is what stops the block revealing.
+      // `frontmatterBlock`, not `frontmatterRange`: a caret one character past
+      // the *fence* is on the blank line, which is hidden with it.
+      expect(
+        selectionTouches(block, [
+          { from: openingCaret(FRONT), to: openingCaret(FRONT) },
+        ]),
+      ).toBe(false);
+    });
+
+    test("and the blank line under the fence is hidden with it", () => {
+      /*
+        `frontmatterRange` stops at the closing fence, because that is where
+        the YAML stops. Hiding exactly that left a 28pt empty line above the
+        note's title — the separator, still separating, with nothing on the
+        other side of it. Measured in Chromium at 1440×900 before this: the
+        first `.cm-line` was an empty box 28pt tall between the breadcrumb and
+        the heading.
+      */
+      const block = frontmatterBlock(FRONT)!;
+      expect(FRONT.slice(block.from, block.to)).toBe(
+        "---\nupdated: 2026-08-26\nstatus: active\n---\n",
+      );
+      // And the fence's own range is unchanged, which is what its own tests
+      // above hold and what the YAML document actually is.
+      expect(frontmatterRange(FRONT)!.to).toBeLessThan(block.to);
+    });
+
+    test("several blank lines go too, and a line with anything on it stops the walk", () => {
+      const spaced = "---\na: 1\n---\n\n\n\n# Title\n";
+      expect(spaced.slice(0, frontmatterBlock(spaced)!.to)).toBe("---\na: 1\n---\n\n\n");
+      expect(openingCaret(spaced)).toBe(spaced.indexOf("# Title"));
+
+      const tight = "---\na: 1\n---\n# Title\n";
+      expect(frontmatterBlock(tight)!.to).toBe(frontmatterRange(tight)!.to);
+    });
+
+    test("and zero for every document that has no block", () => {
+      // A note with no frontmatter, an unterminated fence, and a rule further
+      // down: `frontmatterRange` answers `null` for all three, and the first
+      // character is the first character.
+      expect(openingCaret("# Just a note\n")).toBe(0);
+      expect(openingCaret("---\nno closing fence\n")).toBe(0);
+      expect(openingCaret("# Title\n\n---\nnot: frontmatter\n---\n")).toBe(0);
+      expect(openingCaret("")).toBe(0);
+    });
+
+    test("and never past the end of a document that ends at the fence", () => {
+      // A file that is frontmatter and nothing else has no body line to land
+      // on. `min` is what stops the caret being one past the document.
+      const only = "---\na: 1\n---";
+      expect(openingCaret(only)).toBe(only.length);
+    });
   });
 });
 
