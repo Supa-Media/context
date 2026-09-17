@@ -62,6 +62,7 @@ import {
   replacePrivacyRulesBlock,
   visibilityOf,
 } from "./privacy";
+import { type Clearance } from "./clearance";
 import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
 import { indexByName, rewriteLinks } from "@context/shared/src/links";
 import { HISTORY_PREFIX, IMAGE_PREFIX, legacyStorageKey } from "@context/shared/src/storageLayout.cjs";
@@ -510,15 +511,23 @@ export interface FolderListing {
  */
 function folderVisibleAtScope(
   folderPath: string,
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): boolean {
   if (isPlumbing(folderPath)) return false;
-  if (scope === "private") return true;
-  if (visibilityOf(folderPath, rules) === "team") return true;
+  if (clearance.scope === "private") return true;
+  // A name the caller answers to reaches a folder exactly as `team` does, and
+  // every `=== "team"` below had to learn the same thing. Missing one of them
+  // is the defect that made a group-named folder readable by direct path and
+  // absent from the tree: reachable only by somebody who already knew its name,
+  // which is the failure `folderVisibleAtScope`'s own nested-rule scan exists
+  // to prevent.
+  const reaches = (visibility: Visibility) =>
+    visibility === "team" || clearance.names.has(visibility);
+  if (reaches(visibilityOf(folderPath, rules))) return true;
   for (const [path, visibility] of overrides) {
-    if (visibility === "team" && path.startsWith(`${folderPath}/`)) return true;
+    if (reaches(visibility) && path.startsWith(`${folderPath}/`)) return true;
   }
   // A nested `team` *rule* has to count for the same reason a nested `team`
   // exception does, and only the exceptions were being scanned. An owner who
@@ -529,7 +538,7 @@ function folderVisibleAtScope(
   // name. The disclosure is the same one the loop above already accepts: an
   // ancestor's name, in exchange for the shared folder being reachable.
   for (const rule of rules) {
-    if (rule.vis === "team" && rule.prefix.startsWith(`${folderPath}/`)) return true;
+    if (reaches(rule.vis) && rule.prefix.startsWith(`${folderPath}/`)) return true;
   }
   return false;
 }
@@ -557,7 +566,7 @@ function describeFile(
 /** One folder's immediate children, as the tree renders them. */
 export async function listFolder(
   store: FileStore,
-  options: { path: string; scope: Scope },
+  options: { path: string; clearance: Clearance },
 ): Promise<FolderListing> {
   const folder = requireFolderPath(options.path);
   const state = await loadPrivacyState(store);
@@ -584,7 +593,7 @@ export async function listFolder(
   // an empty listing is what an absent folder already produces here.
   const withheld =
     folder !== "" &&
-    !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides);
+    !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides);
 
   const prefix = folder === "" ? "" : `${folder}/`;
   const entries: FileEntry[] = [];
@@ -617,7 +626,7 @@ export async function listFolder(
     for (const object of listing.objects ?? []) {
       const key = object.key;
       if (key === prefix) continue; // a zero-byte folder marker, if a tool made one
-      if (!canSee(key, options.scope, state.rules, state.overrides)) continue;
+      if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
       const meta = object as { size?: number; uploaded?: Date | string | number };
       entries.push(
         describeFile(key, state.rules, state.overrides, {
@@ -631,7 +640,7 @@ export async function listFolder(
     for (const raw of listing.delimitedPrefixes ?? []) {
       const child = raw.replace(/\/+$/, "");
       if (!child || seenFolders.has(child)) continue;
-      if (!folderVisibleAtScope(child, options.scope, state.rules, state.overrides)) continue;
+      if (!folderVisibleAtScope(child, options.clearance, state.rules, state.overrides)) continue;
       seenFolders.add(child);
       const inherited = visibilityOf(child, state.rules);
       entries.push({
@@ -689,7 +698,7 @@ export async function listFolder(
     // own tree.
     folderDefault: withheld
       ? visibilityOf(
-          nearestVisibleAncestor(folder, options.scope, state.rules, state.overrides),
+          nearestVisibleAncestor(folder, options.clearance, state.rules, state.overrides),
           state.rules,
         )
       : folder === ""
@@ -742,12 +751,12 @@ export async function listFolder(
  */
 function nearestVisibleAncestor(
   folder: string,
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): string {
   let at = parentOf(folder);
-  while (at !== "" && !folderVisibleAtScope(at, scope, rules, overrides)) {
+  while (at !== "" && !folderVisibleAtScope(at, clearance, rules, overrides)) {
     at = parentOf(at);
   }
   return at;
@@ -789,11 +798,11 @@ export interface FileContents {
 
 export async function readFile(
   store: FileStore,
-  options: { path: string; scope: Scope },
+  options: { path: string; clearance: Clearance },
 ): Promise<FileContents> {
   const path = requirePath(options.path);
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const object = await store.get(path);
   if (object === null) throw notFound();
@@ -889,7 +898,7 @@ const VAULT_IMPORT_CONTENT_TYPES = new Set([
  */
 export async function importVaultFiles(
   store: FileStore,
-  options: { files: readonly VaultImportFile[]; scope: Scope },
+  options: { files: readonly VaultImportFile[]; clearance: Clearance },
 ): Promise<VaultImportResult> {
   const state = await loadPrivacyState(store);
   const conditional = store.capabilities?.conditionalWrite === true;
@@ -903,7 +912,7 @@ export async function importVaultFiles(
     if (path.split("/").some((segment) => segment.startsWith("."))) {
       throw new FileOpError("PATH_INVALID", "Hidden folders are not uploaded from an Obsidian vault.");
     }
-    if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+    if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
     if (file.bytes.byteLength > MAX_VAULT_IMPORT_FILE_BYTES) {
       throw new FileOpError(
         "CONTENT_TOO_LARGE",
@@ -956,7 +965,7 @@ export async function writeFile(
     path: string;
     text: string;
     expectedEtag?: string;
-    scope: Scope;
+    clearance: Clearance;
     now: number;
   },
 ): Promise<WriteResult> {
@@ -973,7 +982,7 @@ export async function writeFile(
   // Creating a note somewhere a team caller cannot see means creating a note
   // they immediately could not read. Refuse with the same not-found as a note
   // that is not theirs, so the folder's default is not an oracle either.
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const existing = await store.get(path);
 
@@ -1111,7 +1120,7 @@ export async function removeNoteEncryption(
     path: string;
     text: string;
     expectedEtag?: string;
-    scope: Scope;
+    clearance: Clearance;
   },
 ): Promise<WriteResult> {
   const path = requirePath(options.path);
@@ -1134,7 +1143,7 @@ export async function removeNoteEncryption(
   }
 
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const existing = await store.get(path);
   if (existing === null) throw notFound();
@@ -1251,7 +1260,7 @@ export function renderFolderPlaceholder(folder: string): string {
  */
 export async function createFolder(
   store: FileStore,
-  options: { path: string; scope: Scope; now: number },
+  options: { path: string; clearance: Clearance; now: number },
 ): Promise<{ path: string; readme: string }> {
   const folder = requirePath(options.path);
   if (isPlumbing(folder)) {
@@ -1273,7 +1282,7 @@ export async function createFolder(
   // the same residual `writeFile` has, and one `listFolder` already exposes
   // by returning an empty listing rather than `notFound()` there.
   const state = await loadPrivacyState(store);
-  if (!folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+  if (!folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
     throw notFound();
   }
 
@@ -1285,7 +1294,7 @@ export async function createFolder(
   await writeFile(store, {
     path: readme,
     text: renderFolderPlaceholder(folder),
-    scope: options.scope,
+    clearance: options.clearance,
     now: options.now,
   });
   return { path: folder, readme };
@@ -1416,7 +1425,7 @@ function walkStopped(stop: WalkStop, tooLarge: string): FileOpError {
 async function keysUnder(
   store: FileStore,
   folder: string,
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): Promise<{ keys: string[]; withheld: string[] }> {
@@ -1442,7 +1451,7 @@ async function keysUnder(
     const listing = await store.list({ prefix, cursor, limit: 1000 });
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
-      if (!canSee(object.key, scope, rules, overrides)) {
+      if (!canSee(object.key, clearance.scope, rules, overrides, clearance.names)) {
         withheld.push(object.key);
         continue;
       }
@@ -1728,12 +1737,12 @@ export interface ReferenceRewrite {
  */
 function assertDestinationsVisible(
   destinations: readonly string[],
-  scope: Scope,
+  clearance: Clearance,
   rules: readonly PrivacyRule[],
   overrides: ReadonlyMap<string, Visibility>,
 ): void {
   for (const destination of destinations) {
-    if (scope === "private") continue;
+    if (clearance.scope === "private") continue;
     // The place, then the note that may already be in it.
     //
     // `visibilityOf` and not `effectiveVisibility`: they differ only when the
@@ -1787,12 +1796,12 @@ function assertDestinationsVisible(
  */
 function assertMoveDestinationsVisible(
   pairs: readonly { source: string; destination: string }[],
-  scope: Scope,
+  clearance: Clearance,
   state: PrivacyState,
 ): void {
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
-    scope,
+    clearance,
     state.rules,
     state.overrides,
   );
@@ -1943,7 +1952,7 @@ function rulesAfterFolderMove(
  */
 export async function movePath(
   store: FileStore,
-  options: { from: string; to: string; scope: Scope; now: number; expectedEtag?: string },
+  options: { from: string; to: string; clearance: Clearance; now: number; expectedEtag?: string },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -1968,7 +1977,7 @@ export async function movePath(
   }
 
   const state = await loadPrivacyState(store);
-  if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
   if (options.expectedEtag !== undefined && sourceIsFolder) {
@@ -1999,7 +2008,7 @@ export async function movePath(
   // left a file key shadowing a folder prefix — a shape a Dropbox binding
   // cannot even represent.
   if (await isFolder(store, to)) {
-    if (!folderVisibleAtScope(to, options.scope, state.rules, state.overrides)) throw notFound();
+    if (!folderVisibleAtScope(to, options.clearance, state.rules, state.overrides)) throw notFound();
     throw new FileOpError(
       "DESTINATION_EXISTS",
       sourceIsFolder
@@ -2008,12 +2017,12 @@ export async function movePath(
     );
   }
   if (sourceIsFolder && (await store.get(to)) !== null) {
-    if (!canSee(to, options.scope, state.rules, state.overrides)) throw notFound();
+    if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
     throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${to}.`);
   }
 
   const walk = sourceIsFolder
-    ? await keysUnder(store, from, options.scope, state.rules, state.overrides)
+    ? await keysUnder(store, from, options.clearance, state.rules, state.overrides)
     : { keys: [from], withheld: [] };
   const sources = walk.keys;
   if (!sourceIsFolder && (await store.get(from)) === null) throw notFound();
@@ -2026,7 +2035,7 @@ export async function movePath(
     destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
   }));
 
-  assertMoveDestinationsVisible(pairs, options.scope, state);
+  assertMoveDestinationsVisible(pairs, options.clearance, state);
 
   for (const pair of pairs) {
     if ((await store.get(pair.destination)) !== null) {
@@ -2077,7 +2086,7 @@ export async function movePath(
   });
 
   const references = await rewriteReferences(store, {
-    scope: options.scope,
+    clearance: options.clearance,
     state,
     renames: new Map(pairs.map((pair) => [pair.source, pair.destination])),
   });
@@ -2129,7 +2138,7 @@ const LINK_SCAN_CAP = 4000;
 async function rewriteReferences(
   store: FileStore,
   options: {
-    scope: Scope;
+    clearance: Clearance;
     state: PrivacyState;
     renames: ReadonlyMap<string, string>;
   },
@@ -2138,7 +2147,7 @@ async function rewriteReferences(
 
   let keys: string[] | null;
   try {
-    keys = await visibleNoteKeys(store, options.scope, options.state);
+    keys = await visibleNoteKeys(store, options.clearance, options.state);
   } catch {
     return { notes: 0, links: 0, capped: true };
   }
@@ -2184,7 +2193,7 @@ async function rewriteReferences(
  */
 async function visibleNoteKeys(
   store: FileStore,
-  scope: Scope,
+  clearance: Clearance,
   state: PrivacyState,
 ): Promise<string[] | null> {
   const keys: string[] = [];
@@ -2195,7 +2204,7 @@ async function visibleNoteKeys(
     for (const object of listing.objects ?? []) {
       if (isPlumbing(object.key)) continue;
       if (!object.key.endsWith(".md")) continue;
-      if (!canSee(object.key, scope, state.rules, state.overrides)) continue;
+      if (!canSee(object.key, clearance.scope, state.rules, state.overrides, clearance.names)) continue;
       if (seen.has(object.key)) continue;
       seen.add(object.key);
       keys.push(object.key);
@@ -2220,7 +2229,7 @@ async function visibleNoteKeys(
  */
 export async function copyPath(
   store: FileStore,
-  options: { from: string; to: string; scope: Scope },
+  options: { from: string; to: string; clearance: Clearance },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -2237,13 +2246,13 @@ export async function copyPath(
   }
 
   const state = await loadPrivacyState(store);
-  if (!canSee(from, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, from);
   // `copyPrivacy` only ever writes a per-note exception, never a folder rule,
   // so a partial copy has nothing to get wrong and `filtered` is not needed.
   const sources = sourceIsFolder
-    ? (await keysUnder(store, from, options.scope, state.rules, state.overrides)).keys
+    ? (await keysUnder(store, from, options.clearance, state.rules, state.overrides)).keys
     : [from];
   if (sources.length === 0) throw notFound();
 
@@ -2254,7 +2263,7 @@ export async function copyPath(
 
   assertDestinationsVisible(
     pairs.map((pair) => pair.destination),
-    options.scope,
+    options.clearance,
     state.rules,
     state.overrides,
   );
@@ -2298,7 +2307,7 @@ export async function copyPath(
 /** Copy beside itself under a free "… copy" name. */
 export async function duplicatePath(
   store: FileStore,
-  options: { path: string; scope: Scope },
+  options: { path: string; clearance: Clearance },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   const parent = parentOf(path);
@@ -2319,7 +2328,7 @@ export async function duplicatePath(
   // `FILE_NOT_FOUND`, for two notes the caller could see neither of.
   assertWritablePath(path);
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   // Every name in use, not every name this caller can see.
   //
@@ -2338,7 +2347,7 @@ export async function duplicatePath(
   // overclaim this file has already made once.
   const taken = await namesInUse(store, parent);
   const destination = joinPath(parent, duplicateName(baseName(path), taken));
-  return await copyPath(store, { from: path, to: destination, scope: options.scope });
+  return await copyPath(store, { from: path, to: destination, clearance: options.clearance });
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2358,7 +2367,7 @@ export async function duplicatePath(
  */
 export async function archivePath(
   store: FileStore,
-  options: { path: string; scope: Scope; now: number },
+  options: { path: string; clearance: Clearance; now: number },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   if (path === ARCHIVE_ROOT || path.startsWith(`${ARCHIVE_ROOT}/`)) {
@@ -2389,7 +2398,7 @@ export async function archivePath(
   // wrong thing. Naming `4-archive` discloses nothing they do not already
   // hold: whether it is shared is visible in their own root listing.
   const state = await loadPrivacyState(store);
-  if (options.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
+  if (options.clearance.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
     throw new FileOpError(
       "ARCHIVE_UNAVAILABLE",
       "Archiving needs access to 4-archive, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.",
@@ -2399,7 +2408,7 @@ export async function archivePath(
   return await movePath(store, {
     from: path,
     to: destination,
-    scope: options.scope,
+    clearance: options.clearance,
     now: options.now,
   });
 }
@@ -2411,16 +2420,16 @@ export async function archivePath(
  */
 export async function trashPath(
   store: FileStore,
-  options: { path: string; scope: Scope; now: number },
+  options: { path: string; clearance: Clearance; now: number },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   assertWritablePath(path);
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, path);
   const walk = sourceIsFolder
-    ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
+    ? await keysUnder(store, path, options.clearance, state.rules, state.overrides)
     : { keys: [path], withheld: [] };
   if (!sourceIsFolder && (await store.get(path)) === null) throw notFound();
   if (walk.keys.length === 0) throw notFound();
@@ -2442,7 +2451,7 @@ export async function trashPath(
 /** Restore one trash result to the original path encoded inside its key. */
 export async function restoreTrashedPath(
   store: FileStore,
-  options: { from: string; to: string; scope: Scope },
+  options: { from: string; to: string; clearance: Clearance },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -2452,7 +2461,7 @@ export async function restoreTrashedPath(
     throw new FileOpError("PATH_INVALID", "That trash entry does not match this restore path.");
   }
   const state = await loadPrivacyState(store);
-  if (!canSee(to, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(to, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
   const sources = await hiddenKeysAt(store, from);
   if (sources.length === 0) throw notFound();
   const sourceIsFolder = sources.length > 1 || sources[0] !== from;
@@ -2551,7 +2560,7 @@ export interface DeleteResult {
  */
 export async function deletePath(
   store: FileStore,
-  options: { path: string; confirmation: string; scope: Scope; expectedEtag?: string },
+  options: { path: string; confirmation: string; clearance: Clearance; expectedEtag?: string },
 ): Promise<DeleteResult> {
   if (options.confirmation !== DELETE_CONFIRMATION) {
     throw new FileOpError(
@@ -2563,7 +2572,7 @@ export async function deletePath(
   assertWritablePath(path);
 
   const state = await loadPrivacyState(store);
-  if (!canSee(path, options.scope, state.rules, state.overrides)) throw notFound();
+  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const targetIsFolder = await isFolder(store, path);
   if (options.expectedEtag !== undefined && targetIsFolder) {
@@ -2573,7 +2582,7 @@ export async function deletePath(
     throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely delete plugin files.");
   }
   const walk = targetIsFolder
-    ? await keysUnder(store, path, options.scope, state.rules, state.overrides)
+    ? await keysUnder(store, path, options.clearance, state.rules, state.overrides)
     : { keys: [path], withheld: await namesExtending(store, path) };
   const keys = walk.keys;
   if (!targetIsFolder && (await store.get(path)) === null) throw notFound();
@@ -2607,7 +2616,7 @@ export async function deletePath(
     // names can extend its own, so it always names what it deleted and lets
     // longest match decide — otherwise an owner deleting `a.md` takes the
     // history of `a.md.notes.md`, which they never asked to delete.
-    targetIsFolder && options.scope === "private" ? null : keys,
+    targetIsFolder && options.clearance.scope === "private" ? null : keys,
     walk.withheld,
   )) {
     await store.delete(key);
@@ -2712,9 +2721,9 @@ export interface PrivacyResetResult {
  */
 export async function resetPrivacyManifest(
   store: FileStore,
-  options: { scope: Scope; now: number },
+  options: { clearance: Clearance; now: number },
 ): Promise<PrivacyResetResult> {
-  if (options.scope !== "private") {
+  if (options.clearance.scope !== "private") {
     // Same wording an editor gets for anything else out of reach, and the
     // action above refuses first. Belt and braces: this module is the one an
     // in-memory test can drive, so the rule is asserted where it can be.
@@ -2922,13 +2931,13 @@ export interface VisibilityResult {
  */
 export async function setVisibility(
   store: FileStore,
-  options: { path: string; visibility: Visibility; scope: Scope },
+  options: { path: string; visibility: Visibility; clearance: Clearance },
 ): Promise<VisibilityResult> {
   // Visibility writes rewrite `privacy.md`, the file that decides what every
   // non-owner may see — so only the owner's scope may reach them. The public
   // actions already require `owner`; this refusal is the layer that survives
   // a future caller getting that minimum wrong, the way the console once did.
-  if (options.scope !== "private") {
+  if (options.clearance.scope !== "private") {
     throw new FileOpError(
       "PATH_INVALID",
       "Only the owner of a context can change visibility.",
@@ -2954,7 +2963,7 @@ export async function setVisibility(
   }
 
   const state = await mutateManifest(store, (current) => {
-    if (!canSee(path, options.scope, current.rules, current.overrides)) throw notFound();
+    if (!canSee(path, options.clearance.scope, current.rules, current.overrides, options.clearance.names)) throw notFound();
     const overrides = nextOverrides(path, options.visibility, current.rules, current.overrides);
     return { rules: current.rules, overrides };
   });
@@ -2983,13 +2992,13 @@ export async function setVisibility(
  */
 export async function setFolderVisibility(
   store: FileStore,
-  options: { path: string; visibility: Visibility; scope: Scope },
+  options: { path: string; visibility: Visibility; clearance: Clearance },
 ): Promise<VisibilityResult> {
   // Visibility writes rewrite `privacy.md`, the file that decides what every
   // non-owner may see — so only the owner's scope may reach them. The public
   // actions already require `owner`; this refusal is the layer that survives
   // a future caller getting that minimum wrong, the way the console once did.
-  if (options.scope !== "private") {
+  if (options.clearance.scope !== "private") {
     throw new FileOpError(
       "PATH_INVALID",
       "Only the owner of a context can change visibility.",
@@ -3004,8 +3013,8 @@ export async function setFolderVisibility(
 
   await mutateManifest(store, (current) => {
     if (
-      options.scope !== "private" &&
-      !folderVisibleAtScope(folder, options.scope, current.rules, current.overrides)
+      options.clearance.scope !== "private" &&
+      !folderVisibleAtScope(folder, options.clearance, current.rules, current.overrides)
     ) {
       throw notFound();
     }
@@ -3501,11 +3510,12 @@ export interface SearchResults {
  */
 export async function notePathIndex(
   store: FileStore,
-  scope: Scope,
+  clearance: Clearance,
   budget: number = CONSOLE_SEARCH_BUDGET,
 ): Promise<{ paths: string[] } | null> {
   const state = await loadPrivacyState(store);
-  const isVisible = (path: string) => canSee(path, scope, state.rules, state.overrides);
+  const isVisible = (path: string) =>
+    canSee(path, clearance.scope, state.rules, state.overrides, clearance.names);
   const found = await loadDocmapPaths(
     store as unknown as Parameters<typeof loadDocmapPaths>[0],
     createSearchBudget(budget),
@@ -3520,7 +3530,7 @@ export async function searchNotes(
   options: {
     query: string;
     prefix?: string;
-    scope: Scope;
+    clearance: Clearance;
     budget?: number;
     /**
      * How far down the ranked list to read, in notes.
@@ -3571,12 +3581,12 @@ export async function searchNotes(
   // A folder this scope cannot open is not a narrower search, it is a folder
   // that does not exist — the same answer `listFolder` gives, so a prefix
   // cannot become a way to ask whether a hidden folder has anything in it.
-  if (folder !== "" && !folderVisibleAtScope(folder, options.scope, state.rules, state.overrides)) {
+  if (folder !== "" && !folderVisibleAtScope(folder, options.clearance, state.rules, state.overrides)) {
     throw notFound();
   }
 
   const isVisible = (path: string) =>
-    canSee(path, options.scope, state.rules, state.overrides);
+    canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names);
 
   // Clamped once, here, and handed to both index paths — a page depth that the
   // projection honoured and the R2 index did not would make the number of
@@ -3589,7 +3599,7 @@ export async function searchNotes(
       const fast = await answerFromProjection(projection, {
         query,
         prefix: folder,
-        tier: options.scope,
+        tier: options.clearance.scope,
         isVisible,
         limit,
       });

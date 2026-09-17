@@ -925,14 +925,19 @@ workspace's and a repaired manifest's roots stay shut. Sabotage in all three
 directions — no override, a `team` default, an override on a workspace — fails a
 different set.
 
-### Restricting a folder to *some* of a workspace is not built, and the shape it would take
+### Restricting a folder to *some* of a workspace, and the shape it took
+
+_Written while this was unbuilt, and kept because the three conditions are what
+it was eventually built to. Where it says a thing does not exist, read the note
+under each point. See "A `@name` rule grants somebody something" below for what
+landed and what it cost._
 
 The obvious next ask — "this folder has an owner and they want it seen by four of
-the eleven people here" — is real and is deliberately absent. `private` in a
-workspace answers a two-member version of it (owners, and nobody else) and
-nothing answers the general one. Three things would have to be true before it
-could be, and they are written down here so the next attempt starts from them
-rather than from a `visibility: "some"`:
+the eleven people here" — is real. `private` in a workspace answers a
+two-member version of it (owners, and nobody else) and nothing answered the
+general one. Three things would have to be true before it could be, and they
+are written down here so the next attempt starts from them rather than from a
+`visibility: "some"`:
 
 1. **It is not a third word in `privacy.md`.** `Scope` is two-valued in both
    engines and in every grant; a third value would have to be understood by the
@@ -946,17 +951,29 @@ rather than from a `visibility: "some"`:
    a directory of the workspace's membership sitting in a synced folder. A named
    *group* — a label the control plane resolves to members — is the only version
    that keeps the file legible, and groups are a control-plane object that does
-   not exist yet.
+   not exist yet. **Built**: `workspaceGroups`, and the manifest carries the
+   reference while the control plane holds the fact. The owner later admitted
+   one more subject beside a group — a **handle**, `@kola` — on the ground that
+   a handle is not a user id: it is legible, it is what the addressing scheme
+   already writes, and requiring a group of one to share a folder with one
+   colleague was the friction that made the whole feature unusable.
 3. **The scope has to reach the grant.** Tier is carried by the scope list and
    nothing else, on purpose ("The privacy tier is a scope on the grant, never an
    inference from a role"). A per-folder subset is not a tier, so it is either a
    fourth clamp dimension or it is enforced only at read time — and a read-time
    check that no grant records is the shape that eventually disagrees with what
-   the console shows.
+   the console shows. **Half-built, and the halves are deliberately separate.**
+   The console path resolves names from live membership, which is sound because
+   the caller *is* the person and the audit records them. The gateway path —
+   where a delegated AI client must reach a name only through a scope its grant
+   was issued with, never through its person's memberships — is the other half
+   and is not built; until it is, a connected client reaches no `@name` rule at
+   all, which is the failing-closed end of the gap.
 
-Until then the honest answer, and the one the layout step now gives, is: a
-folder is readable by the workspace or held back to its owners, and a single
-note can be shared with one named person through a revocable link.
+The answer while this was unbuilt — and it is left here because it is what every
+surface still said long after the pieces existed — was: a folder is readable by
+the workspace or held back to its owners, and a single note can be shared with
+one named person through a revocable link.
 
 ### Domain-based membership is not built, and would be an invitation, never a grant
 
@@ -990,3 +1007,100 @@ records who joined and under which rule, revoking the rule stops future joins
 without touching the people already in, and nothing anywhere reports who
 matched. It is a row and a resolver, not a new access model — which is why it is
 worth waiting to build properly rather than special-casing into the invite box.
+
+### A `@name` rule grants somebody something, which it did not until now
+
+`canSee` has taken a fifth argument — the set of names the caller reaches —
+since the group namespace existed, and **nothing in the product ever passed
+it**. A search for a five-argument call matched the function's own definition
+and nothing else, in both engines. So `2-areas/hr: @atlas-leads` was a rule
+with no read path: readable by owners, who read at `private` scope and
+short-circuit before any rule is consulted, and by nobody else on earth, the
+people in the group included.
+
+Everything around it was built. The manifest grammar parses and validates a
+group scope; `workspaceGroups` and `workspaceGroupMembers` exist with their
+intersection rule; `setNoteGroup` writes the rule with its own audit line;
+`GroupMaker` in the share dialog makes a group out of the people in front of
+you. The clearance those all rest on was never handed out, and no test noticed
+because every test asserted the *refusal* — which passed for the wrong reason,
+since nobody could see the note at all.
+
+**The clearance replaced `scope` rather than being added beside it**, and that
+is the whole implementation decision. Threading a second parameter through
+about twenty-five `canSee` sites in `fileOps.ts` risks missing one; every miss
+fails closed, which is the right direction and still a bug nobody would find
+for months. `Clearance` is one value, so a site that was not updated **does not
+compile** — `options.scope` no longer exists. The compiler is the completeness
+check, which is what this repository means by a guard nobody has checked not
+being a guard.
+
+**The engines' own signature did not change.** `canSee`'s fifth parameter stays
+optional in the port and in the gateway alike, because
+`__tests__/privacyEngine.test.ts` runs the gateway's actual functions beside the
+port over one matrix, and a port whose signature diverges from the original is
+the divergence rather than the repair. The threading is the control plane's
+business.
+
+**A name is not a tier.** `Scope` stays two-valued, in both engines and in every
+grant. A granted name widens what a `team` caller reaches one rule at a time and
+never becomes a third clearance — the same shape the unlisted share took, a row
+beside the manifest rather than a third word in it, and what keeps a rollback a
+lost feature rather than a bucket that reads private.
+
+**A rule may name one person, not only a group.** `@kola` resolves through
+`resolveAddressedUser` exactly as an invitation's addressee does — a `names`
+claim of `kind: "user"`, or the sole owner of a **personal** workspace with that
+slug, which is what a handle actually is today. Decided by the owner
+(2026-09-17) when the alternative on the table was minting a group of one behind
+their back. The cost, stated rather than left to be found: a colleague's handle
+now appears in `privacy.md`, a file that syncs to Obsidian and travels on
+export. A user **id** there would be unreadable and would make the manifest a
+directory of the workspace's membership; a handle the owner typed is neither,
+and it is the same string the addressing scheme already puts in `@name/path`.
+
+Five things hold it, and each fails a test in `__tests__/namedAccess.test.ts`:
+
+- **Both sources are intersected with live membership.** A group row grants
+  nothing by itself — the property `resolveGroupMembers` was written for, now
+  load-bearing on the read path rather than only on the console's listing — and
+  a handle is put back through `resolveAddressedUser` rather than trusted from
+  the gathering step, which `identifiersForUser`'s own docstring demands.
+  Dropping somebody from a group closes the folder without a byte of the
+  customer's storage being touched, which is the whole reason the reference and
+  the fact were split.
+- **A group of another workspace reaches nothing here.** The first version of
+  that test passed with *both* workspace checks deleted, because
+  `buildGroupName` derives the name from the slug, so the other workspace's
+  group was `@elsewhere-leads` and could never have matched `@atlas-leads`
+  whatever the resolver did — a test of the naming scheme wearing a tenancy
+  test's clothes. The real attack is a hand-edited manifest naming the *other*
+  workspace's group, whose membership its owner cannot see or resolve. Found by
+  sabotage, which is the only thing that could have found it.
+- **The resolver refuses on its own authority.** Its membership check and its
+  `resolveAddressedUser` authority are both unreachable through `listFiles` —
+  `authorizeFileAccess` refuses a non-member first, and a handle normally
+  resolves to its owner — and both were unprotected until sabotage said so.
+  They are driven directly now, because the guard that holds when a future
+  caller does neither is exactly the guard worth having.
+- **A pinned context grants no name.** The pin is reach rather than membership,
+  and `grantedNamesFor` answers from `workspaceMembers`, which a pinned reader
+  has no row in. Widening that would mean deciding a pin confers group
+  membership, which nobody has decided and no audit row would record.
+- **`folderVisibleAtScope` learned the same widening.** Every `=== "team"` in it
+  had to; missing one makes a group-named folder readable by direct path and
+  absent from the tree — reachable only by somebody who already knew its name,
+  the exact failure its own nested-rule scan exists to prevent.
+
+**What is knowingly not fixed here, and fails closed.** With fast search
+provisioned, a search by somebody the rule names silently omits the notes it
+names. `tablesForTier("team")` reads `notes_team_fts` alone and `project.js`
+files a `@name` note into `notes_private_fts` — deliberately, to keep its
+vocabulary out of every team caller's corpus statistics — so the projection
+never offers it, and a hit elsewhere short-circuits the fall-through to the R2
+index that would have found it. The R2 path is correct, because it filters on
+`isVisible` and nothing else. Fixing it means either putting every group note's
+corpus statistics into the ranking of a caller who may see one of them, which is
+the inference channel the table split exists to close, or a table per name,
+which is unbounded. That is a decision with a cost on both sides and it is not
+made here.

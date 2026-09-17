@@ -85,6 +85,8 @@ import {
   query,
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { type Clearance, clearanceOf, privateClearance } from "./lib/clearance";
+import { grantedNamesFor } from "./lib/grantedNames";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { inventoryPlugins, listManagedInstalls } from "../../mcp/src/plugins/inventory.js";
 import {
@@ -1509,6 +1511,15 @@ export const authorizeFileAccess = internalQuery({
   returns: v.object({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
     scope: v.union(v.literal("private"), v.literal("team")),
+    /**
+     * The `@name` rules this caller reaches, from live membership.
+     *
+     * Beside `scope` rather than folded into it, because a name is not a tier:
+     * `Scope` stays two-valued in both engines and in every grant, and a name
+     * widens what a `team` caller may reach one rule at a time. See
+     * `lib/clearance.ts`.
+     */
+    grantedNames: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
     if (args.minimum === "member") {
@@ -1517,9 +1528,21 @@ export const authorizeFileAccess = internalQuery({
       // "no such workspace", so catching it would mean guessing which one this
       // was. Asking the narrower question first needs no guess.
       if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+        /*
+          A PINNED CONTEXT REACHES NO NAMED RULE, AND THAT IS DELIBERATE.
+
+          The pin is *reach* rather than membership — its own decision says so
+          — and `grantedNamesFor` answers from `workspaceMembers`, which a
+          pinned reader has no row in. So they read at `team` and a folder
+          named to a group is absent, which is the same answer they get for a
+          private one. Widening this would mean deciding that a pin confers
+          group membership, which nobody has decided and which no audit row
+          would record.
+        */
         return {
           role: PINNED_CONTEXT_ROLE,
           scope: scopeForRole(PINNED_CONTEXT_ROLE),
+          grantedNames: [],
         };
       }
     }
@@ -1535,6 +1558,7 @@ export const authorizeFileAccess = internalQuery({
     return {
       role: access.membership.role,
       scope: scopeForRole(access.membership.role),
+      grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
     };
   },
 });
@@ -1559,6 +1583,16 @@ export const runFileOperation = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     scope: v.union(v.literal("private"), v.literal("team")),
+    /**
+     * The `@name` rules this caller answers to, resolved by
+     * `authorizeFileAccess` from live membership.
+     *
+     * Optional because a scheduled pass — a projection link, an index sweep —
+     * re-enters this action with no caller at all, and the honest clearance
+     * for nobody is no names. Every such pass runs `scope`-blind or at the
+     * owner's `private`, so none of them loses anything by it.
+     */
+    grantedNames: v.optional(v.array(v.string())),
     operation: operationValidator,
   },
   returns: operationResultValidator,
@@ -1837,7 +1871,7 @@ export const runFileOperation = internalAction({
 
     const result = await executeOperation(
       store,
-      args.scope,
+      clearanceOf(args.scope, args.grantedNames ?? []),
       args.operation as FileOperation,
       Date.now(),
       projection,
@@ -2872,7 +2906,12 @@ async function runGoogleGmailBackfill(
  */
 export async function executeOperation(
   store: FileStore,
-  scope: Scope,
+  /**
+   * What this caller is cleared for: their tier, and the `@name` rules they
+   * answer to. One value rather than a `Scope` plus a name set, because a site
+   * that was not updated must not compile — see `lib/clearance.ts`.
+   */
+  clearance: Clearance,
   operation: FileOperation,
   now: number = Date.now(),
   /**
@@ -3132,7 +3171,7 @@ export async function executeOperation(
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
           now,
           expectedEtag: operation.expectedEtag,
         });
@@ -3151,17 +3190,17 @@ export async function executeOperation(
         const deleted = await deletePath(store, {
           path: operation.path,
           confirmation: DELETE_CONFIRMATION,
-          scope,
+          clearance,
           expectedEtag: operation.expectedEtag,
         });
         return { kind: "deleted", ...deleted };
       }
       case "list": {
-        const listing = await listFolder(store, { path: operation.path, scope });
+        const listing = await listFolder(store, { path: operation.path, clearance });
         return { kind: "listing", ...listing };
       }
       case "read": {
-        const file = await readFile(store, { path: operation.path, scope });
+        const file = await readFile(store, { path: operation.path, clearance });
         return { kind: "file", ...file };
       }
       case "clearVault": {
@@ -3170,7 +3209,7 @@ export async function executeOperation(
       }
       case "ensurePrivacy": {
         try {
-          const reset = await resetPrivacyManifest(store, { scope, now });
+          const reset = await resetPrivacyManifest(store, { clearance, now });
           return { kind: "privacyReset", ...reset };
         } catch (error) {
           if (error instanceof FileOpError && error.code === "PRIVACY_MANIFEST_USABLE") {
@@ -3191,7 +3230,7 @@ export async function executeOperation(
           {
             query: operation.query,
             prefix: operation.prefix,
-            scope,
+            clearance,
             limit: operation.limit,
             refreshOnMiss: operation.refreshOnMiss,
           },
@@ -3200,7 +3239,7 @@ export async function executeOperation(
         return { kind: "searchResults", ...results };
       }
       case "notePaths": {
-        const found = await notePathIndex(store, scope);
+        const found = await notePathIndex(store, clearance);
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
       case "projectIndex": {
@@ -3235,7 +3274,7 @@ export async function executeOperation(
           path: operation.path,
           text: operation.text,
           expectedEtag: operation.expectedEtag,
-          scope,
+          clearance,
           now,
         });
         /*
@@ -3269,7 +3308,7 @@ export async function executeOperation(
         */
         await requireContextPlugin(store, "context-forms", "Markdown forms");
         const applied = await runFormAction(store, {
-          scope,
+          clearance,
           path: operation.path,
           formId: operation.formId,
           actor: { name: operation.actorName, role: operation.actorRole },
@@ -3282,7 +3321,7 @@ export async function executeOperation(
           path: operation.path,
           text: operation.text,
           expectedEtag: operation.expectedEtag,
-          scope,
+          clearance,
         });
         /*
           No form seeding on this path, and that is not an omission. Removing a
@@ -3294,14 +3333,14 @@ export async function executeOperation(
         return { kind: "written", ...written, forms: { created: [], occupied: [] } };
       }
       case "createFolder": {
-        const created = await createFolder(store, { path: operation.path, scope, now });
+        const created = await createFolder(store, { path: operation.path, clearance, now });
         return { kind: "folderCreated", ...created };
       }
       case "move": {
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
           now,
         });
         return { kind: "moved", ...moved };
@@ -3310,27 +3349,27 @@ export async function executeOperation(
         const copied = await copyPath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
         });
         return { kind: "moved", ...copied };
       }
       case "duplicate": {
-        const copied = await duplicatePath(store, { path: operation.path, scope });
+        const copied = await duplicatePath(store, { path: operation.path, clearance });
         return { kind: "moved", ...copied };
       }
       case "archive": {
-        const moved = await archivePath(store, { path: operation.path, scope, now });
+        const moved = await archivePath(store, { path: operation.path, clearance, now });
         return { kind: "moved", ...moved };
       }
       case "trash": {
-        const moved = await trashPath(store, { path: operation.path, scope, now });
+        const moved = await trashPath(store, { path: operation.path, clearance, now });
         return { kind: "moved", ...moved };
       }
       case "restoreTrash": {
         const moved = await restoreTrashedPath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
         });
         return { kind: "moved", ...moved };
       }
@@ -3338,7 +3377,7 @@ export async function executeOperation(
         const deleted = await deletePath(store, {
           path: operation.path,
           confirmation: operation.confirmation,
-          scope,
+          clearance,
         });
         return { kind: "deleted", ...deleted };
       }
@@ -3352,7 +3391,7 @@ export async function executeOperation(
         const result = await setVisibility(store, {
           path: operation.path,
           visibility: `@${operation.group}` as Visibility,
-          scope,
+          clearance,
         });
         return { kind: "visibility" as const, ...result };
       }
@@ -3360,7 +3399,7 @@ export async function executeOperation(
         const result = await setVisibility(store, {
           path: operation.path,
           visibility: operation.visibility,
-          scope,
+          clearance,
         });
         return { kind: "visibility", ...result };
       }
@@ -3368,7 +3407,7 @@ export async function executeOperation(
         const result = await setFolderVisibility(store, {
           path: operation.path,
           visibility: operation.visibility,
-          scope,
+          clearance,
         });
         return { kind: "visibility", ...result };
       }
@@ -3391,7 +3430,7 @@ export async function executeOperation(
       }
       case "importVault": {
         const imported = await importVaultFiles(store, {
-          scope,
+          clearance,
           files: operation.files.map((file) => ({
             ...file,
             bytes: new Uint8Array(file.bytes),
@@ -3404,7 +3443,7 @@ export async function executeOperation(
         return { kind: "image", bytes };
       }
       case "resetPrivacy": {
-        const result = await resetPrivacyManifest(store, { scope, now });
+        const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };
       }
       case "migrateStorage": {
@@ -3607,7 +3646,7 @@ export const listFiles = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "listing" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3615,6 +3654,7 @@ export const listFiles = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "list", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "listing" }>;
@@ -3638,7 +3678,7 @@ export const listObsidianPlugins = action({
     args,
   ): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -3646,6 +3686,7 @@ export const listObsidianPlugins = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "pluginInventory" },
     });
     return result as Extract<OperationResult, { kind: "pluginInventory" }>;
@@ -3671,7 +3712,7 @@ export const listManagedPlugins = action({
     args,
   ): Promise<Extract<OperationResult, { kind: "pluginManagedInstalls" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -3679,6 +3720,7 @@ export const listManagedPlugins = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "pluginManagedList" },
     });
     return result as Extract<OperationResult, { kind: "pluginManagedInstalls" }>;
@@ -3694,7 +3736,7 @@ export const readNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "file" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3702,6 +3744,7 @@ export const readNote = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "read", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "file" }>;
@@ -3730,7 +3773,7 @@ export const searchContext = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "searchResults" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3738,6 +3781,7 @@ export const searchContext = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "search", query: args.query, prefix: args.prefix },
     })) as Extract<OperationResult, { kind: "searchResults" }>;
 
@@ -3762,6 +3806,7 @@ export const searchContext = action({
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
         scope,
+        grantedNames,
         operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
       });
     }
@@ -3788,7 +3833,7 @@ export const notePaths = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "notePaths" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3796,6 +3841,7 @@ export const notePaths = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "notePaths" },
     });
     return result as Extract<OperationResult, { kind: "notePaths" }>;
@@ -4083,7 +4129,7 @@ export const writeNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4091,6 +4137,7 @@ export const writeNote = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "write",
         path: args.path,
@@ -4319,7 +4366,7 @@ export const clearVaultImportBatch = action({
   returns: vaultImportJobStatusValidator,
   handler: async (ctx, args): Promise<VaultImportJobStatus> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4342,6 +4389,7 @@ export const clearVaultImportBatch = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "clearVault", countOnly: job.replacement.phase === "counting" },
     }) as Extract<OperationResult, { kind: "vaultCleared" }>;
     const recorded = await ctx.runMutation(internal.functions.files.recordVaultClearBatch, {
@@ -4482,7 +4530,7 @@ export const importVaultJobBatch = action({
       throw new ConvexError({ code: "IMPORT_BATCH_INVALID", message: "That upload batch is too large." });
     }
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4519,6 +4567,7 @@ export const importVaultJobBatch = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "importVault", files: args.files },
     })) as Extract<OperationResult, { kind: "vaultImported" }>;
     if (
@@ -4531,6 +4580,7 @@ export const importVaultJobBatch = action({
       await ctx.runAction(internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
         scope,
+        grantedNames,
         operation: { kind: "ensurePrivacy" },
       });
     }
@@ -4594,7 +4644,7 @@ export const importVaultBatch = action({
     }
 
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4602,6 +4652,7 @@ export const importVaultBatch = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "importVault", files: args.files },
     })) as Extract<OperationResult, { kind: "vaultImported" }>;
 
@@ -4654,7 +4705,7 @@ export const removeNoteEncryption = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4662,6 +4713,7 @@ export const removeNoteEncryption = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "removeEncryption",
         path: args.path,
@@ -4691,7 +4743,7 @@ export const createDirectory = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "folderCreated" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4699,6 +4751,7 @@ export const createDirectory = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "createFolder", path: args.path },
     })) as Extract<OperationResult, { kind: "folderCreated" }>;
 
@@ -4721,7 +4774,7 @@ export const moveEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4729,6 +4782,7 @@ export const moveEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "move", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4752,7 +4806,7 @@ export const copyEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4760,6 +4814,7 @@ export const copyEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "copy", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4783,7 +4838,7 @@ export const duplicateEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4791,6 +4846,7 @@ export const duplicateEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "duplicate", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4819,7 +4875,7 @@ export const archiveEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4827,6 +4883,7 @@ export const archiveEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "archive", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4847,7 +4904,7 @@ export const trashEntry = action({
   returns: movedValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4855,6 +4912,7 @@ export const trashEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "trash", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -4874,7 +4932,7 @@ export const restoreTrashEntry = action({
   returns: movedValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4882,6 +4940,7 @@ export const restoreTrashEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "restoreTrash", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -4922,7 +4981,7 @@ export const deleteEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "deleted" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4930,6 +4989,7 @@ export const deleteEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "delete",
         path: args.path,
@@ -4968,7 +5028,7 @@ export const setNoteVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4976,6 +5036,7 @@ export const setNoteVisibility = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "setVisibility",
         path: args.path,
@@ -5024,7 +5085,7 @@ export const setNoteGroup = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -5049,6 +5110,7 @@ export const setNoteGroup = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "setNoteGroup", path: args.path, group: group.name },
     })) as Extract<OperationResult, { kind: "visibility" }>;
 
@@ -5087,7 +5149,7 @@ export const setDirectoryVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -5095,6 +5157,7 @@ export const setDirectoryVisibility = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "setFolderVisibility",
         path: args.path,
@@ -5134,7 +5197,7 @@ export const resetPrivacy = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "privacyReset" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -5142,6 +5205,7 @@ export const resetPrivacy = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "resetPrivacy" },
     })) as Extract<OperationResult, { kind: "privacyReset" }>;
 
