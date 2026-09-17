@@ -386,6 +386,121 @@ uncompressed, 880 kB gzipped, and until it has run there is no console. What
 changed is that the wait is now the app's own ground instead of the browser's
 white. Splitting that bundle is a separate piece of work and a real one.
 
+### Hue is meaning in this product, so the palette rations it
+
+Every accent the app shipped with was a Tailwind default — `#3B82F6` blue-500,
+`#34D399` emerald-400, `#FBBF24` amber-400, `#F87171` red-400, `#8B5CF6`
+violet-500, and blue-600 / red-600 / violet-600 in the light palette — and the
+greys carried a blue cast to agree with them. That is worth stating as the
+cause rather than as trivia: a palette assembled from a framework's defaults
+looks like every other application assembled from them, and no amount of layout
+work recovers from it.
+
+Both palettes are warm neutrals now, Graphite and Paper, and hue is spent only
+where it carries meaning. Five families, each with one job, placed far enough
+apart that no two can be confused at a glance:
+
+- **petrol** (`accent`, `hint*`, `codeKey`) — here, active, yours. It is the
+  only hue the interface spends on *itself*, and it is never a status.
+- **sage** (`ok*`) — synced, saved, bound.
+- **amber** (`warn*`, `warm`) — degraded but working.
+- **rust** (`crit*`) — conflict, revoked, failed.
+- **iris** (`shared*`, `graphColors.shared`) — somebody else's context. The one
+  cool hue in the budget, deliberately: a context that is not yours should not
+  sit in the same family as the paper it is drawn on.
+
+`private` — the resting state of very nearly everything in this product — wears
+no hue at all. That is what forces the neutral ramp to do real work, and why
+each palette has four surfaces rather than two near-identical ones.
+
+All 41 token names were kept through the repaint, which is why it moved no call
+site: a screen already reads its palette through `useColors()`.
+
+*What a "simplification" costs:* taking a colour from a framework's palette
+because it is to hand puts this product back in the crowd it was indistinguishable
+from, one token at a time — and spending a hue decoratively means the next real
+status has no hue left that reads as one. *The tests that fail if it is
+reversed:* `theme.test.ts` — `no retired framework default has crept back into
+either palette`, which names all eight by value; `muted clears AA on every dark
+surface, the old exception retired`; and the contrast and hierarchy suites that
+hold every text token to AA on every ground it is drawn on.
+
+### Nine sizes, two densities, and no literal font size anywhere
+
+`tokens.ts` tokenised colour, radii, spacing and shadows and did not tokenise
+type — so every screen picked its own size. Counted before this landed: **26
+distinct font sizes** across `features/` and `app/`, drifting in half-points,
+10 through 17 with nearly every half-step occupied. `Text.tsx`'s 33 variants
+held 16 sizes between them on their own.
+
+Nothing chose those gaps. They are what a variant added by copying its
+neighbour and nudging the number until one screen looks right leaves behind,
+and they are the single largest reason two panels built by two hands never
+looked related.
+
+`pointerType` and `touchType` are nine integer roles at two densities, and
+`typeFor(density)` picks one. Integers only: a half-point is never a decision,
+and it blurs on any display that is not 2x. The two densities are the same
+split `radii` had already argued for in prose and expressed as three lonely
+values; `title` gets **smaller** on a phone, because the measure there is about
+342pt against the console's 640 and a title that wraps to three lines is an
+obstacle rather than emphasis.
+
+The scale governs size only. Weight, tracking, colour and transform stay each
+variant's own.
+
+*What a "simplification" costs:* a tenth role, or one literal `fontSize` in one
+stylesheet, is how nine becomes twenty-six again — it always arrives as a single
+reasonable-looking addition, and the rendered difference between `13.5` and
+`pointerType.ui` is half a point, which no render test would be written to
+notice. *The tests that fail if it is reversed:* `typeScale.test.ts` — `the
+roles are the nine that were designed, and no more`; `pointer sizes are whole
+numbers` and its touch twin; `touch is not pointer scaled up — the title is
+deliberately smaller`; `no stylesheet carries a literal font size`, which reads
+every `.ts`/`.tsx` under `features/` and `app/` and names file and line; and
+`a rendered note keeps six heading levels`, which exists because mapping
+`NoteBody`'s `h5` and `h6` by value put both on `ui` and collapsed a level of
+the document with nothing failing.
+
+### One interface face, and `display` kept as a role with no face of its own
+
+The app shipped Onest beside Instrument Sans as a display face. Nothing in a
+console is set large enough to tell two humanist sans apart — measured, they
+differ by about a point and a half of width per hundred pixels and by nothing a
+reader would name — so it was a webfont fetched on every cold load that bought
+no identity.
+
+`fonts.display` stays as a token, because the role is real: a wordmark, a hero,
+a pane title and a legal page's headings want one voice and the interface wants
+another. Keeping the name means a face can be given back to that role later
+without touching a call site. It resolves to the body face for now, and the
+difference between display and interface is carried by size, weight and
+tracking.
+
+**The hero's width bound is a measured property of whichever face is in use.**
+`HERO_CH_RATIO` is the advance of "0" in the display face, and changing the
+face invalidates it. Re-measuring is not optional and estimating is the
+specific failure `hero.ts` was written about — the first port used a flat 780px
+and wrapped the headline to four lines. Measured in Chromium against the real
+woff2 at 98px, weight 500: Onest 65.00px per `ch`, Instrument Sans 66.00px.
+
+The method matters as much as the number: it was validated by reproducing the
+file's own previously recorded figures — 65.02px, and 846.3px for "Share your
+context." — before the new ones were trusted. A measurement that cannot
+reproduce the last one is not a measurement.
+
+*What a "simplification" costs:* a second display webfont is a download on
+every cold load for a distinction nobody can see at console sizes; and a hero
+ratio carried over from a retired face, or reasoned from character counts
+rather than measured, silently wraps the headline and pushes the console demo
+below the fold, which is the one thing the landing design is built around.
+Characters are not a proxy for width — the hero's own copy change shipped 14px
+wider than the reasoning beside it claimed. *The tests that fail if it is
+reversed:* `htmlShell.test.ts` pins the served document's font href to
+`fonts.web.ts`'s, so a family cannot be added to one alone; `consoleFormat.test.ts`
+holds `heroHeadingWidth(98)` above `HERO_LONGEST_LINE_AT_98` and across the
+clamped size range.
+
 ### A long press has two signals, because the platform is watching the finger too
 
 The gesture shipped, its tests passed, and on a phone it did nothing.
