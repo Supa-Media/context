@@ -2,6 +2,9 @@
 
 **Free your context. Share your context.**
 
+A simple notes app you, your team and your agents all work in — plain
+Markdown, in storage you own.
+
 Your context is the durable layer. AI clients are replaceable interfaces.
 
 Every context is a **workspace**. Your own is one per person, addressed by your
