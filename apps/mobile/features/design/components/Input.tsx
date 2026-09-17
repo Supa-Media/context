@@ -7,7 +7,7 @@ import {
   type TextInputProps,
   type ViewStyle,
 } from "react-native";
-import { fonts, radii } from "../tokens";
+import { fonts, pointerType as t, radii } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { FocusRing } from "./FocusRing";
 import { Text } from "./Text";
@@ -418,7 +418,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
     paddingHorizontal: 14,
     paddingVertical: 13,
-    fontSize: 15,
+    fontSize: t.lede,
     fontFamily: fonts.body,
     color: colors.text,
   },

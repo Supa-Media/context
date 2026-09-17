@@ -10,7 +10,7 @@ import {
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space } from "../../design/tokens";
+import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { useRightClick } from "./rightClick";
 import { crumbsFor, type Crumb } from "./crumbs";
@@ -486,8 +486,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * margin.
    */
   barPath: { paddingTop: 0, paddingBottom: space.x2, paddingHorizontal: 0, minHeight: 0 },
-  context: { color: colors.text2, fontSize: 11 },
-  separator: { color: colors.heroDim, fontSize: 11 },
+  context: { color: colors.text2, fontSize: t.label },
+  separator: { color: colors.heroDim, fontSize: t.label },
   /**
    * The folder segment's own visual box — `layout.crumbSegmentHeight` tall (an
    * 11px mono label inside 1pt of vertical padding, 22.15pt), on **every**
@@ -532,8 +532,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    */
   segmentTouch: { minHeight: layout.minTouchTarget, justifyContent: "center" },
   segmentHover: { backgroundColor: colors.surface3 },
-  folder: { color: colors.muted, fontSize: 11 },
-  leaf: { color: colors.text, fontSize: 11 },
+  folder: { color: colors.muted, fontSize: t.label },
+  leaf: { color: colors.text, fontSize: t.label },
   /**
    * The note's own name, at the size a title is read at.
    *
@@ -542,7 +542,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * is on screen, and the folders in front of it are the supporting detail
    * rather than the other way round.
    */
-  leafCompact: { fontSize: 14, fontWeight: "600" },
+  leafCompact: { fontSize: t.ui, fontWeight: "600" },
   /**
    * The leaf on the phone's band, which is a **row of controls** rather than a
    * line above a document.
@@ -554,7 +554,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * and the full-strength colour are what separate *where you are* from the
    * ancestors leading to it.
    */
-  pathLeaf: { color: colors.text, fontSize: 11, fontWeight: "600" },
+  pathLeaf: { color: colors.text, fontSize: t.label, fontWeight: "600" },
   spacer: { flex: 1, minWidth: space.x3 },
 
   chip: {
@@ -564,7 +564,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.pill,
     borderWidth: 1,
   },
-  chipLabel: { fontSize: 10, fontFamily: fonts.body },
+  chipLabel: { fontSize: t.label, fontFamily: fonts.body },
   chipTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
   chipTeamLabel: { color: colors.okText },
   chipPrivate: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },

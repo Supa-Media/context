@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii, space } from "../../design/tokens";
+import { fonts, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { kdfSupport } from "./kdf";
 import { UNSUPPORTED_TITLE } from "./acknowledgement";
@@ -346,7 +346,7 @@ function makeStyles(colors: Colors) {
     problem: { color: colors.warnText },
     input: {
       fontFamily: fonts.mono,
-      fontSize: 13,
+      fontSize: t.ui,
       color: colors.text,
       paddingVertical: 10,
       paddingHorizontal: 12,
@@ -363,7 +363,7 @@ function makeStyles(colors: Colors) {
       flex: 1,
       minHeight: 200,
       fontFamily: fonts.mono,
-      fontSize: 13,
+      fontSize: t.ui,
       color: colors.text,
       padding: 12,
       borderWidth: 1,

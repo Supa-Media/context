@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
-import { fonts, layout, radii } from "../design/tokens";
+import { fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -789,7 +789,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
   },
   roundPressed: { backgroundColor: colors.chromePressed },
-  title: { fontSize: 25, lineHeight: 30, letterSpacing: -0.75 },
+  title: {
+    fontSize: t.h2,
+    lineHeight: leading(t.h2, 1.2),
+    letterSpacing: tracking(t.h2, -0.03),
+  },
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -802,8 +806,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   metaDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.heroDim },
   section: { gap: 9 },
   quiet: { height: 120 },
-  summaryBody: { fontSize: 15, lineHeight: 24, color: colors.text },
-  segment: { fontSize: 14.5, lineHeight: 23, color: colors.text2 },
+  summaryBody: { fontSize: t.lede, lineHeight: 24, color: colors.text },
+  segment: { fontSize: t.lede, lineHeight: 23, color: colors.text2 },
   ownNotes: {
     borderRadius: radii.sheet,
     borderWidth: 1,
@@ -813,7 +817,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 10,
   },
   ownNotesHead: { flexDirection: "row", alignItems: "center", gap: 8 },
-  ownNotesBody: { fontSize: 14.5, lineHeight: 23, color: colors.text2 },
+  ownNotesBody: { fontSize: t.lede, lineHeight: 23, color: colors.text2 },
   /*
     `NotesPad` in a card rather than as the screen: no `flex: 1` (this sits in
     a scroll view, where a flexing child has no height to take), no reading
@@ -827,7 +831,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     minHeight: 92,
     paddingHorizontal: 0,
     paddingTop: 0,
-    fontSize: 14.5,
+    fontSize: t.lede,
     lineHeight: 23,
   },
   actions: { flexDirection: "row", gap: 9 },
@@ -862,7 +866,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   landingText: { flex: 1, minWidth: 0, gap: 3 },
   path: {
     fontFamily: fonts.mono,
-    fontSize: 11.5,
+    fontSize: t.label,
     color: colors.muted,
   },
 });

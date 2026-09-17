@@ -1,6 +1,6 @@
 import { memo, useRef } from "react";
 import { StyleSheet, TextInput, type StyleProp, type TextStyle } from "react-native";
-import { fonts, leading, layout } from "../../design/tokens";
+import { fonts, layout, leading, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
 /**
@@ -142,8 +142,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: layout.readingMargin,
     paddingTop: 4,
     fontFamily: fonts.body,
-    fontSize: 16,
-    lineHeight: leading(16, 1.62),
+    fontSize: t.body,
+    lineHeight: leading(t.body, 1.62),
     color: colors.text,
     // RN Web draws a focus ring on a `TextInput`; the pad *is* the screen, so a
     // ring around the whole of it is noise. Focus is unmistakable here — the

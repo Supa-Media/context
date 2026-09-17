@@ -8,7 +8,7 @@ import { Card } from "../../design/components/Card";
 import { CenteredScroll } from "../../design/components/CenteredScroll";
 import { StageBackdrop } from "../../design/components/StageBackdrop";
 import { Text } from "../../design/components/Text";
-import { clamp, fonts, leading } from "../../design/tokens";
+import { clamp, fonts, leading, pointerType as t } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { CONSOLE_ROUTE } from "../../auth/redirect";
 import { parseGoogleCallback, takeGoogleCompletionSecret } from "./google";
@@ -136,7 +136,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   mark: { alignSelf: "flex-start", marginBottom: 30 },
   markSuffix: { color: colors.muted },
   title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   stack: { width: "100%" },
   card: { width: "100%" },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },

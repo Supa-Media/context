@@ -1,6 +1,6 @@
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../design/components/Text";
-import { fonts, layout, radii } from "../design/tokens";
+import { fonts, layout, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 
 /** The one team-safe decision every card in the demo hands forward. */
@@ -149,7 +149,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   title: {
     marginTop: 13,
     fontFamily: fonts.display,
-    fontSize: 40,
+    fontSize: t.display,
     lineHeight: 44,
     letterSpacing: -1.15,
     fontWeight: "600",
@@ -160,7 +160,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 16,
     maxWidth: 640,
     fontFamily: fonts.body,
-    fontSize: 16,
+    fontSize: t.body,
     lineHeight: 25,
     color: colors.text2,
     textAlign: "center",
@@ -207,13 +207,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markText: {
     fontFamily: fonts.mono,
     color: colors.text,
-    fontSize: 16,
+    fontSize: t.body,
     fontWeight: "600",
   },
   identity: { flex: 1, minWidth: 0 },
   product: {
     fontFamily: fonts.body,
-    fontSize: 14,
+    fontSize: t.ui,
     lineHeight: 20,
     fontWeight: "600",
     color: colors.text,
@@ -227,7 +227,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   teamAccess: { backgroundColor: colors.sharedWash },
   accessText: {
     fontFamily: fonts.body,
-    fontSize: 10.5,
+    fontSize: t.label,
     lineHeight: 14,
     fontWeight: "600",
     color: colors.accentText,
@@ -257,7 +257,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   speaker: {
     marginBottom: 4,
     fontFamily: fonts.body,
-    fontSize: 10.5,
+    fontSize: t.label,
     lineHeight: 14,
     fontWeight: "600",
     textTransform: "uppercase",
@@ -267,7 +267,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   contextSpeaker: { color: colors.accentText },
   message: {
     fontFamily: fonts.body,
-    fontSize: 13.5,
+    fontSize: t.ui,
     lineHeight: 20.5,
     color: colors.text2,
   },
@@ -310,7 +310,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.ground,
     color: colors.muted,
     fontFamily: fonts.body,
-    fontSize: 22,
+    fontSize: t.h2,
     lineHeight: 24,
   },
   boundary: {
@@ -329,14 +329,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   boundaryStrong: {
     fontFamily: fonts.body,
-    fontSize: 13,
+    fontSize: t.ui,
     lineHeight: 20,
     fontWeight: "600",
     color: colors.text,
   },
   boundaryCopy: {
     fontFamily: fonts.body,
-    fontSize: 13,
+    fontSize: t.ui,
     lineHeight: 20,
     color: colors.muted,
     textAlign: "center",

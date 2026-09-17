@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
 import { useOptionalLocalSearchParams } from "../app/useOptionalLocalSearchParams";
-import { layout, radii } from "../design/tokens";
+import { layout, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -379,7 +379,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
   },
   roundPressed: { backgroundColor: colors.chromePressed },
-  title: { fontSize: 30, letterSpacing: -0.9, marginBottom: -6 },
+  title: {
+    fontSize: t.title,
+    letterSpacing: tracking(t.title, -0.03),
+    marginBottom: -6,
+  },
   section: { gap: 10 },
   card: {
     borderWidth: 1,
@@ -417,7 +421,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  recordChipLabel: { color: colors.ink, fontSize: 13 },
+  recordChipLabel: { color: colors.ink, fontSize: t.ui },
   chipPressed: { opacity: 0.8 },
   quiet: { height: 120 },
   empty: { gap: 12, paddingVertical: 24, alignItems: "flex-start" },

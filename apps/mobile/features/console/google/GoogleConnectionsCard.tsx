@@ -11,6 +11,7 @@ import { useArming } from "../useArming";
 import { destinationDraft } from "./destination";
 import { GOOGLE_REDIRECT_ORIGINS, type GoogleSyncServices } from "./google";
 import { useGoogleStart } from "./useGoogleStart";
+import { pointerType as t } from "../../design/tokens";
 
 /**
  * The floor, and the choices offered for it.
@@ -1043,7 +1044,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     // A path is read character by character, so the face that shows a `l` and
     // a `1` apart is the one it belongs in — the same reason every other path
     // in this console is `mono`.
-    fontSize: 12.5,
+    fontSize: t.meta,
   },
   editor: { marginTop: 12, gap: 10 },
   suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 8 },

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, test } from "@jest/globals";
@@ -85,34 +85,99 @@ describe("typeFor", () => {
 /* ------------------------------------------------------------------ *
  * The ratchet.
  *
- * `Text.tsx` is where the drift happened and where it would happen again: a
- * variant is added by copying its neighbour and nudging the number until one
- * screen looks right, which is how thirty-three variants came to hold sixteen
- * sizes. Reading the source is crude, and it is the only thing that catches a
- * literal before it ships — the rendered output of `fontSize: 13.5` and
- * `fontSize: pointerType.ui` differ by half a point, which no render test
- * would be written to notice.
+ * `Text.tsx` is where the drift started and the rest of the tree is where it
+ * spread: a hundred literal sizes across forty-three files, in the same
+ * half-point shape — 10.5 beside 11, 12.5 beside 12, 15.5 beside 15 and 16.
+ * They are all roles from this scale now, so the whole tree is held to it
+ * rather than one file.
  *
- * A variant that genuinely needs a size the scale does not have is a change to
- * the scale, made here, with a reviewer — not a number in the table.
+ * Reading source is crude, and it is the only thing that catches this before
+ * it ships: the rendered difference between `fontSize: 13.5` and
+ * `fontSize: pointerType.ui` is half a point, which no render test would ever
+ * be written to notice.
+ *
+ * A screen that genuinely needs a size the scale does not have is a change to
+ * the scale, made in `tokens.ts`, with a reviewer — not a number in a
+ * stylesheet. A numeric `fontSize` that is **data** rather than style — a
+ * drawing element carries its own, for instance — would need an exemption
+ * named here, with its reason. There are none today, which is the point.
  * ------------------------------------------------------------------ */
-describe("the variant table reads from the scale", () => {
-  const source = readFileSync(
-    join(__dirname, "..", "features", "design", "components", "Text.tsx"),
-    "utf8",
-  );
+describe("the tree draws its type from the scale", () => {
+  const ROOTS = ["features", "app"];
 
-  test("no variant carries a literal font size", () => {
-    const literals = [...source.matchAll(/fontSize: ([0-9.]+)/g)].map((match) => match[1]);
-    expect(literals).toEqual([]);
+  function sources(dir: string): string[] {
+    const entries = readdirSync(dir, { withFileTypes: true });
+    return entries.flatMap((entry) => {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) return entry.name === "node_modules" ? [] : sources(full);
+      // A committed build output is not a stylesheet anybody writes, and its
+      // minified identifiers collide with everything a source scan looks for.
+      // `.generated.ts` is checked by the workflow that rebuilds it instead.
+      if (entry.name.endsWith(".generated.ts")) return [];
+      return /\.tsx?$/.test(entry.name) ? [full] : [];
+    });
+  }
+
+  const files = ROOTS.flatMap((root) => sources(join(__dirname, "..", root)));
+
+  test("there is a tree to check", () => {
+    // A glob that silently matches nothing is a guard that always passes.
+    expect(files.length).toBeGreaterThan(200);
+  });
+
+  test("no stylesheet carries a literal font size", () => {
+    const offenders: string[] = [];
+    for (const file of files) {
+      const text = readFileSync(file, "utf8");
+      for (const match of text.matchAll(/fontSize: ([0-9][0-9.]*)/g)) {
+        const line = text.slice(0, match.index).split("\n").length;
+        offenders.push(`${file.split("/apps/mobile/")[1] ?? file}:${line} -> ${match[1]}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 
   test("every size it does name is a role that exists", () => {
     const roles = new Set(Object.keys(pointerType));
-    const named = [...source.matchAll(/fontSize: (?:pointerType|touchType|t)\.([A-Za-z0-9]+)/g)].map(
-      (match) => match[1],
-    );
-    expect(named.length).toBeGreaterThan(0);
-    expect(named.filter((role) => !roles.has(role))).toEqual([]);
+    const named: string[] = [];
+    for (const file of files) {
+      const text = readFileSync(file, "utf8");
+      for (const match of text.matchAll(
+        /fontSize: (?:pointerType|touchType|t)\.([A-Za-z0-9]+)/g,
+      )) {
+        named.push(match[1]!);
+      }
+    }
+    expect(named.length).toBeGreaterThan(50);
+    expect([...new Set(named.filter((role) => !roles.has(role)))]).toEqual([]);
+  });
+});
+
+/**
+ * The markdown heading ladder.
+ *
+ * Six levels need six sizes. Before the scale, `h5` and `h6` were 13.5 and 13
+ * — a difference no reader could see, but one the renderer still owed the
+ * document, and the obvious mapping put both on `ui` and collapsed a level
+ * without anything failing. This is the assertion that would have caught it.
+ */
+describe("a rendered note keeps six heading levels", () => {
+  const SIZES: Record<string, number> = pointerType as unknown as Record<string, number>;
+  const source = readFileSync(
+    join(__dirname, "..", "features", "share", "NoteBody.tsx"),
+    "utf8",
+  );
+
+  const ladder = [...source.matchAll(/h([1-6]): \{ fontSize: t\.([A-Za-z0-9]+)/g)].map(
+    (match) => ({ level: Number(match[1]), size: SIZES[match[2]!]! }),
+  );
+
+  test("all six are declared", () => {
+    expect(ladder.map((entry) => entry.level)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  test("each level is strictly smaller than the one above it", () => {
+    const sizes = ladder.map((entry) => entry.size);
+    expect(sizes.every((size, index) => index === 0 || size < sizes[index - 1]!)).toBe(true);
   });
 });

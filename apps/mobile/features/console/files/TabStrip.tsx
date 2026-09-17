@@ -13,7 +13,7 @@ import {
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { radii } from "../../design/tokens";
+import { pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { Menu } from "../../design/components/Menu";
 import { describeBinding, type Command } from "../../design/keymap";
@@ -489,7 +489,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
 
   label: {
-    fontSize: 13,
+    fontSize: t.ui,
     lineHeight: 18,
     maxWidth: MAX_LABEL_WIDTH,
   },

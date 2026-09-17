@@ -6,7 +6,7 @@ import { Menu } from "../../design/components/Menu";
 import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
 import { isApplePlatform } from "../../design/applePlatform";
-import { radii, space } from "../../design/tokens";
+import { pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
@@ -1044,7 +1044,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderColor: colors.line,
     backgroundColor: colors.well,
     color: colors.text,
-    fontSize: 12,
+    fontSize: t.meta,
   },
   iconButton: {
     width: 28,

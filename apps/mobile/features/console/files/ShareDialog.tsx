@@ -56,7 +56,7 @@ import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii } from "../../design/tokens";
+import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import {
@@ -1168,7 +1168,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
     color: colors.text,
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: t.ui,
     paddingVertical: 10,
     paddingHorizontal: 12,
   },

@@ -19,7 +19,7 @@ import { rank, type Match, type PaletteItem } from "../../console/files/palette"
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
 import { isApplePlatform } from "../applePlatform";
 import { resolve } from "../keymap";
-import { fonts, layout, radii, space } from "../tokens";
+import { fonts, layout, pointerType as t, radii, space, touchType } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Button } from "./Button";
 import { Icon } from "./Icon";
@@ -857,14 +857,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.body,
     color: colors.text,
   },
-  inputPointer: { fontSize: 15, paddingVertical: 13 },
+  inputPointer: { fontSize: t.lede, paddingVertical: 13 },
   /**
    * 17, not 15. RN-Web renders this as a real `<input>`, and mobile Safari
    * zooms the whole page when one under 16px takes focus — a zoom the person
    * then has to pinch their way back out of, on the screen they opened to
    * find one note.
    */
-  inputTouch: { fontSize: 17, paddingVertical: 11, paddingHorizontal: space.x2 },
+  inputTouch: { fontSize: touchType.lede, paddingVertical: 11, paddingHorizontal: space.x2 },
 
   /* -------------------------------- list --------------------------------- */
 

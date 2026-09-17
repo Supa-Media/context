@@ -22,6 +22,7 @@ import {
   type KeyExportDocument,
   type KeyExportFailure,
 } from "../../advanced/advanced";
+import { pointerType as t } from "../../../design/tokens";
 
 /**
  * Advanced: this context's audit trail, and the export that keeps encryption
@@ -348,7 +349,7 @@ const makeStyles = (colors: Colors) =>
     subSub: { marginBottom: 12, maxWidth: 546 },
     rowSub: { marginTop: 2 },
     wrapRow: { flexWrap: "wrap" },
-    inlineMono: { fontSize: 12 },
+    inlineMono: { fontSize: t.meta },
     actions: { marginTop: 15, gap: 9, flexWrap: "wrap" },
     notice: { marginTop: 15 },
     readOnly: { marginTop: 4 },
@@ -361,5 +362,5 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.well,
       padding: 12,
     },
-    exportText: { fontSize: 12 },
+    exportText: { fontSize: t.meta },
   });

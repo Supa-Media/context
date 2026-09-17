@@ -13,7 +13,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space } from "../../design/tokens";
+import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { pluginWorkNote, type RuntimeView } from "./runtime";
 
@@ -282,7 +282,7 @@ const makeStyles = (colors: Colors) =>
     who: { color: colors.muted },
     input: {
       fontFamily: fonts.body,
-      fontSize: 16,
+      fontSize: t.body,
       color: colors.text,
       paddingHorizontal: space.x3,
       paddingVertical: space.x3,

@@ -1,6 +1,6 @@
 import { memo, useRef } from "react";
 import { StyleSheet, TextInput } from "react-native";
-import { fonts } from "../../design/tokens";
+import { fonts, pointerType as t, tracking } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 
 /**
@@ -95,9 +95,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   */
   title: {
     fontFamily: fonts.display,
-    fontSize: 25,
+    fontSize: t.h2,
     lineHeight: 30,
-    letterSpacing: -0.75,
+    letterSpacing: tracking(t.h2, -0.03),
     fontWeight: "600",
     color: colors.text,
     // Zero rather than the platform default, so the text sits where the

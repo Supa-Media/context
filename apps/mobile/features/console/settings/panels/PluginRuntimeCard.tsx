@@ -28,6 +28,7 @@ import {
 } from "../../plugins/runtime";
 import { standingFor, type GrantsView } from "../../plugins/grants";
 import type { ConsolePlugin } from "../../plugins/plugins";
+import { pointerType as t } from "../../../design/tokens";
 
 /**
  * Whether this plugin is actually running.
@@ -288,5 +289,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   registration: { color: colors.muted },
   wrap: { marginTop: 8, gap: 6 },
   head: { alignItems: "flex-start", gap: 12 },
-  detail: { color: colors.critText, fontSize: 12 },
+  detail: { color: colors.critText, fontSize: t.meta },
 });

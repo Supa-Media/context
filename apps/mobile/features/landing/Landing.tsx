@@ -4,7 +4,7 @@ import { Link, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { Button, PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { ScreenScroll } from "../app/Screen";
 import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
@@ -348,7 +348,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * radius of changing that default is the whole design system.
    */
   actionItem: { alignSelf: "center" },
-  arrow: { fontSize: 12, opacity: 0.65 },
+  arrow: { fontSize: t.meta, opacity: 0.65 },
   alsoTarget: {
     color: colors.text2,
     borderBottomWidth: 1,
@@ -377,7 +377,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markdownTitle: {
     marginTop: 11,
     fontFamily: fonts.display,
-    fontSize: 32,
+    fontSize: t.title,
     lineHeight: 37,
     letterSpacing: -0.7,
     fontWeight: "600",
@@ -387,7 +387,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginTop: 14,
     maxWidth: 580,
     fontFamily: fonts.body,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 24,
     color: colors.text2,
   },
@@ -416,13 +416,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markdownProofLabel: {
     flex: 1,
     fontFamily: fonts.mono,
-    fontSize: 12.5,
+    fontSize: t.meta,
     lineHeight: 18,
     color: colors.text,
   },
   fileLine: {
     fontFamily: fonts.mono,
-    fontSize: 12.5,
+    fontSize: t.meta,
     lineHeight: 22,
     color: colors.text2,
   },
@@ -434,7 +434,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   proofCaption: {
     fontFamily: fonts.body,
-    fontSize: 11.5,
+    fontSize: t.label,
     lineHeight: 17,
     color: colors.muted,
   },
@@ -455,8 +455,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   legalLink: {
     fontFamily: fonts.body,
-    fontSize: 12.5,
-    lineHeight: leading(12.5, 1.55),
+    fontSize: t.meta,
+    lineHeight: leading(t.meta, 1.55),
     color: colors.text2,
     textDecorationLine: "none",
   },

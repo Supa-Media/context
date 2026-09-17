@@ -5,7 +5,7 @@ import { Dot } from "../design/components/Dot";
 import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
-import { layout, radii } from "../design/tokens";
+import { layout, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
@@ -331,7 +331,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: "#5F6EF6",
   },
   avatarInitial: {
-    fontSize: 11,
+    fontSize: t.label,
     fontWeight: "700",
     color: "#fff",
   },
