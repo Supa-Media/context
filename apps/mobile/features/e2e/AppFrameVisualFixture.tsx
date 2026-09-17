@@ -4,12 +4,14 @@ import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
+import { selectedContext } from "../console/types";
 import { Explorer } from "../console/files/Explorer";
 import { statusSegments } from "../console/files/status";
 import { describeIndexProgress } from "../console/search/fastSearch";
 import { storagePillLabel } from "../console/storage/pill";
 import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
+import { CurrentContextPill } from "../console/ContextStrip";
 import { NavBandProvider } from "../console/NavBand";
 import { LANDING_ROUTE, type ConsoleRoute } from "../console/nav";
 import { Text } from "../design/components/Text";
@@ -47,9 +49,33 @@ import { Text } from "../design/components/Text";
 export function AppFrameVisualFixture() {
   const data = useE2EFixtureConsoleData();
   const [route, setRoute] = useState<ConsoleRoute>(LANDING_ROUTE);
+  const current = selectedContext(data);
 
   return (
-    <NavBandProvider nodes={{ contexts: null, current: null }}>
+    /*
+      The current-context pill, which the phone's breadcrumb needs in front of
+      it.
+
+      Both nodes were `null`, and the phone board showed what that costs:
+      `Breadcrumb`'s `pathOnly` draws "a separator in front of every crumb, the
+      first included — because the thing to its left is the context button", so
+      with no pill the line opened on a bare `/`. The product always supplies
+      one at compact (`console/_layout`), so a fixture that does not is
+      reporting a defect the product does not have — which is the thing this
+      file exists to stop doing.
+
+      `contexts` stays `null`: that row is the strip of *other* workspaces, and
+      the switcher above already offers them here.
+    */
+    <NavBandProvider
+      nodes={{
+        contexts: null,
+        current:
+          current === null ? null : (
+            <CurrentContextPill context={current} onOpenRoot={() => {}} onSelect={() => {}} />
+          ),
+      }}
+    >
       <AppFrame
         switcher={
           <SwitcherMenu

@@ -447,6 +447,7 @@ export function Explorer({
    */
   const closeFilter = useCallback(() => setQuery(""), []);
   const [toolsShown, setToolsShown] = useState(false);
+  const [filterFocused, setFilterFocused] = useState(false);
 
   /**
    * The controls across the top of the column.
@@ -507,6 +508,21 @@ export function Explorer({
    * field that takes the caret on mount steals it from whatever somebody was
    * doing. It was autofocused under `touch`, where it was a field that had just
    * been *revealed* by a press, and that arm is gone with the density.
+   *
+   * ## Its box is chrome, so its box arrives on approach
+   *
+   * The *field* is permanent and stays permanent — it is a real input with a
+   * real caret at every moment, and nothing about reaching it changed. What
+   * was permanent and should not have been is the 28pt bordered well it was
+   * drawn in: at rest it was an empty box at the top of a column whose whole
+   * job is to be a quiet list of names, and it was the loudest thing in it —
+   * exactly what the four icon buttons beside it were faded for.
+   *
+   * So at rest it is the word `Filter` in muted type, which reads as the
+   * column's label; the border and the fill come in with the buttons. Kept
+   * while the query is non-empty, because a field somebody has typed into is
+   * not chrome — and while it has focus, so tabbing to it does not land the
+   * caret in something that looks like a heading.
    */
   const filterField = (
     <TextInput
@@ -514,7 +530,12 @@ export function Explorer({
       onChangeText={setQuery}
       placeholder="Filter"
       placeholderTextColor={colors.muted}
-      style={styles.filter}
+      onFocus={() => setFilterFocused(true)}
+      onBlur={() => setFilterFocused(false)}
+      style={[
+        styles.filter,
+        (toolsShown || filterFocused || query !== "") && styles.filterBoxed,
+      ]}
       accessibilityLabel="Filter notes and folders"
       autoCapitalize="none"
       autoCorrect={false}
@@ -543,6 +564,7 @@ export function Explorer({
       */
       onPointerEnter={() => setToolsShown(true)}
       onPointerLeave={() => setToolsShown(false)}
+      testID="explorer"
     >
       <View style={styles.toolbar}>
         {filterField}
@@ -1060,6 +1082,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     opacity: 0,
   },
   toolsShown: { opacity: 1 },
+  /**
+   * At rest: type, in the header's own gutter, with no box at all.
+   *
+   * The border is `transparent` rather than absent so the field does not
+   * change size when it gains one — a header that grew 2pt as the pointer
+   * crossed the column would be a layout jumping under the hand reaching for
+   * it, which is the failure `tools` fades opacity to avoid.
+   */
   filter: {
     flex: 1,
     minWidth: 0,
@@ -1067,11 +1097,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x2,
     borderRadius: radii.sm,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
+    borderColor: "transparent",
     color: colors.text,
     fontSize: t.meta,
   },
+  /** On approach, on focus, or once somebody has typed. */
+  filterBoxed: { borderColor: colors.line, backgroundColor: colors.well },
   iconButton: {
     width: 28,
     height: 28,
