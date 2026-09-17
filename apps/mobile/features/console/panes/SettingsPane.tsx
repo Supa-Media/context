@@ -560,17 +560,23 @@ function SettingsVaultImport({ workspaceId }: { workspaceId: string }) {
  * instead, which is also the only place a phone can see it: the top bar's
  * storage chip is pointer-only.
  */
-export function StatusPill({ storage }: { storage: ConsoleStorage }) {
+export function StatusPill({
+  storage,
+  testID,
+}: {
+  storage: ConsoleStorage;
+  testID?: string;
+}) {
   if (storage.connected) {
     return (
-      <Pill tone="ok" leading={<Dot tone="ok" />}>
+      <Pill tone="ok" leading={<Dot tone="ok" />} testID={testID}>
         Connected
       </Pill>
     );
   }
   const broken = storage.status === "error";
   return (
-    <Pill tone="warn" leading={<Dot tone={broken ? "crit" : "warn"} />}>
+    <Pill tone="warn" leading={<Dot tone={broken ? "crit" : "warn"} />} testID={testID}>
       {broken ? "Not working" : "Not verified"}
     </Pill>
   );

@@ -136,7 +136,10 @@ export function SettingsOverlay({
     the bucket and when it was last checked, so the pill beside the title was
     the loudest element on the screen restating the quietest one.
   */
-  const health = data.storage && !namesItsOwnContext ? <StatusPill storage={data.storage} /> : null;
+  const health =
+    data.storage && !namesItsOwnContext ? (
+      <StatusPill storage={data.storage} testID="settings-health" />
+    ) : null;
 
   const body = account ? (
     <AccountSection
@@ -159,15 +162,23 @@ export function SettingsOverlay({
   );
 
   const content = (
-    <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-      {compact || namesItsOwnContext ? null : (
+    <ScrollView
+      contentContainerStyle={styles.body}
+      keyboardShouldPersistTaps="handled"
+      testID="settings-pane"
+    >
+      {!compact || namesItsOwnContext ? null : (
         /*
-          The context this panel is about, once, at the top of the panel
-          rather than as a chip in the title bar. Under a pointer the chips
-          are three inches to the left and always on screen, so the bar was
-          naming a scope the reader could already see — and an account section
-          wore no chip at all, which made the bar's contents change shape
-          between rows of the same list.
+          The context this panel is about — on a phone, where the bar is a
+          nav bar with a Back and a title in it and has no room for a path.
+
+          Under a pointer it moved *into* the bar rather than being dropped:
+          the breadcrumb above reads `@seyi / settings / storage`, which is
+          the same fact in the place a page states which page it is. This line
+          beside it would be the third copy of the word on one screen — the
+          rail's chips being the second — and the reason it was in the panel
+          before was that the bar was a dialog's title bar, three inches away
+          and holding one word. It is the page's own bar now.
         */
         <Text variant="rowSub" style={styles.scope}>
           {account ? "Your account" : atName(current?.slug ?? "this context")}
@@ -212,9 +223,16 @@ export function SettingsOverlay({
 
   return (
     <Overlay
-      title="Settings"
+      /*
+        No "Settings" title in the bar any more, and the breadcrumb is why: a
+        page that fills the window is named by its address, and `settings /
+        storage` says both which screen this is and that it has one. A word
+        and a path saying the same thing is the duplicate heading this feature
+        already removed once, on the phone.
+      */
+      breadcrumb={`${account ? "you" : atName(current?.slug ?? "")} / settings / ${active}`}
       trailing={account ? null : health}
-      closeLabel="Close settings"
+      closeLabel="Back to your notes"
       sidebar={list}
       sidebarWidth={layout.settingsListWidth}
       onDismiss={onDismiss}
