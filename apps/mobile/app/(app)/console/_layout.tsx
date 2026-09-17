@@ -504,13 +504,6 @@ export default function ConsoleLayout() {
           <SwitcherMenu
             data={data}
             label={insideContext ? contextLabel : "Your context"}
-            kind={
-              insideContext
-                ? (current?.kind ?? "")
-                : data.loading
-                  ? ""
-                  : `${data.contexts.length} reachable`
-            }
             tone={insideContext ? (current?.status ?? "warn") : "neutral"}
             onOpenContext={(slug: string) => {
               const next: ConsoleRoute = { kind: "context", slug, view: "browse" };

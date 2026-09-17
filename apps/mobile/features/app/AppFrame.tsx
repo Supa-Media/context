@@ -1198,7 +1198,7 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >
-      <Icon name="search" size={15} color={colors.muted} />
+      <Icon name="search" size={13} color={colors.chromeMuted} />
       {Platform.OS === "web" ? (
         <Text variant="treeMeta" style={styles.kbd}>
           ⌘K
@@ -1763,12 +1763,20 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     gap: space.x2,
     height: 28,
-    paddingHorizontal: space.x2,
+    paddingHorizontal: 10,
     borderRadius: radii.sm,
-    backgroundColor: "transparent",
+    /*
+      A resting fill, the same one the switcher chip wears.
+
+      It was transparent until hovered, which reads as a word floating in the
+      bar rather than a control — and the canvas draws both ends of this bar
+      the same way, because a title bar with a filled chip at one end and
+      nothing at the other looks unfinished rather than quiet.
+    */
+    backgroundColor: colors.chipFill,
   },
   searchHover: { backgroundColor: colors.surface3 },
-  kbd: { color: colors.muted },
+  kbd: { color: colors.chromeMuted },
 
   /** The three columns. `flex: 1` plus `minHeight: 0` is what makes the
       children scroll instead of the frame growing past the viewport. */

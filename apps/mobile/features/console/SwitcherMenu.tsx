@@ -5,8 +5,8 @@ import { Dot, type DotTone } from "../design/components/Dot";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
-import { useThemedStyles, type Colors } from "../design/theme";
-import { radii, space } from "../design/tokens";
+import { useColors, useThemedStyles, type Colors } from "../design/theme";
+import { radii, space, pointerType as t } from "../design/tokens";
 import type { MenuItem } from "./files/menu";
 import { offerOwnContext } from "../onboarding/route";
 import { isOwnWorkspace, railGroup } from "./rail";
@@ -69,7 +69,6 @@ export type SwitcherMenuId =
 export function SwitcherMenu({
   data,
   label,
-  kind,
   tone,
   onOpenContext,
   onOpenMeetings,
@@ -81,7 +80,6 @@ export function SwitcherMenu({
 }: {
   data: ConsoleData;
   label: string;
-  kind: string;
   tone: DotTone;
   onOpenContext: (slug: string) => void;
   onOpenMeetings?: () => void;
@@ -109,6 +107,7 @@ export function SwitcherMenu({
   onSignOut?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
 
   /*
@@ -226,17 +225,22 @@ export function SwitcherMenu({
         }}
         style={styles.chip}
       >
-        <Dot tone={tone} />
+        <WorkspaceMark label={label} tone={tone} />
         <Text variant="wsSwitch" numberOfLines={1}>
           {label}
         </Text>
-        {kind === "" ? null : (
-          <Text variant="wsSwitch" style={styles.kind}>
-            {kind}
-          </Text>
-        )}
+        {/*
+          A chevron, which is what a disclosure control shows.
+
+          It was `collapse` — the file tree's collapse-all mark, a pane with
+          only its top band left open — at 12pt in a 28pt chip, where it read
+          as a small empty rectangle beside the workspace name. Nobody drew
+          that on purpose; the name is close enough to "collapsed" to have gone
+          in without a second look, and the glyph is small enough to survive
+          one.
+        */}
         <View style={styles.chevron}>
-          <Icon name="collapse" size={12} />
+          <Icon name="chevronDown" size={10} color={colors.chromeMuted} />
         </View>
       </Pressable>
 
@@ -262,17 +266,78 @@ export function SwitcherMenu({
   );
 }
 
+/**
+ * The workspace's mark: an 18pt rounded square carrying one letter.
+ *
+ * **It was a `Dot`, and a dot cannot say which workspace this is.** The dot
+ * was a *status* light — `tone` is still exactly that — and it was doing two
+ * jobs in a chip whose entire purpose is identity. The canvas draws an avatar
+ * here, the same mark the account block draws at 26pt, and the letter is what
+ * distinguishes `@seyi` from `@lk` at a glance before you have read either.
+ *
+ * Status did not go with the dot: `tone` picks the mark's fill, so a workspace
+ * whose storage is in trouble is still the thing your eye lands on first.
+ *
+ * Not `AccountBlock`'s `Avatar`, which is a 26pt circle: this is smaller, it
+ * is square-with-a-radius rather than round, and the two are different objects
+ * — a person and a workspace. Sharing one component would mean a prop that
+ * only ever has two values, each used in one place.
+ */
+function WorkspaceMark({ label, tone }: { label: string; tone: DotTone }) {
+  const styles = useThemedStyles(makeStyles);
+  /*
+    The first letter that is one, so `@seyi` marks S rather than `@`. A label
+    with no letters at all — a slug of digits — falls back to the first
+    character rather than drawing an empty square.
+  */
+  const letter = (/\p{L}/u.exec(label)?.[0] ?? label.slice(0, 1)).toUpperCase();
+  return (
+    <View
+      style={[styles.mark, tone === "warn" && styles.markWarn, tone === "crit" && styles.markCrit]}
+      aria-hidden
+    >
+      <Text style={styles.markLetter}>{letter}</Text>
+    </View>
+  );
+}
+
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
+    /**
+     * The chip has a resting fill now, and that is the point of it.
+     *
+     * It was a transparent row of words that happened to be pressable, which
+     * is how a title bar ends up reading as a sentence rather than as
+     * controls. `chipFill` is the canvas's answer and the same wash the search
+     * box and the tree's new-note button wear.
+     *
+     * Asymmetric padding: 6 in front of an 18pt mark, 8 after the chevron. A
+     * flat 8 leaves the mark looking inset and the chip looking off-centre,
+     * which is what "6 then 8" in the canvas is correcting.
+     */
     chip: {
       flexDirection: "row",
       alignItems: "center",
       gap: space.x2,
       height: 28,
-      paddingHorizontal: space.x2,
+      paddingLeft: 6,
+      paddingRight: space.x2,
       borderRadius: radii.sm,
+      backgroundColor: colors.chipFill,
       minWidth: 0,
     },
-    kind: { color: colors.muted },
-    chevron: { opacity: 0.6 },
+    mark: {
+      width: 18,
+      height: 18,
+      borderRadius: 5,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: colors.accent,
+    },
+    markWarn: { backgroundColor: colors.warn },
+    markCrit: { backgroundColor: colors.crit },
+    /** `ink` is the colour that reads on a filled mark in either scheme. */
+    markLetter: { fontSize: t.label, fontWeight: "600", color: colors.ink },
+    /** Chrome's grey, not a label's — see `chromeMuted`. */
+    chevron: { opacity: 0.9 },
   });

@@ -413,23 +413,52 @@ function TabItem({
         <FocusRing visible={focused} radius={0} />
       </Pressable>
 
+      {/*
+        THE ✕ IS THE FRONT TAB'S, THE HOVERED ONE'S, AND A DIRTY ONE'S.
+
+        It used to be every tab's, and a strip of five open notes was a strip
+        of five ✕s — the canvas draws one, on the tab you are reading. Chrome,
+        Safari and Obsidian all do the same thing for the same reason: the
+        close button is a *destination for a pointer already on its way*, and a
+        pointer that is not on a tab is not on its way to closing it.
+
+        Three conditions, because each covers a case the others do not:
+        `active` is the canvas's; `hovered` is the pointer already there, which
+        is what makes every tab closeable without any of them advertising it;
+        and `tab.dirty` never hides, because the dot is the only thing on
+        screen saying this note has unsaved text and hiding it would make a
+        tab with work in it look identical to one without.
+
+        Faded, never unmounted — the same technique and the same reasons as
+        the explorer's header toolbar. A ✕ that leaves the tree is one a
+        keyboard cannot tab to and a test cannot press, and a ✕ that grows
+        back on hover would resize the tab under the hand reaching for it.
+        Nobody ever presses an invisible one: by the time a pointer is over
+        the tab, `hovered` is already true.
+      */}
       <Pressable
         role="button"
         accessibilityLabel={`Close ${label}${tab.dirty ? ", unsaved changes" : ""}`}
         onPress={onClose}
-        style={styles.close}
+        style={[styles.close, !(active || hovered || tab.dirty) && styles.closeAway]}
         testID={`tab-close-${tab.path}`}
       >
         {showDot ? (
           <View style={styles.dirtyDot} testID={`tab-dot-${tab.path}`} />
         ) : (
-          <Icon name="close" size={13} color={active ? colors.text : colors.muted} />
+          <Icon name="close" size={10} color={colors.chromeMuted} />
         )}
       </Pressable>
     </View>
   );
 }
 
+
+/** The canvas's tab, hanging off a 44pt title bar with 10pt of air above it. */
+const TAB_HEIGHT = 34;
+
+/** The ✕'s box, and the width the spacer holds when there is no ✕. */
+const CLOSE_WIDTH = 18;
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   /**
@@ -448,7 +477,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   strip: {
     flexDirection: "row",
     alignItems: "flex-end",
-    paddingHorizontal: 6,
   },
 
   scroller: {
@@ -466,7 +494,11 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   track: {
     flexDirection: "row",
     flexWrap: "nowrap",
-    alignItems: "stretch",
+    alignItems: "flex-end",
+    /* The canvas's 2pt, which is what stops two adjacent idle tabs reading as
+       one long label. It is all the separation they get now that the hairline
+       between every pair is gone. */
+    gap: 2,
   },
 
   /**
@@ -486,8 +518,19 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   tab: {
     flexDirection: "row",
     alignItems: "center",
-    borderTopLeftRadius: radii.sm,
-    borderTopRightRadius: radii.sm,
+    height: TAB_HEIGHT,
+    /*
+      8, which is not in `radii` and is deliberate.
+
+      The family there is 6 / 10 / 16 and it is a *nesting* rule — "a child's
+      radius is its parent's minus the padding between them". A tab nests in
+      nothing: it hangs off the edge of the title bar with no padding between
+      the two, so the rule has no input for it. The canvas draws 8, between the
+      6 of the chip beside it and the 10 of a panel, and taking 6 here makes a
+      34pt tab look like a 28pt chip that grew.
+    */
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
   },
 
   /** The page's own surface, which is what makes this the page's front edge. */
@@ -495,14 +538,17 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   tabIdle: { backgroundColor: "transparent" },
 
+  /*
+    No vertical padding: `tab` sets the height now, so padding here would fight
+    it. It used to be what made the tab tall, which is why the height and the
+    padding kept having to be reasoned about together.
+  */
   hit: {
     flexDirection: "row",
     alignItems: "center",
     flexGrow: 1,
     flexShrink: 1,
-    // 7 rather than 8: the tab's own 2pt top border is gone, so 8 here would
-    // make the tab a point taller than it was rather than the same height.
-    paddingVertical: 7,
+    alignSelf: "stretch",
     paddingLeft: 12,
     paddingRight: 6,
   },
@@ -515,19 +561,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   /** The one in front is the one you are reading, so it carries the weight. */
   labelActive: { color: colors.text, fontWeight: "500" },
-  labelIdle: { color: colors.muted },
+  /** Chrome's grey. A tab you are not reading is furniture, not a label. */
+  labelIdle: { color: colors.chromeMuted },
 
   /** The one cue that says "the next single click replaces this". */
   labelPreview: { fontStyle: "italic" },
 
   close: {
-    width: 26,
-    height: 26,
+    width: CLOSE_WIDTH,
+    height: 20,
     alignItems: "center",
     justifyContent: "center",
     marginRight: 6,
     borderRadius: radii.xs,
   },
+
+  /** See its use site: the ✕ keeps its box so the tab never changes width. */
+  closeAway: { opacity: 0 },
 
   dirtyDot: {
     width: 8,

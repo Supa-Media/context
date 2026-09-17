@@ -202,6 +202,23 @@ function FileRow({
       style={[styles.row, isDropTarget && styles.rowDrop]}
       ref={interactions.ref as never}
     >
+      {/*
+        THE SELECTED ROW'S ACCENT BAR.
+
+        A 2×14 stub at the row's leading edge, at the column's own margin
+        rather than at the name's indent, so every selected row marks the same
+        vertical line however deep it sits. That is the whole reason it is
+        drawn here, on the row, instead of as a left border on `PressRow`: a
+        border would move inward with `paddingLeft` and a file five levels down
+        would mark a different line than its folder.
+
+        It replaces tinting the label: selection used to be `accentDim` behind
+        `accentText`, which recoloured the *name* — and a tree is a list of
+        names, so the one you have open was the one drawn in a different hue
+        from every other. The canvas keeps the name in `text` and moves the
+        accent out of it.
+      */}
+      {row.selected ? <View style={styles.selectedBar} aria-hidden /> : null}
       <PressRow
         accessibilityLabel={describeRow(row)}
         selected={row.selected}
@@ -229,8 +246,8 @@ function FileRow({
           {row.kind === "folder" ? (
             <Icon
               name={row.expanded ? "chevronDown" : "chevronRight"}
-              size={12}
-              color={colors.muted}
+              size={10}
+              color={colors.chromeMuted}
             />
           ) : null}
         </View>
@@ -252,9 +269,9 @@ function FileRow({
   );
 }
 
-/** The mockup's indent: 8pt of leading padding, 13pt more per level. */
+/** The canvas's indent: 8pt of leading padding, 12pt more per level. */
 function indentFor(depth: number): number {
-  return 8 + 13 * depth;
+  return 8 + 12 * depth;
 }
 
 function noopPath(_path: string): void {}
@@ -313,7 +330,18 @@ function VisibilityControl({
     no such panel any more (see the file header), so there is one presentation.
   */
   const body = (
-    <Text variant="treeMeta" style={styles.markerLabel} numberOfLines={1}>
+    /*
+      `team` carries its own colour; `private` does not.
+
+      Down a column of grey names, a second grey word is furniture. The canvas
+      gives the one marker that widens who can read a note a hue of its own, and
+      leaves `private` — which narrows it, and is the safe direction — quiet.
+    */
+    <Text
+      variant="treeMeta"
+      style={[styles.markerLabel, row.marker === "team" && styles.markerTeam]}
+      numberOfLines={1}
+    >
       {row.marker}
     </Text>
   );
@@ -365,7 +393,40 @@ function describeRow(row: TreeRow): string {
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
-  row: { flexDirection: "row", alignItems: "center", borderRadius: radii.sm, position: "relative" },
+  /*
+    `height` rather than the node's vertical padding.
+
+    The row was 13pt of label with 5pt above and below, which lands at 30 and
+    drifts the moment the label's leading changes. The canvas draws 28, flat,
+    and a tree is the one place in the product where twenty rows of the same
+    height is the whole visual argument — so the height is the row's own and
+    the padding inside it is horizontal only.
+  */
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    height: 28,
+    marginBottom: 1,
+    borderRadius: radii.sm,
+    position: "relative",
+  },
+
+  /** See its use site. `left: 8` is the column's margin, not the row's indent. */
+  selectedBar: {
+    position: "absolute",
+    /*
+      Above the row's own pressable, which is a *later* sibling in the tree and
+      would otherwise paint over it — an absolutely positioned element with no
+      stacking context of its own still follows document order.
+    */
+    zIndex: 1,
+    left: 8,
+    top: 7,
+    width: 2,
+    height: 14,
+    borderRadius: radii.pill,
+    backgroundColor: colors.accent,
+  },
   /**
    * The row a drop would land in.
    *
@@ -379,16 +440,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   node: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 5,
+    gap: 6,
+    alignSelf: "stretch",
     paddingRight: 8,
     borderRadius: radii.sm,
   },
   nodeGrow: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   nodeHover: { backgroundColor: colors.surface3 },
-  nodeSelected: { backgroundColor: colors.accentDim },
-  nodeSelectedLabel: { color: colors.accentText },
-  chevron: { width: 12, alignItems: "center", justifyContent: "center" },
+  /** A neutral lift, not an accent wash — the bar carries the accent. */
+  nodeSelected: { backgroundColor: colors.rowSelected },
+  /** The name you are reading is the emphasised one: weight, not hue. */
+  nodeSelectedLabel: { color: colors.text, fontWeight: "500" },
+  chevron: { width: 10, alignItems: "center", justifyContent: "center" },
 
   /**
    * The trailing metadata's box.
@@ -408,4 +471,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   markerHover: { backgroundColor: colors.surface3 },
   markerLabel: { color: colors.muted },
+  markerTeam: { color: colors.markTeam },
 });
