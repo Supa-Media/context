@@ -305,14 +305,42 @@ test.describe("dragging the seam", () => {
     expect(moved).toBeLessThan(seam.x - 20);
   });
 
-  test("a drag leaves no selection smeared across the tree", async ({ page }) => {
+  /**
+   * Whether the page can be selected at all, as the engine has resolved it.
+   *
+   * Computed rather than read off `body.style`, and both spellings rather than
+   * one: **Safari's CSSOM has no `userSelect` property**, so an inline read
+   * answers `undefined` there and an inline *write* does nothing — which is why
+   * the resizer sets `-webkit-user-select` beside it, and why this is the
+   * assertion that can tell.
+   */
+  const selectable = (page: Page) =>
+    page.evaluate(() => {
+      const computed = getComputedStyle(document.body);
+      return (
+        computed.getPropertyValue("user-select") ||
+        computed.getPropertyValue("-webkit-user-select")
+      );
+    });
+
+  test("the drag holds the page still while it runs, and hands it back", async ({ page }) => {
     // Keeping the gesture is half of it. The other half is that the page does
     // not paint a selection across the names underneath the drag, and is not
-    // left unselectable once it ends.
-    await dragSeam(page, -45);
+    // left unselectable once it ends — the state only a reload would clear.
+    const resting = await selectable(page);
+    const seam = await box(page, "explorer-resizer");
+    const x = seam.x + seam.width / 2;
+    const y = seam.y + 200;
 
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - 30, y, { steps: 6 });
+    const during = await selectable(page);
+    await page.mouse.up();
+
+    expect(during).toBe("none");
+    expect(await selectable(page)).toBe(resting);
     expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
-    expect(await page.evaluate(() => document.body.style.userSelect)).toBe("");
   });
 });
 

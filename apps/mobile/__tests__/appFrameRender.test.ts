@@ -1030,17 +1030,17 @@ describe("dragging the explorer's edge", () => {
     const handle = app.find("explorer-resizer")!;
     const pointer = pointerOn(handle);
 
-    expect(document.body.style.userSelect).toBe("");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("");
 
     pointer.down(400);
-    expect(document.body.style.userSelect).toBe("none");
-    expect(document.body.style.cursor).toBe("col-resize");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("none");
+    expect(document.body.style.getPropertyValue("cursor")).toBe("col-resize");
 
     pointer.move(340);
     pointer.up(340);
 
-    expect(document.body.style.userSelect).toBe("");
-    expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("");
+    expect(document.body.style.getPropertyValue("cursor")).toBe("");
 
     app.unmount();
   });
@@ -1055,13 +1055,13 @@ describe("dragging the explorer's edge", () => {
 
     pointer.down(400);
     pointer.move(340);
-    expect(document.body.style.userSelect).toBe("none");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("none");
 
     act(() => {
       document.dispatchEvent(new Event("dragstart", { bubbles: true }));
     });
 
-    expect(document.body.style.userSelect).toBe("");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("");
     // A cancel is not a release: the column stays where the drag left it and
     // nothing folds.
     expect(columnWidth(app)).toBe(layout.explorerWidth - 60);
@@ -1077,12 +1077,12 @@ describe("dragging the explorer's edge", () => {
     const pointer = pointerOn(app.find("explorer-resizer")!);
 
     pointer.down(400);
-    expect(document.body.style.userSelect).toBe("none");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("none");
 
     app.unmount();
 
-    expect(document.body.style.userSelect).toBe("");
-    expect(document.body.style.cursor).toBe("");
+    expect(document.body.style.getPropertyValue("user-select")).toBe("");
+    expect(document.body.style.getPropertyValue("cursor")).toBe("");
   });
 });
 

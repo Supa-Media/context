@@ -1337,32 +1337,35 @@ export function FrameIconButton({
  */
 function holdDocumentStill(): () => void {
   if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
-  const { body } = document;
-  const previous = {
-    userSelect: body.style.userSelect,
-    webkitUserSelect: body.style.getPropertyValue("-webkit-user-select"),
-    cursor: body.style.cursor,
-  };
-  body.style.userSelect = "none";
-  // Safari is a real target here — `e2e/webkit` exists for it — and it wants
-  // the prefix. react-native-web writes both for a `userSelect` style; this
-  // sets the property directly, so it has to write both itself.
-  body.style.setProperty("-webkit-user-select", "none");
-  body.style.cursor = "col-resize";
+  const { style } = document.body;
+  /*
+    Set through `setProperty` and in both spellings, because **Safari's CSSOM
+    has no `userSelect` property at all**: `style.userSelect = "none"` is a
+    silent no-op there, leaving the page as selectable as it was, and reading it
+    back answers `undefined` rather than anything a test would notice. The
+    WebKit run of `panels.spec.ts` is what says so, which is what that suite is
+    for.
+  */
+  const held = [
+    ["user-select", "none"],
+    ["-webkit-user-select", "none"],
+    ["cursor", "col-resize"],
+  ] as const;
+  const previous = held.map(([name]) => [name, style.getPropertyValue(name)] as const);
+  for (const [name, value] of held) style.setProperty(name, value);
   /*
     Nothing clears an existing selection here, and the absence is deliberate:
     the browser collapses one on the press by itself — measured in Chromium, on
     a page that turns `user-select` off in the same handler this one does — and
     a `removeAllRanges` for the engines where that might not hold would be a
-    line no test in this repository can fail on. What the gesture actually
-    needs from the selection is below, where it refuses to be terminated by
-    one.
+    line no test in this repository can fail on. What the gesture actually needs
+    from the selection is below, where it refuses to be terminated by one.
   */
   return () => {
-    body.style.userSelect = previous.userSelect;
-    if (previous.webkitUserSelect === "") body.style.removeProperty("-webkit-user-select");
-    else body.style.setProperty("-webkit-user-select", previous.webkitUserSelect);
-    body.style.cursor = previous.cursor;
+    for (const [name, value] of previous) {
+      if (value === "") style.removeProperty(name);
+      else style.setProperty(name, value);
+    }
   };
 }
 
