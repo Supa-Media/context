@@ -24,6 +24,7 @@ import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { ConsoleHalo, StageBackdrop } from "../design/components/StageBackdrop";
 import { FloatingTiles } from "./FloatingTiles";
 import { ContinuityDemo } from "./ContinuityDemo";
+import { HERO_ALSO, HERO_LINE_ONE, HERO_LINE_TWO, HERO_SUB } from "./copy";
 import { heroHeadingWidth } from "./hero";
 
 /** github.com/Supa-Media/context — the repo this page is built from. */
@@ -128,9 +129,9 @@ export function Landing() {
               line collapsed on top of the first.
             */}
             <View role="heading" aria-level={1} style={[styles.heroHeading, heroWidth]}>
-              <Text style={[styles.heroTitle, heroType]}>Notes for your team</Text>
+              <Text style={[styles.heroTitle, heroType]}>{HERO_LINE_ONE}</Text>
               <Text style={[styles.heroTitle, styles.heroDim, heroType]}>
-                and your agents.
+                {HERO_LINE_TWO}
               </Text>
             </View>
 
@@ -141,10 +142,7 @@ export function Landing() {
                 { fontSize: subSize, lineHeight: leading(subSize, 1.55) },
               ]}
             >
-              A simple notes app your team works in &mdash; and so do your agents.
-              Everything stays plain Markdown in storage you own, so the same notes open
-              here, in Obsidian, or through Claude, Cursor and anything else that speaks
-              MCP.
+              {HERO_SUB}
             </Text>
 
             <View style={styles.actions}>
@@ -247,7 +245,7 @@ export function Landing() {
 
           <View style={styles.foot}>
             <Text variant="foot">Demo — sign in for your own workspace</Text>
-            <Text variant="foot">Dropbox in one click · or bring your own bucket</Text>
+            <Text variant="foot">{HERO_ALSO}</Text>
             <Text variant="foot">MIT · self-hostable</Text>
             <Link href="/privacy" style={styles.legalLink}>
               Privacy
