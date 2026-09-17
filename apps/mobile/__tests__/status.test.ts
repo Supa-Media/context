@@ -244,7 +244,15 @@ describe("the storage segment", () => {
       }),
     );
     const ids = segments.map((segment) => segment.id);
-    expect(ids).toEqual(["words", "characters", "save", "index", "conflictCheck", "storage"]);
+    expect(ids).toEqual([
+      "path",
+      "words",
+      "characters",
+      "save",
+      "index",
+      "conflictCheck",
+      "storage",
+    ]);
     expect(ids.slice(-TRAILING_SEGMENTS.length)).toEqual([...TRAILING_SEGMENTS]);
   });
 
@@ -388,11 +396,40 @@ describe("the strip never carries note text", () => {
     }
   });
 
-  test("nor does it carry the note's path", () => {
-    const editor = editorWith("dirty", "some words");
-    const rendered = statusSegments(facts({ editor }))
-      .map((s) => `${s.text} ${s.detail ?? ""}`)
-      .join(" ");
-    expect(rendered).not.toContain("1-projects/plan.md");
+  /**
+   * **This asserted the opposite, and the reversal is the point of keeping it.**
+   *
+   * It read "nor does it carry the note's path", under a rule that was really
+   * about *note content* — the draft's text, which is what a screen share or a
+   * screenshot in an issue can leak and which no segment may ever quote. That
+   * rule is unchanged and is the case above.
+   *
+   * A path is not content. It is the note's address, and it was already on the
+   * glass three times over: the file tree names it, the breadcrumb above the
+   * note walks it, and the tab strip carries its stem. A bar that withheld it
+   * was not protecting anything — it was the one surface that never moves and
+   * never said which file you were looking at, which is exactly what a person
+   * copies into another client or an agent's tool call.
+   *
+   * So the path is a segment, drawn in the mono face at the leading edge, and
+   * what this holds now is that it is the *key* and nothing else: no draft
+   * text rides along with it.
+   */
+  test("the path is the key, and carries none of the draft with it", () => {
+    const secret = "sk-live-EXAMPLE-NOT-A-REAL-KEY-9f3a";
+    const editor = editorWith("dirty", `# notes\n\ntoken: ${secret}\n`);
+    const path = byId(statusSegments(facts({ editor })), "path");
+
+    expect(path?.text).toBe("1-projects/plan.md");
+    expect(path?.mono).toBe(true);
+    expect(`${path?.text} ${path?.detail ?? ""}`).not.toContain(secret);
+  });
+
+  test("and there is no path segment with no note open", () => {
+    // Counts and a key about no file are the same mistake; both are gated on
+    // `editor.path`.
+    const closed = statusSegments(facts({ editor: editorWith("empty", "") }));
+    expect(byId(closed, "path")).toBeUndefined();
+    expect(byId(closed, "words")).toBeUndefined();
   });
 });

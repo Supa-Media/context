@@ -252,6 +252,20 @@ const variantsFor = (colors: Colors) => ({
     lineHeight: leading(t.label, 1.55),
     color: colors.muted,
   },
+  /**
+   * `treeMeta` in the mono face — a key, at label size.
+   *
+   * The status bar's path and nothing else so far. Same size and leading as
+   * `treeMeta`, so the two sit on one baseline in the same row; only the face
+   * differs, which is the whole distinction being drawn: this one is a string
+   * a person could type.
+   */
+  treeMetaMono: {
+    fontFamily: fonts.mono,
+    fontSize: t.label,
+    lineHeight: leading(t.label, 1.55),
+    color: colors.muted,
+  },
   /** `.note h3`. */
   noteTitle: {
     fontFamily: fonts.display,

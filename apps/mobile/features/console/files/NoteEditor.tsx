@@ -698,21 +698,43 @@ export function NoteEditor({
         `statusLine` below is where that is decided, and it prints nothing at
         all rather than fall through to the reassuring default.
 
-        An earlier pass drew it on a pointer layout only, arguing that a
-        permanent 26pt strip is a band of chrome across the bottom of a phone
-        that already has a floating toolbar lying on it. That argument is about
-        a *strip*, and this is no longer one: the phone's note is a single
-        full-bleed scroller, so this is the last line of the document rather
-        than a bar pinned under it. It scrolls with the text, sits at the note's
-        own reading margin, and the content padding at the foot of the scroller
-        is what brings it — and the note's last paragraph — out from under the
-        toolbar. Nothing is pinned, so nothing is chrome, and the one sentence
-        that says where somebody's writing actually is stays on the screen.
+        **It is the phone's, and that is a reversal of a reversal.** It was
+        pointer-only once, on the argument that a permanent 26pt strip is a
+        band of chrome across the bottom of a phone that already has a floating
+        toolbar lying on it; that argument was about a *strip*, and the phone's
+        note stopped being one — it is a single full-bleed scroller, so this is
+        the last line of the document rather than a bar pinned under it, it
+        scrolls with the text, and the content padding at the foot brings it
+        out from under the toolbar. All of that still holds, so the sentence
+        stays here at compact.
 
-        Discard sits beside it. It has no other route on a phone: the row menu
-        acts on a file in the tree, and this acts on the draft in front of you.
+        What changed is the other density. A pointer layout has the status bar,
+        and `status.ts`'s `save` segment is **the same claim**: "Saved", "Saved
+        2 minutes ago", "Cached copy", "Queued", "Not saved", each with this
+        sentence as its detail. Measured in Chromium at 1440×900 with the bar
+        finally spread across its row: "Saved in your bucket" sat 40pt above
+        the word "Saved", at the same leading edge, in two visual languages —
+        which is precisely the duplication the Save pill a few lines down was
+        removed for, arriving a second time from the other side. The bar is the
+        surface that never moves, so it keeps it.
+
+        Nothing is lost at that density: the distinctions this sentence exists
+        to draw — in the bucket, on this device, queued, not saved — are arms
+        of `saveSegment` too, and the sentence itself is its `detail`, which is
+        the segment's tooltip and its accessible name.
+
+        Discard sits beside it, at every density. It has no other route on a
+        phone: the row menu acts on a file in the tree, and this acts on the
+        draft in front of you.
       */}
-      {durability !== "" || canDiscard ? (
+      {/*
+        Three things can put this row on screen and each is asked for
+        separately, which is the bug the first draft of the compact-only rule
+        shipped: gating the whole row on the sentence took the Save button —
+        and, in a conflict, Overwrite theirs — off every pointer layout with it,
+        because the row is where that button lives.
+      */}
+      {(durability !== "" && compact) || canDiscard || (!compact && !button.disabled) ? (
         <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
           {/*
             Absent rather than empty. `statusLine` answers `""` for a state it
@@ -720,7 +742,7 @@ export function NoteEditor({
             message never arrived — and an empty `Text` here would be a blank
             line where a claim is supposed to be.
           */}
-          {durability === "" ? null : (
+          {durability === "" || !compact ? null : (
             <Text variant="meta" style={styles.status} testID="note-durability">
               {durability}
             </Text>

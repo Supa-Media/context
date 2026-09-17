@@ -1041,7 +1041,17 @@ export function AppFrame({
               />
             ) : null}
             <View style={styles.statusDivider} />
-            {status}
+            {/*
+              The bar takes the rest of the row, which is what puts its
+              trailing group against the trailing edge.
+
+              Without this it shrank to its contents and the whole strip — the
+              path, the counts, the save state and the bucket — sat bunched
+              against the toggle with 900pt of empty bar after it. The
+              `StatusBar` has always had the spacer that separates its two
+              groups; it had nothing to spread across.
+            */}
+            <View style={styles.statusFill}>{status}</View>
           </View>
         ) : null}
 
@@ -1877,6 +1887,9 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   toggleCellOn: { backgroundColor: colors.accent, borderColor: colors.accent },
   toggleDoc: { width: 8, height: 11, borderRadius: 1, backgroundColor: colors.line },
+  /** The room the status node spreads into. `minWidth: 0` so a long path clips. */
+  statusFill: { flex: 1, minWidth: 0 },
+
   statusDivider: {
     width: 1,
     height: 12,

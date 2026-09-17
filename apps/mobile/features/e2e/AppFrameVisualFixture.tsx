@@ -5,6 +5,10 @@ import { atName } from "../console/format";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { Explorer } from "../console/files/Explorer";
+import { statusSegments } from "../console/files/status";
+import { describeIndexProgress } from "../console/search/fastSearch";
+import { storagePillLabel } from "../console/storage/pill";
+import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
 import { NavBandProvider } from "../console/NavBand";
 import { LANDING_ROUTE, type ConsoleRoute } from "../console/nav";
@@ -80,10 +84,29 @@ export function AppFrameVisualFixture() {
           fixture meant to answer "does this look like the design".
         */
         explorer={<Explorer files={data.files} contextLabel="@seyi" />}
+        /*
+          The real status bar, on the real segment model.
+
+          It was a stub reading one path, which is the shape of thing a
+          geometry fixture wants and exactly the wrong thing here: the bar is
+          four or five facts with a leading and a trailing group
+          (`TRAILING_SEGMENTS`), and a fixture for looking at cannot answer
+          "does this look like the design" about a node it invented. Copied
+          from `console/_layout`'s own `Status`, the same way the explorer and
+          the pane above it are.
+        */
         status={
-          <Text variant="treeMeta">
-            2-areas/spirit/bible-study/kings/2-kings-5.md
-          </Text>
+          <StatusBar
+            segments={statusSegments({
+              editor: data.files.editor,
+              conflictCheck: data.files.editor.conflictCheck,
+              storageLabel: storagePillLabel(data.storage),
+              index: describeIndexProgress(data.fastSearch.status),
+              now: Date.now(),
+              sync: data.files.sync,
+            })}
+            testID="console-status"
+          />
         }
         bottomBar={<Text variant="treeMeta">toolbar</Text>}
       >

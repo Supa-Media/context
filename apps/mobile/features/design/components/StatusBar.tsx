@@ -44,6 +44,8 @@ export interface StatusBarSegment {
   text: string;
   tone: StatusBarTone;
   detail?: string;
+  /** Drawn in the mono face — a key rather than a phrase. */
+  mono?: boolean;
 }
 
 /**
@@ -115,7 +117,7 @@ function Segment({ segment }: { segment: StatusBarSegment }) {
 
   return (
     <Text
-      variant="treeMeta"
+      variant={segment.mono === true ? "treeMetaMono" : "treeMeta"}
       numberOfLines={1}
       accessibilityLabel={segment.detail ? `${segment.text}. ${segment.detail}` : segment.text}
       style={[styles.segment, { color: toneColor[segment.tone] }]}

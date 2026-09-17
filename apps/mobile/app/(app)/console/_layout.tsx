@@ -1648,6 +1648,7 @@ function Account({
  * CLAUDE.md) means somebody has to be able to see which one they got.
  */
 function Status({ data }: { data: ConsoleData }) {
+  const styles = useThemedStyles(makeStyles);
   const segments = statusSegments({
     editor: data.files.editor,
     conflictCheck: data.files.editor.conflictCheck,
@@ -1668,12 +1669,26 @@ function Status({ data }: { data: ConsoleData }) {
     sync: data.files.sync,
   });
 
-  return <StatusBar segments={segments} testID="console-status" />;
+  /*
+    Transparent and unpadded, because the frame's own status row already draws
+    the surface, the height, the top rule and the gutter — and puts the tree's
+    toggle inside it. Two copies of that chrome is a second rule under the
+    first and the leading segment indented twice.
+  */
+  return <StatusBar segments={segments} style={styles.statusBar} testID="console-status" />;
 }
 
 export { Avatar };
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  statusBar: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: 0,
+    borderTopWidth: 0,
+    backgroundColor: "transparent",
+  },
+
   switcher: {
     flexDirection: "row",
     alignItems: "center",
