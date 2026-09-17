@@ -4069,3 +4069,60 @@ fixed once; and a GFM table cannot interrupt a paragraph, so a table asked for
 on a line that already has text is inserted *after* that paragraph with the
 blank line the grammar requires — without which the button's whole output is a
 row of literal pipes in the middle of somebody's sentence.
+
+## A callout is a box, and `[!type]` never reaches the reader
+
+Reported with two screenshots side by side — the Bible Reference plugin's
+output in Context, and the same note in Obsidian — and one sentence: *"this
+plugin shows up weird, compare to how it shows up in obsidian."*
+
+**It was never a plugin bug.** The plugin writes
+`> [!bible] [John 3:16 - NIV](…)`, which is an ordinary Obsidian *callout*, and
+this editor had never heard of one. `[!bible]` parsed as a shortcut link, its
+brackets were hidden like any other `LinkMark`, and the reader was left with the
+word `!bible` underlined in blue in front of the reference. Every `[!note]`,
+`[!warning]` and `[!tip]` in anybody's vault read the same way; a plugin is only
+what finally put one on screen next to its original.
+
+Callouts are Obsidian's extension rather than CommonMark, so lezer has no node
+for one and `callouts()` reads the first line of a `Blockquote` the tree already
+found — the same shape, and the same stated reason, as `frontmatterRange`.
+Matching on a line the tree has *already called a blockquote* is what keeps
+`[!note]` in the middle of a sentence from becoming a box.
+
+**The `>` goes too, and that reverses a rule this file's neighbour states
+flatly.** `HIDDEN_MARKS` in `livePreview.ts` is emphatic that `QuoteMark` must
+never be hidden — "a blockquote with its `>` removed reflows into the paragraph
+above it and the reader cannot see the quote at all". Exactly right for a quote
+and exactly wrong for a callout, because the box says the same thing the `>` was
+saying. It is hidden per callout rather than by widening that set, so a plain
+quote keeps every one of its marks, and per *line* rather than per callout, so a
+caret on one line does not bring back the `>` on the four nobody is editing.
+
+**No per-type colours, no icons.** Obsidian has thirteen callout types and
+thirteen colours; each would be another `--lp-*` token crossing the WebView
+bridge, against this area's standing restraint about palette-specific tokens.
+The book icon in the report's screenshot is not Obsidian's either — it is the
+plugin's own stylesheet, and Context does not load a plugin's CSS into the
+trusted realm. Folding is not implemented, and the `+`/`-` that asks for it is
+consumed as part of the marker rather than left behind: a callout that will not
+fold is legible, and half a marker on screen is the bug this fixes.
+
+**The completion list stopped assuming its own content at the same time.** Every
+completion this console wrote for itself is a note path or a form keyword — a
+few words, and a row that never needed a width. A plugin's suggestion is
+whatever its `renderSuggestion` drew, and Bible Reference's is the verse: two
+hundred characters on one unwrapped line, so the list grew to fit and ran off
+the side of the screen. Wrapped and clamped to three lines rather than
+ellipsised, because a verse cut at one line cannot be told from the next one.
+
+**What a simplification costs.** Dropping the marker replacement is the reported
+screenshot. Widening `HIDDEN_MARKS` instead of hiding the `>` per callout takes
+the marks off every plain quote in every note. Revealing per callout rather than
+per line jumps four lines of text sideways under a moving caret. Letting the
+line walk stop on the quote's `to` draws an empty row of box under every callout
+— which jsdom reported as fine and Chromium drew. `callouts.test.ts` holds the
+decisions and `e2e/webkit/callouts.spec.ts` holds that they reach a screen; six
+sabotages confirm them, and a seventh was removed rather than kept, because a
+`Decoration.mark` inside a `Decoration.replace` paints nothing and no test could
+tell the difference.

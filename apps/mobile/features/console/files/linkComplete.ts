@@ -250,12 +250,41 @@ const completionTheme = EditorView.theme({
   ".cm-tooltip.cm-tooltip-autocomplete > ul": {
     fontFamily: "inherit",
     maxHeight: "14em",
+    /* Narrower than a phone and no wider than a comfortable read — see the
+     * label's clamp below for what made a width necessary at all. */
+    maxWidth: "min(92vw, 34em)",
   },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li": {
     padding: "5px 9px",
     display: "flex",
     gap: "10px",
     alignItems: "baseline",
+  },
+  /*
+    A ROW STAYS INSIDE THE EDITOR, and it took a plugin to find out that it did
+    not.
+
+    Every completion this console wrote for itself is a note path or a form
+    keyword — a few words, and a row that never wanted a width. A plugin's
+    suggestion is whatever its own `renderSuggestion` drew, and Bible
+    Reference's is the verse: two hundred characters on one unwrapped line, so
+    the list grew to fit it and ran off the right of the screen with the text
+    clipped at the window edge. Reported as part of "this plugin shows up
+    weird", and it is the same class of bug as the callout beside it — our
+    surface assuming its own content.
+
+    Wrapped and clamped rather than ellipsised: a verse cut off at one line is
+    a suggestion nobody can tell from the next one, and three lines is enough to
+    choose by. The width is `min()` so the list is narrower than the editor on a
+    phone and never wider than a comfortable read on a laptop.
+  */
+  ".cm-tooltip.cm-tooltip-autocomplete > ul > li > .cm-completionLabel": {
+    display: "-webkit-box",
+    WebkitBoxOrient: "vertical",
+    WebkitLineClamp: "3",
+    overflow: "hidden",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
   },
   ".cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]": {
     background: "var(--lp-code-bg)",
