@@ -128,9 +128,9 @@ export function Landing() {
               line collapsed on top of the first.
             */}
             <View role="heading" aria-level={1} style={[styles.heroHeading, heroWidth]}>
-              <Text style={[styles.heroTitle, heroType]}>Free your context.</Text>
+              <Text style={[styles.heroTitle, heroType]}>Notes for your team</Text>
               <Text style={[styles.heroTitle, styles.heroDim, heroType]}>
-                Share your context.
+                and your agents.
               </Text>
             </View>
 
@@ -141,9 +141,10 @@ export function Landing() {
                 { fontSize: subSize, lineHeight: leading(subSize, 1.55) },
               ]}
             >
-              One MCP endpoint gives ChatGPT, Claude, Codex, Notion AI and whatever comes
-              next the context they should have—and nothing they shouldn&apos;t. Connect Dropbox
-              in one click, or bring your own bucket for maximum control.
+              A simple notes app your team works in &mdash; and so do your agents.
+              Everything stays plain Markdown in storage you own, so the same notes open
+              here, in Obsidian, or through Claude, Cursor and anything else that speaks
+              MCP.
             </Text>
 
             <View style={styles.actions}>

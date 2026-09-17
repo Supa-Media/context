@@ -21,7 +21,11 @@
  *   "Share your context."  846.3px
  *
  * — both inside 910, which is why the mockup holds each on one line and why
- * the old 780 could not. Those numbers are the reason `HERO_CH_RATIO` is a
+ * the old 780 could not. The hero's words have since changed ("Notes for your
+ * team" / "and your agents."), and the bound is what governs rather than the
+ * two sentences that were measured: at 19 and 16 characters the new lines are
+ * no longer than the ones above, so the cap still holds each on one line. A
+ * future line longer than about 20 characters needs this measured again. Those numbers are the reason `HERO_CH_RATIO` is a
  * named constant with a test rather than a magic number: if somebody trims it
  * for a "tighter" hero, the test says what it would break.
  *
