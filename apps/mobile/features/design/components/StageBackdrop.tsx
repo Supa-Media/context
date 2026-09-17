@@ -1,5 +1,5 @@
 import { StyleSheet, View } from "react-native";
-import { gradient, maskImage, repeatingPattern } from "../css";
+import { gradient } from "../css";
 import { useColors } from "../theme";
 
 /**
@@ -14,31 +14,15 @@ import { useColors } from "../theme";
 export function StageBackdrop() {
   const colors = useColors();
   return (
-    <>
-      <View
-        aria-hidden
-        style={[
-          styles.grid,
-          repeatingPattern(
-            `linear-gradient(${colors.line} 1px, transparent 1px),` +
-              `linear-gradient(90deg, ${colors.line} 1px, transparent 1px)`,
-            "64px 64px",
-          ),
-          maskImage(
-            "radial-gradient(ellipse 78% 62% at 50% 34%, #000 30%, transparent 78%)",
-          ),
-        ]}
-      />
-      <View
-        aria-hidden
-        style={[
-          styles.halo,
-          gradient(
-            `radial-gradient(ellipse at center, ${colors.accentDim}, transparent 66%)`,
-          ),
-        ]}
-      />
-    </>
+    <View
+      aria-hidden
+      style={[
+        styles.halo,
+        gradient(
+          `radial-gradient(ellipse at center, ${colors.accentDim}, transparent 66%)`,
+        ),
+      ]}
+    />
   );
 }
 
@@ -59,14 +43,6 @@ export function ConsoleHalo() {
 }
 
 const styles = StyleSheet.create({
-  grid: {
-    position: "absolute",
-    pointerEvents: "none",
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-  },
   halo: {
     position: "absolute",
     pointerEvents: "none",

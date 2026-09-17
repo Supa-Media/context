@@ -21,8 +21,7 @@ import {
   type ConsoleRoute,
 } from "../console/nav";
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
-import { ConsoleHalo, StageBackdrop } from "../design/components/StageBackdrop";
-import { FloatingTiles } from "./FloatingTiles";
+import { StageBackdrop } from "../design/components/StageBackdrop";
 import { ContinuityDemo } from "./ContinuityDemo";
 import { HERO_ALSO, HERO_LINE_ONE, HERO_LINE_TWO, HERO_SUB } from "./copy";
 import { heroHeadingWidth } from "./hero";
@@ -70,7 +69,6 @@ export function Landing() {
 
   const heroSize = clamp(46, 7.6, 98, width);
   const subSize = clamp(16, 1.5, 19, width);
-  const showTiles = width >= layout.tileBreakpoint;
   const heroType = {
     fontSize: heroSize,
     lineHeight: leading(heroSize, 0.98),
@@ -91,7 +89,6 @@ export function Landing() {
     >
       <View style={styles.stage}>
         <StageBackdrop />
-        <FloatingTiles visible={showTiles} />
 
         <View style={styles.wrap}>
           <View style={styles.top}>
@@ -146,6 +143,7 @@ export function Landing() {
             </Text>
 
             <View style={styles.actions}>
+              <View style={styles.actionRow}>
               <Button
                 label={landingCtaLabel(auth)}
                 variant="white"
@@ -166,6 +164,7 @@ export function Landing() {
                   </Text>
                 }
               />
+              </View>
               {/*
                 The mockup links these to the stores. There are no listings yet,
                 so they read as the same line without pretending to navigate —
@@ -222,7 +221,6 @@ export function Landing() {
           </View>
 
           <View style={styles.consoleStage}>
-            <ConsoleHalo />
             <ConsoleShell data={demo} route={route} onNavigate={setRoute}>
               {route.kind === "app" && route.section === "map" ? <MapPane data={demo} /> : null}
               {route.kind === "app" && route.section === "connections" ? (
@@ -300,12 +298,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   badgeStrong: { color: colors.text, fontWeight: "600" },
 
   /** `.hero` */
+  /*
+    The hero reads left, not centre.
+
+    It was centred over a field of rotated tiles with a coloured halo behind
+    it — a composition that says "a website" before it says what the product
+    is, and one the design canvas replaced. Ranged left, the headline, the
+    sentence under it and the two buttons share one left edge, so the eye
+    goes down a line rather than hunting a new centre for each block, and the
+    page can put the product beside them instead of decoration around them.
+  */
   hero: {
-    alignItems: "center",
-    paddingTop: 96,
+    alignItems: "flex-start",
+    paddingTop: 88,
   },
   heroHeading: {
-    alignItems: "center",
+    alignItems: "flex-start",
     // `max-width` is computed per render from the clamped font size; see
     // `hero.ts` for why it cannot be a constant.
   },
@@ -313,21 +321,34 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     fontFamily: fonts.display,
     fontWeight: "500",
     color: colors.text,
-    textAlign: "center",
+    textAlign: "left",
   },
   heroDim: { color: colors.heroDim },
   heroSub: {
-    marginTop: 30,
-    // `max-width:53ch`
-    maxWidth: 640,
-    textAlign: "center",
+    marginTop: 26,
+    // The measure is the sentence's, not the headline's: 520 is about 62
+    // characters at this size, inside the band prose stays readable in.
+    maxWidth: 520,
+    textAlign: "left",
     color: colors.text2,
   },
   /** `.actions` */
   actions: {
-    marginTop: 40,
+    marginTop: 36,
+    alignItems: "flex-start",
+    gap: 14,
+  },
+  /*
+    The two buttons sit side by side; the store line is a caption under them.
+    They are a row inside the column rather than the column itself, because a
+    row that also holds the caption puts it beside the buttons — which is what
+    happened on the first pass at this, and it read as a third action.
+  */
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     alignItems: "center",
-    gap: 18,
+    gap: 12,
   },
   /**
    * Each action is centred explicitly, because `alignItems: "center"` above is
@@ -345,7 +366,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * app: a child should not decide how its parent aligns it, but the blast
    * radius of changing that default is the whole design system.
    */
-  actionItem: { alignSelf: "center" },
+  actionItem: { alignSelf: "flex-start" },
   arrow: { fontSize: t.meta, opacity: 0.65 },
   alsoTarget: {
     color: colors.text2,
