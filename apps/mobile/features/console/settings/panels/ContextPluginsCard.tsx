@@ -1,11 +1,12 @@
 import { StyleSheet, View } from "react-native";
-import { Button } from "../../../design/components/Button";
 import { Card, Grow, Row } from "../../../design/components/Card";
 import { Dot } from "../../../design/components/Dot";
 import { FormError } from "../../../design/components/Input";
 import { Hint } from "../../../design/components/Field";
 import { Pill } from "../../../design/components/Pill";
+import { Switch } from "../../../design/components/Switch";
 import { Text } from "../../../design/components/Text";
+import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
   CONTEXT_LEAD,
@@ -17,7 +18,6 @@ import {
   manageBlocker,
   settingsErrorNote,
   switchConsequence,
-  switchLabel,
   type ContextPlugin,
   type ContextPluginsView,
 } from "../../plugins/contextPlugins";
@@ -37,11 +37,15 @@ import {
  * ## Two marks per row, never colour alone
  *
  * On/off is a `Pill` with a `Dot` and a word, the same "mark it more than one
- * way" rule `AppearancePanel`'s checkmark follows. There is no `Switch`
- * primitive in this design system and this is not the screen to invent one on:
- * the control is an ordinary button whose label says what pressing it does, so
- * it reads correctly to a screen reader without an accessibility label
- * restating the state.
+ * way" rule `AppearancePanel`'s checkmark follows.
+ *
+ * The control beside it is a real `Switch`. This paragraph used to say there
+ * was no such primitive and that this was not the screen to invent one on,
+ * which was true until #622 added one for the vault list — so the control is
+ * no longer a button reading "Turn off", which made the reader compute the
+ * state from a verb and put a control in the future tense beside a pill in the
+ * present. `role="switch"` with `checked` is what a screen reader wants for
+ * this, and it is two marks by itself: the knob has a side as well as a fill.
  *
  * ## The consequence is above the button, always
  *
@@ -180,11 +184,19 @@ function ContextPluginRow({
 
           {canManage ? (
             <View style={styles.action}>
-              <Button
-                label={busy ? "Saving\u2026" : switchLabel(plugin)}
-                variant={plugin.enabled ? "danger" : "mini"}
-                onPress={onToggle}
-                disabled={onToggle === undefined}
+              <Switch
+                value={plugin.enabled}
+                /*
+                  The plugin, not the verb and not the state: `checked` carries
+                  the state, and a name that repeats it goes stale the moment
+                  somebody flicks it. While a write is in flight the name gains
+                  a word rather than losing one — the control is disabled, and
+                  "dimmed" on its own does not say whether anything is
+                  happening.
+                */
+                label={busy ? `${plugin.name}, saving\u2026` : plugin.name}
+                disabled={busy || onToggle === undefined}
+                onValueChange={() => onToggle?.()}
                 testID={`context-plugin-toggle-${plugin.id}`}
               />
             </View>
@@ -207,6 +219,6 @@ const makeStyles = (colors: Colors) =>
     meta: { marginTop: 2, color: colors.muted },
     line: { marginTop: 4 },
     close: { marginTop: 7 },
-    action: { marginTop: 11, alignItems: "flex-start" },
+    action: { marginTop: space.x3, alignItems: "flex-start" },
     hint: { marginTop: 12 },
   });

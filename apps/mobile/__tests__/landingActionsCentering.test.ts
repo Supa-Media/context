@@ -58,10 +58,20 @@ describe("the landing hero ranges its actions left", () => {
   });
 
   test("the caption is outside that row", () => {
+    /*
+      `ALSO_ON_PHONE`, not the sentence.
+
+      This searched for the literal `"Also on your phone"` and stopped finding
+      it the moment the page's words moved into `copy.ts` — where
+      `landingCopy.test.ts` can hold them to the vocabulary rules, which is
+      worth more than a string this file can grep for. A source-reading test
+      that names a *constant* survives its copy being edited; one that names
+      the copy is a test about the wording wearing a layout assertion's name.
+    */
     const rowStart = LANDING.indexOf("<View style={styles.actionRow}>");
     const rowEnd = LANDING.indexOf("</View>", rowStart);
     expect(rowStart).toBeGreaterThan(-1);
-    expect(LANDING.indexOf("Also on your phone")).toBeGreaterThan(rowEnd);
+    expect(LANDING.indexOf("{ALSO_ON_PHONE}")).toBeGreaterThan(rowEnd);
   });
 
   test("every action still carries an explicit alignment", () => {
@@ -70,7 +80,15 @@ describe("the landing hero ranges its actions left", () => {
     // `Button`'s default.
     const start = LANDING.indexOf("<View style={styles.actions}>");
     expect(start).toBeGreaterThan(-1);
-    const end = LANDING.indexOf("</View>", LANDING.indexOf("Also on your phone", start));
+    /*
+      The block's far edge is found by the identifier that renders that line,
+      not by the line itself. It used to be the sentence "Also on your phone",
+      and when the page's words were lifted into `features/landing/copy.ts` the
+      `indexOf` went to −1 and this slice collapsed to nothing — a test that
+      counted zero Buttons and said so. Copy is expected to change; the name a
+      component imports is refactored with it.
+    */
+    const end = LANDING.indexOf("</View>", LANDING.indexOf("ALSO_ON_PHONE", start));
     const block = LANDING.slice(start, end);
     const buttons = block.match(/<Button\b/g) ?? [];
     const aligned = block.match(/style=\{styles\.actionItem\}/g) ?? [];

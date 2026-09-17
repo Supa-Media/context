@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { Button } from "../../../design/components/Button";
 import { Card } from "../../../design/components/Card";
 import { Text } from "../../../design/components/Text";
+import { radii, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import { PluginGrantCard } from "./PluginGrantCard";
 import { PluginManagedCard } from "./PluginManagedCard";
@@ -84,8 +85,33 @@ export function PluginDetail({
 
   return (
     <View testID={`plugin-detail-${plugin.id}`}>
-      <View style={styles.back}>
-        <Button label="‹ All plugins" variant="mini" onPress={onBack} testID="plugin-detail-back" />
+      {/*
+        A breadcrumb rather than a chip reading "‹ All plugins".
+
+        The pane above already says Plugins — that is the section you are in —
+        so the old chip was a third thing on the screen naming the same place,
+        and it named it differently from both of them. A crumb says where you
+        are *and* where back goes in one line, which is what the settings bar
+        one level up does with `@seyi / settings / plugins`.
+      */}
+      <View style={styles.crumbs}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to all plugins"
+          onPress={onBack}
+          style={styles.crumbBack}
+          testID="plugin-detail-back"
+        >
+          <Text variant="mini" style={styles.crumbLink}>
+            Plugins
+          </Text>
+        </Pressable>
+        <Text variant="mini" style={styles.crumbSep} aria-hidden>
+          /
+        </Text>
+        <Text variant="mini" style={styles.crumbHere} numberOfLines={1}>
+          {plugin.name}
+        </Text>
       </View>
 
       <Card>
@@ -192,7 +218,16 @@ export function PluginDetail({
 
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    back: { alignItems: "flex-start", marginBottom: 10 },
+    crumbs: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x2,
+      marginBottom: space.x3,
+    },
+    crumbBack: { marginLeft: -space.x1, paddingHorizontal: space.x1, borderRadius: radii.xs },
+    crumbLink: { color: colors.accent },
+    crumbSep: { color: colors.muted },
+    crumbHere: { color: colors.text2, flexShrink: 1 },
     meta: { marginTop: 2, color: colors.muted },
     line: { marginTop: 4 },
     close: { marginTop: 7 },

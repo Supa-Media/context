@@ -426,10 +426,18 @@ describe("the ready list", () => {
       { query: "", limit: 20, searching: false, failure: null },
       { states: [], loading: false, actions: { start, stop: async () => {}, run: () => {} } },
     );
-    const button = [...container.querySelectorAll("[role='button'], button")]
-      .find((one) => one.textContent === "Start") as HTMLElement;
-    expect(button).not.toBeUndefined();
-    await act(async () => button.click());
+    /*
+      An approval is not a start, and the switch is where that is now visible:
+      it reads off on a plugin nobody has started, and pressing it is what
+      starts one. The claim under test is unchanged — the console must not
+      infer that an approved bundle is running.
+    */
+    const control = container.querySelector(
+      "[data-testid='plugin-switch-highlightr-plugin']",
+    ) as HTMLElement;
+    expect(control).not.toBeNull();
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    await act(async () => control.click());
     expect(start).toHaveBeenCalledWith("highlightr-plugin", "fp-highlightr-plugin");
     expect(container.textContent).not.toContain("Running");
   });
@@ -465,15 +473,20 @@ describe("the ready list", () => {
       },
     );
     /*
-      The row's own Stop, not the detail screen's. A running plugin's row is the
+      The row's own stop, not the detail screen's. A running plugin's row is the
       one place somebody reaches for this, and it was two presses away for as
       long as the control lived only on the card underneath.
+
+      It is a switch rather than a button as of `pluginSwitch.test.ts`, which
+      holds the rule about which presses are allowed to become one. What is
+      asserted here is unchanged and is the part this file is for: the row
+      itself can stop a running plugin, addressed by id and fingerprint.
     */
-    const button = container.querySelector(
-      "[data-testid='plugin-primary-highlightr-plugin']",
+    const control = container.querySelector(
+      "[data-testid='plugin-switch-highlightr-plugin']",
     ) as HTMLElement;
-    expect(button.textContent).toBe("Stop");
-    await act(async () => button.click());
+    expect(control.getAttribute("aria-checked")).toBe("true");
+    await act(async () => control.click());
     expect(stop).toHaveBeenCalledWith("highlightr-plugin", "fp-highlightr-plugin");
     // What it is allowed to do is a question about consent, so it is on the
     // plugin's own screen rather than under every row in the list.
@@ -849,5 +862,62 @@ describe("what Context has installed, before a scan", () => {
     });
     const browse = container.querySelector("[data-testid='plugin-browse']");
     expect(browse?.textContent).toContain("Update to the latest release");
+  });
+});
+
+/**
+ * A PLUGIN'S SCREEN IS A SCREEN, NOT AN ITEM UNDER THE LIST'S CHROME.
+ *
+ * `VaultPlugins` has returned the detail *instead of* the list since it was
+ * written — its own comment says a detail drawn under a row is "a wall with a
+ * fold in it rather than a screen". The panel around it did not get the memo:
+ * the search box and its three filters are rendered by `PluginsPanel`, above
+ * the vault half, so they stayed on screen with a plugin open.
+ *
+ * Seen in a browser rather than reasoned about: the detail read
+ *
+ *   Plugins / The plugins in this context… / [search] [All][Context][Obsidian]
+ *   ‹ All plugins / Bible Reference
+ *
+ * — a search box filtering a list that is not on screen, above a back button,
+ * above the thing you actually opened. Typing in it did nothing visible, which
+ * is the tell.
+ *
+ * So the panel hides its own chrome while a plugin is open, and the way back
+ * is a breadcrumb that names where it goes rather than a chip reading
+ * "‹ All plugins" three rows below a heading that also says Plugins.
+ */
+describe("opening a plugin replaces the pane, chrome and all", () => {
+  const withDetail = () => opened(panel(READY), "highlightr-plugin");
+
+  test("the search box and its filters are gone while a plugin is open", () => {
+    const container = withDetail();
+    expect(container.querySelector("[data-testid='plugins-toolbar']")).toBeNull();
+    expect(container.querySelector("[data-testid='plugins-query']")).toBeNull();
+    for (const value of ["all", "context", "obsidian"]) {
+      expect(container.querySelector(`[data-testid='plugins-filter-${value}']`)).toBeNull();
+    }
+  });
+
+  /*
+    The built-ins too. They are a different list, and a plugin's own screen is
+    not the place to go on listing them underneath — the same argument the
+    vault list already makes for itself.
+  */
+  test("the built-ins are not listed under somebody's open plugin", () => {
+    expect(withDetail().querySelector("[data-testid='context-plugins']")).toBeNull();
+  });
+
+  test("the way back names where it goes, and goes there", () => {
+    const container = withDetail();
+    const back = container.querySelector(
+      "[data-testid='plugin-detail-back']",
+    ) as HTMLElement | null;
+    expect(back).not.toBeNull();
+    expect(back!.textContent).toContain("Plugins");
+
+    act(() => back!.click());
+    expect(container.querySelector("[data-testid='plugins-toolbar']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='plugin-detail-highlightr-plugin']")).toBeNull();
   });
 });

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "@jest/globals";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { HERO_LINE_ONE, HERO_LINE_TWO, LANDING_COPY } from "../features/landing/copy";
 
@@ -46,5 +48,142 @@ describe("the landing page obeys the vocabulary decisions", () => {
     const hero = `${HERO_LINE_ONE} ${HERO_LINE_TWO}`;
     expect(hero).toMatch(/notes/i);
     expect(hero).not.toMatch(/\bMCP\b|endpoint|bucket|markdown/i);
+  });
+});
+
+/**
+ * ...AND THE LIST IS THE PAGE, AND THE RULES REACH THE CLAIMS.
+ *
+ * The suite above is careful that a rule is not applied to an *empty* list —
+ * "a rule applied to an empty list always passes" — and that is the right
+ * instinct one step short. `LANDING_COPY` was **four of the six strings a
+ * visitor reads**: a button's `label` and a `PressRow`'s `accessibilityLabel`
+ * lived as literals in `Landing.tsx`, so every rule above was silent on them.
+ * An incomplete list passes for the same reason an empty one does.
+ *
+ * And the rules it did hold are about **vocabulary** — the retired noun, the
+ * countable "context", the hero naming the product. Those protect a naming
+ * decision. The page also makes one **factual** claim, *"Everything stays
+ * plain Markdown in storage you own"*, which is non-negotiables #1 and #3 said
+ * to somebody who has not signed up yet, and nothing held that class at all.
+ * The cheapest guard in the repo was guarding the cheaper half.
+ */
+describe("the landing page's list is the page, and its claims are ones we keep", () => {
+  /**
+   * Everything `Landing.tsx` renders as a sentence has to come from the list.
+   *
+   * Scoped to the two props that carry sentences and to JSX text runs long
+   * enough to be one. The twelve-character floor is what keeps the wordmark's
+   * `.lc` — a JSX child, and the product's name rather than a claim — out of a
+   * copy list, while admitting anything with something to say.
+   */
+  test("no sentence a visitor reads is outside the list", () => {
+    /*
+      TWELVE CHARACTERS IS THE BOUND, AND IT IS STATED RATHER THAN IMPLIED.
+      Under it are the wordmark's `.lc`, `MIT`, `(soon)` and two aria-hidden
+      glyphs — labels and ornament. A three-word label cannot carry the kind of
+      claim these rules exist to catch, and a scan with no floor would drag
+      every glyph on the page into a copy list. Anything long enough to say
+      something is in scope, whether its run ends at a tag or at an
+      interpolation: `Also on your phone:` is followed by `{" "}` rather than
+      by `<`, and an earlier draft that only stopped at `<` walked past it.
+    */
+    const source = readFileSync(join(__dirname, "../features/landing/Landing.tsx"), "utf8");
+    const spoken: string[] = [];
+    for (const match of source.matchAll(/(?:\baccessibilityLabel|\blabel)="([^"]+)"/g)) {
+      spoken.push(match[1]!);
+    }
+    /*
+      Across lines, and whitespace-normalised before comparing. The first draft
+      of this scan forbade a newline inside the run — and so walked straight
+      past the **longest paragraph on the page**, three lines of JSX text, while
+      reporting that the list was the page. The claim this test makes about
+      itself was false when it was written, in exactly the way the claim it
+      checks had been.
+    */
+    // `(?<!=)` so an arrow function is not read as a tag: terminating a run at
+    // an interpolation made `=> StyleSheet.create(` look exactly like JSX text.
+    for (const match of source.matchAll(/(?<!=)>\s*([A-Za-z][^<>{}]{11,}?)\s*[<{]/gs)) {
+      spoken.push(match[1]!.replace(/\s+/g, " ").trim());
+    }
+    const unguarded = spoken.filter(
+      (text) => !LANDING_COPY.some((line) => line.replace(/\s+/g, " ").includes(text)),
+    );
+    expect(unguarded).toEqual([]);
+  });
+
+  /**
+   * ...and every line the page can reach is in the list.
+   *
+   * The scan above only sees **literals**, so on its own it is satisfied the
+   * moment a sentence becomes a constant — after which `LANDING_COPY` could be
+   * trimmed back and the page would go on rendering the line with no rule
+   * touching it. That is the same incompleteness this suite was extended to
+   * close, wearing the fix's own clothes, and sabotage is what surfaced it:
+   * dropping a constant from the list reddened nothing.
+   *
+   * So the two halves meet in the middle — **every sentence is a constant, and
+   * every constant is in the list** — and neither direction is left to
+   * somebody remembering.
+   */
+  test("no line this file exports is left out of the list", () => {
+    const source = readFileSync(join(__dirname, "../features/landing/copy.ts"), "utf8");
+    const strings = [...source.matchAll(/export const [A-Z_0-9]+(?:\s*=\s*|\s*=\s*\n\s*)"([^"]*)"/g)].map(
+      (match) => match[1]!,
+    );
+    /*
+      Every exported name except the list itself, counted separately — so a
+      constant written in a shape this reader cannot parse **fails here** rather
+      than being quietly skipped. A reader that can silently return less than it
+      was given is the failure this whole test exists about, one level down.
+    */
+    const names = [...source.matchAll(/export const ([A-Z_0-9]+)\s*[:=]/g)]
+      .map((match) => match[1]!)
+      .filter((name) => name !== "LANDING_COPY");
+    expect(strings.length).toBe(names.length);
+    expect(strings.length).toBeGreaterThan(8);
+    const missing = strings.filter((text) => !LANDING_COPY.some((line) => line.includes(text)));
+    expect(missing).toEqual([]);
+  });
+
+  /**
+   * The page does not claim a confidentiality the product does not hold.
+   *
+   * Grounded in `docs/decisions/encryption.md` rather than in taste. A note is
+   * encrypted **deliberately, per note**, and its `workspace` recipient exists
+   * *so that the gateway can decrypt at request time* — that is what keeps
+   * members, MCP clients, the console and opt-in search working. Only a
+   * `passphrase` note is one "we cannot recover", and that is a choice a person
+   * makes on one note, not a property of the product.
+   *
+   * So every phrase below would be **false on the front page**, and false about
+   * the threat model specifically — the reader would be deciding to trust us
+   * with something on a promise we do not make. The commit that built this
+   * file said the risk out loud: *"copy is what gets edited in a hurry by
+   * whoever is closest to a launch."* This is that risk pointed at the half
+   * that matters.
+   */
+  test("the page claims no confidentiality the product does not keep", () => {
+    const OVERCLAIMS: Array<[label: string, pattern: RegExp]> = [
+      ["end-to-end", /end[- ]to[- ]end/i],
+      ["zero-knowledge", /zero[- ]knowledge/i],
+      /*
+        A negation and a verb, in that order, inside one sentence — rather than
+        a fixed list of contractions. The first draft spelled the contractions
+        out and **missed "we can never read your notes"**, which is the most
+        natural way anybody would write the claim: "can never" is neither
+        "cannot" nor a bare "never". Sabotage caught it; reading it did not.
+      */
+      ["we cannot read it", /\bwe\b[^.]{0,40}\b(never|cannot|can ?not|can'?t|could ?n[o']t|do ?n[o']t|do not|wo ?n[o']t|will not)\b[^.]{0,40}\b(read|see|access|decrypt|look at)\b/i],
+      ["only you can read it", /\bonly you\b[^.]{0,40}\b(can|could)\b[^.]{0,40}\b(read|see|open|decrypt)\b/i],
+      ["nobody else can read it", /\bno[- ]?(one|body)\b[^.]{0,40}\b(can|could)\b[^.]{0,40}\b(read|see|open|decrypt)\b/i],
+      ["encrypted by default", /\bencrypted\b[^.]*\bby default\b/i],
+      ["we hold nothing", /\bwe (hold|store|keep) (nothing|none)\b/i],
+    ];
+    const offenders: string[] = [];
+    for (const [label, pattern] of OVERCLAIMS) {
+      for (const line of LANDING_COPY) if (pattern.test(line)) offenders.push(`${label}: ${line}`);
+    }
+    expect(offenders).toEqual([]);
   });
 });

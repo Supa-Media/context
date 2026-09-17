@@ -6,6 +6,7 @@ import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
 import { FormError, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
+import { Switch } from "../../../design/components/Switch";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -16,7 +17,7 @@ import type { RuntimeView } from "../../plugins/runtime";
 import type { BrowseView } from "../../plugins/lifecycle";
 import { approvalOffer, standingFor, type GrantsView } from "../../plugins/grants";
 import { runtimeFor } from "../../plugins/runtime";
-import { pluginRowSummary } from "../../plugins/pluginRow";
+import { pluginRowControl, pluginRowSummary } from "../../plugins/pluginRow";
 import { usePluginPower } from "../../plugins/usePluginPower";
 import {
   INSTALLED_NOTE,
@@ -110,41 +111,93 @@ export function PluginsPanel({
   const styles = useThemedStyles(makeStyles);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");
+  /*
+    Which plugin's own screen is open, held here rather than in `VaultPlugins`
+    because the chrome that has to get out of its way is the panel's. The
+    search box and the three filters live above both halves, so a detail
+    returned from inside the vault half left them on screen — a box filtering a
+    list nobody can see, above a back button, above the thing you opened.
+  */
+  const [detail, setDetail] = useState<string | null>(null);
+
+  if (detail !== null) {
+    /*
+      The plugin's screen, and nothing else. `VaultPlugins` decides whether the
+      id still names something — a re-scan that no longer finds it falls back
+      to the list, which is the honest answer rather than a page about a plugin
+      that is gone — so the panel does not second-guess it here.
+    */
+    return (
+      <View testID="plugins-panel">
+        <VaultPlugins
+          view={view}
+          installs={installs}
+          grants={grants}
+          browse={browse}
+          runtime={runtime}
+          query={query}
+          detail={detail}
+          onDetail={setDetail}
+        />
+      </View>
+    );
+  }
 
   return (
     <View testID="plugins-panel">
-      <Card>
-        <TextField
-          label="Search plugins"
-          testID="plugins-query"
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Name, what it does, or a tool name"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <Row style={styles.filters}>
-          {PLUGIN_FILTERS.map((entry) => (
-            <Button
-              key={entry.value}
-              label={entry.label}
-              variant="mini"
-              style={filter === entry.value ? styles.filterActive : undefined}
-              // A leading glyph as well as the tint: the accent is the same hue
-              // links use, which is not a safe distinguisher on its own — the
-              // rule `AppearancePanel`'s own chips follow.
-              leading={
-                filter === entry.value ? <Text style={styles.check}>{"\u2713 "}</Text> : undefined
-              }
-              accessibilityLabel={
-                filter === entry.value ? `${entry.label}, showing` : `Show ${entry.label}`
-              }
-              onPress={() => setFilter(entry.value)}
-              testID={`plugins-filter-${entry.value}`}
-            />
-          ))}
-        </Row>
-      </Card>
+      {/*
+        A toolbar, where this was a full-width card with a labelled field and
+        three chips under it — the first thing on the pane, above every plugin,
+        at a moment when nobody has typed anything. A box around a search box
+        is a box too many, and it pushed the only content on the screen below
+        the fold on a laptop.
+
+        The field keeps its accessible label; what it loses is the printed one,
+        which said "Search plugins" directly above a placeholder reading "Name,
+        what it does, or a tool name" on a pane titled Plugins.
+      */}
+      <Row style={styles.toolbar} testID="plugins-toolbar">
+        {/*
+          `flexBasis` rather than `Grow`, and it is the whole of the phone
+          case. On a wrapping row a growing child takes what is left *after*
+          its siblings, so three chips worth 300pt left the field 84pt at a
+          390pt width — a search box too narrow to show a word of what you
+          typed. A basis wider than the chips can leave makes the row wrap
+          instead, which puts the filters on their own line and gives the
+          field the width. Measured in `settings.spec.ts`, at 390.
+        */}
+        <View style={styles.queryBox}>
+          <TextField
+            label="Search plugins"
+            labelHidden
+            testID="plugins-query"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Name, what it does, or a tool name"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+        {PLUGIN_FILTERS.map((entry) => (
+          <Button
+            key={entry.value}
+            label={entry.label}
+            variant="mini"
+            style={filter === entry.value ? styles.filterActive : undefined}
+            // A leading glyph as well as the tint: the accent is the same hue
+            // links use, which is not a safe distinguisher on its own — the
+            // rule `AppearancePanel`'s own chips follow.
+            leading={
+              filter === entry.value ? <Text style={styles.check}>{"\u2713 "}</Text> : undefined
+            }
+            accessibilityLabel={
+              filter === entry.value ? `${entry.label}, showing` : `Show ${entry.label}`
+            }
+            onPress={() => setFilter(entry.value)}
+            testID={`plugins-filter-${entry.value}`}
+          />
+        ))}
+      </Row>
 
       {showsContext(filter) ? <ContextPluginsCard view={contextPlugins} query={query} /> : null}
       {showsObsidian(filter) ? (
@@ -163,6 +216,8 @@ export function PluginsPanel({
             browse={browse}
             runtime={runtime}
             query={query}
+            detail={detail}
+            onDetail={setDetail}
           />
         </View>
       ) : null}
@@ -209,6 +264,8 @@ function VaultPlugins({
   browse,
   runtime,
   query,
+  detail,
+  onDetail,
 }: {
   view: PluginsView;
   installs: ManagedInstallsView;
@@ -216,6 +273,9 @@ function VaultPlugins({
   browse: BrowseView;
   runtime: RuntimeView;
   query: string;
+  /** Which plugin's own screen is open, owned by the panel — see its note. */
+  detail: string | null;
+  onDetail: (next: string | null) => void;
 }) {
   return (
     <>
@@ -245,6 +305,8 @@ function VaultPlugins({
       {view.state === "ready" ? null : <InstalledPlugins view={installs} query={query} />}
       <VaultInventory
         view={view}
+        detail={detail}
+        onDetail={onDetail}
         grants={grants}
         /*
           Still needed below, and for a different thing: a row's uninstall and
@@ -356,12 +418,17 @@ function VaultInventory({
   browse,
   runtime,
   query,
+  detail,
+  onDetail,
 }: {
   view: PluginsView;
   grants: GrantsView;
   browse: BrowseView;
   runtime: RuntimeView;
   query: string;
+  /** Which plugin's own screen is open. Owned by `PluginsPanel` — see its note. */
+  detail: string | null;
+  onDetail: (next: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -372,10 +439,12 @@ function VaultInventory({
     It is looked up below, so a plugin that is genuinely gone falls back to the
     list rather than leaving a detail page for something that is not there.
 
-    Here rather than in `PluginsPanel` because the panel never sees a plugin —
-    it sees five states, only one of which has a list to open anything from.
+    It moved *to* `PluginsPanel`, reversing the note that used to stand here —
+    "the panel never sees a plugin, it sees five states". True, and beside the
+    point: the panel owns the search box and the filters, and those have to
+    leave the screen when a plugin's own does not. The panel still never looks
+    a plugin up; it only knows whether one is open.
   */
-  const [detail, setDetail] = useState<string | null>(null);
 
   if (view.state === "withheld") {
     return (
@@ -511,7 +580,7 @@ function VaultInventory({
           grants={grants}
           browse={browse}
           runtime={runtime}
-          onBack={() => setDetail(null)}
+          onBack={() => onDetail(null)}
         />
       </View>
     );
@@ -570,7 +639,7 @@ function VaultInventory({
               plugin={plugin}
               grants={grants}
               runtime={runtime}
-              onOpen={() => setDetail(plugin.id)}
+              onOpen={() => onDetail(plugin.id)}
             />
           ))}
         </Card>
@@ -631,6 +700,8 @@ function PluginRow({
     approvable: approvalOffer(plugin, grants.egress).kind === "available",
   });
 
+  const control = pluginRowControl(primary);
+
   return (
     <Row divided style={styles.pluginRow}>
       <Grow testID={`plugin-row-${plugin.id}`}>
@@ -648,25 +719,38 @@ function PluginRow({
               {status.label}
             </Pill>
           )}
+          {/*
+            The switch rides at the trailing edge of the row's first line,
+            beside the pill rather than under it: "is it on" is the question the
+            list exists to answer, and the answer belongs where the eye already
+            is. The pill says what it is doing; this says what you set.
+          */}
+          {control?.kind === "switch" ? (
+            <Switch
+              value={control.on}
+              /*
+                The plugin's name, and the state rides on `checked`. While a
+                press is in flight the label gains a word rather than losing
+                one — the control is disabled, and "dimmed" on its own does not
+                say whether anything is happening.
+              */
+              label={power.busy ? `${plugin.name}, working…` : plugin.name}
+              disabled={power.busy}
+              onValueChange={() => void power.act(control.action)}
+              testID={`plugin-switch-${plugin.id}`}
+            />
+          ) : null}
         </Row>
 
         <Row style={styles.controls}>
-          {primary === null ? null : primary.kind === "open" ? (
+          {control?.kind === "door" ? (
             <Button
-              label={primary.label}
+              label={control.label}
               variant="mini"
               onPress={onOpen}
               testID={`plugin-primary-${plugin.id}`}
             />
-          ) : (
-            <Button
-              label={power.busy ? (primary.kind === "stop" ? "Stopping…" : "Starting…") : primary.label}
-              variant="mini"
-              disabled={power.busy}
-              onPress={() => void power.act(primary.kind)}
-              testID={`plugin-primary-${plugin.id}`}
-            />
-          )}
+          ) : null}
           {/*
             Always here, whatever the row decided, because it is the way to
             everything the row stopped saying. A plugin Context cannot run has
@@ -691,10 +775,11 @@ function PluginRow({
 const makeStyles = (colors: Colors) => StyleSheet.create({
   lead: { marginTop: 6 },
   installRow: { alignItems: "center", gap: space.x2, paddingVertical: space.x1 },
-  // Wrapping rather than a fixed row: three chips and their gaps can exceed a
-  // phone's width, and wrapping is what keeps this a settings row instead of a
-  // horizontal scroller.
-  filters: { flexWrap: "wrap", gap: space.x2, marginTop: 12 },
+  // Wrapping rather than a fixed row: a field and three chips and their gaps
+  // exceed a phone's width, and wrapping is what keeps this a settings row
+  // instead of a horizontal scroller.
+  toolbar: { flexWrap: "wrap", alignItems: "center", gap: space.x2 },
+  queryBox: { flexGrow: 1, flexShrink: 1, flexBasis: 320, minWidth: 0 },
   filterActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
   check: { color: colors.accentText },
   action: { marginTop: 13, alignItems: "flex-start" },

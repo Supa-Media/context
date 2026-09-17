@@ -216,6 +216,48 @@ test("the phone's section labels are left-aligned, not centred", async ({ page }
   }
 });
 
+/**
+ * The plugins toolbar at a phone's width, measured rather than described.
+ *
+ * The search box and its three filters became one wrapping row when the card
+ * around them went (#626). At 1280 that is a field with three chips beside it;
+ * at 390 the chips take 300pt of the row and the field wraps to whatever is
+ * left, which shipped as an 84pt box reading "Name, ⌄" — a search field too
+ * narrow to show a word of what you typed.
+ *
+ * jsdom cannot see this: the styles are correct, the row is correct, and the
+ * only thing wrong is the arithmetic of a real engine laying out real chips.
+ * That is this directory's whole remit.
+ */
+test("the plugins search box is not squeezed by its filters on a phone", async ({ page }) => {
+  await openConsole(page);
+  await tap(page, ACCOUNT_MENU);
+  await page.getByTestId(ACCOUNT_SETTINGS).tap();
+  await expect(page.getByTestId("settings-overlay")).toBeVisible();
+  // Settings opens on a section; the list is one press back, and Plugins is
+  // on it — the same two steps `a phone opens settings on a section` walks.
+  await page.getByTestId("settings-overlay-back").tap();
+  await page.getByTestId("settings-section-plugins").tap();
+
+  const field = page.getByTestId("plugins-query");
+  await expect(field).toBeVisible();
+  const box = await field.boundingBox();
+  const viewport = page.viewportSize();
+  if (box === null || viewport === null) throw new Error("no box for the search field");
+
+  /*
+    Most of the row, which on a wrapped row means the chips went to their own
+    line. A fraction rather than a pixel count so the assertion survives a
+    change of gutter.
+
+    Proved red, then green, which is what this directory asks of a case like
+    this: with the field back on `flex: 1` — `flex-basis: 0`, which is what
+    `Grow` compiles to and what shipped — this reads 22% of the width against
+    the 21% measured in the screenshot that started it. With the basis, 78%.
+  */
+  expect(box.width / viewport.width).toBeGreaterThan(0.6);
+});
+
 test.describe("at a pointer width", () => {
   test.use({ viewport: { width: 1280, height: 900 }, isMobile: false, hasTouch: false });
 
@@ -249,6 +291,39 @@ test.describe("at a pointer width", () => {
     await page.getByTestId("settings-section-storage").click();
     await expect(page.getByText(/Your bucket, your credentials/)).toBeVisible();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
+  });
+
+  /**
+   * The page fills the window, measured in a real engine.
+   *
+   * This is the assertion jsdom cannot make and the one the defect was
+   * visible in: a 940×660 panel centred on a scrim, on a 1280×900 window,
+   * with the console greyed out around it. `settingsFrame.test.ts` proves the
+   * styles no longer *say* card; this proves the box no longer *is* one,
+   * which is a different claim and the one a screenshot would have settled.
+   */
+  test("settings is the window, not a card in the middle of it", async ({ page }) => {
+    await openConsole(page);
+    await page.getByTestId("rail-settings").click();
+    await expect(page.getByTestId("settings-sections")).toBeVisible();
+
+    const viewport = page.viewportSize();
+    if (viewport === null) throw new Error("no viewport");
+    const surface = await page.getByTestId("settings-overlay-panel").boundingBox();
+    if (surface === null) throw new Error("no box for the settings page");
+
+    // Flush to all four edges. A panel with `padding: space.x6` around a
+    // scrim sat 24pt in on every side, so any of these catches a revert.
+    expect(surface.x).toBe(0);
+    expect(surface.y).toBe(0);
+    expect(surface.width).toBe(viewport.width);
+    expect(surface.height).toBe(viewport.height);
+
+    // And the section list starts at the very left, rather than at the edge
+    // of a floating card — the cheapest way to tell the two apart by eye.
+    const list = await page.getByTestId("settings-sections").boundingBox();
+    if (list === null) throw new Error("no box for the list");
+    expect(list.x).toBeLessThan(24);
   });
 });
 

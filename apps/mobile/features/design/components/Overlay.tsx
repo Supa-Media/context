@@ -14,16 +14,27 @@ import { Icon } from "./Icon";
 import { Text } from "./Text";
 import { layout, radii, space } from "../tokens";
 
-import { useColors, useThemedStyles, type Colors, type Shadows } from "../theme";
+import { useColors, useThemedStyles, type Colors } from "../theme";
 
 /**
- * A panel over the page, rather than a page you went to.
+ * The settings surface: a page over the page, rather than a page you went to.
  *
  * Settings used to be a route that replaced Browse, and the cost was not only
  * visual: closing it had to *reconstruct* where somebody came from, because
  * the note they were reading was no longer anywhere in the URL. Drawn over the
  * top instead, the note stays addressed and on screen, and closing is a back
- * button.
+ * button. **None of that changed**, and this is the thing most likely to be
+ * misread about the shape below: `?settings=` is still the address, Browse is
+ * still mounted under this, and closing still drops one parameter.
+ *
+ * What changed is that it stopped *looking* like a dialog. It was a 940×660
+ * panel with a radius, a border and a drop shadow, centred on a 72%-black
+ * scrim — chrome that says "the real screen is the one behind me, this is
+ * temporary". Settings is neither temporary nor small: nineteen sections, a
+ * connect form, a plugin list. So the surface fills the window, the scrim is
+ * gone because there is nothing behind it to look at, and the way out is a
+ * named control rather than a glyph in a corner. `settingsFrame.test.ts`
+ * holds each of those.
  *
  * ## Two shapes, one component, and the same rule the rest of the app uses
  *
@@ -49,6 +60,7 @@ export function Overlay({
   badge,
   closeLabel = "Close",
   trailing,
+  breadcrumb,
   sidebar,
   sidebarWidth = layout.railWidth,
   children,
@@ -76,6 +88,15 @@ export function Overlay({
   closeLabel?: string;
   /** Anything before the close button. */
   trailing?: ReactNode;
+  /**
+   * The address, stated in the bar — `settings / plugins`.
+   *
+   * A full page has to say which page it is, and this one has an address
+   * already: every section is `?settings=<key>`. Drawn in the mono face
+   * because it is a path rather than a sentence, and because that is what
+   * makes a screenshot in a support thread name its own screen.
+   */
+  breadcrumb?: string;
   /**
    * The section list, drawn beside the content at pointer widths.
    *
@@ -125,6 +146,14 @@ export function Overlay({
   // Starts `true`, so nothing moves before the preference has resolved.
   const reduced = useReducedMotion();
 
+  /**
+   * The phone's bar: a back chevron to the list, the screen's name, the close.
+   *
+   * Left as it was. A phone is already full-bleed — it never had the panel or
+   * the scrim — so the change below is a pointer-width one, and giving the
+   * phone a second left-hand control beside its Back would be a bar with two
+   * ways out and no room for either.
+   */
   const head = (
     <View style={styles.head}>
       {onBack === undefined ? null : (
@@ -206,74 +235,113 @@ export function Overlay({
     );
   }
 
+  /**
+   * The pointer bar: out, which context, where you are, and how it is.
+   *
+   * Reading order is the reader's question order — *how do I get back*, *whose
+   * settings are these*, *which screen is this*, *is anything wrong* — and the
+   * close is first because on a page that fills the window it is the only
+   * thing that is not settings.
+   */
+  const bar = (
+    <View style={styles.bar}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={closeLabel}
+        onPress={onDismiss}
+        style={styles.out}
+        testID={testID ? `${testID}-close` : undefined}
+      >
+        <Icon name="chevronLeft" size={15} color={colors.muted} />
+        <Text variant="rail" style={styles.outLabel} numberOfLines={1}>
+          Notes
+        </Text>
+      </Pressable>
+      {badge}
+      {breadcrumb === undefined ? null : (
+        <Text
+          variant="mono"
+          style={styles.crumb}
+          numberOfLines={1}
+          testID={testID ? `${testID}-breadcrumb` : undefined}
+        >
+          {breadcrumb}
+        </Text>
+      )}
+      <View style={styles.grow} />
+      {trailing}
+    </View>
+  );
+
   return (
     <Modal
-      transparent
       animationType={reduced ? "none" : "fade"}
       onRequestClose={onDismiss}
       visible
       testID={testID}
     >
       {/*
-        The scrim closes; the panel swallows its own presses so a click inside
-        does not dismiss. The same construction `Dialogs.Shell` uses.
+        A plain View, where this used to be a scrim wrapping a panel that
+        swallowed its own presses. With nothing dismissable behind it there is
+        no press to swallow and nothing to grey out — and the `accessible=
+        {false}` the pair needed goes with them, which is one fewer way for an
+        entire settings surface to collapse into a single VoiceOver element.
       */}
-      {/*
-        `accessible={false}` on both, and it is not cosmetic. `Pressable`
-        defaults to `accessible`, and an accessible View on iOS collapses into
-        a single element whose descendants VoiceOver cannot reach — which for a
-        wrapper around an entire settings surface means the section list, the
-        binding card and the connect form all disappear behind one "Close"
-        button. The dialogs this pattern comes from wrap a title and two
-        buttons, where that cost does not arise.
-
-        The inner handler is `() => {}` rather than a `stopPropagation` call:
-        nested responders mean the outer never fires anyway, and a handler that
-        dereferences its argument throws the day something invokes it bare.
-      */}
-      <Pressable
-        style={styles.scrim}
-        accessible={false}
-        accessibilityLabel={closeLabel}
-        onPress={onDismiss}
+      <View
+        style={[styles.page, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
+        testID={testID ? `${testID}-panel` : undefined}
       >
-        <Pressable style={styles.panel} accessible={false} onPress={() => {}}>
-          {head}
-          <View style={styles.body}>
-            {sidebar === undefined ? null : (
-              <View style={[styles.side, { width: sidebarWidth }]}>{sidebar}</View>
-            )}
-            <View style={styles.main}>{children}</View>
+        {bar}
+        <View style={styles.body}>
+          {sidebar === undefined ? null : (
+            <View style={[styles.side, { width: sidebarWidth }]}>{sidebar}</View>
+          )}
+          <View style={styles.main} testID={testID ? `${testID}-pane` : undefined}>
+            {children}
           </View>
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
     </Modal>
   );
 }
 
-const makeStyles = (colors: Colors, shadows: Shadows) =>
+const makeStyles = (colors: Colors) =>
   StyleSheet.create({
-    scrim: {
+    /*
+      The page. No radius, no cap, no border and no shadow — every one of
+      those says "card", and three of them were doing it at once. It paints
+      `ground`, the shell colour the rail beside it is painted in, so the bar
+      and the list read as one surface and only the pane lifts off it.
+    */
+    page: {
       flex: 1,
-      backgroundColor: "rgba(3,3,4,.72)",
+      backgroundColor: colors.ground,
+    },
+    bar: {
+      height: layout.topBarHeight,
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      padding: space.x6,
+      gap: space.x3,
+      paddingHorizontal: space.x3,
     },
-    panel: {
-      width: "100%",
-      maxWidth: 940,
-      height: "100%",
-      maxHeight: 660,
-      borderRadius: radii.console,
-      borderWidth: 1,
-      borderColor: colors.lineStrong,
+    /*
+      Named, and the name is where it goes rather than what it does. "Close"
+      on a dialog is obvious because the thing behind it is visible around its
+      edges; on a page that fills the window nothing is, so the control has to
+      say what comes back.
+    */
+    out: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: space.x1,
+      height: 32,
+      paddingLeft: space.x2,
+      paddingRight: space.x3,
+      borderRadius: radii.md,
       backgroundColor: colors.surface,
-      overflow: "hidden",
-      // The token rather than a fourth copy of the same literal: `Palette`,
-      // `Dialogs` and `RecentSheet` each hardcode this string today.
-      boxShadow: shadows.rising,
     },
+    outLabel: { color: colors.text2 },
+    crumb: { color: colors.muted, flexShrink: 1 },
     head: {
       minHeight: layout.topBarHeight,
       flexDirection: "row",
@@ -305,12 +373,25 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       borderRadius: radii.md,
     },
     body: { flex: 1, flexDirection: "row", minHeight: 0 },
-    side: {
-      borderRightWidth: 1,
-      borderRightColor: colors.line,
+    /*
+      No rule down the side of the list. It sits on `ground` and the pane sits
+      on `surface`, so the seam is a change of value — which is how this
+      palette separates every other pair of panels, and one fewer line on a
+      screen that had a border around each of six things.
+    */
+    side: { backgroundColor: colors.ground },
+    /*
+      The one corner left on the surface. The pane is the page's content and
+      the bar and list are its chrome, so it turns that corner the way a
+      window's content area does; the other three run to the edges because
+      there is nothing out there to round away from.
+    */
+    main: {
+      flex: 1,
+      minWidth: 0,
       backgroundColor: colors.surface,
+      borderTopLeftRadius: radii.card,
     },
-    main: { flex: 1, minWidth: 0 },
     phone: { flex: 1, backgroundColor: colors.ground },
     phoneBody: { flex: 1, minHeight: 0 },
   });
