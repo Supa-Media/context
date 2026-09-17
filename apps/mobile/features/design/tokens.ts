@@ -60,6 +60,45 @@ export const darkColors = {
   surface2: "#201E1B",
   surface3: "#2B2825",
 
+  /**
+   * The resting fill of a small control sitting on chrome.
+   *
+   * The design canvas gives the switcher chip, the search box and the tree's
+   * "new note" button the same barely-there wash at rest, and it is the thing
+   * that makes the title bar read as a row of controls rather than a row of
+   * floating words. It is the ground's own ink at 5% rather than `surface2`,
+   * so it works on both `chromeSurface` and `pageSurface` without either
+   * having to know what is drawn on it.
+   */
+  chipFill: "rgba(237,232,224,0.05)",
+
+  /**
+   * Chrome's grey, which is one step quieter than a label's.
+   *
+   * `muted` is what a *name* is drawn in — a folder in the tree, a row in a
+   * menu. This is what the furniture around it is drawn in: a chevron, an
+   * eyebrow, a status segment, the ✕ on a tab. The canvas uses two greys and
+   * collapsing them to one is what made the earlier chrome read as loud.
+   */
+  chromeMuted: "#8D857B",
+
+  /** A selected row in the file tree, under its accent bar. */
+  rowSelected: "#2B2825",
+
+  /**
+   * The `team` marker in the file tree, and only that.
+   *
+   * Visibility is the one thing a row says about itself that is not about the
+   * file, and the canvas gives it its own hue rather than another grey: down a
+   * column of muted words, a second muted word is furniture, and this one is a
+   * fact about who can read what. It is the same violet the constellation map
+   * already uses for a shared edge (`darkGraphColors.shared`), written again
+   * rather than imported — the map's palette is keyed by *relationship* and
+   * this is keyed by *visibility*, and a shared import would tie two meanings
+   * together that are free to move apart.
+   */
+  markTeam: "#B9A3F2",
+
   /** Hairline separators. RN has no `currentColor`, so these are literal rgba. */
   line: "rgba(237,232,224,0.07)",
   lineStrong: "rgba(237,232,224,0.14)",
@@ -250,6 +289,21 @@ export const lightColors: Colors = {
   surfaceClear: "rgba(255,253,249,0)",
   surface2: "#F7F4ED",
   surface3: "#F0ECE3",
+
+  /** See the dark palette: the ground's ink at 5%, so it works on either surface. */
+  chipFill: "rgba(26,23,20,0.05)",
+  /** See the dark palette's note. Light's `heroDim` happens to be the same grey. */
+  chromeMuted: "#7A7264",
+  /**
+   * Deliberately darker than `surface3`.
+   *
+   * A selected row has to hold at a glance across a 260pt column of names, and
+   * on paper `surface3` at `#F0ECE3` is a tint you have to look for. The canvas
+   * draws it two steps down.
+   */
+  rowSelected: "#E6E1D6",
+  /** See the dark palette's note. */
+  markTeam: "#6A46B8",
 
   /** Hairline separators — black at low alpha, mirroring the dark palette's white. */
   line: "rgba(26,23,20,0.09)",

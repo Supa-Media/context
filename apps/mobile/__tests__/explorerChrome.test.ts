@@ -174,17 +174,31 @@ function invisible(colour: string): boolean {
 const filterOf = (container: HTMLElement) =>
   container.querySelector<HTMLElement>('[data-testid="explorer-filter"]')!;
 
-/** The group the four buttons are faded as one. */
-const toolsOf = (container: HTMLElement) =>
+/**
+ * The group that fades, and the group that does not.
+ *
+ * The toolbar's last child is the pair the canvas draws **at rest** — new note
+ * and collapse-all — and the one before it is the pair that arrives with the
+ * pointer. It used to be all four in one faded group, and `lastElementChild`
+ * meant the faded one; naming both here is what keeps a future reshuffle from
+ * turning this file into a test that reads the resting group's opacity and
+ * reports the fade working.
+ */
+const approachToolsOf = (container: HTMLElement) => {
+  const row = filterOf(container).parentElement!;
+  return row.children[row.children.length - 2]!;
+};
+
+const restingToolsOf = (container: HTMLElement) =>
   filterOf(container).parentElement!.lastElementChild!;
 
 /* -------------------------------------------------------------------------- */
 
 describe("the tree's header at rest", () => {
-  test("the tools are invisible and the filter has no box", () => {
+  test("the pair that fades is invisible and the filter has no box", () => {
     const container = mount();
 
-    expect(styleOf(toolsOf(container), "opacity")).toBe("0");
+    expect(styleOf(approachToolsOf(container), "opacity")).toBe("0");
     // `transparent`, not absent: a border that arrives would move the header
     // 2pt under the hand reaching for it.
     expect(styleOf(filterOf(container), "border-top-width")).toBe("1px");
@@ -217,7 +231,27 @@ describe("the tree's header at rest", () => {
     // word is the column's, not the control's.
     expect(filter.getAttribute("aria-label")).toBe("Filter notes and folders");
 
-    expect(toolsOf(container).querySelectorAll('[role="button"]').length).toBeGreaterThan(0);
+    expect(approachToolsOf(container).querySelectorAll('[role="button"]').length).toBeGreaterThan(0);
+  });
+
+  test("and the two the canvas draws at rest are drawn at rest", () => {
+    /*
+      The reversal guard for the split. All four buttons used to fade
+      together, which left the header as a word and nothing else — a caption,
+      not the top of a panel. If somebody folds these back into the faded
+      group, this is the assertion that says so.
+
+      By `testID` rather than by counting: which two are resting is the claim,
+      and a count would pass on any two.
+    */
+    const container = mount();
+    const resting = restingToolsOf(container);
+
+    expect(styleOf(resting, "opacity")).not.toBe("0");
+    expect(resting.querySelector('[data-testid="explorer-new-note"]')).not.toBeNull();
+    expect(resting.querySelector('[data-testid="explorer-collapse"]')).not.toBeNull();
+    // And the other two are in the group that fades, not merely absent here.
+    expect(approachToolsOf(container).querySelector('[data-testid="explorer-sort"]')).not.toBeNull();
   });
 });
 

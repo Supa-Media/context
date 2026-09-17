@@ -468,35 +468,56 @@ export function Explorer({
    * Storage and in a dismissible notice now; see
    * `../storage/StorageMigration.tsx`, which holds the argument and the copy.
    */
-  const actions = (
+  /*
+    THE HEADER'S TOOLS, IN TWO GROUPS, AND THE SPLIT IS THE CANVAS'S.
+
+    All four used to arrive together on approach, on the argument that four
+    lit buttons over a list of names is the loudest thing in the quietest
+    region. That argument was right about *four* and wrong about zero: the
+    canvas draws two of them at rest — new note and collapse-all — and a
+    header with a name and nothing else reads as a caption rather than as the
+    top of a panel you can do things to.
+
+    Which two is not arbitrary. These are the pair with no other route: ⌘N has
+    no equivalent for "collapse everything", and both act on the column rather
+    than on a row, so neither is in a row's context menu. The pair that fades
+    — new folder, and the sort direction — are both reachable from a folder's
+    own menu, and sorting is something you set once.
+  */
+  const restingActions = (
     <>
       {files.canEdit ? (
-        <>
-          <IconButton
-            label="New note"
-            icon="plus"
-            onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
-            testID="explorer-new-note"
-          />
-          <IconButton
-            label="New folder"
-            icon="folder"
-            onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
-            testID="explorer-new-folder"
-          />
-        </>
+        <IconButton
+          label="New note"
+          icon="plus"
+          onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
+          testID="explorer-new-note"
+        />
+      ) : null}
+      <IconButton
+        label="Collapse every folder"
+        icon="collapse"
+        onPress={files.collapseAll}
+        testID="explorer-collapse"
+      />
+    </>
+  );
+
+  const approachActions = (
+    <>
+      {files.canEdit ? (
+        <IconButton
+          label="New folder"
+          icon="folder"
+          onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
+          testID="explorer-new-folder"
+        />
       ) : null}
       <IconButton
         label={descending ? "Sort A to Z" : "Sort Z to A"}
         icon="sort"
         onPress={() => setDescending((current) => !current)}
         testID="explorer-sort"
-      />
-      <IconButton
-        label="Collapse every folder"
-        icon="collapse"
-        onPress={files.collapseAll}
-        testID="explorer-collapse"
       />
     </>
   );
@@ -610,7 +631,13 @@ export function Explorer({
           />
         ) : null}
         <View style={styles.toolbarSpacer} />
-        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{actions}</View>
+        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{approachActions}</View>
+        {/*
+          Never faded. See `restingActions` — the canvas's header has these two
+          at rest, and the fade is now about the pair beside them rather than
+          about the whole toolbar.
+        */}
+        <View style={styles.toolsResting}>{restingActions}</View>
       </View>
 
       <ScrollView
@@ -1115,6 +1142,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     opacity: 0,
   },
   toolsShown: { opacity: 1 },
+  /** The pair the canvas draws at rest. Same row, no fade. */
+  toolsResting: { flexDirection: "row", alignItems: "center" },
   /**
    * The resting label, in the field's own box.
    *
