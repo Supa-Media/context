@@ -4084,6 +4084,42 @@ and then wonders where it went — and that reason is answered by the seam left
 standing, not by the refusal. `explorerCloseOvershoot` is the gap that keeps
 overshooting the floor by a few pixels from folding the tree by accident.
 
+**The drag handle is a sibling of the editor, and a drag on it is not up for
+negotiation.** Both halves of that are hit-testing and event facts rather than
+taste, and both were reported as one thing: "expanding the side panel drags
+properly to the right, but not to the left — and when it works I have to move
+really slowly".
+
+The strip straddles the column's border, because people aim *at* an edge rather
+than a few points inside it, so three of its seven points lie over the editor.
+Drawn as the column's last child they lay *under* the editor — later siblings
+are on top — so every press on the outer half reached the editor and the handle
+never heard it. It is therefore drawn after the editor, positioned from the
+column's width (`explorerSeamOverhang`), and still before the scrim and the
+peek, which have to cover it.
+
+The other half is that **a pointer moving with the button down is a text
+selection**, as far as a browser is concerned, and react-native-web's responder
+system terminates the current gesture the moment one becomes valid, asking
+`onResponderTerminationRequest` first — which defaults to yes. Dragging left
+crosses the tree's note names, so the gesture died about three points in;
+dragging right crosses CodeMirror's editing host, where a selection begun
+outside does not extend, so that direction never hit it. What was left answered
+only a pull slow enough to stay inside the handle's own 7pt strip, the one place
+on that side with no text in it. So the resizer answers `false` to the request —
+`selectionchange`, `scroll` and `contextmenu` are the only events routed through
+it, and none of them should end a drag somebody is in the middle of — and holds
+`user-select` and the resize cursor on the document for the length of the
+gesture, handing both back on release *and* on a real cancel. A page left
+unselectable is a worse bug than the one this fixes, and only a reload clears
+it.
+
+The guards: `appFrameRender.test.ts` drives a real `selectionchange` mid-drag
+and pins the handle's place in the row; `panels.spec.ts` drags the seam in a
+browser, from the half of the handle that lies over the editor, on the fixture
+with a real tree behind it. Measured against the bundle before the fix, a 45pt
+pull left moved the seam 3pt and then froze.
+
 **`explorerHidden` and `explorerWidth` stay two fields.** One number meaning
 both makes a 40pt tree representable, which is exactly what the floor exists to
 refuse, and re-opening would have to invent a width instead of restoring the one

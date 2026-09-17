@@ -179,6 +179,171 @@ test("the panel folded leaves the note nearly the whole window", async ({ page }
   await expect(page.getByTestId("fixture-explorer")).toBeVisible();
 });
 
+test.describe("dragging the seam", () => {
+  /*
+    **A different fixture, and the reason is the bug.** Everything above runs
+    against `?screen=app-frame`, whose slots are stubs — which is right for
+    geometry and useless here: the defect is the browser deciding that a drag
+    across the tree is a *text selection*, and a stub slot holding the words
+    "1-projects" has almost no text to select. `?screen=app-frame-visual` puts
+    the real `Explorer` on fixture data in the same real frame, so the pointer
+    crosses note names the way a hand does. The `beforeEach` below navigates
+    away from the one the file opens with, which is the whole of what these
+    cases take from the describe around them — the desktop pointer context at
+    the top of the file is the other half, and it is the half that matters.
+  */
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/e2e-fixture?screen=app-frame-visual");
+    await page.getByTestId("explorer-resizer").waitFor();
+  });
+
+  /** Where the seam is, which is where the column's edge is. */
+  const seamX = async (page: Page) => (await box(page, "explorer-resizer")).x;
+
+  /**
+   * Drag the seam by `by` points in three moves, answering with where the seam
+   * ended up after each one.
+   *
+   * Three moves rather than one, interpolated rather than teleported: the first
+   * is what makes the browser start selecting and the rest are what the
+   * selection used to kill. A single jump would be one event, and would pass
+   * against the bug.
+   */
+  async function dragSeam(page: Page, by: number) {
+    const seam = await box(page, "explorer-resizer");
+    const x = seam.x + seam.width / 2;
+    /*
+      Beside the list's rows rather than at the seam's midpoint, which is level
+      with the empty space below the last note. It is the difference between
+      reproducing this and not: what kills the gesture is the pointer crossing a
+      *name*, and measured against the bundle before the fix, a pull at this
+      height moved the seam 3pt and a pull at the midpoint moved the whole 45.
+    */
+    const y = seam.y + 200;
+    const seen: number[] = [];
+
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    for (const step of [1, 2, 3]) {
+      await page.mouse.move(x + (by * step) / 3, y, { steps: 6 });
+      seen.push(await seamX(page));
+    }
+    await page.mouse.up();
+    return seen;
+  }
+
+  test("the seam drags left as far as it drags right", async ({ page }) => {
+    /*
+      **The direction that did not work, and the reason no unit test could have
+      told us.**
+
+      A pointer moving with the button down is a text selection as far as the
+      browser is concerned, and react-native-web's responder system terminates
+      the gesture the moment one becomes valid. Dragging left crosses the tree's
+      note names, so the drag died about three points in and the column stopped
+      under the pointer; dragging right crosses the note, where a selection
+      begun outside the editing host does not extend. What was left was a handle
+      that answered only to a pull slow enough to stay inside its own 7pt strip,
+      which is the one place on that side with no text in it.
+
+      Measured against the shipping bundle before the fix: a 45pt pull left
+      moved the seam 3pt and then froze.
+    */
+    const start = await seamX(page);
+
+    const narrowing = await dragSeam(page, -45);
+    /*
+      Loose by a few points rather than exact, and the slack is real: a
+      `PanResponder` accumulates its delta per move event, and two of
+      Playwright's interpolated moves can land inside one millisecond, where the
+      touch history rounds them together. The *defect* is 40pt out — the seam
+      moved 3 — so a threshold that tolerates an engine losing two points still
+      cannot be met by a gesture that died.
+    */
+    expect(narrowing[2]).toBeLessThan(start - 35);
+    // And it tracked the whole way rather than stopping at the first move,
+    // which is precisely what the terminated gesture did.
+    expect(narrowing[0]).toBeLessThan(start - 5);
+    expect(narrowing[1]).toBeLessThan(narrowing[0]);
+
+    const widening = await dragSeam(page, 45);
+    expect(widening[2]).toBeGreaterThan(start - 10);
+  });
+
+  test("a grab on the half of the handle that lies over the editor is taken", async ({ page }) => {
+    /*
+      **The second half of the reported defect, and one only a hit test can
+      hold.** The strip straddles the column's border because people aim at the
+      edge, so three of its seven points lie over the editor — and as the
+      column's last child they lay *under* it, since later siblings are on top.
+      A press there reached the editor and the handle never heard it: the grab
+      that felt ignored, and then "it only works if I start well inside the
+      tree".
+
+      Measured in Chromium before the fix: `elementFromPoint` at the middle of
+      the handle answered the editor's region rather than the handle.
+    */
+    const seam = await box(page, "explorer-resizer");
+    const outer = seam.x + seam.width - 1;
+    const y = seam.y + 200;
+
+    expect(
+      await page.evaluate(
+        ([px, py]) =>
+          (document.elementFromPoint(px, py) as HTMLElement | null)?.getAttribute("data-testid") ??
+          "nothing",
+        [outer, y],
+      ),
+    ).toBe("explorer-resizer");
+
+    await page.mouse.move(outer, y);
+    await page.mouse.down();
+    await page.mouse.move(outer - 30, y, { steps: 6 });
+    const moved = await seamX(page);
+    await page.mouse.up();
+
+    expect(moved).toBeLessThan(seam.x - 20);
+  });
+
+  /**
+   * Whether the page can be selected at all, as the engine has resolved it.
+   *
+   * Computed rather than read off `body.style`, and both spellings rather than
+   * one: **Safari's CSSOM has no `userSelect` property**, so an inline read
+   * answers `undefined` there and an inline *write* does nothing — which is why
+   * the resizer sets `-webkit-user-select` beside it, and why this is the
+   * assertion that can tell.
+   */
+  const selectable = (page: Page) =>
+    page.evaluate(() => {
+      const computed = getComputedStyle(document.body);
+      return (
+        computed.getPropertyValue("user-select") ||
+        computed.getPropertyValue("-webkit-user-select")
+      );
+    });
+
+  test("the drag holds the page still while it runs, and hands it back", async ({ page }) => {
+    // Keeping the gesture is half of it. The other half is that the page does
+    // not paint a selection across the names underneath the drag, and is not
+    // left unselectable once it ends — the state only a reload would clear.
+    const resting = await selectable(page);
+    const seam = await box(page, "explorer-resizer");
+    const x = seam.x + seam.width / 2;
+    const y = seam.y + 200;
+
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x - 30, y, { steps: 6 });
+    const during = await selectable(page);
+    await page.mouse.up();
+
+    expect(during).toBe("none");
+    expect(await selectable(page)).toBe(resting);
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? "")).toBe("");
+  });
+});
+
 test.describe("a phone", () => {
   // Back to the suite's own context, declared rather than resized into: the
   // claim here is about the surface with a thumb, which is what the two flags

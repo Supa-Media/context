@@ -751,6 +751,16 @@ export const layout = {
    * where a whole panel was, and it is the control that brings the panel back.
    */
   seamWidth: 7,
+  /**
+   * How far the tree's drag handle reaches past the column, over the editor.
+   *
+   * A 7pt strip centred on a 1pt border: three points of it lie over the
+   * editor, three over the tree. People aim at the edge rather than a few
+   * points inside it, so a handle that stopped at the border would refuse
+   * about half the grabs aimed at it — which is why the frame draws this
+   * *after* the editor rather than inside the column (see `AppFrame`).
+   */
+  explorerSeamOverhang: 3,
   seamClosedWidth: 10,
   /** The chevron pill centred on a seam, revealed under the pointer. */
   seamPillWidth: 18,
