@@ -179,12 +179,72 @@ describe("the landing page's list is the page, and its claims are ones we keep",
       ["nobody else can read it", /\bno[- ]?(one|body)\b[^.]{0,40}\b(can|could)\b[^.]{0,40}\b(read|see|open|decrypt)\b/i],
       ["encrypted by default", /\bencrypted\b[^.]*\bby default\b/i],
       ["we hold nothing", /\bwe (hold|store|keep) (nothing|none)\b/i],
+      /*
+        AND A CUSTODY CLAIM, WHICH EVERY RULE ABOVE MISSES.
+
+        The seven rules above are about **reading** — can we look at it, can
+        anyone else. A visitor deciding whether to sign up asks a different
+        question first: *do you keep a copy of my notes at all?* The assurance
+        block answers it, and nothing checked the answer.
+
+        It matters because the honest answer has an exception. `CLAUDE.md`'s
+        first non-negotiable scopes its promise to **the control plane** —
+        "the control plane holds metadata only ... and never note content" —
+        and its second names what else we hold: managed buckets "and the
+        per-context search databases". `functions/lib/fastSearch.ts` says what
+        that is in as many words: turning Fast Search on "adds a derived copy
+        of that context's note text, including private notes, in a database
+        Supa Media owns".
+
+        So an unqualified "we never hold your note content" is a promise the
+        product does not keep, and it is the most load-bearing sentence on the
+        page. Both orders are caught, because either is how somebody would
+        write it.
+      */
+      ["we hold no note content", /\bwe\b[^.]{0,60}\b(hold|store|keep|retain)\b[^.]{0,60}\b(never|no|not)\b[^.]{0,40}\b(note|notes|content)\b/i],
+      ["we never hold note content", /\bwe\b[^.]{0,40}\b(never|do ?n[o']t|do not|will not|wo ?n[o']t)\b[^.]{0,40}\b(hold|store|keep|retain|have)\b[^.]{0,60}\b(note|notes|content)\b/i],
     ];
     const offenders: string[] = [];
     for (const [label, pattern] of OVERCLAIMS) {
       for (const line of LANDING_COPY) if (pattern.test(line)) offenders.push(`${label}: ${line}`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  /**
+   * ...AND WHILE THE EXCEPTION EXISTS, THE PAGE SAYS SO.
+   *
+   * The rules above catch a claim that is **false**. They are silent on one
+   * that is true and incomplete — and that is the version this page had:
+   * scoping the promise to the control plane makes the sentence accurate while
+   * leaving out the one feature that puts a copy of somebody's note text in a
+   * database we run.
+   *
+   * Sabotage said so: deleting the Fast Search clause reddened **nothing**.
+   *
+   * So the fact is read out of the control plane's own schema rather than
+   * restated here, the way the route guard reads the gateway's source. While
+   * `fastSearch` is a field on a workspace, the assurance block must name it.
+   * **Remove the feature and this test stops asking** — which is the direction
+   * it should fail in, and is why the presence of the field is the condition
+   * rather than a constant somebody has to remember to flip.
+   */
+  test("while an opt-in stores note text, the assurances name it", () => {
+    const schema = readFileSync(
+      join(__dirname, "../../convex/schema.ts"),
+      "utf8",
+    ).replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    // The two-condition gate lives in `functions/lib/fastSearch.ts`; this is
+    // the stored half — the per-workspace opt-in, off by default.
+    const optInExists = /\bfastSearch:\s*v\.boolean\(\)/.test(schema);
+    if (!optInExists) return;
+
+    // Not "some line mentions search" — the line carrying the storage promise
+    // is the one that has to carry the exception, because that is the sentence
+    // a visitor reads as the answer.
+    const promise = LANDING_COPY.filter((line) => /\bnever your note content\b/i.test(line));
+    expect(promise).toHaveLength(1);
+    expect(promise[0]).toMatch(/fast search/i);
   });
 });
 
