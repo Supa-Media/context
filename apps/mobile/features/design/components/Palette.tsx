@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { rank, type Match, type PaletteItem } from "../../console/files/palette";
 import { reducedRecallMessage } from "../../console/files/useContextSearch";
+import { isApplePlatform } from "../applePlatform";
 import { resolve } from "../keymap";
 import { fonts, layout, radii, space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
@@ -252,12 +253,17 @@ export function seeAllItem(query: string, offered: boolean): PaletteItem | null 
  * Only consulted for chords that carry a modifier, and the overlay scope has
  * none — but `resolve` takes the flag, and handing it a guess that is wrong on
  * half the machines is how a modifier rule stops being exact.
+ *
+ * **`isApplePlatform` decides it, here as everywhere else.** This was a private
+ * regex over `navigator.platform || navigator.userAgent`, and `applePlatform`'s
+ * own header names it as one of the three answers it was written to replace —
+ * accurately, and it had never been replaced. The platform branch it opened
+ * with is not lost: the native half of that module *is* the `Platform.OS`
+ * check, so a bare import gets it on native and the browser answer on web,
+ * which is the whole arrangement of that pair.
  */
 function onApplePlatform(): boolean {
-  if (Platform.OS === "ios" || Platform.OS === "macos") return true;
-  if (Platform.OS !== "web" || typeof navigator === "undefined") return false;
-  const platform = navigator.platform || navigator.userAgent || "";
-  return /Mac|iPhone|iPad|iPod/.test(platform);
+  return isApplePlatform();
 }
 
 /* -------------------------------------------------------------------------- */

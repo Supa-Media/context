@@ -239,7 +239,25 @@ describe("the modifier follows the platform", () => {
     restore();
   });
 
-  test("a `navigator` that throws on access degrades to non-Apple", () => {
+  test("a `navigator` that throws on access falls through rather than deciding", () => {
+    /*
+      **This test changed when the binder stopped keeping its own detector**,
+      and the new answer is the better one rather than merely different.
+
+      The private `detectApple` wrapped every read in ONE `try`, so a hostile
+      embedder throwing on the modern getter returned `false` — discarding the
+      `MacIntel` sitting in `navigator.platform` right beside it and telling a
+      Mac to press Ctrl. `isApplePlatform` guards the two reads separately, so a
+      throwing modern getter is *"no answer"* and the deprecated property still
+      decides. That is the same rule the canonical module already applied to an
+      **empty** `userAgentData.platform`, for the same reason and in its own
+      words: an absent answer is not a denial.
+
+      What this test was written for is unchanged and still asserted: a throw
+      from a listener on `document`, on every key somebody presses, is the
+      failure that matters. The modifier below is now ⌘ because the platform
+      genuinely is Apple.
+    */
     const nav = navigator as unknown as Record<string, unknown>;
     const previous = Object.getOwnPropertyDescriptor(nav, "userAgentData");
     Object.defineProperty(nav, "userAgentData", {
@@ -261,6 +279,8 @@ describe("the modifier follows the platform", () => {
     mount({ scope: "global", onCommand: seen.onCommand });
 
     expect(() => press({ key: "k", ctrl: true })).not.toThrow();
+    expect(seen.commands).toEqual([]);
+    expect(() => press({ key: "k", meta: true })).not.toThrow();
     expect(seen.commands).toEqual(["palette"]);
 
     restorePlatform();
