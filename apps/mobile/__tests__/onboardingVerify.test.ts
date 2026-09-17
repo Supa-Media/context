@@ -85,6 +85,36 @@ describe("watching a first bind settle", () => {
       connectProgress({ submitted: true, binding: null, timedOut: true }).kind,
     ).toBe("timeout");
   });
+
+  /*
+    THE MANAGED BUCKET NOBODY IN THIS TAB SUBMITTED.
+
+    Managed provisioning writes the binding server-side while the person is at
+    Stripe, and they come back on a *fresh page load* — `submitted` is false and
+    always will be, because this client never posted a credential. Gating
+    `connected` on it left somebody who had paid watching "Creating your
+    storage" spin against a bucket that was already made and already answering:
+    the row said `connected`, the screen said "not yet", and opening the app in
+    a second tab showed the storage working.
+
+    So a row that says `connected` is connected, whoever wrote it. The
+    `submitted` gate stays for every other status — an untouched form must not
+    narrate a probe nobody started.
+  */
+  test("a connected row this client never submitted is still connected", () => {
+    expect(
+      connectProgress({ submitted: false, binding: { status: "connected" }, timedOut: false }),
+    ).toEqual({ kind: "connected" });
+  });
+
+  test("an unsubmitted row that is not connected says nothing", () => {
+    expect(
+      connectProgress({ submitted: false, binding: { status: "unverified" }, timedOut: false }),
+    ).toEqual({ kind: "idle" });
+    expect(
+      connectProgress({ submitted: false, binding: { status: "error" }, timedOut: false }),
+    ).toEqual({ kind: "idle" });
+  });
 });
 
 describe("getting past the storage step", () => {
