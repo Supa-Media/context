@@ -74,6 +74,7 @@ import {
   encryptNote,
   encryptNoteForPassphrase,
   generateWorkspaceKey,
+  renderEncryptedNote,
 } from "../../../apps/mcp/src/encryption.js";
 
 const VECTOR = JSON.parse(
@@ -158,6 +159,63 @@ const freshlyEncrypted = await encryptNote(PLAINTEXT, {
 check(
   "a note the real gateway code just encrypted opens through this package's own implementation",
   (await value(() => decryptNote(freshlyEncrypted, { k1: KEY_A }))) === PLAINTEXT,
+);
+
+/*
+  THE TWO STRUCTURAL BOUNDS THIS PACKAGE CARRIES ITS OWN COPY OF.
+
+  `assertIv` and the recipient's algorithm check exist here, in the gateway and
+  in the mobile client, and until this was measured **all three copies could be
+  deleted with every suite green**. Nothing is disclosed by either — the inputs
+  come from a bucket the attacker must already be able to write, and AES-GCM
+  stays authenticated — but this package is the customer's exit tool, so a
+  malformed envelope reaching Web Crypto here is the one place nobody else is
+  watching.
+
+  The IV check asks two things, and "did it throw" can see neither: `decryptNote`
+  turns an authentication failure into a `DecryptorError` too. So the message
+  separates the guard's refusal from the one downstream, and the call count is
+  the ordering — `assertIv` sits in the *argument* to `crypto.subtle.decrypt`,
+  which is what makes "before it is asked" a fact rather than a phrase.
+*/
+function editEnvelope(document, mutate) {
+  const envelope = parseEncryptedNote(document);
+  mutate(envelope);
+  return renderEncryptedNote(envelope);
+}
+
+const shortIv = editEnvelope(freshlyEncrypted, (envelope) => {
+  envelope.iv = envelope.iv.slice(0, 4);
+});
+const realDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+let decryptCalls = 0;
+crypto.subtle.decrypt = (...args) => {
+  decryptCalls += 1;
+  return realDecrypt(...args);
+};
+const ivError = await threw(() => decryptNote(shortIv, { k1: KEY_A }));
+const ivDecryptCalls = decryptCalls;
+crypto.subtle.decrypt = realDecrypt;
+
+check("a malformed IV is refused", ivError instanceof DecryptorError);
+check(
+  "...by the IV guard, not by a failed authentication tag downstream",
+  ivError instanceof DecryptorError && /malformed IV/.test(ivError.message),
+);
+check(
+  "...before Web Crypto is asked to decrypt the body, which is the claim",
+  // One call unwraps the note key; the body's decrypt must never be reached.
+  ivDecryptCalls === 1,
+);
+
+const foreignRecipientAlg = editEnvelope(freshlyEncrypted, (envelope) => {
+  envelope.recipients[0].alg = "A128GCM";
+});
+const recipientAlgError = await threw(async () => parseEncryptedNote(foreignRecipientAlg));
+check(
+  "a recipient claiming another algorithm is refused as malformed",
+  recipientAlgError instanceof DecryptorError &&
+    /unsupported algorithm/.test(recipientAlgError.message),
 );
 
 // Multi-generation: what an export from a rotated workspace looks like.
