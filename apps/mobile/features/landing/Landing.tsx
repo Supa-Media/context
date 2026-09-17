@@ -32,6 +32,7 @@ import {
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { ContinuityDemo } from "./ContinuityDemo";
+import { HeroWindow } from "./HeroWindow";
 import { Sections } from "./Sections";
 import {
   ALSO_ON_PHONE,
@@ -207,6 +208,21 @@ export function Landing() {
             </View>
           </View>
 
+          {/*
+            TWO COLUMNS, AND THE PRODUCT IS THE SECOND ONE.
+
+            `Landing-Hero.dc.html` puts the pitch on the left and an
+            application window on the right, running off the page's edge. This
+            page had the left column and empty space — so the hero asserted
+            things about a product a visitor could not see, with the live
+            console four screens down past a transcript.
+
+            `heroRow` wraps rather than breaking at a width: the window has a
+            `minWidth` and the text column has a measure, and below the sum of
+            those the two stack with the window underneath. One fewer place
+            that has to be told what a phone is.
+          */}
+          <View style={styles.heroRow}>
           <View style={styles.hero}>
             {/*
               THE LICENCE CLAIM, BESIDE THE SENTENCE IT QUALIFIES.
@@ -308,6 +324,17 @@ export function Landing() {
                 </Text>
               </Text>
             </View>
+          </View>
+
+          {/*
+            Off the right edge, deliberately: `heroWindow` has no right gutter
+            and the stage clips it. A window fully inside the page is a card,
+            and a card is a thing the page contains rather than a thing the
+            page is showing you.
+          */}
+          <View style={styles.heroWindow}>
+            <HeroWindow />
+          </View>
           </View>
 
           {/*
@@ -529,7 +556,29 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     goes down a line rather than hunting a new centre for each block, and the
     page can put the product beside them instead of decoration around them.
   */
+  heroRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    gap: 48,
+    /*
+      The window bleeds past the page's gutter, so the row is allowed to draw
+      outside it. `layout.gutter` back on the right is what "runs off the edge"
+      means in a page that is otherwise inset.
+    */
+    marginRight: -layout.gutter,
+  },
+  heroWindow: {
+    flexGrow: 1,
+    flexBasis: 520,
+    minWidth: 420,
+    paddingTop: 84,
+  },
   hero: {
+    flexGrow: 1,
+    flexBasis: 560,
+    minWidth: 320,
+    maxWidth: 660,
     alignItems: "flex-start",
     // 72, not 88: the eyebrow pill now sits at the top of this column and
     // carries 28 of its own beneath it, so the old gap would compound.

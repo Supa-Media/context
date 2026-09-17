@@ -119,11 +119,21 @@ describe("palette key parity", () => {
    * `docs/decisions/` rather than in a test's exception list.
    */
   const INTENTIONALLY_FIXED = [
-    "terminalSurface",
-    "terminalInk",
-    "terminalAccent",
-    "terminalChip",
-    "terminalChipHover",
+    "appSurface",
+    "appInk",
+    "appAccent",
+    "appChip",
+    "appChipHover",
+    "appChrome",
+    "appMuted",
+    "appDim",
+    "appBody",
+    "appRowSelected",
+    "appTeam",
+    "appOk",
+    "appLightRed",
+    "appLightAmber",
+    "appLightGreen",
   ];
 
   test("no token was left as its dark value", () => {

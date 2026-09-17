@@ -4489,3 +4489,55 @@ switcher", and `REGION_DENSITIES` read off `topBarLeadFor`),
 assertions across eight suites named the rail as the container they lived in;
 every one was rewritten rather than deleted, because they are the reversal
 guards of the decision this moves.
+
+## A picture of the application does not invert with the page it sits on
+
+The landing page is drawn in whichever palette the visitor's system asks for.
+Two objects on it are drawn in graphite regardless, and the design canvas is
+explicit about it: the endpoint bar — the MCP address you copy into a client —
+and the hero's application window are both graphite on `Landing-Hero`'s **paper**
+board as well as its dark one.
+
+That is not an oversight in the canvas and it is not a theming bug. Both objects
+are *depictions of software*, quoted inside a page that is not that software. A
+terminal is a dark thing; a screenshot of an application is a screenshot,
+whatever the brochure around it is made of. Re-tinting either to paper produces a
+slightly different paper — which is not a different kind of thing, and is exactly
+the effect that makes an embedded screenshot read as a panel instead of a window.
+
+So the palettes carry `appSurface`, `appInk`, `appAccent`, `appChip` and
+`appChipHover`, identical in both worlds.
+
+**What a simplification of this would cost.** The obvious simplification is "let
+them follow the palette like everything else". On paper that turns the hero's
+window into a cream rectangle with cream chrome, and the endpoint bar into a
+lighter stripe on a light page — both lose the edge that says *this is a
+different surface, belonging to a different thing*. The hero window stops looking
+like the product and starts looking like a section of the website. The page's one
+job above the fold is to show the product.
+
+The opposite simplification — hexes at the call site, no tokens — is what was
+written first, and `paletteDiscipline.test.ts` rejected it correctly. A component
+that names a colour is a component no palette can answer for; "this one is meant
+to be fixed" is a claim that has to live somewhere a reviewer will find it, which
+is here and in `tokens.ts`.
+
+**The tests that fail if it is reversed.**
+
+- `theme.test.ts`, *"no token was left as its dark value"* — this rule's own
+  hazard, and the reason the exception is an allowlist rather than a relaxed
+  comparison. That test exists to catch a token copied into `lightColors` to make
+  the types line up and never given a light value, which is indistinguishable
+  from a token that is *deliberately* the same. Each `app*` name is listed
+  explicitly; everything else must still differ.
+- `theme.test.ts`, *"every allowed exception is actually fixed, not merely
+  listed"* — the allowlist's own guard. A name left in it after its token started
+  differing protects nothing, and a name mistyped into it silences nothing while
+  looking as though it does.
+- `paletteDiscipline.test.ts` — no component may name a colour, so a third fixed
+  surface cannot be added as a literal without this decision being read first.
+
+**What this does not license.** Two objects, both depictions of the application.
+A third one is not covered by "well, the other two do it": the rule is about what
+the object *is*, not about wanting a dark box. Anything that is genuinely part of
+the page — a card, a callout, a band — inverts.

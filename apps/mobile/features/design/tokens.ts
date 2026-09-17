@@ -86,29 +86,51 @@ export const darkColors = {
   rowSelected: "#2B2825",
 
   /**
-   * THE ONE OBJECT THAT DOES NOT INVERT, AND WHY IT IS A TOKEN RATHER THAN A
-   * LITERAL.
+   * THE APPLICATION, AS DEPICTED INSIDE A PAGE THAT IS NOT IT.
    *
-   * The landing page's endpoint bar — the MCP address you copy into a client —
-   * is drawn in graphite on *both* design boards, including the paper one.
-   * That is not an oversight in the canvas: it is a terminal-shaped object, and
-   * a URL you paste somewhere reads as one. Re-tinting it to paper would make
-   * it a slightly different paper, which is not a different kind of thing.
+   * Two objects on the landing page are graphite in **both** palettes, and the
+   * design canvas is explicit about it: the endpoint bar — the MCP address you
+   * copy into a client — and the hero's application window are drawn dark on
+   * `Landing-Hero`'s paper board as well as its dark one.
    *
-   * These are therefore the same three values in both palettes, and they are
-   * tokens rather than hexes at the call site because `paletteDiscipline.test.ts`
-   * is right: a component that names a colour is a component no palette can
-   * answer for, and "this one is meant to be fixed" is exactly the claim that
-   * needs to be written down somewhere a reviewer will find it.
+   * They are *depictions of software*, quoted inside a page that is not that
+   * software. A terminal is a dark thing; a screenshot of an application is a
+   * screenshot, whatever the brochure around it is made of. Re-tinting either
+   * to paper gives a slightly different paper, which is not a different kind of
+   * thing — and is what makes an embedded window read as a section of the
+   * website instead of as the product.
    *
-   * Nothing else may use them. If a second object wants a fixed dark surface,
-   * that is a decision about inversion and belongs in `docs/decisions/`.
+   * Tokens rather than hexes at the call site because
+   * `paletteDiscipline.test.ts` is right: a component that names a colour is a
+   * component no palette can answer for, and "this one is meant to be fixed" is
+   * exactly the claim that needs to live where a reviewer will find it.
+   *
+   * **Two objects, and the rule is about what a thing *is*.** A third fixed
+   * dark box is not covered by "the other two do it"; anything genuinely part
+   * of the page inverts. Argued at length in `docs/decisions/app-and-console.md`,
+   * "A picture of the application does not invert with the page it sits on".
    */
-  terminalSurface: "#201E1B",
-  terminalInk: "#EDE8E0",
-  terminalAccent: "#6BC8C1",
-  terminalChip: "rgba(237,232,224,0.09)",
-  terminalChipHover: "rgba(237,232,224,0.16)",
+  appSurface: "#201E1B",
+  appInk: "#EDE8E0",
+  appAccent: "#6BC8C1",
+  appChip: "rgba(237,232,224,0.09)",
+  appChipHover: "rgba(237,232,224,0.16)",
+  appChrome: "#191715",
+  appMuted: "#A79F95",
+  appDim: "#8D857B",
+  appBody: "#D8D2C9",
+  appRowSelected: "#2B2825",
+  appTeam: "#B9A3F2",
+  appOk: "#82C98E",
+  /*
+    A window's own controls, which belong to an operating system rather than to
+    this product: the three macOS drew, in a picture of a macOS window. They are
+    tokens for the same reason the rest are — a component may not name a colour
+    — and they are the one group here that is not this palette's at all.
+  */
+  appLightRed: "#FF5F57",
+  appLightAmber: "#FEBC2E",
+  appLightGreen: "#28C840",
 
   /**
    * The `team` marker in the file tree, and only that.
@@ -329,11 +351,27 @@ export const lightColors: Colors = {
   rowSelected: "#E6E1D6",
 
   /** Identical to the dark palette's, deliberately — see its note. */
-  terminalSurface: "#201E1B",
-  terminalInk: "#EDE8E0",
-  terminalAccent: "#6BC8C1",
-  terminalChip: "rgba(237,232,224,0.09)",
-  terminalChipHover: "rgba(237,232,224,0.16)",
+  appSurface: "#201E1B",
+  appInk: "#EDE8E0",
+  appAccent: "#6BC8C1",
+  appChip: "rgba(237,232,224,0.09)",
+  appChipHover: "rgba(237,232,224,0.16)",
+  appChrome: "#191715",
+  appMuted: "#A79F95",
+  appDim: "#8D857B",
+  appBody: "#D8D2C9",
+  appRowSelected: "#2B2825",
+  appTeam: "#B9A3F2",
+  appOk: "#82C98E",
+  /*
+    A window's own controls, which belong to an operating system rather than to
+    this product: the three macOS drew, in a picture of a macOS window. They are
+    tokens for the same reason the rest are — a component may not name a colour
+    — and they are the one group here that is not this palette's at all.
+  */
+  appLightRed: "#FF5F57",
+  appLightAmber: "#FEBC2E",
+  appLightGreen: "#28C840",
   /** See the dark palette's note. */
   markTeam: "#6A46B8",
 

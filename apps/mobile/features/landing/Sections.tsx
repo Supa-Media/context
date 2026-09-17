@@ -216,13 +216,13 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.xl,
       paddingVertical: 18,
       paddingHorizontal: 20,
-      backgroundColor: colors.terminalSurface,
+      backgroundColor: colors.appSurface,
     },
     scheme: {
       fontFamily: fonts.mono,
       fontSize: t.lede,
       lineHeight: leading(t.lede, 1.4),
-      color: colors.terminalAccent,
+      color: colors.appAccent,
     },
     host: {
       flexGrow: 1,
@@ -231,7 +231,7 @@ const makeStyles = (colors: Colors) =>
       fontFamily: fonts.mono,
       fontSize: t.lede,
       lineHeight: leading(t.lede, 1.4),
-      color: colors.terminalInk,
+      color: colors.appInk,
     },
     copy: {
       flexDirection: "row",
@@ -239,15 +239,15 @@ const makeStyles = (colors: Colors) =>
       gap: 6,
       height: 34,
       paddingHorizontal: 14,
-      backgroundColor: colors.terminalChip,
+      backgroundColor: colors.appChip,
     },
-    copyHover: { backgroundColor: colors.terminalChipHover },
+    copyHover: { backgroundColor: colors.appChipHover },
     copyLabel: {
       fontFamily: fonts.body,
       fontSize: t.ui,
       lineHeight: leading(t.ui, 1.4),
       fontWeight: "500",
-      color: colors.terminalInk,
+      color: colors.appInk,
     },
 
     clients: {
