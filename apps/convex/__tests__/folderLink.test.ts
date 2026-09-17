@@ -484,3 +484,89 @@ describe("a folder link's card names the folder and nothing inside it", () => {
     expect(JSON.stringify(revoked)).toBe(JSON.stringify(invented));
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*              7. re-minting must never downgrade a folder share             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE BUG: A LIVE FOLDER LINK SILENTLY BECOMES A NOTE LINK.
+ *
+ * `mintLinkShare` supersedes an active row **in place and keeps its token** —
+ * that is deliberate, and it is what makes pressing Copy link twice one link
+ * rather than two. It also re-stamps the row's fields from its arguments, and
+ * `entryKind` defaulted to `"note"` when a caller did not say.
+ *
+ * So any re-mint that did not name the kind turned a live folder share into a
+ * note share **without changing its token**: every link already sent stopped
+ * reaching the subtree and started resolving one path, and nothing anywhere
+ * reported it. The console has two such callers — pressing Copy link, and
+ * toggling whether the card shows the name — neither of which is thinking about
+ * what kind of thing it is looking at.
+ *
+ * Fixed by making the internal mutation's `entryKind` **required**, so a caller
+ * that does not say does not compile. The same reasoning that made `kind`
+ * required on `shareWithGroup`, where it immediately found two call sites
+ * nobody remembered.
+ */
+describe("a folder share survives being re-minted", () => {
+  test("re-minting keeps the token AND the reach", async () => {
+    const f = await fixture();
+    const token = await link(f);
+    expect((await anon(f, token, DEEP)).text).toContain("A note in a subfolder");
+
+    // The same press again: supersedes in place, keeps the token.
+    const again = await asUser(f.t, f.owner).action(
+      api.functions.shares.createLinkShare,
+      { workspaceId: f.workspaceId, path: SHARED, kind: "folder" },
+    );
+    expect(again.token).toBe(token);
+    expect((await anon(f, token, DEEP)).text).toContain("A note in a subfolder");
+  });
+
+  /**
+   * THE ACTUAL BUG, reproduced the way the console produced it: a re-mint that
+   * **omits** the kind. Toggling whether the card shows the name calls
+   * `createLinkShare` with `titleInPreview` and nothing else, and pressing Copy
+   * link calls it with the path and nothing else. Neither is thinking about
+   * what kind of thing it is looking at.
+   *
+   * Before the fix this re-stamped the row to `note` while keeping its token,
+   * so every link already sent stopped reaching the subtree and nothing
+   * reported it.
+   */
+  test("a re-mint that omits the kind does not downgrade the share", async () => {
+    const f = await fixture();
+    const token = await link(f);
+
+    await asUser(f.t, f.owner).action(api.functions.shares.createLinkShare, {
+      workspaceId: f.workspaceId,
+      path: SHARED,
+      titleInPreview: false,
+    });
+
+    // Still a folder: the subtree still opens, and the listing still lists.
+    expect((await anon(f, token, DEEP)).text).toContain("A note in a subfolder");
+    const opened = await anon(f, token);
+    expect(opened.kind).toBe("folder");
+    expect(opened.entries.map((entry) => entry.path)).toContain(INSIDE);
+  });
+
+  test("the row really does say folder, so the checks above are not coincidence", async () => {
+    const f = await fixture();
+    await link(f);
+    const row = await f.t.run(async (ctx) =>
+      ctx.db
+        .query("noteShares")
+        .withIndex("by_workspace_entry_recipient", (q) =>
+          q
+            .eq("workspaceId", f.workspaceId)
+            .eq("entryPath", SHARED)
+            .eq("recipientKind", "anyone")
+            .eq("recipient", ""),
+        )
+        .unique(),
+    );
+    expect(row?.entryKind).toBe("folder");
+  });
+});

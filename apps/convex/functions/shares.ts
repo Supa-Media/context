@@ -860,7 +860,30 @@ export const createLinkShare = action({
       minimum: "owner",
     });
 
-    if (args.kind === "folder") return await mintFolderLink(ctx, args, userId);
+    /*
+      AN UNSTATED KIND IS RESOLVED FROM THE LIVE ROW, NOT DEFAULTED TO `note`.
+
+      Two console callers re-mint a link without thinking about what it points
+      at: pressing Copy link, and toggling whether the card shows the name.
+      Both call this with a path and nothing else. Defaulting them to `note`
+      made a folder link answer "Only a note can be shared" — and, one refactor
+      further in, would have re-stamped a live folder share to `note` while
+      keeping its token, which breaks every link already sent and reports
+      nothing.
+
+      So "supersede this share" preserves what the share points at. It cannot
+      *create* a folder share by accident: a path with no live row still
+      resolves to `note`, and `checkSharePath` still refuses a folder. Minting
+      one over a folder for the first time still means saying so.
+    */
+    const kind =
+      args.kind ??
+      (await ctx.runQuery(internal.functions.shares.linkShareKind, {
+        workspaceId: args.workspaceId,
+        path: args.path,
+      }));
+
+    if (kind === "folder") return await mintFolderLink(ctx, args, userId);
 
     const pathCheck = checkSharePath(args.path);
     if (!pathCheck.ok) throw pathRejection(pathCheck);
@@ -920,10 +943,45 @@ export const createLinkShare = action({
       workspaceId: args.workspaceId,
       actorUserId: userId,
       path: pathCheck.path,
+      // Stated rather than defaulted: `mintLinkShare` requires it, so this
+      // branch says the thing it has just proved with a read.
+      entryKind: "note",
       ...(args.titleInPreview === undefined
         ? {}
         : { titleInPreview: args.titleInPreview }),
     });
+  },
+});
+
+/**
+ * What an existing unlisted link over this path points at, or `note`.
+ *
+ * INTERNAL. Only `createLinkShare` calls it, and only when its caller did not
+ * say — see the comment there for why "supersede this share" has to preserve
+ * the kind rather than default it.
+ *
+ * `note` for a path with no live row is the safe answer in both directions: it
+ * cannot create a folder share by accident, and it is what every row written
+ * before folder links existed is.
+ */
+export const linkShareKind = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.literal("note"), v.literal("folder")),
+  handler: async (ctx, args) => {
+    const path = normalizePath(args.path);
+    if (path === null) return "note";
+    const existing = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", path)
+          .eq("recipientKind", "anyone")
+          .eq("recipient", ""),
+      )
+      .unique();
+    if (existing === null || !isLive(existing, Date.now())) return "note";
+    return existing.entryKind ?? "note";
   },
 });
 
@@ -1068,8 +1126,17 @@ export const mintLinkShare = internalMutation({
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
     path: v.string(),
-    /** Absent means a note, which is every row written before folder links. */
-    entryKind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    /**
+     * What `path` is. **Required**, and that is the guard rather than a
+     * formality: this mutation supersedes an active row *in place and keeps
+     * its token*, and it re-stamps the row's fields from its arguments. A
+     * defaulted `entryKind` meant any re-mint that did not name the kind
+     * turned a live folder share into a note share without changing its token
+     * — every link already sent stopped reaching the subtree, and nothing
+     * anywhere reported it. Required, so a caller that does not say does not
+     * compile.
+     */
+    entryKind: v.union(v.literal("note"), v.literal("folder")),
     titleInPreview: v.optional(v.boolean()),
   },
   returns: v.object({
@@ -1129,7 +1196,7 @@ export const mintLinkShare = internalMutation({
       shareId = await ctx.db.insert("noteShares", {
         workspaceId: args.workspaceId,
         entryPath: args.path,
-        entryKind: args.entryKind ?? "note",
+        entryKind: args.entryKind,
         // Nobody to name, and nobody to sign in. One field carries the
         // audience — see the schema.
         recipientKind: "anyone",
@@ -1148,7 +1215,7 @@ export const mintLinkShare = internalMutation({
       actorUserId: args.actorUserId,
       action: "share.link.created",
       paths: [args.path],
-      details: { audience: "anyone", entryKind: args.entryKind ?? "note" },
+      details: { audience: "anyone", entryKind: args.entryKind },
     });
 
     await scheduleCardRender(ctx, shareId);
