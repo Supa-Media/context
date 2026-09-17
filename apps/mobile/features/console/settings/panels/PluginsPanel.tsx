@@ -111,6 +111,37 @@ export function PluginsPanel({
   const styles = useThemedStyles(makeStyles);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<PluginFilter>("all");
+  /*
+    Which plugin's own screen is open, held here rather than in `VaultPlugins`
+    because the chrome that has to get out of its way is the panel's. The
+    search box and the three filters live above both halves, so a detail
+    returned from inside the vault half left them on screen — a box filtering a
+    list nobody can see, above a back button, above the thing you opened.
+  */
+  const [detail, setDetail] = useState<string | null>(null);
+
+  if (detail !== null) {
+    /*
+      The plugin's screen, and nothing else. `VaultPlugins` decides whether the
+      id still names something — a re-scan that no longer finds it falls back
+      to the list, which is the honest answer rather than a page about a plugin
+      that is gone — so the panel does not second-guess it here.
+    */
+    return (
+      <View testID="plugins-panel">
+        <VaultPlugins
+          view={view}
+          installs={installs}
+          grants={grants}
+          browse={browse}
+          runtime={runtime}
+          query={query}
+          detail={detail}
+          onDetail={setDetail}
+        />
+      </View>
+    );
+  }
 
   return (
     <View testID="plugins-panel">
@@ -185,6 +216,8 @@ export function PluginsPanel({
             browse={browse}
             runtime={runtime}
             query={query}
+            detail={detail}
+            onDetail={setDetail}
           />
         </View>
       ) : null}
@@ -231,6 +264,8 @@ function VaultPlugins({
   browse,
   runtime,
   query,
+  detail,
+  onDetail,
 }: {
   view: PluginsView;
   installs: ManagedInstallsView;
@@ -238,6 +273,9 @@ function VaultPlugins({
   browse: BrowseView;
   runtime: RuntimeView;
   query: string;
+  /** Which plugin's own screen is open, owned by the panel — see its note. */
+  detail: string | null;
+  onDetail: (next: string | null) => void;
 }) {
   return (
     <>
@@ -267,6 +305,8 @@ function VaultPlugins({
       {view.state === "ready" ? null : <InstalledPlugins view={installs} query={query} />}
       <VaultInventory
         view={view}
+        detail={detail}
+        onDetail={onDetail}
         grants={grants}
         /*
           Still needed below, and for a different thing: a row's uninstall and
@@ -378,12 +418,17 @@ function VaultInventory({
   browse,
   runtime,
   query,
+  detail,
+  onDetail,
 }: {
   view: PluginsView;
   grants: GrantsView;
   browse: BrowseView;
   runtime: RuntimeView;
   query: string;
+  /** Which plugin's own screen is open. Owned by `PluginsPanel` — see its note. */
+  detail: string | null;
+  onDetail: (next: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -394,10 +439,12 @@ function VaultInventory({
     It is looked up below, so a plugin that is genuinely gone falls back to the
     list rather than leaving a detail page for something that is not there.
 
-    Here rather than in `PluginsPanel` because the panel never sees a plugin —
-    it sees five states, only one of which has a list to open anything from.
+    It moved *to* `PluginsPanel`, reversing the note that used to stand here —
+    "the panel never sees a plugin, it sees five states". True, and beside the
+    point: the panel owns the search box and the filters, and those have to
+    leave the screen when a plugin's own does not. The panel still never looks
+    a plugin up; it only knows whether one is open.
   */
-  const [detail, setDetail] = useState<string | null>(null);
 
   if (view.state === "withheld") {
     return (
@@ -533,7 +580,7 @@ function VaultInventory({
           grants={grants}
           browse={browse}
           runtime={runtime}
-          onBack={() => setDetail(null)}
+          onBack={() => onDetail(null)}
         />
       </View>
     );
@@ -592,7 +639,7 @@ function VaultInventory({
               plugin={plugin}
               grants={grants}
               runtime={runtime}
-              onOpen={() => setDetail(plugin.id)}
+              onOpen={() => onDetail(plugin.id)}
             />
           ))}
         </Card>
