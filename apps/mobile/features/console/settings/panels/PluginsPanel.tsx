@@ -6,6 +6,7 @@ import { Dot } from "../../../design/components/Dot";
 import { Hint } from "../../../design/components/Field";
 import { FormError, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
+import { Switch } from "../../../design/components/Switch";
 import { Text } from "../../../design/components/Text";
 import { space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
@@ -16,7 +17,7 @@ import type { RuntimeView } from "../../plugins/runtime";
 import type { BrowseView } from "../../plugins/lifecycle";
 import { approvalOffer, standingFor, type GrantsView } from "../../plugins/grants";
 import { runtimeFor } from "../../plugins/runtime";
-import { pluginRowSummary } from "../../plugins/pluginRow";
+import { pluginRowControl, pluginRowSummary } from "../../plugins/pluginRow";
 import { usePluginPower } from "../../plugins/usePluginPower";
 import {
   INSTALLED_NOTE,
@@ -631,6 +632,8 @@ function PluginRow({
     approvable: approvalOffer(plugin, grants.egress).kind === "available",
   });
 
+  const control = pluginRowControl(primary);
+
   return (
     <Row divided style={styles.pluginRow}>
       <Grow testID={`plugin-row-${plugin.id}`}>
@@ -648,25 +651,38 @@ function PluginRow({
               {status.label}
             </Pill>
           )}
+          {/*
+            The switch rides at the trailing edge of the row's first line,
+            beside the pill rather than under it: "is it on" is the question the
+            list exists to answer, and the answer belongs where the eye already
+            is. The pill says what it is doing; this says what you set.
+          */}
+          {control?.kind === "switch" ? (
+            <Switch
+              value={control.on}
+              /*
+                The plugin's name, and the state rides on `checked`. While a
+                press is in flight the label gains a word rather than losing
+                one — the control is disabled, and "dimmed" on its own does not
+                say whether anything is happening.
+              */
+              label={power.busy ? `${plugin.name}, working…` : plugin.name}
+              disabled={power.busy}
+              onValueChange={() => void power.act(control.action)}
+              testID={`plugin-switch-${plugin.id}`}
+            />
+          ) : null}
         </Row>
 
         <Row style={styles.controls}>
-          {primary === null ? null : primary.kind === "open" ? (
+          {control?.kind === "door" ? (
             <Button
-              label={primary.label}
+              label={control.label}
               variant="mini"
               onPress={onOpen}
               testID={`plugin-primary-${plugin.id}`}
             />
-          ) : (
-            <Button
-              label={power.busy ? (primary.kind === "stop" ? "Stopping…" : "Starting…") : primary.label}
-              variant="mini"
-              disabled={power.busy}
-              onPress={() => void power.act(primary.kind)}
-              testID={`plugin-primary-${plugin.id}`}
-            />
-          )}
+          ) : null}
           {/*
             Always here, whatever the row decided, because it is the way to
             everything the row stopped saying. A plugin Context cannot run has

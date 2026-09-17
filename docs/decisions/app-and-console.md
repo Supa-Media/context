@@ -4241,3 +4241,40 @@ decisions and `e2e/webkit/callouts.spec.ts` holds that they reach a screen; six
 sabotages confirm them, and a seventh was removed rather than kept, because a
 `Decoration.mark` inside a `Decoration.replace` paints nothing and no test could
 tell the difference.
+
+## A plugin row's switch is the press it replaced, and a choice never becomes one
+
+Reported from a phone, and already quoted in `pluginRow.ts`: *"soooo much
+jargon text; people just want to enable or disable a plugin."* The list was cut
+to one question per row on the back of that, and the control it was left with
+was still a button reading Start or Stop — the same press, drawn as a thing you
+read rather than a thing you flick. Every other plugin manager people have used
+puts a switch there; ours had the word.
+
+**So the row has a switch, and exactly two presses are allowed to become one.**
+`pluginRowSummary` already split them: start and stop are complete on the row
+because everything they need has been granted, while anything with a choice
+inside it opens a door and says so with an ellipsis. `pluginRowControl` is that
+same split at the control, and it lives beside the summary rather than in the
+panel so a second surface cannot quietly widen it. A switch that turned a
+plugin on for the first time would have to pick capabilities and hosts on
+somebody's behalf, which is the consent screen skipped by a control too small
+to hold the question — and it would still render, still look right, and still
+pass every test about wording. `pluginRowSummary.test.ts` names both doors,
+`Enable…` and `Approve…`, because a test naming one of them goes green on a
+mutation that special-cases the other.
+
+**The switch is the accent, never a status tone.** Graphite and Paper spend one
+hue on "here, active, yours", and a switch is the clearest thing in the console
+that is yours — but `ok` green on a healthy plugin would make it a status light
+somebody can press. The two halves come apart on the row that matters most: a
+plugin that crash-looped is **off** without anybody having turned it off, so
+its switch reads off while its pill keeps saying *Stopped itself*. The control
+says what you set; the pill says what happened. `pluginSwitch.test.ts` asserts
+the track paints `accent` and specifically not `ok`, which is what fails if
+somebody ever "simplifies" the two into one colour.
+
+The simplification this resists is the obvious one — draw the switch wherever
+there is a press, colour it by health — and what it would cost is a consent
+screen and a status vocabulary, neither of which the row would look any
+different for having lost.
