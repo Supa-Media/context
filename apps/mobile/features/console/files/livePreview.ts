@@ -429,6 +429,16 @@ export function frontmatterRange(doc: string): { from: number; to: number } | nu
 
 const frontmatterLine = Decoration.line({ class: "cm-lp-frontmatter" });
 
+/**
+ * The whole frontmatter block, replaced while nobody is in it.
+ *
+ * `block: true` for `htmlPreviews`' reason: this stands in for whole lines
+ * rather than a run of characters inside one, and `frontmatterRange` only ever
+ * answers a range that starts at the document's first character and ends at
+ * the end of the closing fence — exactly the shape a block decoration needs.
+ */
+const frontmatterHidden = Decoration.replace({ block: true });
+
 /* ---------------------------- lists and tables ---------------------------- */
 
 /**
@@ -1877,8 +1887,33 @@ export function decorationsFor(state: EditorState): DecorationSet {
   */
   const frontEnd = front === null ? 0 : front.to;
 
+  /**
+   * Whether the block is on screen at all.
+   *
+   * **It used to always be**, drawn small and dim, and the argument for that
+   * was "metadata a person may need to edit" — which is right about *editing*
+   * and was answering a question nobody asked about *reading*. Measured in
+   * Chromium at 1440×900 against the console's own demo note: `---`,
+   * `updated: 2026-08-26`, `status: active`, `---`, four lines of filing above
+   * the note's own title, on every note anybody had ever filed anything on.
+   * Dim is not the same as out of the way.
+   *
+   * So it follows the rule every other mark in this file follows: hidden while
+   * you are reading, there the moment the selection reaches it. Arrowing up
+   * from the first line, clicking where it is, or a ⌘A all put the caret in
+   * range and the block comes back in full, editable, with its own small-and-
+   * dim styling — which is what keeps the editor the one thing in the product
+   * that can change a note's metadata (`NoteEditor`'s `Properties` is a
+   * reader, and `frontmatter.ts` argues why there is no YAML writer here).
+   *
+   * `selectionTouches` over the whole range rather than per line, because the
+   * block is one object: revealing the two keys and not the fences would be
+   * the half-hidden state this file's own header calls the worst of both.
+   */
+  const frontShown = front !== null && selectionTouches(front, selection);
+
   const lines: Range<Decoration>[] = [];
-  if (front !== null) {
+  if (front !== null && frontShown) {
     for (
       let line = state.doc.lineAt(front.from);
       line.from <= front.to;
@@ -2023,6 +2058,17 @@ export function decorationsFor(state: EditorState): DecorationSet {
   const hides = hiddenMarkRanges(tree, selection, state.doc.length, state.doc)
     .filter((range) => !insidePreview(range.from) && !insideMarker(range.from))
     .map((range) => hideMark.range(range.from, range.to));
+
+  /*
+    The frontmatter block, put away while the caret is elsewhere — see
+    `frontShown` above for why, and `frontmatterHidden` for why it is a block
+    decoration. First in the set because it starts at position 0 and
+    `RangeSet.of` wants document order; everything `hiddenMarkRanges` returned
+    is after `front.to`, which its own comment is about.
+  */
+  if (front !== null && !frontShown) {
+    hides.unshift(frontmatterHidden.range(front.from, front.to));
+  }
 
   /*
     `block: true` because this stands in for whole lines rather than for a run

@@ -407,6 +407,31 @@ export function topBarLeadFor(density: Density): "switcher" | "account" {
 }
 
 /**
+ * Where the note's first character is, measured from the left of its region.
+ *
+ * The note is a centred column: `LiveEditor.web.tsx` gives its scroller
+ * `layout.notePadX` either side and cuts `layout.readingMeasureEm` of measure
+ * out of what is left with `padding-inline: max(0, (100% - 40em) / 2)`. So the
+ * first character sits at the gutter plus half of whatever the measure did not
+ * use, and it is that number — not the region's own edge — that anything
+ * drawn *above* the note has to line up with.
+ *
+ * **One function because there are two callers and they must not drift**, the
+ * same rule `floatingGapFor` is stated under. The editor spends it in CSS
+ * against its own box; the breadcrumb spends it as `paddingLeft` against the
+ * region it was measured from. Two copies of this sum is how a header ends up
+ * four points off the text under it at one width and level at another.
+ *
+ * At a width where the measure cannot bind — a phone, a narrow split — the
+ * `max` floors at the gutter, which is exactly what the CSS does.
+ */
+export function noteGutterFor(width: number): number {
+  const measure = layout.readingMeasureEm * layout.noteFontSize;
+  const inside = width - layout.notePadX * 2;
+  return layout.notePadX + Math.max(0, (inside - measure) / 2);
+}
+
+/**
  * The explorer column's width, held between a floor and a ceiling.
  *
  * The floor is where a kebab-case note name under two levels of indent stops

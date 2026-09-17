@@ -24,8 +24,9 @@ import { emptyEditor } from "../features/console/files/editor";
  *
  * So the header draws on approach: the buttons fade in when the pointer enters
  * the column, and the filter gains its border and its fill at the same moment.
- * At rest what is left is the word `Filter` in muted type, which reads as the
- * column's label.
+ * At rest what is drawn in the field's own box is the eyebrow `Notes` — the
+ * column's name, which is what a panel's header is for, rather than the
+ * filter's placeholder, which names a control nobody is using yet.
  *
  * **This behaviour shipped with no test at all**, which is the reason this file
  * exists rather than a second reason for it: `features/app/frame.ts` and this
@@ -190,18 +191,31 @@ describe("the tree's header at rest", () => {
     expect(invisible(styleOf(filterOf(container), "border-top-color"))).toBe(true);
   });
 
+  test("the column says its own name", () => {
+    // The design's tree opens on `Notes`, which is what the column is. The
+    // filter's placeholder answers a different question and is not drawn until
+    // somebody is reaching for the field.
+    const container = mount();
+    expect(container.textContent).toContain("Notes");
+    expect(filterOf(container).getAttribute("placeholder")).toBe("");
+  });
+
   test("but the field is a real field, and the buttons are still in the tree", () => {
     /*
       The reason this is opacity rather than a mount: chrome that leaves the
       tree is chrome a keyboard cannot tab to, and a toolbar that grows its
-      buttons back under the pointer is a layout jumping under the hand.
+      buttons back under the pointer is a layout jumping under the hand. The
+      label is drawn over the field rather than in place of it for the same
+      reason, and takes no pointer events so it cannot eat the press that
+      focuses what is underneath it.
     */
     const container = mount();
 
     const filter = filterOf(container);
     expect(filter.tagName.toLowerCase()).toBe("input");
+    // Unconditional, and the whole of how this field is named: the visible
+    // word is the column's, not the control's.
     expect(filter.getAttribute("aria-label")).toBe("Filter notes and folders");
-    expect(filter.getAttribute("placeholder")).toBe("Filter");
 
     expect(toolsOf(container).querySelectorAll('[role="button"]').length).toBeGreaterThan(0);
   });
@@ -223,6 +237,8 @@ describe("a field somebody is using is not chrome", () => {
       filter.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     });
     expect(invisible(styleOf(filter, "border-top-color"))).toBe(false);
+    // And the label gets out of the way of what is being typed into.
+    expect(filter.getAttribute("placeholder")).toBe("Filter");
 
     act(() => {
       filter.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));

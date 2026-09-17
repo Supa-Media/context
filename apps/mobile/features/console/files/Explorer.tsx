@@ -528,7 +528,13 @@ export function Explorer({
     <TextInput
       value={query}
       onChangeText={setQuery}
-      placeholder="Filter"
+      /*
+        Blank until the header is lit, because `Notes` is drawn over the field
+        at rest and two words in one box is what a placeholder underneath a
+        label looks like. The accessible name is unconditional and on the line
+        below, so nothing about reaching this field depends on the word.
+      */
+      placeholder={toolsShown || filterFocused ? "Filter" : ""}
       placeholderTextColor={colors.muted}
       onFocus={() => setFilterFocused(true)}
       onBlur={() => setFilterFocused(false)}
@@ -567,6 +573,33 @@ export function Explorer({
       testID="explorer"
     >
       <View style={styles.toolbar}>
+        {/*
+          THE COLUMN'S NAME, AT REST, OVER THE FIELD RATHER THAN BESIDE IT.
+
+          The design's tree opens on the word `Notes` — an eyebrow, the way
+          every panel in this product labels itself — and the header's controls
+          arrive with the pointer. What was here instead was the filter's
+          placeholder, which is a different word for a different thing: `Filter`
+          answers "what does this box do" and says nothing about what the
+          column below it is.
+
+          Drawn *over* the field, absolutely, and faded out as the tools fade
+          in — so the field is mounted at every moment, keeps its caret, keeps
+          its place in the tab order, and nothing about the row's geometry
+          depends on which of the two is visible. `pointerEvents="none"` so the
+          label cannot take the press that focuses the field underneath it.
+
+          It goes when the filter has something in it as well as on approach:
+          a column showing eight of its forty rows must say why, and `Notes`
+          over a filtered tree is a label telling a small lie.
+        */}
+        <View
+          style={[styles.eyebrow, (toolsShown || filterFocused || query !== "") && styles.eyebrowGone]}
+          pointerEvents="none"
+          aria-hidden
+        >
+          <Text variant="eyebrow">Notes</Text>
+        </View>
         {filterField}
         {query !== "" ? (
           <IconButton
@@ -1082,6 +1115,22 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     opacity: 0,
   },
   toolsShown: { opacity: 1 },
+  /**
+   * The resting label, in the field's own box.
+   *
+   * Absolute and inset to the field's horizontal padding, so the word starts
+   * at exactly the character the placeholder would have — the two swap without
+   * anything moving. `justifyContent: "center"` because the box is 28pt and
+   * the label is one line of 11pt type.
+   */
+  eyebrow: {
+    position: "absolute",
+    left: space.x2 + space.x2,
+    top: space.x2,
+    height: 28,
+    justifyContent: "center",
+  },
+  eyebrowGone: { opacity: 0 },
   /**
    * At rest: type, in the header's own gutter, with no box at all.
    *

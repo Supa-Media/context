@@ -634,6 +634,31 @@ export const layout = {
    */
   readingMeasureEm: 40,
 
+  /**
+   * The gutter the web editor's scroller keeps either side of the measure.
+   *
+   * `LiveEditor.web.tsx` spends it as `.cm-scroller`'s horizontal padding, and
+   * the measure is centred *inside* what is left — so anything that has to
+   * start at the same character as the note's first line adds this to half the
+   * remainder. `noteGutterFor` in `features/app/frame.ts` is that arithmetic,
+   * in one place, and the breadcrumb above the note is what asks for it.
+   *
+   * The WebView half (`files/webview/styles.ts`) sets `--lp-pad-x: 24`, and
+   * that is a different number for a different surface rather than drift: it
+   * is a phone's reading margin, where the measure never binds and the gutter
+   * is the whole of what governs the column.
+   */
+  notePadX: 16,
+
+  /**
+   * The note's own type size, in the web editor.
+   *
+   * Set on `.cm-scroller` in `LiveEditor.web.tsx`, and the unit
+   * `readingMeasureEm` is multiplied by — so it is half of what decides where
+   * the column's edges are, and `noteGutterFor` needs both.
+   */
+  noteFontSize: 16,
+
   /* ---------------------------------------------------------------------- *
    * The application frame.
    *

@@ -1078,8 +1078,34 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
    */
   const FRONT = "---\nupdated: 2026-08-26\nstatus: active\n---\n\n# Real title\n";
 
-  function classesIn(doc: string): string[] {
-    const set = decorationsFor(stateFor(doc, 500));
+  /**
+   * Is the whole block replaced right now?
+   *
+   * Read off `decorationsFor` rather than `visibleText`, and that is the one
+   * thing worth explaining here: `hiddenMarkRanges` deliberately answers
+   * *nothing* inside the frontmatter — its own comment is why, and the
+   * asymmetric fences are the reason — so the helper built on it cannot see
+   * this. The block decoration is `decorationsFor`'s, because whole lines are
+   * what a `block: true` replace is for, and this asks the set that actually
+   * reaches CodeMirror.
+   */
+  function blockHidden(doc: string, cursor: number | [number, number] = 500): boolean {
+    const range = frontmatterRange(doc);
+    if (range === null) return false;
+    const set = decorationsFor(stateFor(doc, cursor));
+    const iter = set.iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { block?: boolean; widget?: unknown };
+      if (spec.block === true && spec.widget === undefined && iter.from === range.from) {
+        return iter.to === range.to;
+      }
+      iter.next();
+    }
+    return false;
+  }
+
+  function classesIn(doc: string, cursor: number | [number, number] = 500): string[] {
+    const set = decorationsFor(stateFor(doc, cursor));
     const found: string[] = [];
     const iter = set.iter();
     while (iter.value !== null) {
@@ -1102,14 +1128,44 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
     expect(names).toContain("SetextHeading2");
   });
 
-  test("and it is not drawn as one", () => {
+  /**
+   * **The block is hidden while nobody is in it, and that is new.**
+   *
+   * It used to be drawn always, small and dim, on the argument that it is
+   * "metadata a person may need to edit". Measured in Chromium at 1440×900
+   * against the console's own demo note, that meant four lines of filing —
+   * `---`, `updated:`, `status:`, `---` — above the note's own title, on every
+   * note anybody had ever filed anything on. Dim is not the same as out of the
+   * way.
+   *
+   * So it follows the rule every other mark in this file follows. The editing
+   * half of the old argument is kept exactly: the caret reaching it brings it
+   * back in full, which is the case below, and the editor is still the one
+   * thing in the product that can change a note's metadata —
+   * `NoteEditor`'s Properties panel is a reader.
+   */
+  test("with the caret elsewhere it is not drawn at all", () => {
     const classes = classesIn(FRONT);
-    expect(classes).toContain("cm-lp-frontmatter");
+    expect(classes).not.toContain("cm-lp-frontmatter");
     expect(classes).not.toContain("cm-lp-h2");
+    expect(blockHidden(FRONT)).toBe(true);
+  });
+
+  test("and the caret reaching it brings the whole block back", () => {
+    // Anywhere inside, including the fences: the block is one object, and
+    // revealing the keys without the fences is the half-hidden state this
+    // file's header calls the worst of both.
+    for (const cursor of [0, 10, 38]) {
+      const classes = classesIn(FRONT, cursor);
+      expect(`${cursor}: ${classes.includes("cm-lp-frontmatter")}`).toBe(`${cursor}: true`);
+      expect(`${cursor}: ${classes.includes("cm-lp-h2")}`).toBe(`${cursor}: false`);
+      expect(`${cursor}: ${blockHidden(FRONT, cursor)}`).toBe(`${cursor}: false`);
+    }
   });
 
   test("the note's own headings still are", () => {
-    // The other direction, so the fix cannot be "stop styling headings".
+    // The other direction, so the fix cannot be "stop styling headings". Read
+    // with the caret away, which is also the resting state.
     expect(classesIn(FRONT)).toContain("cm-lp-h1");
   });
 
@@ -1134,20 +1190,28 @@ describe("frontmatter is metadata, not the note's largest heading", () => {
       to find a closer would consume the rest of the document. Reading the text
       answers before anything is consumed.
     */
-    expect(frontmatterRange("---\nthis note has no closing fence\n")).toBeNull();
-    expect(classesIn("---\nthis note has no closing fence\n")).not.toContain(
-      "cm-lp-frontmatter",
-    );
+    const doc = "---\nthis note has no closing fence\n";
+    expect(frontmatterRange(doc)).toBeNull();
+    expect(classesIn(doc)).not.toContain("cm-lp-frontmatter");
+    // And it is still *on screen*: not frontmatter means not hidden either,
+    // which is the half a "no class" assertion cannot see now that the block
+    // is replaced rather than dimmed.
+    expect(blockHidden(doc)).toBe(false);
+    expect(visibleText(doc, 500)).toContain("this note has no closing fence");
   });
 
-  test("both fences are visible, not just the opening one", () => {
+  test("both fences are visible once it is revealed, not just the opening one", () => {
     /*
       The asymmetry this rules out. The opening `---` parses as a
       HorizontalRule and the closing one as a setext HeaderMark, so ordinary
       mark-hiding removed the closing fence and left the opening one — and the
       block read as an unterminated rule above two stray keys.
+
+      Read with the caret inside, which is the only state the block is drawn
+      in now. With it away the whole thing is gone, fences included, which is
+      the case above and is not the asymmetry this is about.
     */
-    expect(visibleText(FRONT, 500)).toContain("---\nupdated: 2026-08-26\nstatus: active\n---");
+    expect(visibleText(FRONT, 10)).toContain("---\nupdated: 2026-08-26\nstatus: active\n---");
   });
 
   test("YAML's other closing fence counts", () => {

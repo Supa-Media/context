@@ -8,8 +8,8 @@ import { expect, test, type Page } from "@playwright/test";
  * over a list of about twenty rows, and together the loudest thing in the
  * quietest region. So the header draws on approach: the buttons fade in when
  * the pointer enters the column, and the filter gains its border and its fill
- * at the same moment. At rest what is left is the word `Filter` in muted type,
- * which reads as the column's label.
+ * at the same moment. At rest what is drawn in the field's own box is the
+ * eyebrow `Notes` — the column's own name — which goes as the field arrives.
  *
  * ## Why this is here and not in the unit suite
  *
@@ -54,17 +54,24 @@ function invisible(colour: string): boolean {
 
 async function header(page: Page): Promise<{
   toolsOpacity: string;
+  eyebrowOpacity: string;
   border: string;
   fill: string;
 }> {
   return await page.evaluate(() => {
     const filter = document.querySelector('[data-testid="explorer-filter"]');
+    const row = filter?.parentElement ?? null;
     // The group the four buttons are faded as one: the toolbar's last child.
-    const tools = filter?.parentElement?.lastElementChild ?? null;
-    if (filter === null || tools === null) throw new Error("no explorer header on this screen");
+    const tools = row?.lastElementChild ?? null;
+    // The resting label, drawn over the field: the toolbar's first child.
+    const eyebrow = row?.firstElementChild ?? null;
+    if (filter === null || tools === null || eyebrow === null) {
+      throw new Error("no explorer header on this screen");
+    }
     const field = getComputedStyle(filter);
     return {
       toolsOpacity: getComputedStyle(tools).opacity,
+      eyebrowOpacity: getComputedStyle(eyebrow).opacity,
       border: field.borderTopColor,
       fill: field.backgroundColor,
     };
@@ -79,9 +86,10 @@ test.beforeEach(async ({ page }) => {
   await page.mouse.move(1200, 500);
 });
 
-test("at rest the header is type, with no boxes in it", async ({ page }) => {
+test("at rest the header is the column's name, with no boxes in it", async ({ page }) => {
   const at = await header(page);
 
+  expect(at.eyebrowOpacity).toBe("1");
   expect(at.toolsOpacity).toBe("0");
   expect(`border ${invisible(at.border)}`).toBe("border true");
   expect(`fill ${invisible(at.fill)}`).toBe("fill true");
@@ -91,6 +99,8 @@ test("the pointer entering the column lights both halves together", async ({ pag
   await page.getByTestId("explorer-tree").hover();
 
   const on = await header(page);
+  // The label gets out of the way of the field in the same move.
+  expect(on.eyebrowOpacity).toBe("0");
   expect(on.toolsOpacity).toBe("1");
   expect(`border ${invisible(on.border)}`).toBe("border false");
   expect(`fill ${invisible(on.fill)}`).toBe("fill false");
@@ -105,6 +115,7 @@ test("and leaving it puts them away again", async ({ page }) => {
   await page.mouse.move(1200, 500);
 
   const off = await header(page);
+  expect(off.eyebrowOpacity).toBe("1");
   expect(off.toolsOpacity).toBe("0");
   expect(`border ${invisible(off.border)}`).toBe("border true");
 });
