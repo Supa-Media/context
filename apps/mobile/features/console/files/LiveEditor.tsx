@@ -64,7 +64,7 @@ import { Keyboard, Platform, StyleSheet, TextInput, View, useWindowDimensions } 
 import { WebView, type WebViewMessageEvent } from "react-native-webview";
 import { densityFor } from "../../app/frame";
 import { Text } from "../../design/components/Text";
-import { fonts, leading, radii, space } from "../../design/tokens";
+import { fonts, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import {
   EDITOR_HTML,
@@ -649,8 +649,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: colors.well,
     color: colors.text2,
     fontFamily: fonts.mono,
-    fontSize: 12.5,
-    lineHeight: leading(12.5, 1.7),
+    fontSize: t.meta,
+    lineHeight: leading(t.meta, 1.7),
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
@@ -660,8 +660,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     backgroundColor: "transparent",
     color: colors.text,
     fontFamily: fonts.body,
-    fontSize: 16,
-    lineHeight: leading(16, 1.5),
+    fontSize: t.body,
+    lineHeight: leading(t.body, 1.5),
     paddingTop: space.x2,
     paddingHorizontal: space.x6,
     paddingBottom: space.x8,

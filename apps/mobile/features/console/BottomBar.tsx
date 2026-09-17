@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FocusRing } from "../design/components/FocusRing";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
-import { bottomBarGeometry, layout, radii } from "../design/tokens";
+import { bottomBarGeometry, layout, pointerType as t, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { LONG_PRESS_MS } from "./files/rowInteractionContract";
 
@@ -614,7 +614,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   title: {
-    fontSize: 10,
+    fontSize: t.label,
     lineHeight: 13,
     marginTop: 1,
     color: colors.muted,

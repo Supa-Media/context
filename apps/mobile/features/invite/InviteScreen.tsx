@@ -10,7 +10,7 @@ import { Fact } from "../design/components/Fact";
 import { FormError } from "../design/components/Input";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, tracking } from "../design/tokens";
+import { clamp, fonts, leading, pointerType as t, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
@@ -414,7 +414,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   mark: { alignSelf: "flex-start", marginBottom: 30 },
   markSuffix: { color: colors.muted },
   title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
 
   card: { marginTop: 26, gap: 13 },
   overview: { marginTop: 26 },

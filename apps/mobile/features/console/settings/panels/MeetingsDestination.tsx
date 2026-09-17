@@ -9,7 +9,7 @@ import { Card, Grow, Row } from "../../../design/components/Card";
 import { FormError, TextField } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
-import { space } from "../../../design/tokens";
+import { pointerType as t, space } from "../../../design/tokens";
 import { useThemedStyles, type Colors } from "../../../design/theme";
 import {
   INBOX_FOLDER,
@@ -300,7 +300,7 @@ const makeStyles = (_colors: Colors) =>
     second: { marginTop: space.x3 },
     secondRow: { alignItems: "flex-start", flexWrap: "wrap", gap: space.x3 },
     editor: { marginTop: space.x3, gap: space.x3 },
-    input: { fontFamily: "JetBrainsMono_400Regular", fontSize: 12.5 },
+    input: { fontFamily: "JetBrainsMono_400Regular", fontSize: t.meta },
     suggestions: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
     actions: { gap: 9, flexWrap: "wrap" },
     failure: { marginTop: space.x3 },

@@ -14,7 +14,7 @@
 
 import { Linking, StyleSheet, View } from "react-native";
 import { Text } from "../design/components/Text";
-import { fonts, leading, radii } from "../design/tokens";
+import { fonts, leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import type { Block, Inline } from "./markdown";
 
@@ -189,14 +189,22 @@ function Runs({ runs }: { runs: readonly Inline[] }) {
   );
 }
 
-/** Sizes only; the face and colour come from `paneTitle`. */
+/**
+ * Sizes only; the face and colour come from `paneTitle`.
+ *
+ * Six roles for six levels, and they have to stay six: `h5` and `h6` were
+ * 13.5 and 13 before this drew from the scale, which is a distinction no
+ * reader could see but which the renderer still owed the document. Mapping
+ * both to `ui` would have collapsed a level silently, so `h6` takes `meta` —
+ * the ladder is 23 / 19 / 16 / 15 / 13 / 12 and every step is visible.
+ */
 const HEADING_SIZE = StyleSheet.create({
-  h1: { fontSize: 26, lineHeight: leading(26, 1.25), marginTop: 6 },
-  h2: { fontSize: 20, lineHeight: leading(20, 1.3), marginTop: 20 },
-  h3: { fontSize: 16.5, lineHeight: leading(16.5, 1.35), marginTop: 16 },
-  h4: { fontSize: 14.5, lineHeight: leading(14.5, 1.4), marginTop: 14 },
-  h5: { fontSize: 13.5, lineHeight: leading(13.5, 1.4), marginTop: 12 },
-  h6: { fontSize: 13, lineHeight: leading(13, 1.4), marginTop: 12 },
+  h1: { fontSize: t.h2, lineHeight: leading(t.h2, 1.25), marginTop: 6 },
+  h2: { fontSize: t.h3, lineHeight: leading(t.h3, 1.3), marginTop: 20 },
+  h3: { fontSize: t.body, lineHeight: leading(t.body, 1.35), marginTop: 16 },
+  h4: { fontSize: t.lede, lineHeight: leading(t.lede, 1.4), marginTop: 14 },
+  h5: { fontSize: t.ui, lineHeight: leading(t.ui, 1.4), marginTop: 12 },
+  h6: { fontSize: t.meta, lineHeight: leading(t.meta, 1.4), marginTop: 12 },
 });
 
 /**
@@ -232,7 +240,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
   },
-  codeText: { color: colors.text2, fontFamily: fonts.mono, fontSize: 12.5 },
+  codeText: { color: colors.text2, fontFamily: fonts.mono, fontSize: t.meta },
   rule: { height: 1, backgroundColor: colors.line, marginVertical: 8 },
   table: {
     borderWidth: 1,
@@ -249,7 +257,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 12,
     color: colors.text2,
-    fontSize: 13,
+    fontSize: t.ui,
   },
   headCell: { color: colors.text, fontWeight: "600" },
   strong: { color: colors.text, fontWeight: "600" },
@@ -257,7 +265,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   strike: { textDecorationLine: "line-through", color: colors.muted },
   inlineCode: {
     fontFamily: fonts.mono,
-    fontSize: 12.5,
+    fontSize: t.meta,
     color: colors.text,
   },
   link: { color: colors.codeKey, textDecorationLine: "underline" },

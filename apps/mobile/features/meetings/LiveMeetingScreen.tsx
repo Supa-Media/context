@@ -5,7 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Screen } from "../app/Screen";
 import { floatingGapFor } from "../app/frame";
 import { KeyboardSticky, dismissKeyboard, useKeyboardHeight } from "../design/keyboardSticky";
-import { fonts, layout, radii } from "../design/tokens";
+import { fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -562,7 +562,11 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     paddingBottom: 8,
   },
   head: { paddingHorizontal: layout.readingMargin, paddingTop: 10, gap: 14 },
-  title: { fontSize: 27, lineHeight: 32, letterSpacing: -0.81 },
+  title: {
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.18),
+    letterSpacing: tracking(t.title, -0.03),
+  },
   facts: { flexDirection: "row", alignItems: "center", gap: 7, flexWrap: "wrap" },
   fact: {
     flexDirection: "row",
@@ -577,7 +581,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   factText: { color: colors.text2 },
   factOk: { borderColor: colors.okBorder, backgroundColor: colors.okWash },
-  factOkText: { color: colors.okText, fontSize: 12.5 },
+  factOkText: { color: colors.okText, fontSize: t.meta },
   chips: {
     flexDirection: "row",
     alignItems: "center",
@@ -681,7 +685,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   clockGroup: { flexDirection: "row", alignItems: "center", gap: 10 },
   clock: {
     fontFamily: fonts.mono,
-    fontSize: 15.5,
+    fontSize: t.body,
     fontWeight: "500",
     color: colors.text,
     fontVariant: ["tabular-nums"],
@@ -702,7 +706,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     is finalizing.
   */
   endBusy: { opacity: 0.5 },
-  endLabel: { color: colors.ink, fontSize: 15 },
+  endLabel: { color: colors.ink, fontSize: t.lede },
   missing: { padding: layout.readingMargin },
   quiet: { flex: 1 },
 });

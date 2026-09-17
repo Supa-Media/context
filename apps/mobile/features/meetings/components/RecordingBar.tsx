@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { usePathname, useRouter } from "expo-router";
-import { fonts, layout, radii } from "../../design/tokens";
+import { fonts, layout, pointerType as t, radii } from "../../design/tokens";
 import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
 import { useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { Text } from "../../design/components/Text";
@@ -265,7 +265,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   clock: {
     fontFamily: fonts.mono,
-    fontSize: 15.5,
+    fontSize: t.body,
     fontWeight: "500",
     color: colors.text,
     fontVariant: ["tabular-nums"],
@@ -280,5 +280,5 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   /* Dimmed in place, never resized: see `LiveMeetingScreen`'s copy. */
   endBusy: { opacity: 0.5 },
-  endLabel: { color: colors.ink, fontSize: 15 },
+  endLabel: { color: colors.ink, fontSize: t.lede },
 });

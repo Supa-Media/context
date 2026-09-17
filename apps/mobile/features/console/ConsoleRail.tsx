@@ -14,7 +14,7 @@ import { Icon, type IconName } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
-import { layout, radii, space } from "../design/tokens";
+import { layout, pointerType as t, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
 import { atName } from "./format";
@@ -957,7 +957,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   entryOn: { backgroundColor: colors.accentDim },
   entryOnLabel: { color: colors.accentText },
-  glyph: { color: colors.text2, fontSize: 14 },
+  glyph: { color: colors.text2, fontSize: t.ui },
   glyphOn: { color: colors.accentText },
 
   /**
@@ -1013,7 +1013,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#5F6EF6",
   },
-  avatarInitial: { fontSize: 11, fontWeight: "700", color: "#fff" },
+  avatarInitial: { fontSize: t.label, fontWeight: "700", color: "#fff" },
 
   signOut: {
     width: 28,
@@ -1035,5 +1035,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.md,
   },
   signOutHover: { backgroundColor: colors.surface3 },
-  signOutGlyph: { fontSize: 13, color: colors.muted },
+  signOutGlyph: { fontSize: t.ui, color: colors.muted },
 });

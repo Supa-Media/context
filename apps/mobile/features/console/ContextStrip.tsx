@@ -5,7 +5,7 @@ import { Dot } from "../design/components/Dot";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { gradient } from "../design/css";
-import { layout, radii, space } from "../design/tokens";
+import { layout, pointerType as t, radii, space } from "../design/tokens";
 import { useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
 import { stripEntries, toneForKind } from "./strip";
@@ -697,7 +697,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     boxShadow: "none",
   },
   /** 11px mono, matching the leaf beside it — see `Pill`'s file comment. */
-  pillHeadLabel: { fontSize: 11, fontWeight: "600", color: colors.accentText },
+  pillHeadLabel: { fontSize: t.label, fontWeight: "600", color: colors.accentText },
   /**
    * Where you are.
    *

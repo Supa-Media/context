@@ -31,6 +31,7 @@ import {
   type IngestionState,
   type SenderEntry,
 } from "./settings";
+import { pointerType as t } from "../../design/tokens";
 
 /**
  * Email ingestion, in a context's settings.
@@ -523,5 +524,5 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
   okText: { color: colors.okText },
   warnText: { color: colors.warnText },
-  inlineMono: { fontSize: 12 },
+  inlineMono: { fontSize: t.meta },
 });

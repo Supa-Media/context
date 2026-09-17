@@ -4,7 +4,7 @@ import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { Text } from "../design/components/Text";
 import { StageBackdrop } from "../design/components/StageBackdrop";
-import { leading, radii } from "../design/tokens";
+import { leading, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { canReload, reloadApp } from "./reload";
 import { reportError, trackEvent } from "../observability/client";
@@ -158,12 +158,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   mark: { alignSelf: "flex-start", marginBottom: 30 },
   markSuffix: { color: colors.muted },
   title: {
-    fontSize: 28,
-    lineHeight: leading(28, 1.1),
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.1),
     fontWeight: "500",
     color: colors.text,
   },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   detail: {
     marginTop: 22,
     paddingVertical: 12,

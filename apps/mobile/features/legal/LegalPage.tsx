@@ -2,7 +2,7 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Link } from "expo-router";
 import { ScreenScroll } from "../app/Screen";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 
 type LegalSection = {
@@ -108,8 +108,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   brand: {
     fontFamily: fonts.display,
-    fontSize: 17,
-    lineHeight: leading(17, 1.55),
+    fontSize: t.body,
+    lineHeight: leading(t.body, 1.55),
     fontWeight: "600",
     color: colors.text,
     textDecorationLine: "none",
@@ -122,8 +122,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   navLink: {
     fontFamily: fonts.body,
-    fontSize: 14.5,
-    lineHeight: leading(14.5, 1.55),
+    fontSize: t.lede,
+    lineHeight: leading(t.lede, 1.55),
     color: colors.text2,
     textDecorationLine: "none",
   },
@@ -146,8 +146,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     marginBottom: 28,
   },
   intro: {
-    fontSize: 18,
-    lineHeight: leading(18, 1.55),
+    fontSize: t.h3,
+    lineHeight: leading(t.h3, 1.55),
     color: colors.text2,
   },
   body: {
@@ -162,10 +162,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sectionTitle: {
     fontFamily: fonts.display,
-    fontSize: 21,
-    lineHeight: leading(21, 1.35),
+    fontSize: t.h2,
+    lineHeight: leading(t.h2, 1.35),
     fontWeight: "600",
-    letterSpacing: tracking(21, -0.02),
+    letterSpacing: tracking(t.h2, -0.02),
     color: colors.text,
   },
   paragraph: {

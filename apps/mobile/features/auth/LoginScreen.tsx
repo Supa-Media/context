@@ -6,7 +6,7 @@ import { Button } from "../design/components/Button";
 import { CenteredScroll } from "../design/components/CenteredScroll";
 import { TextField } from "../design/components/Input";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, layout, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { landAfterSignIn } from "./landing";
@@ -228,8 +228,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   sub: {
     marginTop: 14,
-    fontSize: 16,
-    lineHeight: leading(16, 1.55),
+    fontSize: t.body,
+    lineHeight: leading(t.body, 1.55),
   },
   card: {
     marginTop: 28,

@@ -17,7 +17,7 @@ import { ChoiceGroup, FormError, ToggleGroup } from "../design/components/Input"
 import { Pill } from "../design/components/Pill";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, leading, radii, tracking } from "../design/tokens";
+import { clamp, fonts, leading, pointerType as t, radii, tracking } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "../console/format";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
@@ -654,7 +654,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   markSuffix: { color: colors.muted },
   title: { fontFamily: fonts.display, fontWeight: "500", color: colors.text },
   titleClient: { color: colors.accentText },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   subStrong: { color: colors.text, fontWeight: "600" },
 
   card: { marginTop: 26 },

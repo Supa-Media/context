@@ -8,7 +8,7 @@ import { Card } from "../design/components/Card";
 import { Fact } from "../design/components/Fact";
 import { FormError } from "../design/components/Input";
 import { Text } from "../design/components/Text";
-import { clamp, leading } from "../design/tokens";
+import { clamp, leading, pointerType as t } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { EMPTY_QUERY_SPEC } from "../console/querySpec";
 import { CONSOLE_ROUTE } from "../auth/redirect";
@@ -262,7 +262,7 @@ function InvitationRow({
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   ground: { flex: 1, backgroundColor: colors.ground, overflow: "hidden" },
-  sub: { marginTop: 14, fontSize: 15.5, lineHeight: leading(15.5, 1.55) },
+  sub: { marginTop: 14, fontSize: t.body, lineHeight: leading(t.body, 1.55) },
   loadingRow: { flexDirection: "row", alignItems: "center", gap: 11 },
   error: { marginTop: 14 },
   rows: { marginTop: 26, gap: 14 },

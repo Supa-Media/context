@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native
 import { Dot } from "../../design/components/Dot";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { layout, radii, space } from "../../design/tokens";
+import { layout, pointerType as t, radii, space, touchType } from "../../design/tokens";
 import { useAppearanceChoice, useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { atName } from "../format";
 import { selectedContext, type ConsoleContext, type ConsoleData } from "../types";
@@ -402,11 +402,11 @@ const makeStyles = (colors: Colors) =>
       borderColor: colors.line,
       backgroundColor: colors.well,
       color: colors.text,
-      fontSize: 13,
+      fontSize: t.ui,
     },
     // 15 rather than 13, for the reason `railTouch` is 15.5: a field somebody
     // types into on a phone is read at the size the phone is read at.
-    searchTouch: { fontSize: 15, backgroundColor: colors.surface2, borderRadius: radii.xl },
+    searchTouch: { fontSize: touchType.ui, backgroundColor: colors.surface2, borderRadius: radii.xl },
     scroll: { paddingBottom: space.x6, paddingHorizontal: space.x3 },
     empty: { paddingHorizontal: space.x2, paddingVertical: space.x3 },
     group: { marginTop: space.x4 },

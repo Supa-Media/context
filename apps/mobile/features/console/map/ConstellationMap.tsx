@@ -2,7 +2,7 @@ import { useState } from "react";
 import { StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import { Line } from "../../design/components/Line";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, tracking } from "../../design/tokens";
+import { fonts, layout, pointerType as t, radii, tracking } from "../../design/tokens";
 import { useColors, useTheme, useThemedStyles, type Colors } from "../../design/theme";
 import { describeGraph } from "./describe";
 import { Glow } from "./Glow";
@@ -154,7 +154,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   youLabel: {
     fontFamily: fonts.display,
-    fontSize: 12,
+    fontSize: t.meta,
     fontWeight: "600",
     color: colors.ink,
   },
@@ -165,7 +165,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   nodeLabel: {
     fontFamily: fonts.display,
-    fontSize: 12.5,
+    fontSize: t.meta,
     // The two baselines are 15px apart on the canvas
     // (`SUBLABEL_OFFSET - LABEL_OFFSET`); with no margin between them, that is
     // exactly the label's line box.
@@ -176,7 +176,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   nodeSub: {
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: t.label,
     lineHeight: 14,
     color: colors.muted,
     textAlign: "center",
@@ -202,8 +202,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   legendLabel: {
     fontFamily: fonts.body,
-    fontSize: 11.5,
+    fontSize: t.label,
     color: colors.muted,
-    letterSpacing: tracking(11.5, 0),
+    letterSpacing: tracking(t.label, 0),
   },
 });

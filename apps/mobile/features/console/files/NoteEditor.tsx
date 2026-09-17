@@ -6,7 +6,7 @@ import { densityFor } from "../../app/frame";
 import { Button, PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, layout, radii, space } from "../../design/tokens";
+import { fonts, layout, leading, pointerType as t, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { accessoryUp } from "./accessory";
 import { describe as describeVisibility } from "./Breadcrumb";
@@ -1223,8 +1223,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     // `contentInsets.top` already carries 12 of it.
     marginTop: space.x5,
     marginBottom: space.x1,
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: t.title,
+    lineHeight: leading(t.title, 1.21),
     fontWeight: "700",
     letterSpacing: -0.5,
     color: colors.text,
@@ -1316,7 +1316,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     width: 96,
     flexGrow: 0,
     flexShrink: 0,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 22,
     color: colors.muted,
   },
@@ -1324,7 +1324,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 22,
     color: colors.text,
   },
@@ -1334,7 +1334,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    fontSize: 15,
+    fontSize: t.lede,
     lineHeight: 22,
     color: colors.muted,
   },

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
-import { fonts, radii } from "../../design/tokens";
+import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { describeNameProblem } from "./paths";
 
@@ -356,7 +356,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   body: { marginTop: 12, gap: 12 },
   input: {
     fontFamily: fonts.mono,
-    fontSize: 13,
+    fontSize: t.ui,
     color: colors.text,
     paddingVertical: 10,
     paddingHorizontal: 12,
