@@ -1,0 +1,97 @@
+import { useState } from "react";
+import { useWindowDimensions } from "react-native";
+
+import { AppFrame } from "../app/AppFrame";
+import { densityFor } from "../app/frame";
+import { AccountBlock, ConsoleRail } from "../console/ConsoleRail";
+import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
+import { Explorer } from "../console/files/Explorer";
+import { BrowsePane } from "../console/panes/BrowsePane";
+import { NavBandProvider } from "../console/NavBand";
+import { LANDING_ROUTE, type ConsoleRoute } from "../console/nav";
+import { Text } from "../design/components/Text";
+
+/**
+ * The frame with its slots **filled**, for looking at rather than measuring.
+ *
+ * ## Why this is a second fixture and not a flag on the first
+ *
+ * `AppFrameFixture` answers geometry questions — does the peek land where the
+ * column was, is the seam a 7pt target, does folding the tree give the editor
+ * its width back — and it answers them with stub slots *on purpose*: a slot
+ * that shrank to its content would make every width assertion a measurement of
+ * the word "rail". `appFrameFold.spec.ts` depends on those stubs and their
+ * testIDs, so they stay exactly as they are.
+ *
+ * This one answers a different question, and it is the question that went
+ * unanswered for four merged changes: **does the console look like the design**.
+ * Stub slots cannot answer it. A frame whose rail is the word "rail" tells you
+ * nothing about whether the rail's rows, its account block, the tree's
+ * indentation or the note's measure match the artboards — and "the tests pass"
+ * was, four times, reported as though it did.
+ *
+ * So: the real `ConsoleRail` and the real `BrowsePane`, on the same fixture
+ * data the WebKit suite already ships, inside the real `AppFrame`. Nothing here
+ * can reach an account or a bucket; `useE2EFixtureConsoleData` is demo data
+ * with three capability flags flipped, and there is no deployment behind it.
+ *
+ * It is reachable at `/e2e-fixture?screen=app-frame-visual`, under the same
+ * `EXPO_PUBLIC_E2E_FIXTURE` gate as everything else in this folder — which is
+ * inlined at export time, so every shipped build redirects the route to `/` as
+ * if it did not exist.
+ */
+export function AppFrameVisualFixture() {
+  const data = useE2EFixtureConsoleData();
+  const { width } = useWindowDimensions();
+  const density = densityFor(width);
+  const [route, setRoute] = useState<ConsoleRoute>(LANDING_ROUTE);
+
+  const railMode = density === "wide" ? "full" : density === "medium" ? "icons" : null;
+
+  return (
+    <NavBandProvider nodes={{ contexts: null, current: null }}>
+      <AppFrame
+        switcher={<Text variant="wsSwitch">@seyi</Text>}
+        topTrailing={<Text variant="treeMeta">actions</Text>}
+        accountSlot={<Text variant="treeMeta">{data.viewer.initial}</Text>}
+        onSearch={() => {}}
+        rail={(mode) =>
+          railMode === null ? null : (
+            <ConsoleRail
+              data={data}
+              route={route}
+              mode={mode === "icons" ? "icons" : "full"}
+              onNavigate={(next) => {
+                if (next.kind === "context") setRoute(next);
+              }}
+              account={
+                <AccountBlock
+                  name={data.viewer.name}
+                  detail={data.viewer.detail}
+                  initial={data.viewer.initial}
+                  compact={mode === "icons"}
+                  onSignOut={() => {}}
+                />
+              }
+            />
+          )
+        }
+        /*
+          The file tree, which is what this column is in the product. The first
+          pass put `BrowsePane` here — the *pane*, tree and note together — so
+          the note rendered inside a 360pt column and the editor region beside
+          it was empty. Copying `console/_layout`'s own wiring is the point of a
+          fixture meant to answer "does this look like the design".
+        */
+        explorer={
+          <Explorer files={data.files} contextLabel="@seyi" />
+        }
+        status={<Text variant="treeMeta">2-areas/spirit/bible-study/kings/2-kings-5.md</Text>}
+        bottomBar={<Text variant="treeMeta">toolbar</Text>}
+      >
+        <BrowsePane data={data} />
+      </AppFrame>
+    </NavBandProvider>
+  );
+}
+
