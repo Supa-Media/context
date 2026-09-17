@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { CONTINUITY_STEPS, TEAM_THOUGHT } from "../features/landing/ContinuityDemo";
+import { CONTINUITY_STEPS, TEAM_THOUGHT } from "../features/landing/demoCopy";
 import {
   PROOF_BODY,
   PROOF_EYEBROW,

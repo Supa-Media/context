@@ -14,10 +14,17 @@
  * inherit the parent's explicit `lineHeight`, so the second line collapsed
  * onto the first — see `Landing.tsx`.
  *
+ * The continuity demo's words live in `demoCopy.ts` and are spread into the
+ * list below. They are a section's prose plus a transcript rather than a line
+ * each, and they were literals in the component until the scan that reads this
+ * file was widened from `Landing.tsx` to the folder it sits in.
+ *
  * Their **width** is governed separately and by measurement, not by counting
  * characters: `hero.ts` holds the bound and records what happened the last
  * time somebody reasoned about it from character counts instead.
  */
+
+import { DEMO_COPY } from "./demoCopy";
 
 /** The lit first line. */
 export const HERO_LINE_ONE = "Notes for your team";
@@ -104,4 +111,7 @@ export const LANDING_COPY = [
   TERMS_LINK,
   DEMO_FOOT,
   LICENCE_FOOT,
-] as const;
+  // The continuity demo, which is the first section a visitor reads and was
+  // the last one any rule here could see.
+  ...DEMO_COPY,
+];
