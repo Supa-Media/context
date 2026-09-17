@@ -18,8 +18,12 @@
  * of thing that rots inside a `useMemo`.
  */
 
-import type { IconName } from "../../design/components/Icon";
 import type { SettableVisibility, Visibility } from "./types";
+import {
+  audienceDetail,
+  audienceName,
+  type AudienceContext,
+} from "../privacy/audience";
 
 /** The three positions, widest last. */
 export type NoteScope = "private" | "team" | "anyone";
@@ -45,57 +49,6 @@ export function scopeOf(visibility: Visibility, hasOpenLink: boolean): NoteScope
   // not be confused. A control position is not a label.
   if (visibility !== "team") return "private";
   return hasOpenLink ? "anyone" : "team";
-}
-
-/**
- * The next position, cycling private → team → anyone → private.
- *
- * Widening one step at a time and closing all the way in one, which is the
- * right way round for a control somebody presses without reading: the
- * expensive mistake is publishing by accident, and every step towards that is
- * a single deliberate press from a state the icon has been showing. The step
- * back is the cheap one, so it is allowed to be big.
- *
- * `canOpenLink` is false for a **folder**, which keeps its two positions. Not
- * a policy decision made here: `createLinkShare` runs `checkSharePath`, which
- * is note-only, so a folder has no third position to offer and a control that
- * drew one would be a press that always fails. What a folder link means is a
- * separate question with a real answer to design (a folder share would have to
- * decide what it reaches), and `ShareDialog` already carries the note that
- * `createShare` has no folder form.
- */
-export function nextScope(scope: NoteScope, canOpenLink = true): NoteScope {
-  if (scope === "private") return "team";
-  if (scope === "team") return canOpenLink ? "anyone" : "private";
-  return "private";
-}
-
-/**
- * The icon for the state a note **is in** — never the state it moves to.
- *
- * `ICON_NAMES` states the rule and the reasoning: an unlabelled 20pt target can
- * only show what is true, while the label beside it is read aloud before the
- * press and is worth more as a verb. So a shut padlock is `private`, an open
- * one is `team`, and a globe is a link anybody can open. The two disagreeing is
- * the point rather than a slip.
- */
-export const SCOPE_ICON: Record<NoteScope, IconName> = {
-  private: "lock",
-  team: "lockOpen",
-  anyone: "globe",
-};
-
-/**
- * What a screen reader announces, naming the destination.
- *
- * Named in the language of who ends up able to read it, because that is the
- * decision — "make this public" describes a setting, and a person weighing
- * whether to press it is asking who will see it.
- */
-export function scopeActionLabel(next: NoteScope): string {
-  if (next === "private") return "Make this private";
-  if (next === "team") return "Share this with your team";
-  return "Make a link anyone can open";
 }
 
 /**
@@ -154,30 +107,37 @@ export function stepsTo(from: NoteScope, to: NoteScope): ScopeStep[] {
  * What each position is called, and what it costs, in the words the control
  * prints.
  *
- * The icon map above states the rule for an unlabelled 20pt target: it can only
- * show what is *true*. These are the other half — a named control can afford to
- * say what a position MEANS, which is the whole reason the audience moved out
- * of the top bar and into the sheet. A padlock cannot tell you that the next
- * position needs no account; a row saying so can.
+ * **A function of the context rather than a constant, because the honest name
+ * of the middle position is the workspace's own.** It said "Workspace" — a
+ * word that names a set the reader cannot check — and now says "Everyone in
+ * @supa", which they can check against the People list. That is the whole
+ * change asked for by an owner who could not answer "what's team? what's
+ * private?" from the screen in front of them.
  *
- * `detail` is deliberately about who ends up able to read it, never about the
- * mechanism. "Creates an unlisted share row" is true and answers a question
- * nobody asked.
+ * The sentences live in `privacy/audience.ts` so this module and the tree, the
+ * breadcrumb and the privacy panel cannot drift into three vocabularies for one
+ * question. `detail` is deliberately about who ends up able to read it, never
+ * about the mechanism: "creates an unlisted share row" is true and answers a
+ * question nobody asked.
  */
-export const SCOPE_LABELS: Record<NoteScope, { label: string; detail: string }> = {
-  private: {
-    label: "Only me",
-    detail: "Owners of this context. Nobody else, however they reach it.",
-  },
-  team: {
-    label: "Workspace",
-    detail: "Everybody who is a member of this context, and nobody outside it.",
-  },
-  anyone: {
-    label: "Anyone with a link",
-    detail: "No account needed. Anybody holding the link can read it.",
-  },
-};
+export function scopeLabels(
+  context: AudienceContext,
+): Record<NoteScope, { label: string; detail: string }> {
+  return {
+    private: {
+      label: audienceName("private", context),
+      detail: audienceDetail("private", context),
+    },
+    team: {
+      label: audienceName("team", context),
+      detail: audienceDetail("team", context),
+    },
+    anyone: {
+      label: "Anyone with the link",
+      detail: "No account needed. Anybody holding the link can read it.",
+    },
+  };
+}
 
 /**
  * The sentence somebody has to agree to before a note gets a public link.

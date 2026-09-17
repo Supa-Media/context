@@ -88,7 +88,7 @@ import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
-import { densityFor } from "../../app/frame";
+import { densityFor, noteColumnWidth } from "../../app/frame";
 import { baseName, displayName } from "./paths";
 import { useRightClick } from "./rightClick";
 import { listedEntries } from "./tree";
@@ -195,76 +195,98 @@ export function FolderView({
       collapsable={false}
     >
       {/*
-        The folder names itself the way a note does — an inline title at the top
-        of its own content — rather than under a `FOLDER` eyebrow. The route
-        already said which folder you asked for, so the eyebrow was labelling
-        the obvious in the space where the first row should be.
+        The page, in the note's own column.
+
+        A folder listing is a page in the same frame as a note, and it was laid
+        out by a different rule: rows pinned to the left edge of a 900pt pane
+        with the rest of it empty, beside a note that is a centred measure. The
+        width is `noteColumnWidth` rather than a number of this file's own, so
+        the folder's first character lands exactly where the note's first line
+        starts — which is also where the breadcrumb above both pages is indented
+        to, since `noteGutterFor` is this same centring with the editor's padding
+        named separately.
+
+        It is the *contents* that are centred and not the view: the right-click
+        background is the outer view above, and a folder you can only aim at
+        within the measure would be a target that shrinks as the window grows.
+
+        Inert on a phone, where 342pt of screen is far short of the measure and
+        `folderCompact`'s margin goes on governing — the same floor the editor's
+        `max(0, …)` has.
       */}
-      <View style={styles.head}>
-        <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
-          {baseName(entry.path) || contextLabel}
+      <View style={styles.column} testID="folder-column">
+        {/*
+          The folder names itself the way a note does — an inline title at the top
+          of its own content — rather than under a `FOLDER` eyebrow. The route
+          already said which folder you asked for, so the eyebrow was labelling
+          the obvious in the space where the first row should be.
+        */}
+        <View style={styles.head}>
+          <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
+            {baseName(entry.path) || contextLabel}
+          </Text>
+        </View>
+
+        {/*
+          The visibility, as a quiet line rather than a paragraph under a heading.
+
+          It was body copy plus a footnote spelling out what `team` means, under
+          every folder — and the footnote is an explanation of the model, which
+          belongs where somebody has gone looking for it rather than under each of
+          forty listings. What is left says what is true of this folder.
+        */}
+        <Text variant="treeMeta" style={styles.rule}>
+          {groupRule
+            ? `${groupRule} — visible to that group, and to nobody else in this context`
+            : isTeam
+              ? "team — visible to the people you granted access, unless a note is held back"
+              : "private — yours alone, unless a note is shared as an exception"}
         </Text>
-      </View>
 
-      {/*
-        The visibility, as a quiet line rather than a paragraph under a heading.
+        <View style={styles.contents}>
+          {listing === undefined ? (
+            <Text variant="meta" style={styles.aside}>
+              Loading…
+            </Text>
+          ) : rows.length === 0 ? (
+            /*
+              "Nothing you can see", not "nothing here". A member reading a
+              folder whose notes are all private would otherwise be told the
+              folder is empty, which is a different and untrue statement — and
+              the one the visibility rules exist to avoid making.
+            */
+            <Text variant="meta" style={styles.aside}>
+              {canSetVisibility
+                ? "This folder has nothing in it yet."
+                : "Nothing in this folder is shared with you."}
+            </Text>
+          ) : (
+            rows.map((row) => (
+              <FolderRow key={row.path} row={row} onSelect={onSelect} menu={menu} />
+            ))
+          )}
+          {listing?.truncated ? (
+            <Text variant="treeMeta" style={styles.aside}>
+              This folder has more in it than is shown here.
+            </Text>
+          ) : null}
+        </View>
 
-        It was body copy plus a footnote spelling out what `team` means, under
-        every folder — and the footnote is an explanation of the model, which
-        belongs where somebody has gone looking for it rather than under each of
-        forty listings. What is left says what is true of this folder.
-      */}
-      <Text variant="treeMeta" style={styles.rule}>
-        {groupRule
-          ? `${groupRule} — visible to that group, and to nobody else in this context`
-          : isTeam
-            ? "team — visible to the people you granted access, unless a note is held back"
-            : "private — yours alone, unless a note is shared as an exception"}
-      </Text>
+        {/*
+          The context's own caption, under its listing.
 
-      <View style={styles.contents}>
-        {listing === undefined ? (
-          <Text variant="meta" style={styles.aside}>
-            Loading…
+          Below the rows rather than above them, for the reason the tree put it at
+          its foot: it is a caption on what you have just read, and a phone's
+          first screen belongs to the notes rather than to a line about them. It
+          scrolls with the page — this whole view is inside `BrowsePane`'s
+          scroller on a phone — so it costs nothing permanent.
+        */}
+        {foot === undefined ? null : (
+          <Text variant="treeMeta" style={styles.foot} testID="context-foot">
+            {foot}
           </Text>
-        ) : rows.length === 0 ? (
-          /*
-            "Nothing you can see", not "nothing here". A member reading a
-            folder whose notes are all private would otherwise be told the
-            folder is empty, which is a different and untrue statement — and
-            the one the visibility rules exist to avoid making.
-          */
-          <Text variant="meta" style={styles.aside}>
-            {canSetVisibility
-              ? "This folder has nothing in it yet."
-              : "Nothing in this folder is shared with you."}
-          </Text>
-        ) : (
-          rows.map((row) => (
-            <FolderRow key={row.path} row={row} onSelect={onSelect} menu={menu} />
-          ))
         )}
-        {listing?.truncated ? (
-          <Text variant="treeMeta" style={styles.aside}>
-            This folder has more in it than is shown here.
-          </Text>
-        ) : null}
       </View>
-
-      {/*
-        The context's own caption, under its listing.
-
-        Below the rows rather than above them, for the reason the tree put it at
-        its foot: it is a caption on what you have just read, and a phone's
-        first screen belongs to the notes rather than to a line about them. It
-        scrolls with the page — this whole view is inside `BrowsePane`'s
-        scroller on a phone — so it costs nothing permanent.
-      */}
-      {foot === undefined ? null : (
-        <Text variant="treeMeta" style={styles.foot} testID="context-foot">
-          {foot}
-        </Text>
-      )}
     </View>
   );
 }
@@ -381,8 +403,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * scroller, whose content container does not stretch its children, so the
    * page goes on being as long as what is in it.
    */
-  folder: { gap: space.x2, flexGrow: 1 },
+  folder: { flexGrow: 1 },
   folderCompact: { paddingHorizontal: layout.readingMargin },
+  /**
+   * The document column: the note's measure, centred in what is left.
+   *
+   * The gap lives here rather than on `folder` because this is the stack of
+   * the page's own parts; `folder` is the region behind it, and its only job
+   * now is to be the thing a right-click lands on. See the render.
+   */
+  column: { gap: space.x2, width: "100%", maxWidth: noteColumnWidth, alignSelf: "center" },
   head: { flexDirection: "row", alignItems: "flex-start", gap: space.x2 },
   title: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   rule: { color: colors.muted },

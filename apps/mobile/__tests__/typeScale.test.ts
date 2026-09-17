@@ -181,3 +181,48 @@ describe("a rendered note keeps six heading levels", () => {
     expect(sizes.every((size, index) => index === 0 || size < sizes[index - 1]!)).toBe(true);
   });
 });
+
+/**
+ * AND THE EDITOR'S OWN LADDER IS THE SAME LADDER.
+ *
+ * `livePreviewStyles` sizes a rendered heading in `em` — a multiple of the
+ * editor's body size — and for most of this file's life those multiples were a
+ * *third* scale: 1.625 / 1.3 / 1.15, measured off Obsidian mobile, after a
+ * 1.7 / 1.4 / 1.2 that was measured off nothing. Neither was `pointerType`.
+ *
+ * Two scales in one application is one of them being wrong wherever they meet,
+ * and where they met was the note: a 30pt title in the tokens, a 26pt one on
+ * the page. The design canvas sides with the tokens, so the multiples are now
+ * `title / body`, `h2 / body` and `h3 / body` — and this is the assertion that
+ * keeps them there, because an `em` in a template literal is exactly the kind
+ * of number that gets nudged.
+ */
+describe("the editor's heading ladder is the type scale", () => {
+  /*
+    Read as source, not imported, exactly as the `NoteBody.tsx` block above is.
+    `livePreview.ts` pulls in `@codemirror/*`, which this suite's jest project
+    does not transform — importing it fails the whole file to *run*, which is a
+    suite that reports nothing rather than a suite that reports green, but is
+    still not a guard.
+  */
+  const LIVE_PREVIEW = readFileSync(
+    join(__dirname, "..", "features", "console", "files", "livePreview.ts"),
+    "utf8",
+  );
+  const RATIOS = [...LIVE_PREVIEW.matchAll(/\.cm-lp-h([1-3]) \{ font-size: ([\d.]+)em/g)].map(
+    (match) => ({ level: Number(match[1]), ratio: Number(match[2]) }),
+  );
+
+  test("the three that map to a named role are all declared", () => {
+    // Vacuity guard: a regex that stops matching would otherwise make every
+    // case below pass by finding nothing.
+    expect(RATIOS.map((entry) => entry.level)).toEqual([1, 2, 3]);
+  });
+
+  test("each is its role divided by the body size", () => {
+    const expected = [pointerType.title, pointerType.h2, pointerType.h3].map(
+      (size) => size / pointerType.body,
+    );
+    expect(RATIOS.map((entry) => entry.ratio)).toEqual(expected);
+  });
+});

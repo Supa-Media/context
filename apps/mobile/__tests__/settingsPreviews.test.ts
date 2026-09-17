@@ -255,7 +255,11 @@ describe("the rows that can answer, do", () => {
     const preview = settingsPreview("privacy", base, null);
     // The demo's root manifest is loaded, so this is a real answer rather than
     // the loading `null` — and it is the word the privacy panel itself uses.
-    expect(preview === null || /^(Private|Team) by default$/.test(preview)).toBe(true);
+    // The same word the privacy panel's own pill uses, which moved with the
+    // rest of the vocabulary — see `privacy/audience.ts`.
+    expect(preview === null || /^(Restricted|Everyone) by default$/.test(preview)).toBe(
+      true,
+    );
   });
 
   test("overview adds nothing, because the heading above it already said it", () => {

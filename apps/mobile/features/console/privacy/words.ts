@@ -66,8 +66,15 @@ export function contextKindOf(kind: string | null | undefined): ContextKind | nu
  * currently in it.
  */
 export function visibilityWord(visibility: Visibility): string {
-  if (visibility === "team") return "Team";
-  if (visibility === "private") return "Private";
+  // "Everyone" and "Restricted", the short forms of what `audience.ts` spells
+  // out. A pill sits beside a folder in a list where the context is already
+  // named at the top of the panel, so it does not repeat the handle — but it
+  // must not be a SECOND vocabulary, which "Team" and "Private" had become the
+  // moment the share sheet started saying "Everyone in @supa" and "Restricted".
+  // Two words for one question is how an owner ends up asking what the
+  // difference is between them.
+  if (visibility === "team") return "Everyone";
+  if (visibility === "private") return "Restricted";
   return visibility;
 }
 
@@ -84,8 +91,8 @@ export function rootDefaultLine(visibility: Visibility): string {
     return `A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is readable by ${visibility} and nobody else.`;
   }
   return visibility === "team"
-    ? "A note at the top of this context, and any folder nobody has given a rule, is readable by the people on People."
-    : "A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is private.";
+    ? "A note at the top of this context, and any folder nobody has given a rule, is readable by everyone on People."
+    : "A note at the top of this context, and any folder nobody has given a rule — including one added tomorrow — is restricted.";
 }
 
 /** What a folder's default does to the notes inside it. */
@@ -94,8 +101,8 @@ export function folderDefaultLine(visibility: Visibility): string {
     return `Every note in here is readable by ${visibility}, and by nobody else in this context, unless it is named otherwise.`;
   }
   return visibility === "team"
-    ? "Every note in here is readable by the people on People, unless it is held back by name."
-    : "Every note in here is private, unless it is shared by name.";
+    ? "Every note in here is readable by everyone on People, unless it is held back by name."
+    : "Every note in here is restricted to this context's owners, unless it is shared by name.";
 }
 
 /** What `private` reaches, which is not the same sentence in the two kinds. */
@@ -103,7 +110,7 @@ export function privateMeans(kind: ContextKind | null, viewerIsOwner: boolean): 
   if (kind === "shared") {
     return (
       "Owners only. Not the members, not the editors — being trusted to write here is a " +
-      "separate thing from seeing what somebody marked private."
+      "separate thing from seeing what somebody restricted."
     );
   }
   if (kind === "personal") {
@@ -117,9 +124,9 @@ export function privateMeans(kind: ContextKind | null, viewerIsOwner: boolean): 
     */
     return viewerIsOwner
       ? "Yours alone. No role, no invitation and no AI client of anybody else's reaches it — " +
-          "the only way to hand a private note over is to mark it team."
+          "the only way to hand a restricted note over is to share it with everyone here, or to name somebody."
       : "Its owner's alone. No role, no invitation and no AI client of yours reaches it — " +
-          "only they can hand a private note over, by marking it team.";
+          "only they can hand a restricted note over, by sharing it or naming somebody.";
   }
   return "Owners only. No role and no invitation reaches it, and no AI client of anybody else's.";
 }

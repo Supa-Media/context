@@ -25,6 +25,7 @@ import { useNoteLockPropagation } from "../encryption/lockPropagation";
 import { FolderView } from "../files/FolderView";
 import { NoteEditor } from "../files/NoteEditor";
 import { setReadMode, useReadMode } from "../files/readMode";
+import { useDeclaredView } from "../files/viewMode";
 import {
   STORAGE_MIGRATION_OFFER,
   StorageMigrationActions,
@@ -33,6 +34,8 @@ import {
   useStorageMigrationOffer,
 } from "../storage/StorageMigration";
 import { ShareDialog } from "../files/ShareDialog";
+import { audienceContextOf } from "../privacy/audience";
+import { capabilitiesForRole } from "../capabilities";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
 import { entryAt, findEntry, treeRowFor } from "../files/tree";
@@ -189,6 +192,25 @@ export function BrowsePane({
     there, and `files/readMode.ts` for why this is a bus and not the route.
   */
   const reading = useReadMode();
+  /*
+    …and the other half of it: what the note itself asked for. A page built
+    around a `form` fence is only usable while it is read, so its author can say
+    so in the frontmatter and everybody who opens it lands on the form rather
+    than on the code fence that draws it. `files/viewMode.ts` holds the reader,
+    the vocabulary and the rule that the person's own press outranks the file.
+
+    The identity passed is the **context and the path together**: this pane is
+    reconciled with no `key` across a context switch (see the share dialog
+    below), so two contexts' `1-projects/plan.md` are one string apart, and
+    under PARA conventions that is a collision waiting rather than a hypothesis.
+    `editor.path` moves only when a body arrives with it — `useFileBrowser`
+    dispatches `opened` with the note — so there is no frame in which this is
+    asked about a note whose text has not landed.
+  */
+  useDeclaredView(
+    files.editor.path === null ? null : `${files.contextId ?? ""}:${files.editor.path}`,
+    files.editor.draft,
+  );
   const [sharing, setSharing] = useState<string | null>(null);
   /**
    * How wide the note's column is, so the breadcrumb can start where its text
@@ -718,7 +740,6 @@ export function BrowsePane({
                 ? noteHeading(files.editor.draft, selected.path)
                 : undefined
             }
-            contextLabel={contextLabel}
             visibility={selected.visibility}
             inherited={selected.inherited}
             exception={selected.exception}
@@ -1062,7 +1083,6 @@ export function BrowsePane({
                   ? noteHeading(files.editor.draft, selected.path)
                   : undefined
               }
-              contextLabel={contextLabel}
               visibility={selected.visibility}
               inherited={selected.inherited}
               exception={selected.exception}
@@ -1243,7 +1263,7 @@ export function BrowsePane({
           onShareWithGroup={
             data.groups?.actions === undefined
               ? undefined
-              : (group) => files.shareWithGroup(sharing, group)
+              : (group) => files.shareWithGroup(sharing, selected.kind, group)
           }
           /*
             Make one here, and point this note at it in the same press. The
@@ -1258,13 +1278,23 @@ export function BrowsePane({
               : undefined
           }
           groupSlug={current?.slug}
+          /*
+            Every audience is named rather than described — "Everyone in @supa"
+            instead of "Workspace", which is a set the reader can check against
+            the People list. See `privacy/audience.ts`.
+          */
+          context={audienceContextOf(
+            current?.slug,
+            current?.kind,
+            capabilitiesForRole(current?.role).isOwner,
+          )}
           onCreateGroup={
             data.groups?.actions === undefined
               ? undefined
               : (label, userIds) =>
                   data
                     .groups!.actions!.createWith(label, userIds)
-                    .then((name) => files.shareWithGroup(sharing, name))
+                    .then((name) => files.shareWithGroup(sharing, selected.kind, name))
           }
           access={{
             visibility: selected.visibility,
@@ -1593,7 +1623,4 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 
   empty: { padding: space.x6, gap: space.x2, maxWidth: 520 },
   emptyLine: { marginTop: 2 },
-
-  folder: { gap: 14, maxWidth: 620 },
-  folderAction: { alignSelf: "flex-start" },
 });

@@ -29,6 +29,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -85,14 +86,14 @@ async function bucket(): Promise<MemoryStore & FileStore> {
   await setFolderVisibility(store, {
     path: "1-projects",
     visibility: "team",
-    scope: "private",
+    clearance: clearanceOf("private"),
   });
   return store;
 }
 
 /** What a folder link over `path` would carry, taken the way the product takes it. */
 async function childrenOf(store: FileStore, path: string): Promise<string[]> {
-  const listing = await listFolder(store, { path, scope: "team" });
+  const listing = await listFolder(store, { path, clearance: clearanceOf("team") });
   return previewChildrenFrom(listing.entries);
 }
 
@@ -119,7 +120,7 @@ describe("only what a team reader may see", () => {
     await setVisibility(store, {
       path: "1-projects/transition/salaries.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const children = await childrenOf(store, "1-projects/transition");
@@ -132,7 +133,7 @@ describe("only what a team reader may see", () => {
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const children = await childrenOf(store, "1-projects/transition");
@@ -159,12 +160,12 @@ describe("only what a team reader may see", () => {
       "1-projects/transition/timeline.md",
       "1-projects/transition/salaries.md",
     ]) {
-      await setVisibility(store, { path, visibility: "private", scope: "private" });
+      await setVisibility(store, { path, visibility: "private", clearance: clearanceOf("private") });
     }
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     expect(await childrenOf(store, "1-projects/transition")).toEqual([]);
@@ -619,19 +620,19 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     await setVisibility(store, {
       path: "1-projects/transition/interviews/first.md",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     // The positive control: the shared note really is reachable by a member,
     // which is the behaviour `folderVisibleAtScope` exists to preserve.
     const listing = await listFolder(store, {
       path: "1-projects/transition/interviews",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
 
@@ -644,7 +645,7 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     await setFolderVisibility(store, {
       path: "1-projects/transition/interviews",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(await childrenOf(store, "1-projects/transition")).toContain("interviews/");
   });
@@ -694,12 +695,12 @@ describe("a private subfolder is not named by an upward-visible child", () => {
     // was already gone.
     const listing = await listFolder(store, {
       path: "1-projects/transition/interviews",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(listing.entries.map((entry) => entry.name)).toContain("first.md");
     const parent = await listFolder(store, {
       path: "1-projects/transition",
-      scope: "team",
+      clearance: clearanceOf("team"),
     });
     expect(parent.entries.find((entry) => entry.name === "interviews")?.visibility).toBe(
       "@supa-leads",

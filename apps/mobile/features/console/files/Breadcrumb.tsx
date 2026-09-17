@@ -127,7 +127,6 @@ import { isGroupVisibility, type Visibility } from "./types";
 export function Breadcrumb({
   path,
   title,
-  contextLabel,
   visibility,
   inherited,
   exception,
@@ -156,8 +155,6 @@ export function Breadcrumb({
    * what the leaf says.
    */
   title?: string;
-  /** "@seyi" — the context is the first segment, and it is the product's root. */
-  contextLabel: string;
   visibility: Visibility;
   inherited: Visibility;
   exception: boolean;
@@ -242,24 +239,36 @@ export function Breadcrumb({
     );
   }
 
+  /*
+    THE POINTER LINE IS THE NOTE'S FOLDERS, AND NOTHING THE PAGE ALREADY SAYS.
+
+    It was `@seyi / 1-projects / Context.LC — build decisions`, and two thirds
+    of that is drawn twice within 90pt: the workspace is the switcher chip in
+    the title bar, directly above, and the note's own name is the H1 directly
+    below, at 30pt. A line that repeats its neighbours in a smaller face is a
+    line a reader learns to skip, and the canvas draws neither — `spirit /
+    bible-study / kings`, the folders and the folders only, which is the one
+    fact on that line nothing else on screen carries.
+
+    The phone keeps both. `pathOnly` returns above this: there is no switcher
+    and no 30pt title up there, the pill in front of the line *is* the context,
+    and the leaf is how you know which note the toolbar is about.
+  */
+  const folders = compact ? crumbs : crumbs.filter((crumb) => crumb.kind === "folder");
+
   return (
     <View style={[styles.bar, compact && styles.barCompact]}>
-      {compact ? null : (
-        <Text variant="mono" style={styles.context} numberOfLines={1}>
-          {contextLabel}
-        </Text>
-      )}
-
-      {crumbs.map((crumb, index) => (
+      {folders.map((crumb, index) => (
         <Fragment key={keyFor(crumb)}>
           {/*
-            A separator joins two things. With the context segment dropped at
-            `compact` there is nothing to the left of the first crumb, and an
-            unconditional one renders the path as "/ 1-projects / note" — a
-            leading slash that reads as an absolute path into the bucket root,
-            which is precisely the addressing this product does not use.
+            A separator joins two things, and there is nothing to the left of
+            the first crumb now that the context segment is gone from this
+            density too. An unconditional one renders the path as "/ 1-projects
+            / note" — a leading slash that reads as an absolute path into the
+            bucket root, which is precisely the addressing this product does
+            not use.
           */}
-          {compact && index === 0 ? null : <Separator />}
+          {index === 0 ? null : <Separator />}
           <Segment
             crumb={crumb}
             onSelectFolder={onSelectFolder}
@@ -289,32 +298,44 @@ export function Breadcrumb({
       */}
       <Text style={styles.separator}>·</Text>
       <View style={styles.access}>
+        {/*
+          One grey, and one exception to it.
+
+          Four states in four colours was the badge's logic surviving the badge:
+          a hue per case is how a *chip* tells them apart, and this is a clause
+          in a sentence. The canvas draws it in the same grey as the path. What
+          keeps its colour is the one state that WIDENS who can read the note —
+          `team`, and a named group — in the same violet the file tree marks it
+          with, because that is the only case where the reader is being told
+          something they might want to change. `private` narrowing access is the
+          safe direction and does not need a colour to say so.
+        */}
         <Icon
           name={readOnly ? "gear" : visibility === "private" ? "lock" : "people"}
           size={11}
           color={
-            readOnly
-              ? colors.muted
-              : visibility === "team"
-                ? colors.okText
-                : isGroupVisibility(visibility)
-                  ? colors.sharedText
-                  : colors.text2
+            !readOnly && (visibility === "team" || isGroupVisibility(visibility))
+              ? colors.markTeam
+              : colors.chromeMuted
           }
         />
         <Text
           style={[
             styles.chipLabel,
-            readOnly
-              ? styles.chipGeneratedLabel
-              : visibility === "team"
-                ? styles.chipTeamLabel
-                : isGroupVisibility(visibility)
-                  ? styles.chipGroupLabel
-                  : styles.chipPrivateLabel,
+            !readOnly && (visibility === "team" || isGroupVisibility(visibility))
+              ? styles.chipTeamLabel
+              : styles.chipQuietLabel,
           ]}
         >
-          {describe({ visibility, inherited, exception, readOnly, brief: compact })}
+          {/*
+            The phone's shorter wording at every density. `describe`'s long form
+            — "team — follows its folder" — was written for a line that also
+            carried the workspace and the note's name and had room for a clause;
+            on the line the canvas draws it is the longest thing there. The
+            distinction it exists to draw survives the trim: `set here` and
+            `inherited` are still two different answers.
+          */}
+          {describe({ visibility, inherited, exception, readOnly, brief: true })}
         </Text>
       </View>
       <View style={styles.spacer} />
@@ -601,17 +622,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The glyph and the sentence, as one run of the line. */
   access: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
   chipLabel: { fontSize: t.label, fontFamily: fonts.body },
-  chipTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
-  chipTeamLabel: { color: colors.okText },
-  chipPrivate: { backgroundColor: colors.surface3, borderColor: colors.lineStrong },
   /*
-    A third tone, because the text beside it already names a group and a chip
-    wearing the private colour would argue with its own label. The violet is the
-    one this palette defines as "somebody else's access".
+    Two tones where there were four. See the use site: `team` and a named group
+    are the states that widen who can read the note, and they keep the violet
+    the file tree marks `team` with; everything else is the line's own grey.
+
+    The four fills that went with the four tones went when the chip became a
+    clause — `chipTeam`, `chipPrivate`, `chipGroup` and `chipGenerated` were
+    already unreferenced by then and are deleted rather than left as a
+    stylesheet describing a control that is not drawn.
   */
-  chipGroup: { backgroundColor: colors.sharedWash, borderColor: colors.sharedText },
-  chipGroupLabel: { color: colors.sharedText },
-  chipPrivateLabel: { color: colors.text2 },
-  chipGenerated: { backgroundColor: "transparent", borderColor: colors.line },
-  chipGeneratedLabel: { color: colors.muted },
+  chipTeamLabel: { color: colors.markTeam },
+  chipQuietLabel: { color: colors.chromeMuted },
 });

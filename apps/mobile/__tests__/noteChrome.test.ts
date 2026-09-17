@@ -873,6 +873,44 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
+   * …AND THE NOTE ITSELF MAY ASK, WHICH IS THE SAME MODE FROM THE OTHER END.
+   *
+   * A page built around a ` ```form ` fence is drawn as a fillable form only
+   * while it is read (`formBlock.ts`), so the one kind of page whose purpose is
+   * to be *used* opened as a code fence and every visitor had to find the eye
+   * first. Its author can now say so in the frontmatter.
+   *
+   * This is the claim that the wiring exists at all: `files/viewMode.ts` has
+   * its own suite for the vocabulary and the layering (`noteViewMode.test.ts`),
+   * and all of it is inert if `BrowsePane` never calls the hook. So the
+   * assertion here is the same `contenteditable` the press is asserted on
+   * above, reached without a press.
+   *
+   * ## Sabotage record
+   *
+   * Dropping `useDeclaredView` from `BrowsePane`: **1** failed here — this one,
+   * on its first assertion — and **none** in `noteViewMode.test.ts`, which is
+   * the whole reason this test is in this file as well.
+   */
+  test("a note that declares `view: read` opens read, with no press at all", () => {
+    const declaring = FILE.replace("status: unprocessed", "view: read");
+    const app = mountConsole(
+      dataWith({
+        editor: { ...emptyEditor, status: "clean", path: NOTE, baseline: declaring, draft: declaring },
+      }),
+    );
+
+    expect(document.body.querySelector('[contenteditable="true"]')).toBeNull();
+    // The control agrees with the state rather than lagging it: the way out is
+    // the pencil, because the note is already being read.
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+
+    // And the person outranks the file — the one place a broken fence is fixed.
+    app.press(app.find("note-read"));
+    expect(document.body.querySelector('[contenteditable="true"]')).not.toBeNull();
+  });
+
+  /**
    * Share had to land somewhere when the breadcrumb went, and "somewhere" is
    * the thing that is easy to skip. `browseShare.test.ts` states the rule this
    * is the phone's half of: a control that is correct in `menu.ts` and
@@ -920,18 +958,45 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
-   * **A folder has two positions, not three.** `createLinkShare` runs
-   * `checkSharePath`, which is note-only, so a third would be a press that
-   * always fails. The old dialog drew "Create link" for a folder regardless.
+   * **A folder has three positions now, and that is a change rather than a
+   * relaxation.** This asserted the opposite, on the ground that
+   * `createLinkShare` was note-only and a third position would be a press that
+   * always fails. A folder link exists: it reaches the folder's whole subtree,
+   * mirroring Drive and Dropbox, and it is stricter than either because every
+   * path is still re-derived through the live `privacy.md` at `team` scope
+   * rather than inherited from the folder.
+   *
+   * The press no longer always fails, so the control no longer hides it.
    */
-  test("a folder's sheet offers no public-link position", () => {
+  test("a folder's sheet offers the public-link position too", () => {
     const app = mountConsole(
       dataWith({}, { kind: "folder", path: "3-resources", name: "3-resources" }),
     );
     app.press(app.find("note-share"));
     expect(sheet("share-audience-private")).not.toBeNull();
     expect(sheet("share-audience-team")).not.toBeNull();
-    expect(sheet("share-audience-anyone")).toBeNull();
+    expect(sheet("share-audience-anyone")).not.toBeNull();
+  });
+
+  /**
+   * THE WORDS REACH THE SCREEN, NOT JUST THE MODULE.
+   *
+   * `audienceWords.test.ts` proves what the sentences say; this proves the
+   * sheet is the thing saying them. The two halves are worth keeping apart:
+   * the vocabulary changed underneath a dialog that went on rendering, and
+   * every existing test passed either way because none of them read a label.
+   *
+   * "Everyone in @…" rather than "Workspace" is the whole point — a set the
+   * reader can check against the People list, instead of a word naming a set
+   * that exists nowhere.
+   */
+  test("the sheet names the context rather than saying `team`", () => {
+    const app = mountConsole(dataWith());
+    app.press(app.find("note-share"));
+    const team = sheet("share-audience-team")!;
+    expect(team.getAttribute("aria-label")).toMatch(/^Everyone in @/);
+    expect(team.getAttribute("aria-label")).not.toMatch(/workspace/i);
+    expect(sheet("share-audience-private")!.getAttribute("aria-label")).toBe("Restricted");
   });
 
   /**

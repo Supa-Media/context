@@ -358,8 +358,10 @@ export interface AppFrameProps {
    * no boundary to meet and the active tab disappears into its own ground —
    * measured, in exactly that state, before this moved.
    *
-   * Absent draws nothing at all, which is what a route with no tabs open and
-   * every compact layout pass.
+   * Absent draws nothing at all, which is what a route with no tabs open
+   * passes — and a compact layout is refused the slot whether it passes one or
+   * not, because a prop whose contract lives only in its callers is a contract
+   * one caller can break silently. See the render.
    */
   tabs?: ReactNode;
   /** Storage chip, avatar — the trailing edge of the top bar. */
@@ -816,11 +818,20 @@ export function AppFrame({
             bar keeps `topBarHeight` and the tabs are shorter than it, which is
             what leaves the air above them.
 
-            Compact draws none of this. Tabs are a pointer instrument
-            (`TabStrip.tsx`: "there is no mobile half any more") and a phone
-            has `RecentSheet` over `history.ts` instead.
+            Compact draws none of this, and **the frame is where that is
+            enforced** rather than only where it is described. Tabs are a
+            pointer instrument (`TabStrip.tsx`: "there is no mobile half any
+            more") and a phone has `RecentSheet` over `history.ts` instead.
+
+            `_layout.tsx` also guards with `!phone`, and that guard is worth
+            keeping — it avoids building a strip nothing will draw. But a prop
+            whose contract lives only in its callers is a contract one caller
+            can break silently, and one did: the visual fixture passed `tabs`
+            unconditionally, so a 390pt board came back with a pointer tab
+            strip across the top of the phone's note. Nothing failed; it was
+            visible only in a screenshot.
           */}
-          {tabs == null ? null : <View style={styles.topTabs}>{tabs}</View>}
+          {tabs == null || compact ? null : <View style={styles.topTabs}>{tabs}</View>}
 
           {/*
             The trailing slot, which on a phone is **the** grouped container.
@@ -1217,7 +1228,7 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
       testID="frame-search"
       style={[styles.search, hovered && styles.searchHover]}
     >
-      <Icon name="search" size={15} color={colors.muted} />
+      <Icon name="search" size={13} color={colors.chromeMuted} />
       {Platform.OS === "web" ? (
         <Text variant="treeMeta" style={styles.kbd}>
           ⌘K
@@ -1883,12 +1894,20 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     gap: space.x2,
     height: 28,
-    paddingHorizontal: space.x2,
+    paddingHorizontal: 10,
     borderRadius: radii.sm,
-    backgroundColor: "transparent",
+    /*
+      A resting fill, the same one the switcher chip wears.
+
+      It was transparent until hovered, which reads as a word floating in the
+      bar rather than a control — and the canvas draws both ends of this bar
+      the same way, because a title bar with a filled chip at one end and
+      nothing at the other looks unfinished rather than quiet.
+    */
+    backgroundColor: colors.chipFill,
   },
   searchHover: { backgroundColor: colors.surface3 },
-  kbd: { color: colors.muted },
+  kbd: { color: colors.chromeMuted },
 
   /** The three columns. `flex: 1` plus `minHeight: 0` is what makes the
       children scroll instead of the frame growing past the viewport. */

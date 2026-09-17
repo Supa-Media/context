@@ -23,7 +23,9 @@ import { syntaxTree } from "@codemirror/language";
 import { highlightTree } from "@lezer/highlight";
 import {
   decorationsFor,
+  editorEngaged,
   fenceHighlightStyle,
+  engageEditor,
   frontmatterBlock,
   frontmatterRange,
   completedTasks,
@@ -1721,5 +1723,76 @@ describe("a read-only note reveals nothing", () => {
     const previews = htmlPreviews(readingStateFor(PREVIEW, IN_FENCE));
     expect(previews.length).toBe(1);
     expect(previews[0]!.html).toBe("<div>x</div>");
+  });
+});
+
+/**
+ * NOTHING REVEALS IN A DOCUMENT NOBODY IS TYPING INTO.
+ *
+ * The reveal rule's second half, and the one that was missing. A caret exists
+ * the moment the document does, so a note that was *opened* rather than edited
+ * drew the markup of whichever construct the caret happened to land in — and
+ * `openingCaret` puts it on the first line of the writing, which on most notes
+ * is `# Title`. The page's own title rendered as `# Title`, at a reader who had
+ * not touched anything, which is what a screenshot against the design canvas
+ * showed and no test here could have.
+ *
+ * `editorFocused` is what `revealSelection` now reads. These two cases are the
+ * reversal guard, and they are a pair on purpose: delete the gate and the first
+ * fails; wire the gate shut and the second does.
+ *
+ * Sabotaged both ways before being committed. With `revealSelection`'s focus
+ * line removed: 1 failed (the unfocused one), and every other case in this file
+ * stayed green — which is the third thing being asserted, that a state with no
+ * focus field reveals exactly as it always did.
+ */
+describe("the reveal rule waits for somebody to touch the note", () => {
+  const NOTE = "# Title\n\nSome **bold** words.\n";
+
+  /** The text `decorationsFor` replaced with nothing, as strings. */
+  function hiddenIn(state: EditorState): string[] {
+    const out: string[] = [];
+    const iter = decorationsFor(state).iter();
+    while (iter.value !== null) {
+      const spec = iter.value.spec as { class?: string };
+      if (!spec.class && iter.from !== iter.to) {
+        out.push(state.doc.sliceString(iter.from, iter.to));
+      }
+      iter.next();
+    }
+    return out;
+  }
+
+  /**
+   * A state with the engagement field installed, at the given value.
+   *
+   * The caret is at 0 — inside the heading's own `# ` — because that is where
+   * `openingCaret` leaves it on a note with no frontmatter, and it is the
+   * position that made the bug visible.
+   */
+  function stateAt(engaged: boolean): EditorState {
+    const base = EditorState.create({
+      doc: NOTE,
+      selection: { anchor: 0 },
+      extensions: [markdownLanguage(), editorEngaged],
+    });
+    /*
+      Engagement is delivered as a transaction, not as a different initial
+      value: `create: () => false` is part of what is being guarded here, and a
+      state built at `true` would pass against a field that starts open.
+    */
+    return engaged ? base.update({ effects: engageEditor(true) }).state : base;
+  }
+
+  test("an untouched note hides its markup wherever the caret happens to be", () => {
+    // The `# ` the caret is sitting inside — the exact case this was found in.
+    expect(hiddenIn(stateAt(false))).toContain("# ");
+  });
+
+  test("and working in it brings back the markup under the caret", () => {
+    const hidden = hiddenIn(stateAt(true));
+    expect(hidden).not.toContain("# ");
+    // Still a live preview everywhere else: the bold marks stay away.
+    expect(hidden).toContain("**");
   });
 });

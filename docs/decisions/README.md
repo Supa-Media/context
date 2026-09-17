@@ -194,6 +194,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A diagram lives in the note, and the browser is the only thing that makes it safe
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
+- A note may declare the mode it opens in, and the person still outranks it
 - The note is a measured column, and the demo note stopped faking one
 - The staff console is shaped for ten customers, and its figures count rows
 

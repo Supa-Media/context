@@ -134,6 +134,43 @@ test("⌘B bolds the selection", async ({ page }) => {
   await expect(page.locator(".cm-content")).toContainText("Tenancy is bucket-level");
 });
 
+/**
+ * A NOTE NOBODY HAS TOUCHED DRAWS NO MARKUP, AND A MENU COMMAND IS TOUCHING IT.
+ *
+ * Live Preview hides markup away from the caret, and a caret exists the moment
+ * the document does — so a note that was merely *opened* used to draw the
+ * markup of whichever construct `openingCaret` happened to land in, which is
+ * the first line of the writing and on most notes a `# Title`. The gate that
+ * fixed that is `editorEngaged` in `livePreview.ts`.
+ *
+ * This is the case that decided what the gate reads, and it belongs in a real
+ * browser because nothing else can produce the event sequence. Written first as
+ * DOM focus, it broke Bold-from-the-menu and did it invisibly: the popover
+ * blurs the editor, `runMenuAction` calls `view.focus()` straight back,
+ * `document.activeElement` really is `.cm-content`, and a blur transaction
+ * still arrives last — so the `**` went in and rendered hidden, and Bold looked
+ * like a no-op. The Bold cases above catch that, and this one says what is
+ * actually being claimed on either side of it.
+ */
+test("the note opens clean, and the first click is what brings its markup back", async ({
+  page,
+}) => {
+  const content = page.locator(".cm-content");
+  /*
+    `1-projects/context-lc.md` opens on a `# ` heading and `openingCaret` puts
+    the caret on that line, which is exactly the position that used to reveal
+    it. The title is drawn, the hash is not.
+  */
+  await expect(content).toContainText("Context.LC — build decisions");
+  await expect(content).not.toContainText("# Context.LC");
+
+  // A click in the text is somebody working here, and the line they are on
+  // shows what it is made of.
+  const heading = page.locator(".cm-line", { hasText: "Context.LC — build decisions" }).first();
+  await heading.click();
+  await expect(content).toContainText("# Context.LC");
+});
+
 test("Table… hands over a grid, and a cell writes a table of that size", async ({ page }) => {
   const box = await page.locator(".cm-content").boundingBox();
   if (box === null) throw new Error("the editor has no box to click");

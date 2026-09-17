@@ -277,7 +277,10 @@ describe("a folder the two-position control cannot describe", () => {
 
 describe("the words", () => {
   test("there are two of them, and no surface can produce a third", () => {
-    expect(BOTH.map(visibilityWord)).toEqual(["Private", "Team"]);
+    // The property is two-and-only-two, not which two. The words moved to
+    // Drive's — see `privacy/audience.ts` — and the cardinality below is
+    // what this guard was always for.
+    expect(BOTH.map(visibilityWord)).toEqual(["Restricted", "Everyone"]);
     expect(new Set(BOTH.map(visibilityWord)).size).toBe(2);
   });
 

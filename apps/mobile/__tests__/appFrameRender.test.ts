@@ -119,6 +119,12 @@ function mountFrame(
             : createElement("span", { "data-testid": "account" }, "you"),
         // The trailing capsule, at the other end of the same row.
         topTrailing: createElement("span", { "data-testid": "trailing" }, "actions"),
+        /*
+          The open notes, passed **unconditionally and at every width**, which
+          is the point. `_layout.tsx` guards with `!phone` and the frame is
+          asked to hold the same line on its own — see the case below.
+        */
+        tabs: createElement("span", { "data-testid": "tabs" }, "notes"),
         explorer:
           options.explorer === false
             ? undefined
@@ -1690,5 +1696,49 @@ describe("a panel the frame does not render can still be closed by Escape", () =
     expect(state.answers).toEqual([false]);
 
     app.unmount();
+  });
+});
+
+
+/**
+ * THE TAB SLOT IS THE POINTER LAYOUT'S, AND THE FRAME SAYS SO ITSELF.
+ *
+ * Tabs are a pointer instrument — a phone has `RecentSheet` over `history.ts`
+ * — and `console/_layout.tsx` has always guarded the slot with `!phone`. That
+ * guard is worth keeping, because it avoids building a strip nothing will
+ * draw, but it is the *caller's*, and a prop whose contract lives only in its
+ * callers is one a caller can break in silence.
+ *
+ * One did. `AppFrameVisualFixture` passed `tabs` unconditionally, so a 390pt
+ * board came back with a pointer tab strip lying across the top of the phone's
+ * note. Nothing in the suite failed; it was visible only in a screenshot taken
+ * to compare against the design canvas — which is exactly the class of bug
+ * this file exists to convert into a failing test.
+ *
+ * `mountFrame` now passes `tabs` at every width for that reason.
+ */
+describe("the tab slot belongs to the pointer layout", () => {
+  test("a wide window draws it", () => {
+    const frame = mountFrame(1280);
+    expect(frame.find("tabs")).not.toBeNull();
+    frame.unmount();
+  });
+
+  test("a phone does not, however unconditionally it is passed", () => {
+    const frame = mountFrame(390);
+    expect(frame.find("tabs")).toBeNull();
+    frame.unmount();
+  });
+
+  test("and a rotation into a phone width takes it away again", () => {
+    // The live case: a window dragged narrow, not a fresh mount. The slot is a
+    // render-time condition rather than a mount-time one, and this is what
+    // says so.
+    const frame = mountFrame(1280);
+    expect(frame.find("tabs")).not.toBeNull();
+
+    act(() => frame.resize(390));
+    expect(frame.find("tabs")).toBeNull();
+    frame.unmount();
   });
 });
