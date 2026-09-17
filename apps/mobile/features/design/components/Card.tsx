@@ -44,14 +44,21 @@ export function Row({
   children,
   style,
   divided = false,
+  testID,
 }: {
   children: ReactNode;
   style?: ViewStyle;
   /** `border-top:1px solid var(--line)` plus the 10px vertical padding. */
   divided?: boolean;
+  /** For a row that is a thing in itself — a toolbar — rather than a layout. */
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
-  return <View style={[styles.row, divided && styles.divided, style]}>{children}</View>;
+  return (
+    <View style={[styles.row, divided && styles.divided, style]} testID={testID}>
+      {children}
+    </View>
+  );
 }
 
 /** `.row .grow` — the flexible middle of a row, allowed to truncate. */
