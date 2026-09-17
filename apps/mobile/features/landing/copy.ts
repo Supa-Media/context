@@ -34,10 +34,74 @@ export const HERO_SUB =
 /** Under the buttons: how storage gets connected. */
 export const HERO_ALSO = "Dropbox in one click · or bring your own bucket";
 
-/** Every string on this page that a visitor reads, for the copy rules to check. */
+/** The licence badge, which a screen reader reads as the badge's whole sentence. */
+export const LICENCE_BADGE = "Context is MIT licensed open source on GitHub";
+
+/** The second call to action, beside the primary one. */
+export const ARCHITECTURE_CTA = "Read the architecture";
+
+/** The proof section: what the product is not, then what it is. */
+export const PROOF_EYEBROW = "No magic layer";
+export const PROOF_TITLE = "Just Markdown. Yours to touch.";
+export const PROOF_FOLDER = "your-workspace/";
+export const PROOF_FOOT = "Edit here · open in Obsidian · sync or self-host";
+
+/** The line that introduces the store links. */
+export const ALSO_ON_PHONE = "Also on your phone:";
+
+/** The store links beside the proof section. */
+export const STORE_IOS = "iOS";
+export const STORE_ANDROID = "Android";
+
+/** The two legal links in the foot. */
+export const PRIVACY_LINK = "Privacy";
+export const TERMS_LINK = "Terms";
+
+/**
+ * The proof section's paragraph — the longest prose on the page.
+ *
+ * It lived as a three-line JSX text run, which is why the first version of the
+ * completeness scan walked past it: a pattern that forbade a newline inside a
+ * run could not see the biggest thing on the page it was checking.
+ */
+export const PROOF_BODY =
+  "Context stores ordinary files and folders—the same building blocks you already " +
+  "know from Obsidian. Let an AI organize them, or open the editor yourself to write, " +
+  "rename, move, and shape it all by hand.";
+
+/** The two feet under the demo. */
+export const DEMO_FOOT = "Demo — sign in for your own workspace";
+export const LICENCE_FOOT = "MIT · self-hostable";
+
+/**
+ * Every string on this page that a visitor reads, for the copy rules to check.
+ *
+ * **This list is the page, and `landingCopy.test.ts` holds it to that** by
+ * reading `Landing.tsx` and refusing any sentence that is not here. It used to
+ * be the hero's four lines while eight more were literals in the component —
+ * so every rule in that suite was silent on two thirds of what a visitor reads,
+ * including two claims: *"Just Markdown. Yours to touch."* and
+ * *"MIT · self-hostable"*. **An incomplete list passes for the same reason
+ * an empty one does**, which is the hazard the suite's first case was already
+ * written for, one step short.
+ */
 export const LANDING_COPY = [
   HERO_LINE_ONE,
   HERO_LINE_TWO,
   HERO_SUB,
   HERO_ALSO,
+  LICENCE_BADGE,
+  ARCHITECTURE_CTA,
+  PROOF_EYEBROW,
+  PROOF_TITLE,
+  PROOF_FOLDER,
+  PROOF_BODY,
+  PROOF_FOOT,
+  ALSO_ON_PHONE,
+  STORE_IOS,
+  STORE_ANDROID,
+  PRIVACY_LINK,
+  TERMS_LINK,
+  DEMO_FOOT,
+  LICENCE_FOOT,
 ] as const;
