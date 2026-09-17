@@ -77,6 +77,58 @@ export const NAV_GITHUB = "GitHub";
 export const NAV_SIGN_IN = "Sign in";
 export const NAV_START = "Get started";
 
+/**
+ * THE ENDPOINT SECTION — one URL, every client.
+ *
+ * The canvas draws a dark bar holding the MCP address with a Copy button, and
+ * a line of client names under it. The address shown is a *shape*, not a live
+ * one: a visitor has no workspace yet, so `@you` is the placeholder the form
+ * takes rather than somebody's real handle.
+ */
+export const ENDPOINT_TITLE_ONE = "One endpoint.";
+export const ENDPOINT_TITLE_TWO = "Every client.";
+export const ENDPOINT_BODY =
+  "Add one URL once. Every assistant you use reads the same notes and writes " +
+  "back to them — each write recorded in your own audit trail, under the name " +
+  "of the client that made it.";
+export const ENDPOINT_SCHEME = "https://";
+export const ENDPOINT_HOST = "mcp.context.lc/@you";
+export const ENDPOINT_COPY = "Copy";
+export const ENDPOINT_CLIENTS_LEAD = "Works with anything that speaks MCP —";
+export const ENDPOINT_CLIENTS_TAIL = "and the next one";
+export const CLIENT_CLAUDE = "Claude";
+export const CLIENT_CURSOR = "Cursor";
+export const CLIENT_VSCODE = "VS Code";
+export const CLIENT_ZED = "Zed";
+
+/**
+ * THE THREE ASSURANCES, WHICH ARE THE NON-NEGOTIABLES IN A VISITOR'S WORDS.
+ *
+ * Each is `CLAUDE.md`'s own promise said once, plainly, and nothing beyond it.
+ * That constraint is the point: a landing page is where a product's guarantees
+ * get rounded up, and these three are the ones this repository will not round.
+ * `landingCopy.test.ts`'s overclaim list is aimed at exactly this block.
+ */
+export const ASSURE_BUCKET_TITLE = "It is your bucket";
+export const ASSURE_BUCKET_BODY =
+  "Canonical Markdown and attachments live in storage dedicated to your " +
+  "workspace. We hold accounts, grants and audit — never a line of your note " +
+  "content. Revoke our credential and you still have a complete, working " +
+  "set of notes.";
+export const ASSURE_FILES_TITLE = "Plain files stay canonical";
+export const ASSURE_FILES_BODY =
+  "A note lives at a real path in a real folder. Not in a database, not " +
+  "behind an export button. Search indexes and embeddings are disposable " +
+  "derivatives, rebuildable from the files — never the only copy of anything.";
+export const ASSURE_EXIT_TITLE = "Leaving is free, on both plans";
+export const ASSURE_EXIT_BODY =
+  "Download everything, or hand the bucket to storage of your own. Identical " +
+  "whether you pay us or not, never behind a paywall, and it still works " +
+  "after you cancel. Cancelling makes a workspace read-only. It never deletes.";
+
+/** The footer's line about the licence, beside the mark. */
+export const FOOT_LICENCE = "MIT licensed open source on GitHub";
+
 /** The two legal links in the foot. */
 export const PRIVACY_LINK = "Privacy";
 export const TERMS_LINK = "Terms";
@@ -124,6 +176,25 @@ export const LANDING_COPY = [
   ALSO_ON_PHONE,
   STORE_IOS,
   STORE_ANDROID,
+  ENDPOINT_TITLE_ONE,
+  ENDPOINT_TITLE_TWO,
+  ENDPOINT_BODY,
+  ENDPOINT_SCHEME,
+  ENDPOINT_HOST,
+  ENDPOINT_COPY,
+  ENDPOINT_CLIENTS_LEAD,
+  ENDPOINT_CLIENTS_TAIL,
+  CLIENT_CLAUDE,
+  CLIENT_CURSOR,
+  CLIENT_VSCODE,
+  CLIENT_ZED,
+  ASSURE_BUCKET_TITLE,
+  ASSURE_BUCKET_BODY,
+  ASSURE_FILES_TITLE,
+  ASSURE_FILES_BODY,
+  ASSURE_EXIT_TITLE,
+  ASSURE_EXIT_BODY,
+  FOOT_LICENCE,
   NAV_ARCHITECTURE,
   NAV_GITHUB,
   NAV_SIGN_IN,

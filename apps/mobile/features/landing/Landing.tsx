@@ -4,7 +4,16 @@ import { Link, useRouter } from "expo-router";
 import { useConvexAuth } from "convex/react";
 import { Button, PressRow } from "../design/components/Button";
 import { Text } from "../design/components/Text";
-import { clamp, fonts, layout, leading, pointerType as t, radii, tracking } from "../design/tokens";
+import {
+  clamp,
+  fonts,
+  layout,
+  leading,
+  pointerType as t,
+  radii,
+  space,
+  tracking,
+} from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { ScreenScroll } from "../app/Screen";
 import { landingCtaHref, landingCtaLabel } from "../auth/redirect";
@@ -23,6 +32,7 @@ import {
 import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { ContinuityDemo } from "./ContinuityDemo";
+import { Sections } from "./Sections";
 import {
   ALSO_ON_PHONE,
   ARCHITECTURE_CTA,
@@ -31,6 +41,7 @@ import {
   NAV_SIGN_IN,
   NAV_START,
   DEMO_FOOT,
+  FOOT_LICENCE,
   HERO_ALSO,
   HERO_LINE_ONE,
   HERO_LINE_TWO,
@@ -271,6 +282,13 @@ export function Landing() {
               />
               </View>
               {/*
+                What the button above it needs answering: "connect a bucket" —
+                with what? The canvas puts this line directly under the actions
+                and it was in the page's foot, twenty screens away from the
+                control it qualifies.
+              */}
+              <Text variant="alsoLine">{HERO_ALSO}</Text>
+              {/*
                 The mockup links these to the stores. There are no listings yet,
                 so they read as the same line without pretending to navigate —
                 see the build report.
@@ -291,6 +309,16 @@ export function Landing() {
               </Text>
             </View>
           </View>
+
+          {/*
+            The endpoint and the three assurances, between the hero and the
+            continuity demo — which is where `Landing-Sections.dc.html` puts
+            them, and the order is the argument: what you *do* (paste one URL),
+            then what you keep (your bucket, your files, your exit), then the
+            demo showing it happen. The page used to open on the demo, so a
+            visitor met a transcript before learning what the product was.
+          */}
+          <Sections />
 
           <ContinuityDemo />
 
@@ -342,18 +370,45 @@ export function Landing() {
                 />
               ) : null}
             </ConsoleShell>
+            <Text variant="foot" style={styles.demoFoot}>
+              {DEMO_FOOT}
+            </Text>
           </View>
 
+          {/*
+            A FOOTER, WHERE THERE WAS A CENTRED ROW OF FIVE UNRELATED PHRASES.
+
+            "Demo — sign in for your own workspace", the storage line, the
+            licence and two legal links, all the same size and all centred:
+            five things with nothing to say to each other, arranged as though
+            they were a list. The canvas draws a footer — the mark and the
+            licence at the leading edge, the legal links at the trailing one —
+            and the two sentences that were never footer material move to where
+            they belong.
+
+            `DEMO_FOOT` goes with the demo it is about, directly under the
+            console it captions. `HERO_ALSO` goes under the hero's buttons,
+            which is where the canvas puts it and what it answers: "connect a
+            bucket" — with what?
+          */}
           <View style={styles.foot}>
-            <Text variant="foot">{DEMO_FOOT}</Text>
-            <Text variant="foot">{HERO_ALSO}</Text>
-            <Text variant="foot">{LICENCE_FOOT}</Text>
-            <Link href="/privacy" style={styles.legalLink}>
-              {PRIVACY_LINK}
-            </Link>
-            <Link href="/terms" style={styles.legalLink}>
-              {TERMS_LINK}
-            </Link>
+            <View style={styles.footLead}>
+              <View style={styles.footMark} aria-hidden>
+                <View style={styles.navMarkRule} />
+                <View style={styles.navMarkRule} />
+                <View style={[styles.navMarkRule, styles.navMarkRuleShort]} />
+              </View>
+              <Text variant="navAction">Context</Text>
+              <Text variant="foot">{FOOT_LICENCE}</Text>
+            </View>
+            <View style={styles.footLinks}>
+              <Link href="/privacy" style={styles.legalLink}>
+                {PRIVACY_LINK}
+              </Link>
+              <Link href="/terms" style={styles.legalLink}>
+                {TERMS_LINK}
+              </Link>
+            </View>
           </View>
         </View>
       </View>
@@ -634,12 +689,31 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   /** `.foot` */
   foot: {
+    marginTop: 40,
+    paddingTop: 28,
     paddingBottom: 64,
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "center",
-    gap: 20,
+    alignItems: "center",
+    gap: 24,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
   },
+  footLead: { flexDirection: "row", alignItems: "center", gap: 9 },
+  /** The nav's mark at the size a footer wants — see `navMark`. */
+  footMark: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: colors.text,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2.5,
+    paddingHorizontal: 4.5,
+  },
+  footLinks: { flexDirection: "row", alignItems: "center", gap: 22, marginLeft: "auto" },
+  /** The demo's caption, under the demo rather than in the footer. */
+  demoFoot: { marginTop: space.x4, textAlign: "center" },
   legalLink: {
     fontFamily: fonts.body,
     fontSize: t.meta,
