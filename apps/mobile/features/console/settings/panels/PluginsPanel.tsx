@@ -114,38 +114,50 @@ export function PluginsPanel({
 
   return (
     <View testID="plugins-panel">
-      <Card>
-        <TextField
-          label="Search plugins"
-          testID="plugins-query"
-          value={query}
-          onChangeText={setQuery}
-          placeholder="Name, what it does, or a tool name"
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <Row style={styles.filters}>
-          {PLUGIN_FILTERS.map((entry) => (
-            <Button
-              key={entry.value}
-              label={entry.label}
-              variant="mini"
-              style={filter === entry.value ? styles.filterActive : undefined}
-              // A leading glyph as well as the tint: the accent is the same hue
-              // links use, which is not a safe distinguisher on its own — the
-              // rule `AppearancePanel`'s own chips follow.
-              leading={
-                filter === entry.value ? <Text style={styles.check}>{"\u2713 "}</Text> : undefined
-              }
-              accessibilityLabel={
-                filter === entry.value ? `${entry.label}, showing` : `Show ${entry.label}`
-              }
-              onPress={() => setFilter(entry.value)}
-              testID={`plugins-filter-${entry.value}`}
-            />
-          ))}
-        </Row>
-      </Card>
+      {/*
+        A toolbar, where this was a full-width card with a labelled field and
+        three chips under it — the first thing on the pane, above every plugin,
+        at a moment when nobody has typed anything. A box around a search box
+        is a box too many, and it pushed the only content on the screen below
+        the fold on a laptop.
+
+        The field keeps its accessible label; what it loses is the printed one,
+        which said "Search plugins" directly above a placeholder reading "Name,
+        what it does, or a tool name" on a pane titled Plugins.
+      */}
+      <Row style={styles.toolbar} testID="plugins-toolbar">
+        <Grow>
+          <TextField
+            label="Search plugins"
+            labelHidden
+            testID="plugins-query"
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Name, what it does, or a tool name"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </Grow>
+        {PLUGIN_FILTERS.map((entry) => (
+          <Button
+            key={entry.value}
+            label={entry.label}
+            variant="mini"
+            style={filter === entry.value ? styles.filterActive : undefined}
+            // A leading glyph as well as the tint: the accent is the same hue
+            // links use, which is not a safe distinguisher on its own — the
+            // rule `AppearancePanel`'s own chips follow.
+            leading={
+              filter === entry.value ? <Text style={styles.check}>{"\u2713 "}</Text> : undefined
+            }
+            accessibilityLabel={
+              filter === entry.value ? `${entry.label}, showing` : `Show ${entry.label}`
+            }
+            onPress={() => setFilter(entry.value)}
+            testID={`plugins-filter-${entry.value}`}
+          />
+        ))}
+      </Row>
 
       {showsContext(filter) ? <ContextPluginsCard view={contextPlugins} query={query} /> : null}
       {showsObsidian(filter) ? (
@@ -707,10 +719,10 @@ function PluginRow({
 const makeStyles = (colors: Colors) => StyleSheet.create({
   lead: { marginTop: 6 },
   installRow: { alignItems: "center", gap: space.x2, paddingVertical: space.x1 },
-  // Wrapping rather than a fixed row: three chips and their gaps can exceed a
-  // phone's width, and wrapping is what keeps this a settings row instead of a
-  // horizontal scroller.
-  filters: { flexWrap: "wrap", gap: space.x2, marginTop: 12 },
+  // Wrapping rather than a fixed row: a field and three chips and their gaps
+  // exceed a phone's width, and wrapping is what keeps this a settings row
+  // instead of a horizontal scroller.
+  toolbar: { flexWrap: "wrap", alignItems: "center", gap: space.x2 },
   filterActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
   check: { color: colors.accentText },
   action: { marginTop: 13, alignItems: "flex-start" },

@@ -230,8 +230,16 @@ describe("the card", () => {
       and it withholds `actions` at the same time.
     */
     const container = card(ready({ pending: "context-forms", actions: undefined }));
-    expect(container.textContent).toContain("Saving");
-    for (const node of Array.from(container.querySelectorAll("[role='button']"))) {
+    /*
+      The word moved into the control's name when the button became a switch —
+      a switch has no label to overwrite, and "Saving…" on a row whose state
+      has not changed yet is exactly the kind of thing that is easier to read
+      than to see. What this case is for is the *other* half: while one write
+      is in flight, nothing on this card can start a second one.
+    */
+    for (const node of Array.from(
+      container.querySelectorAll("[role='button'], [role='switch']"),
+    )) {
       expect(node.getAttribute("aria-disabled")).toBe("true");
     }
   });
@@ -364,5 +372,88 @@ describe("one box and one filter over both halves", () => {
     const all = container.querySelector("[data-testid='plugins-filter-all']");
     expect(all?.textContent).toContain("✓");
     expect(all?.getAttribute("aria-label")).toContain("showing");
+  });
+});
+
+/**
+ * THE SHAPE OF THE SCREEN, WHICH IS THE PART A SCREENSHOT ARGUES ABOUT.
+ *
+ * Reported about this pane: *"the app looks nothing like [the design], the
+ * only thing changed was colours."* Two of those differences are structural
+ * rather than decorative, and both are here.
+ *
+ * **The control is a switch.** This card's own header used to say there was no
+ * `Switch` in the design system and that this was not the screen to invent one
+ * on; #622 added one, so the reason is spent. A row that answers "is it on"
+ * with a button reading "Turn off" makes the reader compute the state from the
+ * verb — and the pill beside it, which does say the state, then disagrees in
+ * tense with the control next to it.
+ *
+ * **What does not change is the consequence.** `switchConsequence` prints in
+ * both states and stays on the row, above the control. That is property 2 in
+ * this file's header and it is why these rows are taller than the design's:
+ * these plugins change what every connected client of every member can do, and
+ * a cost that appears only after the press is a switch somebody presses to
+ * find out. The design drew the vault list, where the depth is one press away
+ * on a screen of its own; this list has no such screen.
+ *
+ * **The search box is a toolbar, not a card.** It was a full-width `Card` with
+ * a labelled field and three chips under it — the first thing on the pane,
+ * above every plugin, at a moment when nobody has typed anything.
+ */
+describe("the pane is shaped like the design, except where the design is wrong about it", () => {
+  const control = (container: HTMLElement, id: string) =>
+    container.querySelector(`[data-testid='context-plugin-toggle-${id}']`) as HTMLElement | null;
+
+  test("a row's control is a switch, and it reads the state rather than the verb", () => {
+    const container = card(ready());
+    const off = control(container, "context-forms");
+    expect(off).not.toBeNull();
+    expect(off!.getAttribute("role")).toBe("switch");
+    expect(off!.getAttribute("aria-checked")).toBe("true");
+    expect(control(container, "context-meetings")!.getAttribute("aria-checked")).toBe("false");
+  });
+
+  test("the switch is named for the plugin, since the state rides on checked", () => {
+    const label = control(card(ready()), "context-forms")!.getAttribute("aria-label") ?? "";
+    expect(label).toContain("Markdown forms");
+    expect(label).not.toContain("Turn off");
+  });
+
+  /*
+    The rule this file's header calls property 2, held against the redraw that
+    is most likely to drop it: a compact row is exactly what you get by moving
+    this sentence somewhere else.
+  */
+  test("the consequence is still on the row, in both states", () => {
+    const text = card(ready()).textContent ?? "";
+    expect(text).toContain(switchConsequence(FORMS));
+    expect(text).toContain(switchConsequence(MEETINGS));
+  });
+
+  test("a reader who cannot manage is shown no switch at all", () => {
+    const container = card(ready({ canManage: false, actions: undefined }));
+    expect(container.querySelectorAll("[role='switch']").length).toBe(0);
+  });
+
+  test("a press in flight disables the switch and says so in its name", () => {
+    const container = card(ready({ pending: "context-forms", actions: undefined }));
+    const busy = control(container, "context-forms")!;
+    expect(busy.getAttribute("aria-disabled")).toBe("true");
+    expect((busy.getAttribute("aria-label") ?? "").toLowerCase()).toContain("saving");
+  });
+
+  test("the search and its filters are a toolbar, not a card above the plugins", () => {
+    const container = panel({ state: "idle" });
+    const toolbar = container.querySelector("[data-testid='plugins-toolbar']") as HTMLElement | null;
+    expect(toolbar).not.toBeNull();
+    expect(toolbar!.querySelector("[data-testid='plugins-query']")).not.toBeNull();
+    for (const value of ["all", "context", "obsidian"]) {
+      expect(toolbar!.querySelector(`[data-testid='plugins-filter-${value}']`)).not.toBeNull();
+    }
+    const style = window.getComputedStyle(toolbar!);
+    const paint = style.backgroundColor;
+    expect(paint === "" || paint === "rgba(0, 0, 0, 0)" || paint === "transparent").toBe(true);
+    expect(style.borderTopWidth === "" || style.borderTopWidth === "0px").toBe(true);
   });
 });
