@@ -185,3 +185,35 @@ export function pluginRowSummary(options: {
   }
   return { status: null, primary: null };
 }
+
+/**
+ * The control that press is drawn as.
+ *
+ * ## Why the shape is decided here and not in the panel
+ *
+ * The rule above — "One press, or a door" — is the reason the list can carry a
+ * switch at all, and it is a consent rule rather than a layout one. Start and
+ * stop are complete: everything they need has already been granted, so a flick
+ * is the whole action. Enabling is not, and a switch that quietly granted a
+ * default set of folders and hosts would be the consent screen skipped by a
+ * control too small to hold the question.
+ *
+ * So a row that ends in an ellipsis stays a button, and only the two complete
+ * actions become a switch. Keeping that decision beside `pluginRowSummary`
+ * means a panel cannot quietly widen it — there is one place to change, and it
+ * has the argument written next to it.
+ *
+ * `on` is not a second reading of the runtime: it is the press inverted. A row
+ * offering Stop is a row whose plugin is running, so its switch is on. That
+ * equivalence is the point — a switch that consulted the runtime separately
+ * could disagree with the button it replaced.
+ */
+export type PluginRowControl =
+  | { kind: "switch"; on: boolean; action: "start" | "stop" }
+  | { kind: "door"; label: string };
+
+export function pluginRowControl(primary: PluginRowPrimary | null): PluginRowControl | null {
+  if (primary === null) return null;
+  if (primary.kind === "open") return { kind: "door", label: primary.label };
+  return { kind: "switch", on: primary.kind === "stop", action: primary.kind };
+}

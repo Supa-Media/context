@@ -29,7 +29,7 @@
  */
 
 import { describe, expect, test } from "@jest/globals";
-import { pluginRowSummary } from "../features/console/plugins/pluginRow";
+import { pluginRowControl, pluginRowSummary } from "../features/console/plugins/pluginRow";
 import type { ConsolePlugin, PluginVerdict } from "../features/console/plugins/plugins";
 import type { GrantStanding } from "../features/console/plugins/grants";
 import type { RuntimeState } from "../features/console/plugins/runtime";
@@ -341,5 +341,52 @@ describe("somebody who cannot act is shown the state and offered nothing", () =>
       ...owner,
     });
     expect(summary.primary).toBeNull();
+  });
+});
+
+/**
+ * The shape the press is drawn as, which is a consent rule wearing a control.
+ *
+ * `pluginSwitch.test.ts` proves the panel obeys this; these four cases are the
+ * rule itself, where it is cheap to state exhaustively. The mutation worth
+ * catching is a widened `switch` branch: `open` becoming flickable is the
+ * consent screen skipped, and it would still render, still look right, and
+ * still pass every test about wording.
+ */
+describe("a complete action is a switch, a choice is a door", () => {
+  test("stop is a switch that is on", () => {
+    expect(pluginRowControl({ kind: "stop", label: "Stop" })).toEqual({
+      kind: "switch",
+      on: true,
+      action: "stop",
+    });
+  });
+
+  test("start is a switch that is off", () => {
+    expect(pluginRowControl({ kind: "start", label: "Start" })).toEqual({
+      kind: "switch",
+      on: false,
+      action: "start",
+    });
+  });
+
+  /*
+    Both doors, and both by name: "Enable…" and "Approve…" reach different
+    screens, and neither is a flick. A test naming only one of them would go
+    green on a mutation that special-cased the other.
+  */
+  test("every opening press stays a door, and keeps its own word", () => {
+    expect(pluginRowControl({ kind: "open", label: "Enable…" })).toEqual({
+      kind: "door",
+      label: "Enable…",
+    });
+    expect(pluginRowControl({ kind: "open", label: "Approve…" })).toEqual({
+      kind: "door",
+      label: "Approve…",
+    });
+  });
+
+  test("a row with no press has no control", () => {
+    expect(pluginRowControl(null)).toBeNull();
   });
 });
