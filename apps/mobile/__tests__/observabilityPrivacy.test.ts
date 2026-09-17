@@ -10,6 +10,10 @@ import {
 } from "../features/observability/privacy";
 import { cleanPostHogProperties } from "../features/observability/runtime.web";
 
+/** By explicit path: a bare import is the web half, which this suite resolves first. */
+const { postHogNativeOptions } =
+  require("../features/observability/runtime.ts") as typeof import("../features/observability/runtime");
+
 describe("observability privacy boundary", () => {
   test("removes OAuth credentials and capability tokens", () => {
     const input =
@@ -155,16 +159,27 @@ describe("observability privacy boundary", () => {
     expect([...found].filter((segment) => !ROUTE_SEGMENTS.has(segment))).toEqual([]);
   });
 
+  /**
+   * THE SWITCH IS READ, NOT GREPPED.
+   *
+   * This assertion used to be `expect(runtime).toContain(
+   * "enableSessionReplay: false")` over the file's **source text**, and it was
+   * demonstrated vacuous rather than argued so: adding a docblock to
+   * `runtime.ts` that quotes the literal made the string match pass **with the
+   * option itself flipped to `true`**. A source-text match holds the presence
+   * of characters, not the value the SDK is handed.
+   *
+   * `postHogNativeOptions` exists so the option can be read. The replay masks
+   * on the web side, and the rest of this one, are in
+   * `observabilityReplay.test.ts`.
+   */
   test("keeps native replay off until rendered text can be globally masked", () => {
-    const runtime = readFileSync(
-      join(__dirname, "../features/observability/runtime.ts"),
-      "utf8",
-    );
     const manifest = JSON.parse(
       readFileSync(join(__dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
 
-    expect(runtime).toContain("enableSessionReplay: false");
+    expect(postHogNativeOptions({ host: "https://telemetry.example" }).enableSessionReplay)
+      .toBe(false);
     expect(manifest.dependencies["@posthog/react-native-plugin"]).toBeUndefined();
   });
 });

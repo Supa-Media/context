@@ -1,3 +1,4 @@
+import type { CaptureResult, CapturedNetworkRequest } from "posthog-js";
 import { redactTelemetryValue, telemetryRoute } from "./privacy";
 import type { AnalyticsClient } from "./types";
 
@@ -41,7 +42,19 @@ export function cleanPostHogProperties(
     : { ...clean, token: projectKey, $snapshot_data: snapshot };
 }
 
-export async function createAnalyticsClient({
+/**
+ * Everything that keeps a recorded session unreadable, as a value.
+ *
+ * **Separated from `createAnalyticsClient` so it can be asserted on.** This
+ * object is the entire privacy boundary for web session replay — the recorder
+ * is deliberately ON here, and what makes that acceptable is `maskTextSelector`
+ * and the four rules under it. It used to be a literal inside a function whose
+ * first line is `await import("posthog-js")`, and a dynamic import is the one
+ * construct this suite's transform cannot reduce to a `require`, so **no test
+ * could reach it at all**. Returning it is what makes it checkable; nothing
+ * about the configuration itself changed.
+ */
+export function postHogWebOptions({
   apiKey,
   host,
   replaySampleRate,
@@ -49,17 +62,16 @@ export async function createAnalyticsClient({
   apiKey: string;
   host: string;
   replaySampleRate: number;
-}): Promise<AnalyticsClient> {
-  const { default: posthog } = await import("posthog-js");
-  const client = posthog.init(apiKey, {
+}) {
+  return {
     api_host: host,
     autocapture: false,
     capture_pageview: false,
     capture_pageleave: false,
     disable_session_recording: false,
-    person_profiles: "identified_only",
+    person_profiles: "identified_only" as const,
     get_current_url: sanitizedCurrentUrl,
-    before_send: (event) => {
+    before_send: (event: CaptureResult | null): CaptureResult | null => {
       if (event === null) return null;
       return {
         ...event,
@@ -71,14 +83,14 @@ export async function createAnalyticsClient({
       maskAllInputs: true,
       maskTextSelector: "*",
       blockSelector: "img, video, canvas, input[type=file], [data-ph-block]",
-      maskAttributeFn: (name, value) =>
+      maskAttributeFn: (name: string, value: string) =>
         /^(?:alt|aria-label|data-testid|href|id|name|placeholder|src|title|value)$/i.test(name)
           ? "[masked]"
           : value,
       recordCrossOriginIframes: false,
-      maskCapturedNetworkRequestFn: (request) => ({
+      maskCapturedNetworkRequestFn: (request: CapturedNetworkRequest) => ({
         ...request,
-        name: sanitizedCurrentUrl(request.name),
+        name: sanitizedCurrentUrl(request.name ?? ""),
         requestHeaders: undefined,
         requestBody: undefined,
         responseHeaders: undefined,
@@ -86,7 +98,23 @@ export async function createAnalyticsClient({
       }),
       sampleRate: replaySampleRate,
     },
-  });
+  };
+}
+
+export async function createAnalyticsClient({
+  apiKey,
+  host,
+  replaySampleRate,
+}: {
+  apiKey: string;
+  host: string;
+  replaySampleRate: number;
+}): Promise<AnalyticsClient> {
+  const { default: posthog } = await import("posthog-js");
+  const client = posthog.init(
+    apiKey,
+    postHogWebOptions({ apiKey, host, replaySampleRate }),
+  );
 
   return {
     ready: async () => {},
