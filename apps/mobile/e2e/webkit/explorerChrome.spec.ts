@@ -6,10 +6,16 @@ import { expect, test, type Page } from "@playwright/test";
  * The column's job is to be a legible list of names. Above that list sat four
  * lit icon buttons and an empty bordered input — six boxes of chrome, at rest,
  * over a list of about twenty rows, and together the loudest thing in the
- * quietest region. So the header draws on approach: the buttons fade in when
- * the pointer enters the column, and the filter gains its border and its fill
- * at the same moment. At rest what is drawn in the field's own box is the
- * eyebrow `Notes` — the column's own name — which goes as the field arrives.
+ * quietest region. So the header draws on approach: the filter gains its border
+ * and its fill when the pointer enters the column, and *half* the buttons fade
+ * in with it. At rest what is drawn in the field's own box is the eyebrow
+ * `Notes` — the column's own name — which goes as the field arrives.
+ *
+ * **Half, not all of them.** The canvas draws new-note and collapse-all at
+ * rest; fading those too left the header as a word with nothing beside it,
+ * which reads as a caption rather than as the top of a panel. `Explorer.tsx`'s
+ * `restingActions` argues which two and why. This file measures the pair that
+ * still fades, and asserts the pair that does not never does.
  *
  * ## Why this is here and not in the unit suite
  *
@@ -54,6 +60,7 @@ function invisible(colour: string): boolean {
 
 async function header(page: Page): Promise<{
   toolsOpacity: string;
+  restingOpacity: string;
   eyebrowOpacity: string;
   border: string;
   fill: string;
@@ -61,16 +68,20 @@ async function header(page: Page): Promise<{
   return await page.evaluate(() => {
     const filter = document.querySelector('[data-testid="explorer-filter"]');
     const row = filter?.parentElement ?? null;
-    // The group the four buttons are faded as one: the toolbar's last child.
-    const tools = row?.lastElementChild ?? null;
+    // The toolbar's last child is the pair drawn at rest; the one before it is
+    // the pair that fades. Both are read, so a reshuffle that swapped them
+    // fails here instead of quietly measuring the wrong group.
+    const resting = row?.lastElementChild ?? null;
+    const tools = row === null ? null : (row.children[row.children.length - 2] ?? null);
     // The resting label, drawn over the field: the toolbar's first child.
     const eyebrow = row?.firstElementChild ?? null;
-    if (filter === null || tools === null || eyebrow === null) {
+    if (filter === null || tools === null || resting === null || eyebrow === null) {
       throw new Error("no explorer header on this screen");
     }
     const field = getComputedStyle(filter);
     return {
       toolsOpacity: getComputedStyle(tools).opacity,
+      restingOpacity: getComputedStyle(resting).opacity,
       eyebrowOpacity: getComputedStyle(eyebrow).opacity,
       border: field.borderTopColor,
       fill: field.backgroundColor,
@@ -86,11 +97,14 @@ test.beforeEach(async ({ page }) => {
   await page.mouse.move(1200, 500);
 });
 
-test("at rest the header is the column's name, with no boxes in it", async ({ page }) => {
+test("at rest the header is the column's name and the two the canvas draws", async ({ page }) => {
   const at = await header(page);
 
   expect(at.eyebrowOpacity).toBe("1");
   expect(at.toolsOpacity).toBe("0");
+  // The pair the canvas draws at rest is drawn at rest, in a real engine.
+  expect(at.restingOpacity).toBe("1");
+  expect(await page.getByTestId("explorer-new-note").isVisible()).toBe(true);
   expect(`border ${invisible(at.border)}`).toBe("border true");
   expect(`fill ${invisible(at.fill)}`).toBe("fill true");
 });
@@ -117,6 +131,8 @@ test("and leaving it puts them away again", async ({ page }) => {
   const off = await header(page);
   expect(off.eyebrowOpacity).toBe("1");
   expect(off.toolsOpacity).toBe("0");
+  // And the resting pair never moved through any of it.
+  expect(off.restingOpacity).toBe("1");
   expect(`border ${invisible(off.border)}`).toBe("border true");
 });
 

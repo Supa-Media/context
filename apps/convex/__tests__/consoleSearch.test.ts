@@ -24,6 +24,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { type Clearance, clearanceOf } from "../functions/lib/clearance";
 import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { stubD1, type StubD1 } from "./searchBackfill.helpers";
 import {
@@ -59,8 +60,8 @@ function bucket(): MemoryStore & FileStore {
 
 /** Share `1-projects`, holding one note back as an exception. */
 async function shareProjects(store: FileStore): Promise<void> {
-  await setFolderVisibility(store, { path: "1-projects", visibility: "team", scope: "private" });
-  await setVisibility(store, { path: "1-projects/pay.md", visibility: "private", scope: "private" });
+  await setFolderVisibility(store, { path: "1-projects", visibility: "team", clearance: clearanceOf("private") });
+  await setVisibility(store, { path: "1-projects/pay.md", visibility: "private", clearance: clearanceOf("private") });
 }
 
 /**
@@ -76,7 +77,7 @@ async function shareProjects(store: FileStore): Promise<void> {
  */
 async function settled(
   store: FileStore,
-  options: { query: string; prefix?: string; scope: "private" | "team" },
+  options: { query: string; prefix?: string; clearance: Clearance },
 ) {
   for (let pass = 0; pass < 10; pass += 1) {
     const maintained = await maintainSearchIndex(store);
@@ -126,14 +127,14 @@ describe("the console's search, out of the projection", () => {
     forgetR2Index(store);
     const withoutProjection = await searchNotes(store, {
       query: "quokkaplan",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(withoutProjection.indexMissing).toBe(true);
     expect(withoutProjection.hits).toEqual([]);
 
     const fast = await searchNotes(
       store,
-      { query: "quokkaplan", scope: "private" },
+      { query: "quokkaplan", clearance: clearanceOf("private") },
       stub.client,
     );
     expect(fast.indexMissing).toBe(false);
@@ -153,14 +154,14 @@ describe("the console's search, out of the projection", () => {
     // this the assertion below passes against a projection that holds nothing.
     const asOwner = await searchNotes(
       store,
-      { query: "wallabyrate", scope: "private" },
+      { query: "wallabyrate", clearance: clearanceOf("private") },
       stub.client,
     );
     expect(asOwner.hits.map((hit) => hit.path)).toEqual(["1-projects/pay.md"]);
 
     const asTeam = await searchNotes(
       store,
-      { query: "wallabyrate", scope: "team" },
+      { query: "wallabyrate", clearance: clearanceOf("team") },
       stub.client,
     );
     expect(asTeam.hits).toEqual([]);
@@ -216,14 +217,14 @@ describe("the console's search, out of the projection", () => {
       stub.statements.slice(from).filter((sql) => /FROM notes_(private|team)_fts/.test(sql));
 
     const beforeTeam = stub.statements.length;
-    await searchNotes(store, { query: "wallabyrate", scope: "team" }, stub.client);
+    await searchNotes(store, { query: "wallabyrate", clearance: clearanceOf("team") }, stub.client);
     const team = ftsAsked(beforeTeam);
     expect(team.length).toBeGreaterThan(0);
     expect(team.some((sql) => sql.includes("notes_team_fts"))).toBe(true);
     expect(team.some((sql) => sql.includes("notes_private_fts"))).toBe(false);
 
     const beforeOwner = stub.statements.length;
-    await searchNotes(store, { query: "wallabyrate", scope: "private" }, stub.client);
+    await searchNotes(store, { query: "wallabyrate", clearance: clearanceOf("private") }, stub.client);
     const owner = ftsAsked(beforeOwner);
     expect(owner.some((sql) => sql.includes("notes_private_fts"))).toBe(true);
     expect(owner.some((sql) => sql.includes("notes_team_fts"))).toBe(true);
@@ -243,7 +244,7 @@ describe("the console's search, out of the projection", () => {
 
     const found = await searchNotes(
       store,
-      { query: "quokkaplan", scope: "private" },
+      { query: "quokkaplan", clearance: clearanceOf("private") },
       stub.client,
     );
     expect(found.indexMissing).toBe(false);
@@ -260,7 +261,7 @@ describe("the console's search, out of the projection", () => {
 
     const found = await searchNotes(
       store,
-      { query: "quokkaplan", scope: "private" },
+      { query: "quokkaplan", clearance: clearanceOf("private") },
       stub.client,
     );
     expect(found.hits.map((hit) => hit.path).sort()).toEqual([
@@ -295,7 +296,7 @@ describe("the console's search, out of the projection", () => {
     await setFolderVisibility(store, {
       path: "1-projects",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
 
     const stub = await projected(store);
@@ -305,7 +306,7 @@ describe("the console's search, out of the projection", () => {
     // everything below.
     const before = await searchNotes(
       store,
-      { query: "quollmemo", scope: "team" },
+      { query: "quollmemo", clearance: clearanceOf("team") },
       stub.client,
     );
     expect(before.hits.map((hit) => hit.path).sort()).toEqual([
@@ -318,14 +319,14 @@ describe("the console's search, out of the projection", () => {
     await setVisibility(store, {
       path: "1-projects/sealed.md",
       visibility: "private",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(stub.chunksIn("team", "1-projects/sealed.md")).toBeGreaterThan(0);
 
     forgetR2Index(store);
     const after = await searchNotes(
       store,
-      { query: "quollmemo", scope: "team" },
+      { query: "quollmemo", clearance: clearanceOf("team") },
       stub.client,
     );
     expect(after.hits.map((hit) => hit.path)).toEqual(["1-projects/open.md"]);
@@ -339,7 +340,7 @@ describe("the console's search, out of the projection", () => {
     forgetR2Index(store);
     stub.writes.length = 0;
 
-    await searchNotes(store, { query: "quokkaplan", scope: "private" }, stub.client);
+    await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("private") }, stub.client);
     // A read that mutates the projection is a read that can corrupt what the
     // next search sees, and — one layer up in `runFileOperation` — a search
     // that can flip a provisioning row to `failed` as a side effect.
@@ -350,7 +351,7 @@ describe("the console's search, out of the projection", () => {
 describe("the console's search", () => {
   test("finds a note by its contents, not by its filename", async () => {
     const store = bucket();
-    const found = await settled(store, { query: "quokkaplan", scope: "private" });
+    const found = await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     expect(found.indexMissing).toBe(false);
     // The word is in the body of both notes and in the name of neither, which
@@ -369,10 +370,10 @@ describe("the console's search", () => {
     // Non-vacuity first: the owner finds it, so the corpus really does contain
     // the word and really is indexed. Without this the assertion below passes
     // just as well against a search that is simply broken.
-    const asOwner = await settled(store, { query: "wallabyrate", scope: "private" });
+    const asOwner = await settled(store, { query: "wallabyrate", clearance: clearanceOf("private") });
     expect(asOwner.hits.map((hit) => hit.path)).toEqual(["1-projects/pay.md"]);
 
-    const asTeam = await settled(store, { query: "wallabyrate", scope: "team" });
+    const asTeam = await settled(store, { query: "wallabyrate", clearance: clearanceOf("team") });
     expect(asTeam.hits).toEqual([]);
     // Not one path, not one snippet, and not a count either.
     expect(asTeam.matchCount).toBe(0);
@@ -384,7 +385,7 @@ describe("the console's search", () => {
     const store = bucket();
     await shareProjects(store);
     // `2-areas` stays private, so one of the two `quokkaplan` notes is hidden.
-    const asTeam = await settled(store, { query: "quokkaplan", scope: "team" });
+    const asTeam = await settled(store, { query: "quokkaplan", clearance: clearanceOf("team") });
 
     expect(asTeam.hits.map((hit) => hit.path)).toEqual(["1-projects/shared-plan.md"]);
     expect(asTeam.matchCount).toBe(1);
@@ -397,20 +398,20 @@ describe("the console's search", () => {
     const narrowed = await settled(store, {
       query: "quokkaplan",
       prefix: "1-projects",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     expect(narrowed.hits.map((hit) => hit.path)).toEqual(["1-projects/shared-plan.md"]);
 
     // `2-areas` is private, so to a team caller it is not a narrower search,
     // it is a folder that does not exist — the answer `listFolder` gives.
     await expect(
-      searchNotes(store, { query: "quokkaplan", prefix: "2-areas", scope: "team" }),
+      searchNotes(store, { query: "quokkaplan", prefix: "2-areas", clearance: clearanceOf("team") }),
     ).rejects.toThrow();
   });
 
   test("an empty query is not a search for everything", async () => {
     const store = bucket();
-    const found = await searchNotes(store, { query: "   ", scope: "private" });
+    const found = await searchNotes(store, { query: "   ", clearance: clearanceOf("private") });
 
     expect(found.hits).toEqual([]);
     expect(found.matchCount).toBe(0);
@@ -422,7 +423,7 @@ describe("the console's search", () => {
     store.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
     // No notes at all: nothing to index, so nothing to answer from. The
     // distinction the console renders differently from "(no matches)".
-    const found = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    const found = await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     expect(found.indexMissing).toBe(true);
     expect(found.hits).toEqual([]);
@@ -430,7 +431,7 @@ describe("the console's search", () => {
 
   test("the index the maintenance builds is the one the gateway reads", async () => {
     const store = bucket();
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     // Not an implementation detail: a console that built its own index under
     // its own key would be a second derivative to keep honest, and the gateway
@@ -448,7 +449,7 @@ describe("the console's search", () => {
    */
   test("a search with an answer in it touches nothing but reads", async () => {
     const store = bucket();
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     const before = Object.keys(store.snapshot()).length;
     const writes: string[] = [];
@@ -463,7 +464,7 @@ describe("the console's search", () => {
       delete: (key: string) => store.delete(key),
     } as unknown as FileStore;
 
-    const found = await searchNotes(watched, { query: "quokkaplan", scope: "private" });
+    const found = await searchNotes(watched, { query: "quokkaplan", clearance: clearanceOf("private") });
     expect(found.hits.length).toBeGreaterThan(0);
     // No listing to diff, no note re-read to index, no shard rewritten — and
     // nothing new in the bucket either, which is the half a write counter
@@ -480,10 +481,10 @@ describe("the console's search", () => {
    */
   test("a miss over a converged index buys one listing and finds the newer note", async () => {
     const store = bucket();
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     store.seed("1-projects/fresh.md", "# Fresh\n\nThe numbatplan landed today.\n");
-    const found = await searchNotes(store, { query: "numbatplan", scope: "private" });
+    const found = await searchNotes(store, { query: "numbatplan", clearance: clearanceOf("private") });
     expect(found.hits.map((hit) => hit.path)).toEqual(["1-projects/fresh.md"]);
   });
 
@@ -494,22 +495,22 @@ describe("the console's search", () => {
    */
   test("an answer with hits in it does not buy a listing, however stale", async () => {
     const store = bucket();
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     store.seed("1-projects/fresh.md", "# Fresh\n\nAnother quokkaplan, unindexed.\n");
-    const found = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    const found = await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("private") });
     expect(found.hits.map((hit) => hit.path)).not.toContain("1-projects/fresh.md");
 
     // And the next maintenance pass is what makes it findable, rather than the
     // next search paying for it.
     await maintainSearchIndex(store);
-    const after = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    const after = await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("private") });
     expect(after.hits.map((hit) => hit.path)).toContain("1-projects/fresh.md");
   });
 
   test("a pass over a bucket with nothing to do reports itself complete", async () => {
     const store = bucket();
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
 
     // What the scheduled chain reads to decide whether to run again. A pass
     // that always claimed progress would schedule itself twelve deep over a
@@ -559,10 +560,10 @@ describe("the console's reduced-recall signal", () => {
   test("a caller's own visible notes carry the manifest's shed marks, unfolded into indexIncomplete", async () => {
     const store = bucket();
     await shareProjects(store);
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
     await markShed(store, ["1-projects/shared-plan.md", "1-projects/pay.md"]);
 
-    const asOwner = await searchNotes(store, { query: "quokkaplan", scope: "private" });
+    const asOwner = await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("private") });
     expect(asOwner.reducedRecall).toBe(true);
     expect(asOwner.reducedRecallNotes.slice().sort()).toEqual([
       "1-projects/pay.md",
@@ -577,10 +578,10 @@ describe("the console's reduced-recall signal", () => {
   test("...and a team caller never learns a private note was among them", async () => {
     const store = bucket();
     await shareProjects(store);
-    await settled(store, { query: "quokkaplan", scope: "private" });
+    await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
     await markShed(store, ["1-projects/shared-plan.md", "1-projects/pay.md"]);
 
-    const asTeam = await searchNotes(store, { query: "quokkaplan", scope: "team" });
+    const asTeam = await searchNotes(store, { query: "quokkaplan", clearance: clearanceOf("team") });
     expect(asTeam.reducedRecall).toBe(true);
     expect(asTeam.reducedRecallNotes).toEqual(["1-projects/shared-plan.md"]);
     expect(JSON.stringify(asTeam)).not.toContain("pay.md");
@@ -588,7 +589,7 @@ describe("the console's reduced-recall signal", () => {
 
   test("an unmarked index never claims reduced recall", async () => {
     const store = bucket();
-    const found = await settled(store, { query: "quokkaplan", scope: "private" });
+    const found = await settled(store, { query: "quokkaplan", clearance: clearanceOf("private") });
     expect(found.reducedRecall).toBe(false);
     expect(found.reducedRecallNotes).toEqual([]);
   });
@@ -617,7 +618,7 @@ describe("the console's reduced-recall signal", () => {
     // this run really did shed the one note that could not fit.
     expect(everShed).toBe(1);
 
-    const found = await searchNotes(store, { query: "ordinary-note-word", scope: "private" });
+    const found = await searchNotes(store, { query: "ordinary-note-word", clearance: clearanceOf("private") });
     expect(found.hits.map((hit) => hit.path)).toEqual(["1-projects/plain.md"]);
     expect(found.reducedRecall).toBe(true);
     expect(found.reducedRecallNotes).toEqual(["1-projects/dense.md"]);
@@ -630,7 +631,7 @@ describe("the console's reduced-recall signal", () => {
 
     const fast = await searchNotes(
       store,
-      { query: "quokkaplan", scope: "private" },
+      { query: "quokkaplan", clearance: clearanceOf("private") },
       stub.client,
     );
     // Non-vacuity: this really did answer from the projection rather than

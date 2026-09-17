@@ -1,5 +1,5 @@
 import { describe, expect, test } from "@jest/globals";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { HERO_LINE_ONE, HERO_LINE_TWO, LANDING_COPY } from "../features/landing/copy";
@@ -185,5 +185,120 @@ describe("the landing page's list is the page, and its claims are ones we keep",
       for (const line of LANDING_COPY) if (pattern.test(line)) offenders.push(`${label}: ${line}`);
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * ...AND THE PAGE IS THE FOLDER, NOT THE ONE FILE THE FIX HAPPENED TO OPEN.
+ *
+ * The scan above reads `Landing.tsx`. The landing page is not `Landing.tsx` —
+ * it is a folder, and `ContinuityDemo` is the section a visitor meets **first**,
+ * above the proof block every rule here was extended to cover. Five sentences
+ * rendered there and a demo transcript beside them were literals nothing read,
+ * including the page's strongest confidentiality claims:
+ *
+ *  - *"Context carries the decision to every client and teammate you
+ *    allowed—not the private notes you didn't."*
+ *  - *"The note moves. The boundary doesn't."*
+ *  - *"his private notes were never available to me."*
+ *
+ * That is the same defect the block above was written for — **an incomplete
+ * list passes for the reason an empty one does** — surviving inside its own
+ * fix, because the fix named a file where the hazard is a directory. A
+ * component added next week is the same bug again, so the directory is read
+ * rather than a list of names being typed out.
+ */
+describe("the landing page is every component in the folder", () => {
+  const LANDING_DIR = join(__dirname, "../features/landing");
+
+  /** JSX carries `&apos;` where a constant carries `'`. Decoded, not tolerated. */
+  function decodeEntities(text: string): string {
+    return text
+      .replace(/&apos;/g, "'")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&amp;/g, "&");
+  }
+
+  test("no sentence any landing component renders is outside the list", () => {
+    const files = readdirSync(LANDING_DIR)
+      .filter((name) => name.endsWith(".tsx"))
+      .sort();
+    // A `readdirSync` that returns nothing, or a filter that matches nothing,
+    // is a scan that passes because it checked no files. Five components render
+    // this page today.
+    expect(files.length).toBeGreaterThanOrEqual(5);
+
+    const unguarded: string[] = [];
+    for (const file of files) {
+      const source = readFileSync(join(LANDING_DIR, file), "utf8");
+      const spoken: string[] = [];
+      for (const match of source.matchAll(/(?:\baccessibilityLabel|\blabel)="([^"]+)"/g)) {
+        spoken.push(match[1]!);
+      }
+      // The same two patterns and the same twelve-character floor as the scan
+      // over `Landing.tsx`, applied to every file beside it.
+      for (const match of source.matchAll(/(?<!=)>\s*([A-Za-z][^<>{}]{11,}?)\s*[<{]/gs)) {
+        spoken.push(match[1]!.replace(/\s+/g, " ").trim());
+      }
+      for (const text of spoken.map(decodeEntities)) {
+        if (!LANDING_COPY.some((line) => line.replace(/\s+/g, " ").includes(text))) {
+          unguarded.push(`${file}: ${text}`);
+        }
+      }
+    }
+    expect(unguarded).toEqual([]);
+  });
+
+  /**
+   * ...and the demo's transcript is copy, even though it is a data structure.
+   *
+   * `CONTINUITY_STEPS` is prose a visitor reads word for word — a prompt, a
+   * reply and a receipt for each of three assistants — that no JSX scan can
+   * see, because it never appears between two tags. It is where the sharpest
+   * claim on the page lives, and it is the shape a future section will reach
+   * for the moment its copy has more than one field.
+   *
+   * So the folder's plain modules are read for their string literals rather
+   * than for their exports: a string that says something, wherever it sits in
+   * the structure, has to be in the list. The twelve-character floor is the one
+   * the scans above state, and it is what keeps `id: "chatgpt"` and a one-glyph
+   * `mark` out of a copy list.
+   *
+   * **Every `.ts` in the folder, not `demoCopy.ts` by name.** Naming the file
+   * is the defect this whole block is about, one directory in: a second module
+   * of prose would be invisible to the JSX scan — which sees `{FOO}` and no
+   * words — and to a reader that only opens the file today's copy happens to be
+   * in. `copy.ts` is the one exclusion, because it IS the list and the test
+   * above holds it to its own exports.
+   */
+  test("every sentence in the folder's copy modules is in the list", () => {
+    const modules = readdirSync(LANDING_DIR)
+      .filter((name) => name.endsWith(".ts") && name !== "copy.ts")
+      .sort();
+    expect(modules).toContain("demoCopy.ts");
+    const source = modules
+      .map((name) => readFileSync(join(LANDING_DIR, name), "utf8"))
+      .join("\n");
+    // Comments stripped first: this file's own header quotes the claims it
+    // exists to guard, and a reader that took those for copy would report the
+    // docblock as unguarded prose.
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    /*
+      EVERY string is matched and the short ones are dropped AFTERWARDS, which
+      is not a tidy-up. A pattern that puts the floor inside the quotes —
+      `"([^"]{12,})"` — skips a short literal and then pairs its CLOSING quote
+      with the next literal's opening one, so `", access: "` arrives as a
+      sentence. It reported six of those before this comment existed.
+    */
+    const literals = [...code.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)]
+      .map((match) => match[1]!)
+      .filter((text) => text.length >= 12);
+    // These modules are prose; a reader that found none of it has stopped
+    // working, and so has a `readdirSync` that matched nothing.
+    expect(literals.length).toBeGreaterThanOrEqual(15);
+
+    const missing = literals.filter((text) => !LANDING_COPY.some((line) => line.includes(text)));
+    expect(missing).toEqual([]);
   });
 });

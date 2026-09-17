@@ -203,6 +203,7 @@ export function useFileBrowser(options: {
   const restoreTrashEntry = useAction(api.functions.files.restoreTrashEntry);
   const setNoteVisibility = useAction(api.functions.files.setNoteVisibility);
   const setNoteGroupAction = useAction(api.functions.files.setNoteGroup);
+  const setFolderGroupAction = useAction(api.functions.files.setFolderGroup);
   const setDirectoryVisibility = useAction(api.functions.files.setDirectoryVisibility);
   const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
@@ -2398,22 +2399,38 @@ export function useFileBrowser(options: {
    * the notice line in the server's own words.
    */
   /**
-   * Point one note at a group.
+   * Point one note or folder at a group or a person.
    *
    * Its own verb rather than a third value on `setVisibility`, which takes the
    * two tiers and stays that way — see `SettableVisibility`. The server proves
-   * the group belongs to this context before anything is written, so a name
-   * from somebody else's workspace is refused here rather than landing in the
-   * customer's manifest as a rule nobody can account for.
+   * the name belongs to this context before anything is written, so a group
+   * from somebody else's workspace, or a handle belonging to nobody here, is
+   * refused rather than landing in the customer's manifest as a rule nobody
+   * can account for.
+   *
+   * **The branch on `kind` is the repair.** This called the note action for
+   * everything, and the note action runs `fileOps.setVisibility`, which refuses
+   * a path that is not `.md` — so a folder came back "Only markdown notes can
+   * have their own visibility. Set the folder's default instead", which is
+   * advice that cannot be followed, because that control takes the two tiers.
+   * The two actions differ in the audit row as well as the writer: a folder's
+   * named audience is `visibility.folder.named`, which is owner-only, because
+   * the name of a group is not something every member may read off the trail.
    */
   const shareWithGroup = useCallback(
-    (path: string, group: string) => {
+    (path: string, kind: "file" | "folder", group: string) => {
       void run(async () => {
+        if (kind === "folder") {
+          await setFolderGroupAction({ workspaceId: workspaceId!, path, group });
+          // A folder's default cascades, so every open listing under it is
+          // stale — the same reason `setVisibility` cascades for a folder.
+          return { touched: [path], cascadeFrom: path };
+        }
         await setNoteGroupAction({ workspaceId: workspaceId!, path, group });
         return { touched: [path] };
       });
     },
-    [run, setNoteGroupAction, workspaceId],
+    [run, setFolderGroupAction, setNoteGroupAction, workspaceId],
   );
 
   const setScope = useCallback(
@@ -2454,7 +2471,17 @@ export function useFileBrowser(options: {
           }
           if (step.on) {
             const ok = await runShare(
-              () => createLinkShareAction({ workspaceId: workspaceId!, path }),
+              () =>
+                createLinkShareAction({
+                  workspaceId: workspaceId!,
+                  path,
+                  // A folder link reaches the folder's whole subtree, filtered
+                  // through the live privacy engine on every read. The server
+                  // refuses a folder argument over a note and the reverse, so
+                  // this is the console saying what it is looking at rather
+                  // than the thing that decides.
+                  kind: kind === "folder" ? "folder" : "note",
+                }),
               // Says the reach, not just the fact. `SHARE_TRAVERSAL_DEPTH` is
               // 1, so a link carries the notes this one links to as well —
               // `ShareDialog` states that beside the personal-share control
@@ -2491,7 +2518,6 @@ export function useFileBrowser(options: {
       revokeShareMutation,
       runShare,
       setVisibility,
-      shareWithGroup,
       shares,
       workspaceId,
     ],

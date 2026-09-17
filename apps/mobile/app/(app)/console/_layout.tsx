@@ -87,6 +87,8 @@ import type { FileBrowser } from "../../../features/console/files/browser";
 import {
 } from "../../../features/console/files/scope";
 import { removalHandler } from "../../../features/console/files/access";
+import { audienceContextOf } from "../../../features/console/privacy/audience";
+import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
@@ -502,13 +504,6 @@ export default function ConsoleLayout() {
           <SwitcherMenu
             data={data}
             label={insideContext ? contextLabel : "Your context"}
-            kind={
-              insideContext
-                ? (current?.kind ?? "")
-                : data.loading
-                  ? ""
-                  : `${data.contexts.length} reachable`
-            }
             tone={insideContext ? (current?.status ?? "warn") : "neutral"}
             onOpenContext={(slug: string) => {
               const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
@@ -1062,20 +1057,30 @@ export default function ConsoleLayout() {
             onShareWithGroup:
               data.groups?.actions === undefined
                 ? undefined
-                : (path, group) => data.files.shareWithGroup(path, group),
+                : (path, kind, group) => data.files.shareWithGroup(path, kind, group),
             /*
               The same three halves the pane passes, each present only where
               this caller holds it. Built per path rather than once, because
               narrowing a note names the note — see `removalHandler`.
             */
             groupSlug: current?.slug,
+            /*
+              Named audiences, from the one derivation every surface uses. The
+              share sheet says "Everyone in @supa" rather than "Workspace",
+              which is a set the reader can check. See `privacy/audience.ts`.
+            */
+            audience: audienceContextOf(
+              current?.slug,
+              current?.kind,
+              capabilitiesForRole(current?.role).isOwner,
+            ),
             onCreateGroup:
               data.groups?.actions === undefined
                 ? undefined
-                : (path, label, userIds) =>
+                : (path, kind, label, userIds) =>
                     data
                       .groups!.actions!.createWith(label, userIds)
-                      .then((name) => data.files.shareWithGroup(path, name)),
+                      .then((name) => data.files.shareWithGroup(path, kind, name)),
             removalRouteFor: (path, kind) =>
               removalHandler({
                 path,

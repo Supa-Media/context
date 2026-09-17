@@ -2,46 +2,14 @@ import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../design/components/Text";
 import { fonts, layout, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
-
-/** The one team-safe decision every card in the demo hands forward. */
-export const TEAM_THOUGHT = "Show continuity, not storage.";
-
-export const CONTINUITY_STEPS = [
-  {
-    id: "chatgpt",
-    product: "ChatGPT",
-    mark: "C",
-    access: "Private access",
-    moment: "You tell it once",
-    prompt:
-      "New thought: the demo should show continuity, not storage. Share that with the Context team.",
-    reply:
-      "Saved as a team note in the @context-lc workspace. Your own workspace stays private.",
-    receipt: "Published to the team workspace · just now",
-  },
-  {
-    id: "claude-code",
-    product: "Claude Code",
-    mark: ">_",
-    access: "Private access",
-    moment: "Your next AI picks it up",
-    prompt: "Update the landing page with our newest product direction.",
-    reply:
-      "I found the thought you added in ChatGPT: “Show continuity, not storage.” I’m building the three-AI handoff now.",
-    receipt: "Read from @context-lc · no re-explaining",
-  },
-  {
-    id: "teammate",
-    product: "Coworker’s Notion AI",
-    mark: "N",
-    access: "Team access",
-    moment: "The right teammate knows too",
-    prompt: "What changed in Context’s product direction?",
-    reply:
-      "Seyi added a team note: make cross-AI continuity the demo. I can use that decision; his private notes were never available to me.",
-    receipt: "Shared workspace visible · yours hidden",
-  },
-] as const;
+import {
+  CONTINUITY_STEPS,
+  DEMO_BOUNDARY_BODY,
+  DEMO_BOUNDARY_TITLE,
+  DEMO_EYEBROW,
+  DEMO_SUB,
+  DEMO_TITLE,
+} from "./demoCopy";
 
 /**
  * The product promise as a three-beat story.
@@ -61,13 +29,10 @@ export function ContinuityDemo() {
     <View style={styles.section} testID="continuity-demo">
       <View style={styles.heading}>
         <Text variant="eyebrow" style={styles.eyebrow}>
-          One thought · three AIs
+          {DEMO_EYEBROW}
         </Text>
-        <Text style={styles.title}>Tell one AI. The others already know.</Text>
-        <Text style={styles.subtitle}>
-          Context carries the decision to every client and teammate you allowed—not the private
-          notes you didn&apos;t.
-        </Text>
+        <Text style={styles.title}>{DEMO_TITLE}</Text>
+        <Text style={styles.subtitle}>{DEMO_SUB}</Text>
       </View>
 
       <View style={[styles.flow, wide ? styles.flowWide : styles.flowNarrow]}>
@@ -125,11 +90,8 @@ export function ContinuityDemo() {
       </View>
 
       <View style={styles.boundary}>
-        <Text style={styles.boundaryStrong}>The note moves. The boundary doesn&apos;t.</Text>
-        <Text style={styles.boundaryCopy}>
-          ChatGPT and Claude Code can use your full context. Your coworker&apos;s Notion AI receives
-          only what you marked for the team.
-        </Text>
+        <Text style={styles.boundaryStrong}>{DEMO_BOUNDARY_TITLE}</Text>
+        <Text style={styles.boundaryCopy}>{DEMO_BOUNDARY_BODY}</Text>
       </View>
     </View>
   );

@@ -11,7 +11,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   accessRows,
-  accessSummary,
   removalHandler,
   type AccessMember,
 } from "../features/console/files/access";
@@ -52,28 +51,55 @@ describe("who reaches a note", () => {
     expect(rows[1].role).toBe("group");
   });
 
+  /**
+   * A GROUP NOBODY IS IN READS AS ACCESS, AND IS NOT.
+   *
+   * The row used to be the bare name, which cannot answer the one question an
+   * owner has about it. A group everybody has left still appears in the
+   * manifest and still looks like somebody was given something — the same
+   * class of overstatement as labelling a group note "Restricted", pointed at
+   * emptiness rather than at secrecy.
+   */
+  test("the group row says how many people it reaches", () => {
+    const [, group] = accessRows("@supa-leads", true, MEMBERS, "file", 4);
+    expect(group!.label).toBe("@supa-leads (4 people)");
+    expect(accessRows("@supa-leads", true, MEMBERS, "file", 1)[1]!.label).toBe(
+      "@supa-leads (1 person)",
+    );
+  });
+
+  test("an empty group says so, rather than looking like access", () => {
+    const [, group] = accessRows("@supa-leads", true, MEMBERS, "file", 0);
+    expect(group!.label).toBe("@supa-leads (0 people)");
+    expect(group!.reason).toMatch(/reaches no one/);
+  });
+
+  /**
+   * `undefined` is not zero — the rule this module already follows for a
+   * member list that has not landed, applied to the same question. A non-owner
+   * cannot read `listGroups` at all, so this is their case too.
+   */
+  test("a count the caller cannot know is omitted, not rendered as none", () => {
+    const [, group] = accessRows("@supa-leads", true, MEMBERS, "file");
+    expect(group!.label).toBe("@supa-leads");
+    expect(group!.reason).not.toMatch(/reaches no one/);
+  });
+
   test("every row is keyed uniquely, including the group row", () => {
     const rows = accessRows("@supa-leads", true, MEMBERS);
     expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length);
   });
 });
 
-describe("the summary line", () => {
-  test("names the group instead of calling it private", () => {
-    expect(accessSummary("@supa-leads", true)).toContain("@supa-leads");
-    expect(accessSummary("@supa-leads", true)).not.toMatch(/\bprivate\b/i);
-  });
+/*
+  The summary line moved out of this module.
 
-  test("says where the rule came from, which is the half a list cannot show", () => {
-    expect(accessSummary("team", false)).toMatch(/inherited from its folder/);
-    expect(accessSummary("team", true)).toMatch(/set on this note/);
-  });
-
-  test("the two tiers read as themselves", () => {
-    expect(accessSummary("team", false)).toMatch(/Everyone in this workspace/);
-    expect(accessSummary("private", false)).toMatch(/Only owners/);
-  });
-});
+  It said "Everyone in this workspace can read it" — a set the reader cannot
+  check — and the sentences now come from `privacy/audience.ts`, which names
+  the context ("Everyone in @supa") and is tested in `audienceWords.test.ts`
+  against the claims copy here may not make. `accessSummary` was deleted rather
+  than left beside its replacement, so there is one vocabulary and not two.
+*/
 
 describe("not loaded is not empty", () => {
   /**
@@ -85,8 +111,6 @@ describe("not loaded is not empty", () => {
   test("a membership still in flight draws no rows rather than an empty context", () => {
     expect(accessRows("team", false, undefined)).toEqual([]);
     expect(accessRows("private", false, undefined)).toEqual([]);
-    // The summary is unaffected, because it does not depend on the list.
-    expect(accessSummary("team", false)).toMatch(/Everyone in this workspace/);
   });
 
   test("an actually-empty membership is still empty, so the two are not conflated", () => {

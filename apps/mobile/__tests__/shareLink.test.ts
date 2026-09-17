@@ -12,6 +12,7 @@
  * removed from three other surfaces after an editor used it.
  */
 
+import { describeOpenLink } from "../features/console/files/shares";
 import { describe, expect, test } from "@jest/globals";
 import { capabilitiesForRole, canSetVisibility, canShare } from "../features/console/capabilities";
 import {
@@ -19,7 +20,6 @@ import {
   SHARE_PATH_PREFIX,
   describePreviewTitle,
   describeShareRow,
-  shareEligibility,
   shareUrl,
   shareUrlFor,
   sharesBreakingWarning,
@@ -83,43 +83,6 @@ describe("who may share", () => {
   });
 });
 
-describe("what may be shared", () => {
-  test("a note may", () => {
-    expect(
-      shareEligibility({ path: "1-projects/plan.md", kind: "file", readOnly: false }),
-    ).toEqual({ ok: true });
-  });
-
-  test("a folder may not, and is told why", () => {
-    const result = shareEligibility({
-      path: "1-projects",
-      kind: "folder",
-      readOnly: false,
-    });
-    expect(result.ok).toBe(false);
-    expect(result.ok === false && result.reason).toMatch(/share a note inside it/i);
-  });
-
-  /** `privacy.md` is the access map; handing it over enumerates every private folder. */
-  test("a read-only row may not", () => {
-    expect(
-      shareEligibility({ path: "privacy.md", kind: "file", readOnly: true }).ok,
-    ).toBe(false);
-  });
-
-  test("a non-note file may not", () => {
-    expect(
-      shareEligibility({ path: "3-resources/slides.pdf", kind: "file", readOnly: false })
-        .ok,
-    ).toBe(false);
-  });
-
-  test("the extension check is case-insensitive", () => {
-    expect(
-      shareEligibility({ path: "1-projects/PLAN.MD", kind: "file", readOnly: false }).ok,
-    ).toBe(true);
-  });
-});
 
 describe("the link", () => {
   /**
@@ -378,5 +341,34 @@ describe("what renaming a shared note costs", () => {
       moment they are about to break it.
     */
     expect(sharesBreakingWarning(undefined, "1-projects/plan.md", "Renaming")).toBeNull();
+  });
+});
+
+describe("what an open link is said to reach", () => {
+  /**
+   * Copy is a guard on this surface. The one sentence used to say "the note and
+   * the notes it links to" for every link, which is false of a folder link and
+   * false in the direction that matters — it understates what is being handed
+   * over.
+   */
+  test("a note link names the note and its links", () => {
+    const said = describeOpenLink("file");
+    expect(said).toContain("the note and the notes it links to");
+    expect(said).not.toContain("folder");
+  });
+
+  test("a folder link says it is a folder, and names the narrowing", () => {
+    const said = describeOpenLink("folder");
+    expect(said).toContain("browse this folder");
+    // The half an owner would otherwise get wrong in the dangerous direction:
+    // pointing a link at a folder does not publish the private notes in it.
+    expect(said).toContain("held back by name stay held back");
+  });
+
+  test("both say revoking cannot take back a copy already taken", () => {
+    for (const kind of ["file", "folder"] as const) {
+      expect(describeOpenLink(kind)).toContain("cannot take back a copy");
+      expect(describeOpenLink(kind)).toContain("no account, no sign-in");
+    }
   });
 });

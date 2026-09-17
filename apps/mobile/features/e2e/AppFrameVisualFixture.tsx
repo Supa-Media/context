@@ -15,7 +15,7 @@ import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
 import { CurrentContextPill } from "../console/ContextStrip";
 import { NavBandProvider } from "../console/NavBand";
-import { LANDING_ROUTE, type ConsoleRoute } from "../console/nav";
+import type { ConsoleRoute } from "../console/nav";
 import { Text } from "../design/components/Text";
 
 /**
@@ -66,7 +66,21 @@ const TABS: TabsState = {
 
 export function AppFrameVisualFixture() {
   const data = useE2EFixtureConsoleData();
-  const [route, setRoute] = useState<ConsoleRoute>(LANDING_ROUTE);
+  /*
+    A context, not the landing route.
+
+    The board this fixture exists to be compared against draws the console
+    *inside* a workspace — the switcher says `@seyi`, the tree is that
+    workspace's, the note is one of its files. Starting at `LANDING_ROUTE`
+    showed the switcher saying "Your context", which is a real state of the
+    product and the wrong one to review the design in: every screenshot taken
+    here was of the one screen the canvas has no artboard for.
+  */
+  const [route, setRoute] = useState<ConsoleRoute>({
+    kind: "context",
+    slug: "seyi",
+    view: "browse",
+  });
   const current = selectedContext(data);
 
   return (
@@ -101,7 +115,6 @@ export function AppFrameVisualFixture() {
             label={
               route.kind === "context" ? atName(route.slug) : "Your context"
             }
-            kind="personal"
             tone="ok"
             onOpenContext={(slug) =>
               setRoute({ kind: "context", slug, view: "browse" })

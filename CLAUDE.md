@@ -64,12 +64,18 @@ breaking one, stop and say so rather than working around it.
    fallback and never the security boundary. Prove isolation with tests: one
    tenant must not enumerate, read, or infer the existence of another.
 5. **`team` never means public.** Visibility is `private` or `team`, and `team`
-   means named people the owner granted access to. No setting publishes a
+   means named people the owner granted access to. No *setting* publishes a
    context, a folder, or a visibility class to the internet, and nothing here is
-   indexed. **One note at a time, by an owner, through a link they mint and can
-   revoke, is the single exception** — a share row, never a third word in
-   `privacy.md`, whose `Scope` stays two-valued. See
-   [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
+   indexed. **A link an owner mints and can revoke is the single exception**, and
+   it is always a share row, never a third word in `privacy.md`, whose `Scope`
+   stays two-valued. A link covers one note, or one folder and the subtree
+   beneath it — and a folder link **narrows**: every path under it is still
+   re-derived through the live `privacy.md` at `team` scope with no granted
+   names, so a note held back by name, a private subfolder and a note pointed at
+   a group are all absent through it. It publishes what the folder already
+   published to the workspace and never more, which is why this is a wider
+   *locator* and not a wider *tier*. The whole context is never the subject of
+   one. See [privacy-and-sharing](./docs/decisions/privacy-and-sharing.md).
 
 Only a *personal* context has an ingestion alias; a shared context has no capture
 address at all ([identity-and-access](./docs/decisions/identity-and-access.md)).

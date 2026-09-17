@@ -466,6 +466,25 @@ const schema = defineSchema({
      */
     entryPath: v.string(),
     /**
+     * Whether `entryPath` is one note or a folder whose subtree this reaches.
+     *
+     * **Optional, and absent means `note`** — every row written before folder
+     * links existed is one, and a share's reach must never depend on a field
+     * being backfilled. Stored rather than derived, because a path cannot be
+     * told apart: `1-projects/transition` is a folder here and an
+     * extensionless file somewhere else, and `checkTeamSharePath` already
+     * records that "note or folder" was never implementable from the string.
+     *
+     * A folder share reaches what is **under** the prefix and is still
+     * re-derived through the live `privacy.md` at `team` scope on every read,
+     * so it publishes only what the manifest already published to the
+     * workspace — a narrowing of the folder, never a widening. That is the one
+     * place this is deliberately stricter than Drive, whose model is inherit
+     * unless restricted. See "A folder link reaches a subtree" in
+     * `docs/decisions/privacy-and-sharing.md`.
+     */
+    entryKind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
+    /**
      * `name` — a `@handle` out of the shared namespace, stored undecorated.
      * `email` — a lowercased address.
      *

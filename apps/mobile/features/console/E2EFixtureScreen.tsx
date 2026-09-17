@@ -200,7 +200,6 @@ export function E2EFixtureScreen({
             <SwitcherMenu
               data={data}
               label={current === null ? "Your context" : atName(current.slug)}
-              kind={current?.kind ?? ""}
               tone={current?.status ?? "warn"}
               /*
                 Only a context row can go anywhere from here. The menu's other

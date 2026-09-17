@@ -21,6 +21,7 @@ import {
   newNoteHint,
 } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
+import type { AudienceContext } from "../privacy/audience";
 import { consoleOrigin } from "./shareOrigin";
 import { sharesBreakingWarning } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
@@ -103,7 +104,12 @@ export function Explorer({
   access?: {
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
-    onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * `kind` travels with the path because a folder and a note go to different
+     * actions — the note one refuses anything that is not `.md`, which is the
+     * refusal an owner met when this dropped it.
+     */
+    onShareWithGroup?: (path: string, kind: "file" | "folder", group: string) => void;
     /**
      * What a row in the people list can do about somebody, for one path.
      *
@@ -119,6 +125,8 @@ export function Explorer({
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
     /** The workspace's slug, for showing the name a new group's label becomes. */
     groupSlug?: string;
+    /** Whose context this is, so every audience can be named. */
+    audience?: AudienceContext;
     /**
      * Make a group and point this path at it. Owner-only upstream.
      *
@@ -127,6 +135,8 @@ export function Explorer({
      */
     onCreateGroup?: (
       path: string,
+      /** Same reason `onShareWithGroup` carries one: it ends in the same call. */
+      kind: "file" | "folder",
       label: string,
       userIds: readonly string[],
     ) => Promise<unknown>;
@@ -468,35 +478,56 @@ export function Explorer({
    * Storage and in a dismissible notice now; see
    * `../storage/StorageMigration.tsx`, which holds the argument and the copy.
    */
-  const actions = (
+  /*
+    THE HEADER'S TOOLS, IN TWO GROUPS, AND THE SPLIT IS THE CANVAS'S.
+
+    All four used to arrive together on approach, on the argument that four
+    lit buttons over a list of names is the loudest thing in the quietest
+    region. That argument was right about *four* and wrong about zero: the
+    canvas draws two of them at rest — new note and collapse-all — and a
+    header with a name and nothing else reads as a caption rather than as the
+    top of a panel you can do things to.
+
+    Which two is not arbitrary. These are the pair with no other route: ⌘N has
+    no equivalent for "collapse everything", and both act on the column rather
+    than on a row, so neither is in a row's context menu. The pair that fades
+    — new folder, and the sort direction — are both reachable from a folder's
+    own menu, and sorting is something you set once.
+  */
+  const restingActions = (
     <>
       {files.canEdit ? (
-        <>
-          <IconButton
-            label="New note"
-            icon="plus"
-            onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
-            testID="explorer-new-note"
-          />
-          <IconButton
-            label="New folder"
-            icon="folder"
-            onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
-            testID="explorer-new-folder"
-          />
-        </>
+        <IconButton
+          label="New note"
+          icon="plus"
+          onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
+          testID="explorer-new-note"
+        />
+      ) : null}
+      <IconButton
+        label="Collapse every folder"
+        icon="collapse"
+        onPress={files.collapseAll}
+        testID="explorer-collapse"
+      />
+    </>
+  );
+
+  const approachActions = (
+    <>
+      {files.canEdit ? (
+        <IconButton
+          label="New folder"
+          icon="folder"
+          onPress={() => setDialog({ kind: "newFolder", folder: selectedFolder })}
+          testID="explorer-new-folder"
+        />
       ) : null}
       <IconButton
         label={descending ? "Sort A to Z" : "Sort Z to A"}
         icon="sort"
         onPress={() => setDescending((current) => !current)}
         testID="explorer-sort"
-      />
-      <IconButton
-        label="Collapse every folder"
-        icon="collapse"
-        onPress={files.collapseAll}
-        testID="explorer-collapse"
       />
     </>
   );
@@ -610,7 +641,13 @@ export function Explorer({
           />
         ) : null}
         <View style={styles.toolbarSpacer} />
-        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{actions}</View>
+        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{approachActions}</View>
+        {/*
+          Never faded. See `restingActions` — the canvas's header has these two
+          at rest, and the fade is now about the pair beside them rather than
+          about the whole toolbar.
+        */}
+        <View style={styles.toolsResting}>{restingActions}</View>
       </View>
 
       <ScrollView
@@ -811,7 +848,12 @@ export function ExplorerDialogs({
   access?: {
     members: readonly AccessMember[];
     groups?: readonly RecipientGroup[];
-    onShareWithGroup?: (path: string, group: string) => void;
+    /**
+     * `kind` travels with the path because a folder and a note go to different
+     * actions — the note one refuses anything that is not `.md`, which is the
+     * refusal an owner met when this dropped it.
+     */
+    onShareWithGroup?: (path: string, kind: "file" | "folder", group: string) => void;
     /**
      * What a row in the people list can do about somebody, for one path.
      *
@@ -827,6 +869,8 @@ export function ExplorerDialogs({
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
     /** The workspace's slug, for showing the name a new group's label becomes. */
     groupSlug?: string;
+    /** Whose context this is, so every audience can be named. */
+    audience?: AudienceContext;
     /**
      * Make a group and point this path at it. Owner-only upstream.
      *
@@ -835,6 +879,8 @@ export function ExplorerDialogs({
      */
     onCreateGroup?: (
       path: string,
+      /** Same reason `onShareWithGroup` carries one: it ends in the same call. */
+      kind: "file" | "folder",
       label: string,
       userIds: readonly string[],
     ) => Promise<unknown>;
@@ -941,6 +987,19 @@ export function ExplorerDialogs({
         breach, not the refusal.
       */
       if (!files.canShare) return null;
+      // Braced so the binding below has a block of its own: a `const` bare in
+      // a `case` leaks into every sibling arm, which is what
+      // `no-case-declarations` is about.
+      {
+      /*
+        Looked up ONCE and used by all four controls below. It was resolved
+        inline four times, and one of those four then threw it away on its way
+        into `onShareWithGroup` — which is how sharing a folder with a group
+        reached the note action and came back "Only markdown notes can have
+        their own visibility". One binding is not tidiness here: it is the
+        thing that makes dropping it visible.
+      */
+      const entryKind = findEntry(files.listings, dialog.path)?.kind ?? "file";
       return (
         <ShareDialog
           path={dialog.path}
@@ -979,35 +1038,30 @@ export function ExplorerDialogs({
             every surface goes through — its group guard lives there — and this
             component holds `files` anyway. Owner-only, absent otherwise.
           */
-          entryKind={findEntry(files.listings, dialog.path)?.kind ?? "file"}
+          entryKind={entryKind}
           onSetScope={
             files.canSetVisibility
               ? (from, to) =>
-                  files.setScope(
-                    dialog.path,
-                    findEntry(files.listings, dialog.path)?.kind ?? "file",
-                    from,
-                    to,
-                  )
+                  files.setScope(dialog.path, entryKind, from, to)
               : undefined
           }
-          onRemovalRoute={access?.removalRouteFor?.(
-            dialog.path,
-            findEntry(files.listings, dialog.path)?.kind ?? "file",
-          )}
+          onRemovalRoute={access?.removalRouteFor?.(dialog.path, entryKind)}
           groupSlug={access?.groupSlug}
+          context={access?.audience}
           onCreateGroup={
             access?.onCreateGroup === undefined
               ? undefined
-              : (label, userIds) => access.onCreateGroup!(dialog.path, label, userIds)
+              : (label, userIds) =>
+                  access.onCreateGroup!(dialog.path, entryKind, label, userIds)
           }
           onShareWithGroup={
             access?.onShareWithGroup === undefined
               ? undefined
-              : (group) => access.onShareWithGroup!(dialog.path, group)
+              : (group) => access.onShareWithGroup!(dialog.path, entryKind, group)
           }
         />
       );
+      }
     case "archive":
       return (
         /*
@@ -1115,6 +1169,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     opacity: 0,
   },
   toolsShown: { opacity: 1 },
+  /** The pair the canvas draws at rest. Same row, no fade. */
+  toolsResting: { flexDirection: "row", alignItems: "center" },
   /**
    * The resting label, in the field's own box.
    *

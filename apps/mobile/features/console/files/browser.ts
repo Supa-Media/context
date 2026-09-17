@@ -374,13 +374,21 @@ export interface FileBrowser {
   destroy: (path: string) => void;
   setVisibility: (path: string, kind: "file" | "folder", visibility: SettableVisibility) => void;
   /**
-   * Point one note at a group, by name.
+   * Point one note **or folder** at a group or a person, by name.
    *
    * Beside `setVisibility` rather than a third value on it: that setter takes
    * the two tiers and stays that way, because widening it would make every
    * caller of it a way to mint a rule.
+   *
+   * **`kind` is not optional, and that is the whole repair.** This took a path
+   * and a name, and sent both to the note action — so sharing a FOLDER with a
+   * group answered "Only markdown notes can have their own visibility", from
+   * the bottom of the stack, with advice naming a control that cannot express
+   * a group. The dialog knew the kind the whole time and the callback threw it
+   * away. Required rather than defaulted, so a new call site has to say which
+   * it means instead of quietly getting the note path again.
    */
-  shareWithGroup: (path: string, group: string) => void;
+  shareWithGroup: (path: string, kind: "file" | "folder", group: string) => void;
   /**
    * Move an entry between the three positions of the visibility control —
    * private, team, and a link anybody who has it can open.

@@ -34,6 +34,8 @@ import {
   useStorageMigrationOffer,
 } from "../storage/StorageMigration";
 import { ShareDialog } from "../files/ShareDialog";
+import { audienceContextOf } from "../privacy/audience";
+import { capabilitiesForRole } from "../capabilities";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
 import { entryAt, findEntry, treeRowFor } from "../files/tree";
@@ -1263,7 +1265,7 @@ export function BrowsePane({
           onShareWithGroup={
             data.groups?.actions === undefined
               ? undefined
-              : (group) => files.shareWithGroup(sharing, group)
+              : (group) => files.shareWithGroup(sharing, selected.kind, group)
           }
           /*
             Make one here, and point this note at it in the same press. The
@@ -1278,13 +1280,23 @@ export function BrowsePane({
               : undefined
           }
           groupSlug={current?.slug}
+          /*
+            Every audience is named rather than described — "Everyone in @supa"
+            instead of "Workspace", which is a set the reader can check against
+            the People list. See `privacy/audience.ts`.
+          */
+          context={audienceContextOf(
+            current?.slug,
+            current?.kind,
+            capabilitiesForRole(current?.role).isOwner,
+          )}
           onCreateGroup={
             data.groups?.actions === undefined
               ? undefined
               : (label, userIds) =>
                   data
                     .groups!.actions!.createWith(label, userIds)
-                    .then((name) => files.shareWithGroup(sharing, name))
+                    .then((name) => files.shareWithGroup(sharing, selected.kind, name))
           }
           access={{
             visibility: selected.visibility,
