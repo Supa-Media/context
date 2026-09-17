@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, test } from "@jest/globals";
 
 import { pointerType, touchType, typeFor } from "../features/design/tokens";
@@ -76,5 +79,40 @@ describe("typeFor", () => {
     // A medium window is a narrower desktop, not a larger phone.
     expect(typeFor("medium")).toBe(pointerType);
     expect(typeFor("wide")).toBe(pointerType);
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * The ratchet.
+ *
+ * `Text.tsx` is where the drift happened and where it would happen again: a
+ * variant is added by copying its neighbour and nudging the number until one
+ * screen looks right, which is how thirty-three variants came to hold sixteen
+ * sizes. Reading the source is crude, and it is the only thing that catches a
+ * literal before it ships — the rendered output of `fontSize: 13.5` and
+ * `fontSize: pointerType.ui` differ by half a point, which no render test
+ * would be written to notice.
+ *
+ * A variant that genuinely needs a size the scale does not have is a change to
+ * the scale, made here, with a reviewer — not a number in the table.
+ * ------------------------------------------------------------------ */
+describe("the variant table reads from the scale", () => {
+  const source = readFileSync(
+    join(__dirname, "..", "features", "design", "components", "Text.tsx"),
+    "utf8",
+  );
+
+  test("no variant carries a literal font size", () => {
+    const literals = [...source.matchAll(/fontSize: ([0-9.]+)/g)].map((match) => match[1]);
+    expect(literals).toEqual([]);
+  });
+
+  test("every size it does name is a role that exists", () => {
+    const roles = new Set(Object.keys(pointerType));
+    const named = [...source.matchAll(/fontSize: (?:pointerType|touchType|t)\.([A-Za-z0-9]+)/g)].map(
+      (match) => match[1],
+    );
+    expect(named.length).toBeGreaterThan(0);
+    expect(named.filter((role) => !roles.has(role))).toEqual([]);
   });
 });
