@@ -885,6 +885,10 @@ export function ExplorerDialogs({
         breach, not the refusal.
       */
       if (!files.canShare) return null;
+      // Braced so the binding below has a block of its own: a `const` bare in
+      // a `case` leaks into every sibling arm, which is what
+      // `no-case-declarations` is about.
+      {
       /*
         Looked up ONCE and used by all four controls below. It was resolved
         inline four times, and one of those four then threw it away on its way
@@ -955,6 +959,7 @@ export function ExplorerDialogs({
           }
         />
       );
+      }
     case "archive":
       return (
         /*

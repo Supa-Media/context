@@ -2508,7 +2508,6 @@ export function useFileBrowser(options: {
       revokeShareMutation,
       runShare,
       setVisibility,
-      shareWithGroup,
       shares,
       workspaceId,
     ],
