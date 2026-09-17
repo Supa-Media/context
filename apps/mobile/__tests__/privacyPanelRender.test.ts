@@ -195,9 +195,23 @@ describe("the section is reachable and is headed by its own row", () => {
 describe("what a reader is told", () => {
   test("the two words, and that neither of them is public", () => {
     const text = panel({ role: "owner", kind: "personal" }).textContent ?? "";
-    expect(text).toContain("Private");
-    expect(text).toContain("Team");
+    expect(text).toContain("Restricted");
+    expect(text).toContain("Everyone");
     expect(text).toContain("nothing here is indexed");
+    /*
+      AND THE RETIRED WORDS ARE GONE FROM THE WHOLE PANEL.
+
+      This half of the assertion is new, and it is here because renaming the
+      pills without the prose around them shipped a panel that said
+      "Restricted" over a paragraph explaining how to "mark it team" — two
+      vocabularies for one question, which is worse than either one alone and
+      is exactly what an owner asking "what's team? what's private?" was
+      already suffering from. The rename is only done when the old words are
+      absent, so that is what is asserted rather than the new ones being
+      present somewhere.
+    */
+    expect(text).not.toMatch(/\bmark it team\b/i);
+    expect(text).not.toMatch(/\bmarking it team\b/i);
     // The one exception is named, because a panel that said "private or team"
     // and nothing else would be true and misleading at the same time.
     expect(text).toContain("One note at a time");

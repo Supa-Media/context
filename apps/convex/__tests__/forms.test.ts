@@ -27,6 +27,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
@@ -870,7 +871,7 @@ describe("two submissions racing for the same file", () => {
   test("the loser is retried on top of the winner, and neither is lost", async () => {
     const store = contended();
     const result = await runFormAction(store, {
-      scope: "private",
+      clearance: clearanceOf("private"),
       path: "form.md",
       formId: "bugs",
       actor: { name: "@alan", role: "member" },
@@ -901,7 +902,7 @@ describe("two submissions racing for the same file", () => {
 
     await expect(
       runFormAction(store, {
-        scope: "private",
+        clearance: clearanceOf("private"),
         path: "form.md",
         formId: "bugs",
         actor: { name: "@alan", role: "member" },

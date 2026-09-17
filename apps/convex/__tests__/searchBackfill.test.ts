@@ -110,6 +110,7 @@
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { clearanceOf } from "../functions/lib/clearance";
 import { memoryS3, memoryStore, type MemoryStore } from "./storeStub.helpers";
 import { d1AndBucketFetch, stubD1, type StubD1 } from "./searchBackfill.helpers";
 import {
@@ -248,7 +249,7 @@ describe("a projection pass the control plane runs itself", () => {
     await setFolderVisibility(store, {
       path: "1-projects",
       visibility: "team",
-      scope: "private",
+      clearance: clearanceOf("private"),
     });
     const d1 = stubD1();
 

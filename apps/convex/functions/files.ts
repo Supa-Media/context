@@ -85,6 +85,9 @@ import {
   query,
 } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { type Clearance, clearanceOf, privateClearance } from "./lib/clearance";
+import { grantedNamesFor } from "./lib/grantedNames";
+import { resolveAddressedUser } from "./lib/identities";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { inventoryPlugins, listManagedInstalls } from "../../mcp/src/plugins/inventory.js";
 import {
@@ -1070,6 +1073,19 @@ const operationValidator = v.union(
     group: v.string(),
   }),
   v.object({
+    kind: v.literal("setFolderGroup"),
+    path: v.string(),
+    /**
+     * The name WITHOUT the `@`, already proven to belong to this workspace by
+     * `setFolderGroup` before the operation is dispatched. A plain string
+     * rather than an id for the same reason its note-shaped sibling is one:
+     * this is the value that lands in `privacy.md`, and the manifest holds
+     * names, not ids — which is what lets it stay legible on export and mean
+     * nothing without the control plane.
+     */
+    group: v.string(),
+  }),
+  v.object({
     kind: v.literal("setFolderVisibility"),
     path: v.string(),
     visibility: visibilityValidator,
@@ -1153,6 +1169,7 @@ type FileOperation =
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "setNoteGroup"; path: string; group: string }
+  | { kind: "setFolderGroup"; path: string; group: string }
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
@@ -1509,6 +1526,15 @@ export const authorizeFileAccess = internalQuery({
   returns: v.object({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
     scope: v.union(v.literal("private"), v.literal("team")),
+    /**
+     * The `@name` rules this caller reaches, from live membership.
+     *
+     * Beside `scope` rather than folded into it, because a name is not a tier:
+     * `Scope` stays two-valued in both engines and in every grant, and a name
+     * widens what a `team` caller may reach one rule at a time. See
+     * `lib/clearance.ts`.
+     */
+    grantedNames: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
     if (args.minimum === "member") {
@@ -1517,9 +1543,21 @@ export const authorizeFileAccess = internalQuery({
       // "no such workspace", so catching it would mean guessing which one this
       // was. Asking the narrower question first needs no guess.
       if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+        /*
+          A PINNED CONTEXT REACHES NO NAMED RULE, AND THAT IS DELIBERATE.
+
+          The pin is *reach* rather than membership — its own decision says so
+          — and `grantedNamesFor` answers from `workspaceMembers`, which a
+          pinned reader has no row in. So they read at `team` and a folder
+          named to a group is absent, which is the same answer they get for a
+          private one. Widening this would mean deciding that a pin confers
+          group membership, which nobody has decided and which no audit row
+          would record.
+        */
         return {
           role: PINNED_CONTEXT_ROLE,
           scope: scopeForRole(PINNED_CONTEXT_ROLE),
+          grantedNames: [],
         };
       }
     }
@@ -1535,6 +1573,7 @@ export const authorizeFileAccess = internalQuery({
     return {
       role: access.membership.role,
       scope: scopeForRole(access.membership.role),
+      grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
     };
   },
 });
@@ -1559,6 +1598,16 @@ export const runFileOperation = internalAction({
   args: {
     workspaceId: v.id("workspaces"),
     scope: v.union(v.literal("private"), v.literal("team")),
+    /**
+     * The `@name` rules this caller answers to, resolved by
+     * `authorizeFileAccess` from live membership.
+     *
+     * Optional because a scheduled pass — a projection link, an index sweep —
+     * re-enters this action with no caller at all, and the honest clearance
+     * for nobody is no names. Every such pass runs `scope`-blind or at the
+     * owner's `private`, so none of them loses anything by it.
+     */
+    grantedNames: v.optional(v.array(v.string())),
     operation: operationValidator,
   },
   returns: operationResultValidator,
@@ -1837,7 +1886,7 @@ export const runFileOperation = internalAction({
 
     const result = await executeOperation(
       store,
-      args.scope,
+      clearanceOf(args.scope, args.grantedNames ?? []),
       args.operation as FileOperation,
       Date.now(),
       projection,
@@ -2872,7 +2921,12 @@ async function runGoogleGmailBackfill(
  */
 export async function executeOperation(
   store: FileStore,
-  scope: Scope,
+  /**
+   * What this caller is cleared for: their tier, and the `@name` rules they
+   * answer to. One value rather than a `Scope` plus a name set, because a site
+   * that was not updated must not compile — see `lib/clearance.ts`.
+   */
+  clearance: Clearance,
   operation: FileOperation,
   now: number = Date.now(),
   /**
@@ -3132,7 +3186,7 @@ export async function executeOperation(
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
           now,
           expectedEtag: operation.expectedEtag,
         });
@@ -3151,17 +3205,17 @@ export async function executeOperation(
         const deleted = await deletePath(store, {
           path: operation.path,
           confirmation: DELETE_CONFIRMATION,
-          scope,
+          clearance,
           expectedEtag: operation.expectedEtag,
         });
         return { kind: "deleted", ...deleted };
       }
       case "list": {
-        const listing = await listFolder(store, { path: operation.path, scope });
+        const listing = await listFolder(store, { path: operation.path, clearance });
         return { kind: "listing", ...listing };
       }
       case "read": {
-        const file = await readFile(store, { path: operation.path, scope });
+        const file = await readFile(store, { path: operation.path, clearance });
         return { kind: "file", ...file };
       }
       case "clearVault": {
@@ -3170,7 +3224,7 @@ export async function executeOperation(
       }
       case "ensurePrivacy": {
         try {
-          const reset = await resetPrivacyManifest(store, { scope, now });
+          const reset = await resetPrivacyManifest(store, { clearance, now });
           return { kind: "privacyReset", ...reset };
         } catch (error) {
           if (error instanceof FileOpError && error.code === "PRIVACY_MANIFEST_USABLE") {
@@ -3191,7 +3245,7 @@ export async function executeOperation(
           {
             query: operation.query,
             prefix: operation.prefix,
-            scope,
+            clearance,
             limit: operation.limit,
             refreshOnMiss: operation.refreshOnMiss,
           },
@@ -3200,7 +3254,7 @@ export async function executeOperation(
         return { kind: "searchResults", ...results };
       }
       case "notePaths": {
-        const found = await notePathIndex(store, scope);
+        const found = await notePathIndex(store, clearance);
         return { kind: "notePaths", paths: found?.paths ?? null };
       }
       case "projectIndex": {
@@ -3235,7 +3289,7 @@ export async function executeOperation(
           path: operation.path,
           text: operation.text,
           expectedEtag: operation.expectedEtag,
-          scope,
+          clearance,
           now,
         });
         /*
@@ -3269,7 +3323,7 @@ export async function executeOperation(
         */
         await requireContextPlugin(store, "context-forms", "Markdown forms");
         const applied = await runFormAction(store, {
-          scope,
+          clearance,
           path: operation.path,
           formId: operation.formId,
           actor: { name: operation.actorName, role: operation.actorRole },
@@ -3282,7 +3336,7 @@ export async function executeOperation(
           path: operation.path,
           text: operation.text,
           expectedEtag: operation.expectedEtag,
-          scope,
+          clearance,
         });
         /*
           No form seeding on this path, and that is not an omission. Removing a
@@ -3294,14 +3348,14 @@ export async function executeOperation(
         return { kind: "written", ...written, forms: { created: [], occupied: [] } };
       }
       case "createFolder": {
-        const created = await createFolder(store, { path: operation.path, scope, now });
+        const created = await createFolder(store, { path: operation.path, clearance, now });
         return { kind: "folderCreated", ...created };
       }
       case "move": {
         const moved = await movePath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
           now,
         });
         return { kind: "moved", ...moved };
@@ -3310,27 +3364,27 @@ export async function executeOperation(
         const copied = await copyPath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
         });
         return { kind: "moved", ...copied };
       }
       case "duplicate": {
-        const copied = await duplicatePath(store, { path: operation.path, scope });
+        const copied = await duplicatePath(store, { path: operation.path, clearance });
         return { kind: "moved", ...copied };
       }
       case "archive": {
-        const moved = await archivePath(store, { path: operation.path, scope, now });
+        const moved = await archivePath(store, { path: operation.path, clearance, now });
         return { kind: "moved", ...moved };
       }
       case "trash": {
-        const moved = await trashPath(store, { path: operation.path, scope, now });
+        const moved = await trashPath(store, { path: operation.path, clearance, now });
         return { kind: "moved", ...moved };
       }
       case "restoreTrash": {
         const moved = await restoreTrashedPath(store, {
           from: operation.from,
           to: operation.to,
-          scope,
+          clearance,
         });
         return { kind: "moved", ...moved };
       }
@@ -3338,7 +3392,7 @@ export async function executeOperation(
         const deleted = await deletePath(store, {
           path: operation.path,
           confirmation: operation.confirmation,
-          scope,
+          clearance,
         });
         return { kind: "deleted", ...deleted };
       }
@@ -3352,7 +3406,22 @@ export async function executeOperation(
         const result = await setVisibility(store, {
           path: operation.path,
           visibility: `@${operation.group}` as Visibility,
-          scope,
+          clearance,
+        });
+        return { kind: "visibility" as const, ...result };
+      }
+      case "setFolderGroup": {
+        // The same writer as `setFolderVisibility`, with a name in place of a
+        // tier: that function has taken a `Visibility` since the group
+        // namespace existed and a name is one, so nothing in the engine was
+        // ever in the way. A separate operation rather than a widened
+        // `setFolderVisibility` for the reason `setNoteGroup` is separate —
+        // the ARGUMENT validator must stay two-valued, or every path that
+        // takes a visibility becomes a way to mint a rule.
+        const result = await setFolderVisibility(store, {
+          path: operation.path,
+          visibility: `@${operation.group}` as Visibility,
+          clearance,
         });
         return { kind: "visibility" as const, ...result };
       }
@@ -3360,7 +3429,7 @@ export async function executeOperation(
         const result = await setVisibility(store, {
           path: operation.path,
           visibility: operation.visibility,
-          scope,
+          clearance,
         });
         return { kind: "visibility", ...result };
       }
@@ -3368,7 +3437,7 @@ export async function executeOperation(
         const result = await setFolderVisibility(store, {
           path: operation.path,
           visibility: operation.visibility,
-          scope,
+          clearance,
         });
         return { kind: "visibility", ...result };
       }
@@ -3391,7 +3460,7 @@ export async function executeOperation(
       }
       case "importVault": {
         const imported = await importVaultFiles(store, {
-          scope,
+          clearance,
           files: operation.files.map((file) => ({
             ...file,
             bytes: new Uint8Array(file.bytes),
@@ -3404,7 +3473,7 @@ export async function executeOperation(
         return { kind: "image", bytes };
       }
       case "resetPrivacy": {
-        const result = await resetPrivacyManifest(store, { scope, now });
+        const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };
       }
       case "migrateStorage": {
@@ -3607,7 +3676,7 @@ export const listFiles = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "listing" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3615,6 +3684,7 @@ export const listFiles = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "list", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "listing" }>;
@@ -3638,7 +3708,7 @@ export const listObsidianPlugins = action({
     args,
   ): Promise<Extract<OperationResult, { kind: "pluginInventory" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -3646,6 +3716,7 @@ export const listObsidianPlugins = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "pluginInventory" },
     });
     return result as Extract<OperationResult, { kind: "pluginInventory" }>;
@@ -3671,7 +3742,7 @@ export const listManagedPlugins = action({
     args,
   ): Promise<Extract<OperationResult, { kind: "pluginManagedInstalls" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -3679,6 +3750,7 @@ export const listManagedPlugins = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "pluginManagedList" },
     });
     return result as Extract<OperationResult, { kind: "pluginManagedInstalls" }>;
@@ -3694,7 +3766,7 @@ export const readNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "file" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3702,6 +3774,7 @@ export const readNote = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "read", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "file" }>;
@@ -3730,7 +3803,7 @@ export const searchContext = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "searchResults" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3738,6 +3811,7 @@ export const searchContext = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "search", query: args.query, prefix: args.prefix },
     })) as Extract<OperationResult, { kind: "searchResults" }>;
 
@@ -3762,6 +3836,7 @@ export const searchContext = action({
       await ctx.scheduler.runAfter(0, internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
         scope,
+        grantedNames,
         operation: { kind: "maintainIndex", passes: INDEX_SYNC_CHAIN },
       });
     }
@@ -3788,7 +3863,7 @@ export const notePaths = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "notePaths" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "member",
@@ -3796,6 +3871,7 @@ export const notePaths = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "notePaths" },
     });
     return result as Extract<OperationResult, { kind: "notePaths" }>;
@@ -4083,7 +4159,7 @@ export const writeNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4091,6 +4167,7 @@ export const writeNote = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "write",
         path: args.path,
@@ -4319,7 +4396,7 @@ export const clearVaultImportBatch = action({
   returns: vaultImportJobStatusValidator,
   handler: async (ctx, args): Promise<VaultImportJobStatus> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4342,6 +4419,7 @@ export const clearVaultImportBatch = action({
     const result = await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "clearVault", countOnly: job.replacement.phase === "counting" },
     }) as Extract<OperationResult, { kind: "vaultCleared" }>;
     const recorded = await ctx.runMutation(internal.functions.files.recordVaultClearBatch, {
@@ -4482,7 +4560,7 @@ export const importVaultJobBatch = action({
       throw new ConvexError({ code: "IMPORT_BATCH_INVALID", message: "That upload batch is too large." });
     }
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4519,6 +4597,7 @@ export const importVaultJobBatch = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "importVault", files: args.files },
     })) as Extract<OperationResult, { kind: "vaultImported" }>;
     if (
@@ -4531,6 +4610,7 @@ export const importVaultJobBatch = action({
       await ctx.runAction(internal.functions.files.runFileOperation, {
         workspaceId: args.workspaceId,
         scope,
+        grantedNames,
         operation: { kind: "ensurePrivacy" },
       });
     }
@@ -4594,7 +4674,7 @@ export const importVaultBatch = action({
     }
 
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4602,6 +4682,7 @@ export const importVaultBatch = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "importVault", files: args.files },
     })) as Extract<OperationResult, { kind: "vaultImported" }>;
 
@@ -4654,7 +4735,7 @@ export const removeNoteEncryption = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4662,6 +4743,7 @@ export const removeNoteEncryption = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "removeEncryption",
         path: args.path,
@@ -4691,7 +4773,7 @@ export const createDirectory = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "folderCreated" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4699,6 +4781,7 @@ export const createDirectory = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "createFolder", path: args.path },
     })) as Extract<OperationResult, { kind: "folderCreated" }>;
 
@@ -4721,7 +4804,7 @@ export const moveEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4729,6 +4812,7 @@ export const moveEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "move", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4752,7 +4836,7 @@ export const copyEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4760,6 +4844,7 @@ export const copyEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "copy", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4783,7 +4868,7 @@ export const duplicateEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4791,6 +4876,7 @@ export const duplicateEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "duplicate", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4819,7 +4905,7 @@ export const archiveEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4827,6 +4913,7 @@ export const archiveEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "archive", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
@@ -4847,7 +4934,7 @@ export const trashEntry = action({
   returns: movedValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4855,6 +4942,7 @@ export const trashEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "trash", path: args.path },
     })) as Extract<OperationResult, { kind: "moved" }>;
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -4874,7 +4962,7 @@ export const restoreTrashEntry = action({
   returns: movedValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4882,6 +4970,7 @@ export const restoreTrashEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "restoreTrash", from: args.from, to: args.to },
     })) as Extract<OperationResult, { kind: "moved" }>;
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -4922,7 +5011,7 @@ export const deleteEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "deleted" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4930,6 +5019,7 @@ export const deleteEntry = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "delete",
         path: args.path,
@@ -4968,7 +5058,7 @@ export const setNoteVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -4976,6 +5066,7 @@ export const setNoteVisibility = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "setVisibility",
         path: args.path,
@@ -5024,32 +5115,25 @@ export const setNoteGroup = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
     });
 
-    // Tolerated on the way in and stripped once: the console renders the `@`
-    // because that is what the manifest shows, and a caller pasting what they
-    // see should not be a refusal. Stored without it, because the manifest's
-    // own grammar supplies the `@`.
-    const name = args.group.trim().replace(/^@/, "");
-    const group = await ctx.runQuery(internal.functions.groups.groupByName, {
-      workspaceId: args.workspaceId,
-      name,
-    });
-    if (group === null) {
-      throw new ConvexError({
-        code: "GROUP_NOT_FOUND",
-        message: "That group is not one of this context's.",
-      });
-    }
+    // One resolver for the note and the folder alike, so the two cannot start
+    // answering differently about the same name — which is how a folder
+    // accepts an audience a note refuses, or the reverse. It also taught this
+    // path to accept a person's handle, which it did not before: a rule may
+    // name one person, and requiring a group of one to share with a colleague
+    // was the friction that made the feature unusable.
+    const name = await resolveNamedAudience(ctx, args.workspaceId, args.group);
 
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
-      operation: { kind: "setNoteGroup", path: args.path, group: group.name },
+      grantedNames,
+      operation: { kind: "setNoteGroup", path: args.path, group: name },
     })) as Extract<OperationResult, { kind: "visibility" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -5058,6 +5142,154 @@ export const setNoteGroup = action({
       action: "visibility.note",
       paths: [result.path],
       details: { visibility: result.visibility, exception: result.exception },
+    });
+    return result;
+  },
+});
+
+/**
+ * Resolve the name an owner typed to the one that may go in `privacy.md`.
+ *
+ * Two kinds of subject, and the manifest cannot tell them apart — which is the
+ * point. `@atlas-leads` and `@kola` are the same token to the parser, because
+ * usernames, workspace slugs and group names share one global namespace
+ * precisely so an addressing scheme that gates access is never ambiguous.
+ *
+ * **Both are resolved against THIS workspace before anything is written.** A
+ * group name that exists in somebody else's context must be as unusable here as
+ * one that exists nowhere, and a handle must belong to somebody who is actually
+ * a member. Writing an unresolvable name would not leak — `grantedNamesFor`
+ * reads it as reaching nobody — but it would put a rule in the customer's
+ * manifest that no owner can account for, and it would read on screen as though
+ * somebody had been given access.
+ *
+ * One refusal for every way of failing, in the style `resolveAddressedUser`
+ * follows: no such group, a group of another workspace, no such handle, a
+ * handle belonging to a shared context rather than a person, and a person who
+ * is not a member here are all `GROUP_NOT_FOUND`. An owner who could tell them
+ * apart would have an oracle for which names exist on the platform.
+ */
+async function resolveNamedAudience(
+  ctx: ActionCtx,
+  workspaceId: Id<"workspaces">,
+  typed: string,
+): Promise<string> {
+  // Tolerated on the way in and stripped once: the console renders the `@`
+  // because that is what the manifest shows, and a caller pasting what they see
+  // should not be a refusal. Stored without it, because the manifest's own
+  // grammar supplies the `@`.
+  const name = typed.trim().replace(/^@+/, "").toLowerCase();
+  const resolved = await ctx.runQuery(internal.functions.files.namedAudience, {
+    workspaceId,
+    name,
+  });
+  if (resolved === null) {
+    throw new ConvexError({
+      code: "GROUP_NOT_FOUND",
+      message: "That is not a group or a member of this context.",
+    });
+  }
+  return resolved;
+}
+
+/**
+ * INTERNAL. The database half of `resolveNamedAudience`.
+ *
+ * Returns the name to store, or `null` for every way of saying no.
+ */
+export const namedAudience = internalQuery({
+  args: { workspaceId: v.id("workspaces"), name: v.string() },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    const group = await ctx.db
+      .query("workspaceGroups")
+      .withIndex("by_name", (q) => q.eq("name", args.name))
+      .unique();
+    if (group !== null) {
+      return group.workspaceId === args.workspaceId ? group.name : null;
+    }
+
+    // Not a group, so it may be a person. `resolveAddressedUser` is the only
+    // thing that decides who a handle belongs to — a `names` claim of
+    // `kind: "user"`, or the sole owner of a PERSONAL workspace with that slug
+    // — and every ambiguity there is already `null`.
+    const userId = await resolveAddressedUser(ctx, { kind: "name", value: args.name });
+    if (userId === null) return null;
+
+    // A rule naming somebody who is not a member reaches nobody, because
+    // `grantedNamesFor` intersects with membership. Refused rather than
+    // written, for the reason `addGroupMember` refuses a stranger: it would sit
+    // in the owner's manifest looking like access somebody had been given.
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", userId),
+      )
+      .unique();
+    return membership === null ? null : args.name;
+  },
+});
+
+/**
+ * Point a FOLDER at a group or a person, which everything inside it follows.
+ *
+ * The console's Share sheet called `setNoteGroup` for a folder too, and that
+ * function runs `fileOps.setVisibility`, which refuses anything that is not
+ * `.md`. So sharing a folder with a group answered "Only markdown notes can
+ * have their own visibility. Set the folder's default instead." — advice that
+ * names the right instrument and cannot be followed, because the control that
+ * sets a folder's default takes the two tiers and has no way to say a name.
+ *
+ * Its own action rather than a third value on `setDirectoryVisibility`, for the
+ * reason `setNoteGroup` is its own action: widening that validator would make
+ * every caller who sets a visibility a way to mint a rule.
+ *
+ * **The audit action is `visibility.folder.named`, not `visibility.folder`, and
+ * that is a decision rather than a spelling.** `visibility.folder` is on
+ * `MEMBER_VISIBLE_DETAIL_ACTIONS`, defended there on the details it carries:
+ * its subject is "one a member already sees first-hand in their own listing".
+ * True of `private` and `team` — a member watching a folder learns its default
+ * changed the moment their listing does. False the moment the value is a name:
+ * the row would hand a member the name of a group they are not in, which
+ * `listGroups` is owner-only to withhold. Splitting the action keeps the gate
+ * purely per-action, which is the shape it was deliberately given.
+ *
+ * Requires `owner`, like every other writer of `privacy.md`.
+ */
+export const setFolderGroup = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The full name, with or without its leading `@`. */
+    group: v.string(),
+  },
+  returns: visibilityResultValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "owner",
+    });
+
+    const name = await resolveNamedAudience(ctx, args.workspaceId, args.group);
+
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "setFolderGroup", path: args.path, group: name },
+    })) as Extract<OperationResult, { kind: "visibility" }>;
+
+    await ctx.runMutation(internal.functions.audit.recordEvent, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      action: "visibility.folder.named",
+      paths: [result.path],
+      details: { visibility: result.visibility },
     });
     return result;
   },
@@ -5087,7 +5319,7 @@ export const setDirectoryVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -5095,6 +5327,7 @@ export const setDirectoryVisibility = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: {
         kind: "setFolderVisibility",
         path: args.path,
@@ -5134,7 +5367,7 @@ export const resetPrivacy = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "privacyReset" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -5142,6 +5375,7 @@ export const resetPrivacy = action({
     const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
+      grantedNames,
       operation: { kind: "resetPrivacy" },
     })) as Extract<OperationResult, { kind: "privacyReset" }>;
 

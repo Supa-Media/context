@@ -328,7 +328,12 @@ describe("a pinned reader may read and may not write", () => {
         workspaceId: pinnedId,
         minimum: "member",
       }),
-    ).toEqual({ role: "member", scope: "team" });
+      // `grantedNames` is empty and that is the pin's own decision rather
+      // than an accident of this fixture: the pin is *reach* rather than
+      // membership, and `grantedNamesFor` answers from `workspaceMembers`,
+      // which a pinned reader has no row in. So a folder named to a group is
+      // absent to them exactly as a private one is.
+    ).toEqual({ role: "member", scope: "team", grantedNames: [] });
   });
 
   test("`team` scope, so a private note of ours stays private", async () => {
@@ -379,7 +384,7 @@ describe("a pinned reader may read and may not write", () => {
         workspaceId: pinnedId,
         minimum: "member",
       }),
-    ).toEqual({ role: "owner", scope: "private" });
+    ).toEqual({ role: "owner", scope: "private", grantedNames: ["staff-personal"] });
   });
 
   test("an editor of the pinned context keeps editor, and may write", async () => {
@@ -397,7 +402,7 @@ describe("a pinned reader may read and may not write", () => {
         workspaceId: pinnedId,
         minimum: "editor",
       }),
-    ).toEqual({ role: "editor", scope: "team" });
+    ).toEqual({ role: "editor", scope: "team", grantedNames: ["ed"] });
   });
 
   test("the pin does not authorize reads anywhere else", async () => {

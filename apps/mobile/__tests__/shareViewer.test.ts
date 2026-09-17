@@ -44,6 +44,10 @@ import {
 const note = (over: Partial<SharedNote> = {}): SharedNote => ({
   path: "1-projects/overview.md",
   text: "# Overview\n\nBody.\n",
+  // A note by default, which is what every existing case in this file is
+  // about; the folder half has its own fixture where it is exercised.
+  kind: "note",
+  entries: [],
   entryPath: "1-projects/overview.md",
   links: [],
   openToAnyone: false,
