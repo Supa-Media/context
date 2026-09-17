@@ -261,9 +261,38 @@ export function FolderView({
                 : "Nothing in this folder is shared with you."}
             </Text>
           ) : (
-            rows.map((row) => (
-              <FolderRow key={row.path} row={row} onSelect={onSelect} menu={menu} />
-            ))
+            /*
+              ONE CARD, NOT EIGHT — AND NOT LOOSE ROWS EITHER.
+
+              `Phone-Browse.dc.html` draws a grouped list: a single 18pt card
+              holding every row, with a hairline between them inset past the
+              icons. That is the idiom this phone already uses for settings, and
+              `radii.sheet` is documented as "a grouped list card" for exactly
+              it.
+
+              It does **not** reverse this file's own "it is the tree, in the
+              other place". What that argued against was "full-width grey cards
+              with borders and 10pt of padding" — a card *per row*, eight files
+              rendered as eight form fields. One card containing a list is the
+              opposite move: it is what stops a listing on a phone reading as
+              text floating in a page, which is what it does today.
+
+              Pointer layouts keep the tree's own drawing, because there the
+              tree is on screen beside this and the two really are one thing
+              shown twice.
+            */
+            <View style={compact ? styles.card : undefined}>
+              {rows.map((row, index) => (
+                <FolderRow
+                  key={row.path}
+                  row={row}
+                  onSelect={onSelect}
+                  menu={menu}
+                  card={compact}
+                  first={index === 0}
+                />
+              ))}
+            </View>
           )}
           {listing?.truncated ? (
             <Text variant="treeMeta" style={styles.aside}>
@@ -303,10 +332,16 @@ function FolderRow({
   row,
   onSelect,
   menu,
+  card = false,
+  first = false,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
   menu?: FolderMenu;
+  /** Drawn inside the phone's grouped card — see the listing. */
+  card?: boolean;
+  /** The first row in that card, which draws no separator above it. */
+  first?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -326,9 +361,9 @@ function FolderRow({
     <View ref={rightClick.ref} collapsable={false}>
     <PressRow
       onPress={() => onSelect(row.path)}
-      style={styles.row}
+      style={[styles.row, card && styles.rowCard, card && !first && styles.rowRuled]}
       hoverStyle={styles.rowHover}
-      radius={radii.md}
+      radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
       accessibilityLabel={row.kind === "folder" ? `${label}, folder` : label}
       testID="folder-row"
@@ -380,6 +415,15 @@ function FolderRow({
           testID="folder-row-exception"
         />
       ) : null}
+      {/*
+        The trailing chevron the canvas draws, and only inside the card.
+
+        In a grouped list it is the thing that says a row goes somewhere — the
+        leading gutter's chevron says "this is a folder", which is a different
+        claim and is why both exist. Outside the card there is no list edge for
+        it to sit against and the leading one already carries the listing.
+      */}
+      {card ? <Icon name="chevronRight" size={14} color={colors.chromeMuted} /> : null}
     </PressRow>
     </View>
   );
@@ -404,6 +448,12 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * page goes on being as long as what is in it.
    */
   folder: { flexGrow: 1 },
+  /*
+    No ground here. It belongs to `BrowsePane`'s listing scroller — this view
+    sits inside that scroller's content, which does not stretch its children, so
+    a background set here stops where the rows do and leaves a seam across the
+    middle of the screen. See that scroller's own note.
+  */
   folderCompact: { paddingHorizontal: layout.readingMargin },
   /**
    * The document column: the note's measure, centred in what is left.
@@ -442,6 +492,57 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: radii.md,
   },
   rowHover: { backgroundColor: colors.surface3 },
+  /**
+   * The phone's grouped card. See the listing for why it is one card.
+   *
+   * `overflow: "hidden"` so a row's own hover or press fill is clipped by the
+   * card's corners rather than squaring them off — the first and last rows are
+   * the ones that show it, and they are the ones a thumb lands on most.
+   */
+  card: {
+    /*
+      `surface2`, not `surface`.
+
+      The canvas draws a near-white card on a warm grey page. This page is not
+      warm grey — a phone's note ground is `ground`, which in the paper palette
+      IS `surface` (`#FFFDF9` both), so a `surface` card was a card the exact
+      colour of the page behind it: separators and chevrons appeared, the card
+      did not. Measured in the browser, which is the only way that shows.
+
+      `surface2` was the next try and was not enough either: on graphite the
+      page and `surface2` are neighbours, so the card read as a slightly
+      different dark rather than as a card.
+
+      The canvas's answer is not a different card, it is a different *page*.
+      `Phone-Browse.dc.html` grounds the browse screen in `#F4F1EA` — chrome —
+      and draws the card in `#FFFDF9` — page. `Phone-Note.dc.html` keeps the
+      note on the page surface, because a note IS the page. So the two screens
+      have different grounds on purpose, and the pair this codebase already
+      names for exactly that relationship is `chromeSurface` / `pageSurface`:
+      the page is lighter than the chrome around it, in both worlds.
+
+      So the card is `pageSurface` and `BrowsePane`'s listing scroller grounds
+      the screen in `chromeSurface`. A listing is not a document; it is the
+      furniture you pick a document from.
+    */
+    backgroundColor: colors.pageSurface,
+    borderRadius: radii.sheet,
+    overflow: "hidden",
+  },
+  /*
+    Taller inside the card: `layout.explorerRow` is the tree's 36pt pitch,
+    drawn for a 260pt column beside a document. A grouped list on a phone is
+    the screen, and the canvas draws 48 — which is also comfortably over the
+    touch floor, so `hitSlop` stops doing work here.
+  */
+  rowCard: { height: 48, paddingLeft: space.x4, paddingRight: space.x4 },
+  /*
+    The separator, inset past the icon gutter so the rules line up under the
+    names rather than cutting the whole card into bands. A top border on every
+    row but the first, rather than a bottom border on every row but the last:
+    the last row is the one whose border would sit on the card's rounded edge.
+  */
+  rowRuled: { borderTopWidth: 1, borderTopColor: colors.line },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },
