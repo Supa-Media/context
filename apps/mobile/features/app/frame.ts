@@ -407,6 +407,23 @@ export function topBarLeadFor(density: Density): "switcher" | "account" {
 }
 
 /**
+ * How wide a document column is — the note's own measure, in points.
+ *
+ * `layout.readingMeasureEm` is a multiple of the note's type size rather than
+ * a width (see that token for why), so this is the one place that multiplies
+ * the two out. **It is exported because a note is not the only document on
+ * this surface**: a folder listing is a page in the same column
+ * (`FolderView`), and a column stated twice is two columns the day either
+ * number moves.
+ *
+ * Read it with `alignSelf: "center"` and `width: "100%"`, which is the same
+ * centring `noteGutterFor` describes in CSS: at a width narrower than this the
+ * `maxWidth` cannot bind and the surface's own padding governs, exactly as the
+ * editor's `max(0, …)` floors at its gutter.
+ */
+export const noteColumnWidth = layout.readingMeasureEm * layout.noteFontSize;
+
+/**
  * Where the note's first character is, measured from the left of its region.
  *
  * The note is a centred column: `LiveEditor.web.tsx` gives its scroller
@@ -426,9 +443,8 @@ export function topBarLeadFor(density: Density): "switcher" | "account" {
  * `max` floors at the gutter, which is exactly what the CSS does.
  */
 export function noteGutterFor(width: number): number {
-  const measure = layout.readingMeasureEm * layout.noteFontSize;
   const inside = width - layout.notePadX * 2;
-  return layout.notePadX + Math.max(0, (inside - measure) / 2);
+  return layout.notePadX + Math.max(0, (inside - noteColumnWidth) / 2);
 }
 
 /**

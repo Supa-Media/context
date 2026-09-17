@@ -209,6 +209,52 @@ test.describe("at a desktop console width", () => {
 
     await expect(page.locator(".cm-editor.cm-focused")).toHaveCount(1);
   });
+
+  /**
+   * A FOLDER LISTING IS A PAGE IN THE SAME COLUMN, MEASURED AGAINST THE NOTE
+   * ITSELF RATHER THAN AGAINST A NUMBER.
+   *
+   * Reported with two screenshots of the same window: a note, centred; and
+   * `1-projects`, its rows against the left edge of a 900pt pane with the rest
+   * of it empty. Two pages in one frame laid out by two different rules.
+   *
+   * `__tests__/folderView.test.ts` holds the arithmetic — the column is
+   * `noteColumnWidth` and `noteGutterFor` centres that same width — and it
+   * cannot hold this, for the reason at the top of this file: jsdom lays
+   * nothing out, so it cannot tell a `max-width` that binds from one that does
+   * not, and it certainly cannot compare two pages' left edges. So the claim is
+   * made here in the only terms that mean anything, which are the note's own
+   * box: same width, same first character, in one engine at one width.
+   */
+  test("a folder listing is the note's column, not the width of the pane", async ({ page }) => {
+    const note = await paragraph(page);
+    const line = await page
+      .locator(".cm-line", { hasText: "Tenancy is bucket-level" })
+      .first()
+      .boundingBox();
+    if (line === null) throw new Error("the paragraph has no box to measure");
+
+    // The way up out of the note, which lands on the folder's own page.
+    await page.getByTestId("breadcrumb-folder-1-projects").click();
+    await expect(page.getByTestId("folder-row").first()).toBeVisible();
+    const column = await page.getByTestId("folder-column").boundingBox();
+    if (column === null) throw new Error("the folder drew no column");
+
+    say("folder", { ...note, width: column.width });
+
+    /*
+      The same column, to the point: one `noteColumnWidth`, and its left edge
+      on the character the note's first line starts at. A tight bound is honest
+      here for `paragraph`'s reason — the measure is a box the layout owns, and
+      nothing about it is the font's business.
+    */
+    expect(Math.abs(column.width - line.width)).toBeLessThan(2);
+    expect(Math.abs(column.x - line.x)).toBeLessThan(2);
+
+    // And there was real pane to be centred in, so this is not passing on a
+    // window the column already fills.
+    expect(column.width).toBeLessThan(note.paneWidth - 100);
+  });
 });
 
 test.describe("at the phone viewport", () => {
