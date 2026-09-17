@@ -139,6 +139,9 @@ describe("light palette contrast", () => {
     surface2: lightColors.surface2,
     surface3: lightColors.surface3,
     well: lightColors.well,
+    // The frame's two roles. Every word in the console is set on one of them.
+    chromeSurface: lightColors.chromeSurface,
+    pageSurface: lightColors.pageSurface,
   };
 
   test.each(Object.entries(grounds))("body text clears AA on %s", (_name, background) => {
@@ -224,7 +227,13 @@ describe("light palette contrast", () => {
 
 describe("dark palette contrast", () => {
   test("body text clears AA on the surfaces it is drawn on", () => {
-    for (const background of [darkColors.ground, darkColors.surface, darkColors.well]) {
+    for (const background of [
+      darkColors.ground,
+      darkColors.surface,
+      darkColors.well,
+      darkColors.chromeSurface,
+      darkColors.pageSurface,
+    ]) {
       expect(contrast(darkColors.text, background)).toBeGreaterThanOrEqual(AA);
       expect(contrast(darkColors.text2, background)).toBeGreaterThanOrEqual(AA);
     }
@@ -434,5 +443,38 @@ describe("useThemedStyles", () => {
     expect(readHook("dark", () => useThemedStyles(withShadow)).bar.boxShadow).toBe(
       darkShadows.floating,
     );
+  });
+});
+
+/**
+ * The frame's two surfaces are a *pair*, and the relationship is the point.
+ *
+ * "The page is lighter than the chrome around it" is what lets the rail, the
+ * explorer and the editor separate without a border between each pair — which
+ * is what they used to need, all three being the same value. If the two ever
+ * converge, the frame silently goes back to being one flat plane and only a
+ * screenshot would show it.
+ */
+describe("the frame's surfaces", () => {
+  function relLum(hex: string): number {
+    const [r, g, b] = parseHex(hex).map(channel);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  test.each([
+    ["light", lightColors],
+    ["dark", darkColors],
+  ])("in %s, the page is lighter than its chrome", (_name, palette) => {
+    expect(relLum(palette.pageSurface)).toBeGreaterThan(relLum(palette.chromeSurface));
+  });
+
+  test.each([
+    ["light", lightColors],
+    ["dark", darkColors],
+  ])("in %s, they are far enough apart to read as two planes", (_name, palette) => {
+    // Not a WCAG threshold — this is two greys next to each other, where the
+    // eye needs far less than text does. 1.04 is roughly the point at which a
+    // large flat area stops looking like a rendering artefact.
+    expect(contrast(palette.pageSurface, palette.chromeSurface)).toBeGreaterThan(1.04);
   });
 });

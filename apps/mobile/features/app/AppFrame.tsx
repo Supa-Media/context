@@ -1806,9 +1806,9 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignItems: "center",
     gap: space.x3,
     paddingHorizontal: space.x3,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.surface2,
+    // The title bar is chrome and reads as chrome by being chrome-coloured;
+    // the rule under it was the same line doing a value's job.
+    backgroundColor: colors.chromeSurface,
   },
   /**
    * The phone's top edge, which is not a bar.
@@ -1931,22 +1931,26 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     position: "relative",
   },
 
+  /*
+    No border. The rail, the explorer and the page were all `surface` — one
+    value across three regions — so a hairline had to be drawn between each
+    pair to say they were different things. They are different values now
+    (`chromeSurface` against `pageSurface`), which is what separates panels in
+    this design; the only hairlines left in the frame are the seams, and a seam
+    is a 7pt drag target that has to be visible to be usable.
+  */
   rail: {
     width: layout.railWidth,
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.chromeSurface,
   },
   railIcons: { width: layout.railIconWidth },
 
   explorerColumn: {
-    borderRightWidth: 1,
-    borderRightColor: colors.line,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.chromeSurface,
     position: "relative",
   },
 
-  editor: { flex: 1, minWidth: 0, backgroundColor: colors.surface },
+  editor: { flex: 1, minWidth: 0, backgroundColor: colors.pageSurface },
 
   resizer: {
     position: "absolute",
