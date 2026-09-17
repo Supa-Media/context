@@ -1587,7 +1587,23 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * The phone's page scroller: full-bleed, with the chrome paid for in content
    * padding at the call site rather than in a shorter viewport here.
    */
-  scroll: { flex: 1, minHeight: 0 },
+  /**
+   * The listing's scroller, and its ground.
+   *
+   * `chromeSurface`, because this branch is the phone's **folder** screen and a
+   * listing is not a document — it is the furniture you pick a document from.
+   * `Phone-Browse.dc.html` grounds it a step down from the cards on it, which
+   * is the whole reason those cards read as cards; `Phone-Note.dc.html` leaves
+   * the note on the page surface, because a note IS the page.
+   *
+   * On the scroller rather than on `FolderView`'s own container, which was
+   * where it went first: that view sits inside this scroller's content, which
+   * does not stretch its children, so the ground stopped where the rows did and
+   * left a visible seam across the middle of the screen with the page surface
+   * below it. Measured in a browser — nothing in the suite can see a band that
+   * ends early.
+   */
+  scroll: { flex: 1, minHeight: 0, backgroundColor: colors.chromeSurface },
   /**
    * No padding, and no `flex: 1`.
    *
