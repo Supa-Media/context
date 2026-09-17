@@ -864,3 +864,60 @@ describe("what Context has installed, before a scan", () => {
     expect(browse?.textContent).toContain("Update to the latest release");
   });
 });
+
+/**
+ * A PLUGIN'S SCREEN IS A SCREEN, NOT AN ITEM UNDER THE LIST'S CHROME.
+ *
+ * `VaultPlugins` has returned the detail *instead of* the list since it was
+ * written — its own comment says a detail drawn under a row is "a wall with a
+ * fold in it rather than a screen". The panel around it did not get the memo:
+ * the search box and its three filters are rendered by `PluginsPanel`, above
+ * the vault half, so they stayed on screen with a plugin open.
+ *
+ * Seen in a browser rather than reasoned about: the detail read
+ *
+ *   Plugins / The plugins in this context… / [search] [All][Context][Obsidian]
+ *   ‹ All plugins / Bible Reference
+ *
+ * — a search box filtering a list that is not on screen, above a back button,
+ * above the thing you actually opened. Typing in it did nothing visible, which
+ * is the tell.
+ *
+ * So the panel hides its own chrome while a plugin is open, and the way back
+ * is a breadcrumb that names where it goes rather than a chip reading
+ * "‹ All plugins" three rows below a heading that also says Plugins.
+ */
+describe("opening a plugin replaces the pane, chrome and all", () => {
+  const withDetail = () => opened(panel(READY), "highlightr-plugin");
+
+  test("the search box and its filters are gone while a plugin is open", () => {
+    const container = withDetail();
+    expect(container.querySelector("[data-testid='plugins-toolbar']")).toBeNull();
+    expect(container.querySelector("[data-testid='plugins-query']")).toBeNull();
+    for (const value of ["all", "context", "obsidian"]) {
+      expect(container.querySelector(`[data-testid='plugins-filter-${value}']`)).toBeNull();
+    }
+  });
+
+  /*
+    The built-ins too. They are a different list, and a plugin's own screen is
+    not the place to go on listing them underneath — the same argument the
+    vault list already makes for itself.
+  */
+  test("the built-ins are not listed under somebody's open plugin", () => {
+    expect(withDetail().querySelector("[data-testid='context-plugins']")).toBeNull();
+  });
+
+  test("the way back names where it goes, and goes there", () => {
+    const container = withDetail();
+    const back = container.querySelector(
+      "[data-testid='plugin-detail-back']",
+    ) as HTMLElement | null;
+    expect(back).not.toBeNull();
+    expect(back!.textContent).toContain("Plugins");
+
+    act(() => back!.click());
+    expect(container.querySelector("[data-testid='plugins-toolbar']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='plugin-detail-highlightr-plugin']")).toBeNull();
+  });
+});

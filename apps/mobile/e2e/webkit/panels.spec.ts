@@ -1,7 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * The folding side panels, laid out by a real engine.
+ * The folding side panel, laid out by a real engine.
+ *
+ * **It used to be two**, and every case below that named the rail — its
+ * column, its seam, its status toggle — is rewritten rather than deleted. The
+ * rail folded into `SwitcherMenu` (`docs/decisions/app-and-console.md`), so
+ * there is one left panel, one seam and one toggle; what those cases were
+ * really holding is that a fold is *real layout* rather than a hidden panel
+ * still holding its track, and that is asserted here of the panel that is
+ * left.
  *
  * ## Why this file exists
  *
@@ -56,22 +64,24 @@ test.beforeEach(async ({ page }) => {
   await page.getByTestId("fixture-note").waitFor();
 });
 
-test("a desktop opens with both panels and the editor beside them", async ({ page }) => {
-  const rail = await box(page, "fixture-rail-full");
+test("a desktop opens with the tree and the note beside it", async ({ page }) => {
   const tree = await box(page, "fixture-explorer");
   const note = await box(page, "fixture-note");
 
-  // Left to right, none of them overlapping: the failure a column layout makes
-  // is drawing one region on top of another, and it type-checks every time.
-  expect(rail.x + rail.width).toBeLessThanOrEqual(tree.x + 1);
+  // Left to right, not overlapping: the failure a column layout makes is
+  // drawing one region on top of another, and it type-checks every time.
   expect(tree.x + tree.width).toBeLessThanOrEqual(note.x + 1);
   expect(note.width).toBeGreaterThan(700);
+
+  // And the tree starts at the window's own edge, which is the whole of what
+  // the fold bought: a 216pt rail used to stand here.
+  expect(tree.x).toBeLessThan(4);
 });
 
-test("the seams are targets a pointer can actually hit", async ({ page }) => {
-  // 7pt, straddling a hairline. A seam that collapsed to zero width would still
-  // render, still pass every jsdom assertion, and be unusable.
-  const seam = await box(page, "rail-seam-toggle");
+test("the tree's resizer is a target a pointer can actually hit", async ({ page }) => {
+  // A seam that collapsed to zero width would still render, still pass every
+  // jsdom assertion, and be unusable.
+  const seam = await box(page, "explorer-resizer");
   expect(seam.width).toBeGreaterThanOrEqual(6);
   expect(seam.height).toBeGreaterThan(700);
 });
@@ -121,48 +131,48 @@ test("the peek floats: it lands where the column was and moves nothing", async (
   await expect(page.getByTestId("explorer-seam-closed")).toBeVisible();
 });
 
-test("a seam's chevron does not intercept the seam next to it", async ({ page }) => {
+test("the closed seam's chevron does not eat the press that opens it", async ({ page }) => {
   /*
     **The defect this fixture was built and immediately earned its keep on.**
 
     The chevron is 18pt wide on a 7pt or 10pt seam, because a chevron inside a
     hairline is unreadable — so it overhangs its own seam on both sides. As a
     plain child it sat on top of whatever was beside it: with the tree folded,
-    the closed seam's chevron covered the *rail's* seam, and pressing the rail's
+    the closed seam's chevron covered the rail's seam, and pressing the rail's
     seam re-opened the file tree instead. It is `pointerEvents="none"` now.
 
-    jsdom has no pointers to intercept, so no render test could have caught
-    this, and it would have shipped as "the rail toggle sometimes does the wrong
-    thing" — the kind of bug that gets reported as flakiness.
+    The rail is gone and so is the seam the chevron was covering, so what is
+    left to assert is the half that survives it: a drawing that took pointer
+    events would take its own seam's press too. Hovered first, so the chevron
+    is drawn at its full width rather than absent, and then the seam is pressed
+    through it.
+
+    jsdom has no pointers to intercept, so no render test could catch this, and
+    it would ship as "the toggle sometimes does the wrong thing" — the kind of
+    bug that gets reported as flakiness.
   */
   await page.getByTestId("status-toggle-explorer").click();
   await expect(page.getByTestId("explorer-seam-closed")).toBeVisible();
 
-  // Hovered, so the chevron is drawn and at its full width rather than absent.
   await page.getByTestId("explorer-seam-closed").hover();
+  await page.getByTestId("explorer-seam-closed").click({ timeout: 5000 });
 
-  await page.getByTestId("rail-seam-toggle").click({ timeout: 5000 });
-
-  // The rail collapsed, and the tree did not come back.
-  await expect(page.getByTestId("fixture-rail-icons")).toBeVisible();
-  await expect(page.getByTestId("fixture-explorer")).toHaveCount(0);
+  await expect(page.getByTestId("fixture-explorer")).toBeVisible();
 });
 
-test("both panels folded leaves the note nearly the whole window", async ({ page }) => {
+test("the panel folded leaves the note nearly the whole window", async ({ page }) => {
   const before = await box(page, "fixture-note");
 
   // No chord here: the keymap is `console/_layout.tsx`'s and this fixture is the
   // frame alone. The status bar is the other half of the design and is the half
   // that has to work without one.
   await page.getByTestId("status-toggle-explorer").click();
-  await page.getByTestId("rail-seam-toggle").click();
 
   const after = await box(page, "fixture-note");
-  expect(after.width).toBeGreaterThan(before.width + 300);
+  expect(after.width).toBeGreaterThan(before.width + 200);
 
   // The instruments stay: the status bar is the way back, and a mode that hides
   // its own escape hatch is one people enter exactly once.
-  await expect(page.getByTestId("status-toggle-rail")).toBeVisible();
   await expect(page.getByTestId("status-toggle-explorer")).toBeVisible();
 
   await page.getByTestId("explorer-seam-closed").click();
@@ -175,13 +185,16 @@ test.describe("a phone", () => {
   // are.
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-  test("has neither seam and neither toggle", async ({ page }) => {
+  test("has no seam and no toggle", async ({ page }) => {
     // A phone has no left panel at all — navigation is the context strip and
     // the bottom row — so a seam offering to unfold one would be a control for
     // a region that does not exist.
-    await expect(page.getByTestId("rail-seam-toggle")).toHaveCount(0);
     await expect(page.getByTestId("explorer-seam-closed")).toHaveCount(0);
     await expect(page.getByTestId("explorer-resizer")).toHaveCount(0);
+    await expect(page.getByTestId("status-toggle-explorer")).toHaveCount(0);
+    // The rail's own seam and toggle went with the rail, so these can no
+    // longer be absent *at this density* — they are absent everywhere.
+    await expect(page.getByTestId("rail-seam-toggle")).toHaveCount(0);
     await expect(page.getByTestId("status-toggle-rail")).toHaveCount(0);
     await expect(page.getByTestId("fixture-note")).toBeVisible();
   });

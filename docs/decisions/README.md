@@ -181,6 +181,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Invitations are queued, and a partial send keeps its successes
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail is one list, with the personal workspace pinned to the top
+- The rail folds into the switcher, and the column it occupied goes to the note
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host

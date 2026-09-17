@@ -267,18 +267,30 @@ function mountConsole(next: Shape = {}) {
     root.render(createElement(ConsoleLayout as never));
   });
 
+  /*
+    `document.body`, not the container: the offer is a row in `SwitcherMenu`'s
+    `Menu`, and react-native-web renders one through a portal outside the tree
+    it was declared in.
+  */
+  const press = (node: HTMLElement | null) => {
+    if (node === null) throw new Error("nothing to press");
+    act(() => {
+      node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
+
   return {
     text: () => container.textContent ?? "",
-    find: (testId: string) => container.querySelector<HTMLElement>(`[data-testid="${testId}"]`),
-    byLabel: (label: string) => container.querySelector<HTMLElement>(`[aria-label="${label}"]`),
-    press: (node: HTMLElement | null) => {
-      if (node === null) throw new Error("nothing to press");
-      act(() => {
-        node.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-    },
+    find: (testId: string) =>
+      document.body.querySelector<HTMLElement>(`[data-testid="${testId}"]`),
+    byLabel: (label: string) =>
+      document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`),
+    press,
+    /** Open the workspace switcher, which is where the rail's offer went. */
+    openSwitcher: () =>
+      press(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]')),
     unmount: () => {
       act(() => root.unmount());
       container.remove();
@@ -286,23 +298,30 @@ function mountConsole(next: Shape = {}) {
   };
 }
 
-describe("the rail offers a context of your own when you have none", () => {
+/**
+ * The offer, in the switcher — where the rail's was.
+ *
+ * `rail-claim-context` was a row in a permanent column, so these read it
+ * straight off the console. The rail folded into `SwitcherMenu`
+ * (`docs/decisions/app-and-console.md`), so the row is behind one press. Who
+ * is offered it, and what pressing it does, are unchanged.
+ */
+describe("the switcher offers a context of your own when you have none", () => {
   test("an invitee reading somebody else's context is shown the way in", () => {
     const app = mountConsole({ role: "editor" });
+    app.openSwitcher();
 
-    const entry = app.find("rail-claim-context");
-    expect(entry).not.toBeNull();
-    // The label survives for a screen reader, which is the rule every other
-    // rail entry follows and the one a collapsed rail would otherwise break.
-    expect(app.byLabel("Claim your name and create your own workspace")).not.toBeNull();
+    expect(app.find("switcher-claim")).not.toBeNull();
+    expect(app.find("switcher-claim")!.textContent).toContain("Claim your @name");
 
     app.unmount();
   });
 
   test("pressing it goes to onboarding, which is the screen that can do it", () => {
     const app = mountConsole({ role: "editor" });
+    app.openSwitcher();
 
-    app.press(app.find("rail-claim-context"));
+    app.press(app.find("switcher-claim"));
 
     // `push`, not `replace`: onboarding has no Back of its own, so the browser's
     // is the only way back to the context they were reading.
@@ -313,13 +332,15 @@ describe("the rail offers a context of your own when you have none", () => {
 
   test("an owner is never shown it — onboarding is not re-runnable", () => {
     const app = mountConsole({ role: "owner" });
-    expect(app.find("rail-claim-context")).toBeNull();
+    app.openSwitcher();
+    expect(app.find("switcher-claim")).toBeNull();
     app.unmount();
   });
 
   test("it does not flash while the context list is still loading", () => {
     const app = mountConsole({ role: "editor", loading: true });
-    expect(app.find("rail-claim-context")).toBeNull();
+    app.openSwitcher();
+    expect(app.find("switcher-claim")).toBeNull();
     app.unmount();
   });
 });

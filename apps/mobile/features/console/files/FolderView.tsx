@@ -290,11 +290,12 @@ function FolderRow({
   const styles = useThemedStyles(makeStyles);
   const label = displayName(row.name);
   /*
-    A wrapper rather than a ref on the `PressRow`, which is the same escape
-    hatch `ContextRowMenu`'s `RightClickTarget` uses and for the same reason:
-    react-native-web forwards no `onContextMenu`, and reaching the real node
-    through a plain `View` is the contained way to get at one. The wrapper sets
-    no style, so it adds no box — the row inside keeps its own 36pt pitch.
+    A wrapper rather than a ref on the `PressRow`, which is the escape hatch
+    the rail's own right-click used before the rail folded away, and for the
+    same reason: react-native-web forwards no `onContextMenu`, and reaching the
+    real node through a plain `View` is the contained way to get at one. The
+    wrapper sets no style, so it adds no box — the row inside keeps its own
+    36pt pitch.
   */
   const rightClick = useRightClick(
     menu === undefined ? undefined : (anchor) => menu.onRow(row, anchor),

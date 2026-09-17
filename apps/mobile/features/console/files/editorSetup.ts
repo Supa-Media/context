@@ -31,7 +31,12 @@ import { defaultKeymap, history, historyKeymap, indentLess, indentMore, redo, un
 import { startCompletion, type CompletionSource } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
-import { codeHighlighting, livePreview, markdownLanguage } from "./livePreview";
+import {
+  codeHighlighting,
+  frontmatterBlock,
+  livePreview,
+  markdownLanguage,
+} from "./livePreview";
 import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
@@ -79,12 +84,61 @@ export const externalDoc = Annotation.define<boolean>();
  * `addMapping` is what CodeMirror does with the change instead, so an undo
  * across a note switch is not merely skipped — the positions it holds are
  * remapped, which is what stops it pasting one note's text into another.
+ *
+ * The caret lands at `openingCaret` — the start of the writing, past any
+ * frontmatter — rather than wherever mapping the old selection through a
+ * whole-document replacement happens to put it.
  */
 export function replaceDocument(view: EditorView, text: string): void {
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: text },
+    selection: { anchor: openingCaret(text) },
     annotations: [externalDoc.of(true), Transaction.addToHistory.of(false)],
   });
+}
+
+/**
+ * Where the caret goes when a note is opened: the first character of the note,
+ * which is not always the first character of the file.
+ *
+ * **This exists because a note opens at position 0 and position 0 is inside
+ * the frontmatter.** `livePreview.ts` hides that block until the selection
+ * reaches it, and a caret parked at 0 by the act of opening reaches it — so
+ * every note with a `---` block opened showing four lines of YAML above its
+ * own title, which is the thing hiding it was for. Making the *reveal* rule
+ * cleverer was the other option and is worse: "touching the range does not
+ * count at its first character" would also mean ⌘↑ cannot get you there.
+ *
+ * It is right on its own terms too, and that is what makes it the fix rather
+ * than a workaround: the caret belongs where the writing starts. A phone has
+ * had this for free since `NoteEditor` started handing that surface the body
+ * alone — the two agree now instead of differing by which density you are on.
+ *
+ * `frontmatterBlock` rather than `frontmatterRange`, and that difference is
+ * the whole of whether this works: what is hidden is the fences *and the
+ * blank lines under them*, so a caret one character past the fence would be
+ * inside what is hidden and would reveal the lot. `+ 1` steps over the
+ * newline that ends the block.
+ *
+ * `frontmatterBlock` only answers for a document that opens with a terminated
+ * block, so a note with no frontmatter, an unterminated fence, or a `---`
+ * further down all answer 0 — which is the first character either way.
+ *
+ * ## It is load-bearing for the browser suite, which is how it was measured
+ *
+ * Sabotaged — `return 0` — `editorFormatting.spec.ts`'s two Bold cases fail,
+ * and they fail in the way that names the cause. A caret at 0 sits inside the
+ * hidden block, so the block is revealed on arrival; the **first** click of
+ * `selectFirstWord`'s double-click moves the caret out of it, the block
+ * collapses, and the document reflows upward *between the two clicks*. The
+ * second click lands on a different line than the one that was measured, and
+ * the bold goes somewhere nobody asked for: the run came back
+ * `A** **shared context is just a workspace…`. Nothing about that failure
+ * points at the caret, which is why it is written down here.
+ */
+export function openingCaret(text: string): number {
+  const front = frontmatterBlock(text);
+  return front === null ? 0 : Math.min(front.to + 1, text.length);
 }
 
 export interface EditorHandlers {

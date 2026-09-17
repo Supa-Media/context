@@ -9,7 +9,7 @@
  * button anywhere outside `features/meetings/` — every unit test of it passed
  * (`docs/decisions/meetings.md`, *the way in is on the surface each density
  * has*). The second time, the fix for that was a rail row, the phone then lost
- * its rail (`frame.ts`), and `/meetings` went back to being unreachable on the
+ * its rail (`frame.ts`; every density has since), and `/meetings` went back to being unreachable on the
  * one density that records meetings — while a real person's recording sat
  * intact on their phone with no list they could open to find it.
  *
@@ -57,10 +57,16 @@
  * hardcoded one-element file list that matched exactly one entry — which was
  * already `POINTER`, so the rule had no input that could fail it, and the three
  * routes that really rested on the rail claimed it from a file the list did not
- * name. Now every entry point declares where it is drawn, and
- * `regionsFor` decides which densities that is true at: the rail is hidden at
- * `compact`, the context strip is drawn exactly where the rail is not, and a
- * claim that disagrees fails whichever way somebody edits it.
+ * name. Now every entry point declares where it is drawn, and `frame.ts`
+ * decides which densities that is true at: `topBarLeadFor` answers `switcher`
+ * at a pointer density and `account` at compact, the context strip is drawn
+ * exactly where the switcher is not, and a claim that disagrees fails
+ * whichever way somebody edits it.
+ *
+ * **The `rail` region became `switcher` when the rail folded into the menu
+ * under the workspace's name**, and the rule it rests on moved with it rather
+ * than being dropped: it used to read `Regions.rail`, which no longer exists,
+ * and a guard whose input has gone is a guard that agrees with everything.
  *
  * ## What "reachable" means here, and what it does not
  *
@@ -98,16 +104,17 @@ export type ReachabilityDensity = (typeof DENSITIES)[number];
  * Where a control is drawn, which is what decides the densities it exists at.
  *
  * Not a label: the guard reads each of these off `frame.ts` and refuses a claim
- * made at a density that region is not drawn at. `rail` and `bottomBar` are
- * `Regions` keys and are read directly; `contextStrip` is derived as *the
- * densities the rail is hidden at*, which is the strip's whole reason for
- * existing — the same list of destinations drawn twice, once per layout.
+ * made at a density that region is not drawn at. `bottomBar` is a `Regions`
+ * key and is read directly; `switcher` and `contextStrip` are the two arms of
+ * `topBarLeadFor`, which is the strip's whole reason for existing — the same
+ * list of destinations drawn twice, once per layout.
  *
  * `screen` is a control the route's own surface draws — a screen, a sheet, a
  * menu, the recording bar. Those are drawn wherever the route is, so the region
  * constrains nothing and the density claim rests on the evidence alone.
  */
-export type ReachabilityRegion = "rail" | "contextStrip" | "bottomBar" | "screen";
+export type ReachabilityRegion =
+  "switcher" | "contextStrip" | "bottomBar" | "screen";
 
 /** One file that must still contain the wiring, and the strings that prove it. */
 export interface Evidence {
@@ -154,7 +161,7 @@ export interface RouteEntryPoint {
    * Where the control is drawn. Decides which densities may be claimed.
    *
    * A fact about `control.file`, and checked as one where it can be: a control
-   * the rail draws is the rail, whatever this says.
+   * `SwitcherMenu` draws is the switcher, whatever this says.
    */
   region: ReachabilityRegion;
   /** The densities this surface is drawn at. */
@@ -171,7 +178,12 @@ export interface RouteEntryPoint {
 }
 
 export type RouteReachability =
-  | { route: string; file: string; reachable: true; from: readonly RouteEntryPoint[] }
+  | {
+      route: string;
+      file: string;
+      reachable: true;
+      from: readonly RouteEntryPoint[];
+    }
   /**
    * Deliberately not reachable from the UI.
    *
@@ -179,21 +191,28 @@ export type RouteReachability =
    * the same thing — the guard checks for `marker` in it, so somebody reading
    * the route finds the decision rather than having to find this list.
    */
-  | { route: string; file: string; reachable: false; reason: string; marker: string };
+  | {
+      route: string;
+      file: string;
+      reachable: false;
+      reason: string;
+      marker: string;
+    };
 
 const EVERY_DENSITY = DENSITIES;
 const POINTER = ["medium", "wide"] as const;
 const PHONE = ["compact"] as const;
 
-/** The console layout, which owns every navigation the rail and the strip make. */
+/** The console layout, which owns every navigation the switcher and the strip make. */
 const CONSOLE_LAYOUT = "app/(app)/console/_layout.tsx";
 /** The app gate, which applies every redirect decision `redirect.ts` returns. */
 const APP_LAYOUT = "app/(app)/_layout.tsx";
 
 /**
- * The context strip along the top of a phone, and the rail column on a pointer
- * layout, are the same list of destinations drawn twice — so most of what
- * follows names both and neither claims all three densities on its own.
+ * The context strip along the top of a phone, and the switcher in the title
+ * bar on a pointer layout, are the same list of destinations drawn twice — so
+ * most of what follows names both and neither claims all three densities on
+ * its own.
  */
 export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
   {
@@ -217,7 +236,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: EVERY_DENSITY,
       },
       {
-        surface: "the way out of a consent screen somebody does not want to complete",
+        surface:
+          "the way out of a consent screen somebody does not want to complete",
         control: {
           file: "features/consent/ConsentScreen.tsx",
           contains: ["onPress={onLeaveForHome}"],
@@ -358,7 +378,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the app's own root, which resolves to the console on every device",
+        surface:
+          "the app's own root, which resolves to the console on every device",
         navigation: [
           {
             file: "features/auth/redirect.ts",
@@ -417,20 +438,27 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
               green over a press that no longer replaces. The needle a claim
               rests on has to be unique to the wiring it claims.
             */
-            contains: ["onOpen={(slug) => router.replace(contextHrefFrom(slug))}"],
+            contains: [
+              "onOpen={(slug) => router.replace(contextHrefFrom(slug))}",
+            ],
           },
         ],
         region: "contextStrip",
         densities: PHONE,
       },
       {
-        surface: "a row in the rail's context groups",
+        surface: "a workspace in the switcher's menu",
         control: {
-          file: "features/console/ConsoleRail.tsx",
-          contains: ["onPress={() => onNavigate(selectContextRoute(context.slug))}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: [
+            "testID: `switcher-context-${context.slug}`",
+            "onOpenContext(id.slice(4))",
+          ],
         },
-        navigation: [{ file: CONSOLE_LAYOUT, contains: ["router.replace(hrefFor(next))"] }],
-        region: "rail",
+        navigation: [
+          { file: CONSOLE_LAYOUT, contains: ["router.replace(hrefFor(next))"] },
+        ],
+        region: "switcher",
         densities: POINTER,
       },
     ],
@@ -441,8 +469,17 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface:
-          "Settings… on a context's own menu — a long press on a phone, a right-click on a pointer",
+        /*
+          **A long press, and no longer also a right-click.**
+
+          `ContextRowMenu` is drawn by `ContextStrip`, and the strip is the
+          phone's. It used to be drawn by the rail's rows as well, which is
+          where the right-click was; the rail folded into `SwitcherMenu` and a
+          menu row has no second menu behind it. So this claim narrowed to the
+          density it is actually true at, and the entry below carries the
+          pointer half.
+        */
+        surface: "Settings… on a context's own menu, opened by a long press",
         control: {
           file: "features/console/ContextRowMenu.tsx",
           contains: ["onPress={() => onSelect(item.route!)}"],
@@ -455,7 +492,19 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           { file: CONSOLE_LAYOUT, contains: ["router.replace(hrefFor(next))"] },
         ],
         region: "screen",
-        densities: EVERY_DENSITY,
+        densities: PHONE,
+      },
+      {
+        surface: "Settings…, under the rule at the foot of the switcher's menu",
+        control: {
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['testID: "switcher-settings"', "onOpenSettings?.()"],
+        },
+        navigation: [
+          { file: CONSOLE_LAYOUT, contains: ["DEFAULT_SETTINGS_SECTION", "router.setParams"] },
+        ],
+        region: "switcher",
+        densities: POINTER,
       },
     ],
   },
@@ -465,7 +514,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: false,
     reason:
       "No door, by decision, and the same decision as the map's below. Its only " +
-      "one was \"Manage sharing…\" on a context's right-click menu — a row that " +
+      'one was "Manage sharing…" on a context\'s right-click menu — a row that ' +
       "answered a per-context question by navigating out of the context, which " +
       "is what the owner asked be taken off the menu. Everything on the pane has " +
       "a home inside settings already, from the same components rather than a " +
@@ -495,13 +544,17 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           that is where the row is built; the layout is named as the navigation
           because that is where the press becomes a URL.
         */
-        surface: "“See all results”, the last row of the console's search palette",
+        surface:
+          "“See all results”, the last row of the console's search palette",
         control: {
           file: "features/design/components/Palette.tsx",
           contains: ["seeAllItem", "onSeeAll?.(query)"],
         },
         navigation: [
-          { file: CONSOLE_LAYOUT, contains: ["router.push(searchHref(query))"] },
+          {
+            file: CONSOLE_LAYOUT,
+            contains: ["router.push(searchHref(query))"],
+          },
         ],
         region: "screen",
         densities: EVERY_DENSITY,
@@ -513,13 +566,14 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     file: "app/(app)/console/map.tsx",
     reachable: false,
     reason:
-      "No door, by decision. Its only one was the \"Elsewhere in the console\" " +
+      'No door, by decision. Its only one was the "Elsewhere in the console" ' +
       "card at the foot of settings — three destinations repeated under all " +
       "nineteen sections, drawn unconditionally *because* removing it from any " +
       "one section removed the map from the product. That is a fire escape on " +
       "every floor rather than a place in the navigation, and the owner's answer " +
       "when it was put to them was that the map can vanish. It had already lost " +
-      "its rail row (`ConsoleRail.tsx` records why: Map and Connections are facts " +
+      "its rail row (`SwitcherMenu.tsx` carries the reason: Map and Connections " +
+      "are facts " +
       "about a context rather than places inside one) and a phone has no left " +
       "panel at all, so there was nowhere left that it belonged. The route and " +
       "the pane are untouched and still render: this is a navigation decision, " +
@@ -532,7 +586,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the onboarding gate, for an account whose only context is an invitation",
+        surface:
+          "the onboarding gate, for an account whose only context is an invitation",
         navigation: [
           {
             file: "features/onboarding/route.ts",
@@ -567,7 +622,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
     reachable: true,
     from: [
       {
-        surface: "the app gate, which sends every signed-out request here and brings it back",
+        surface:
+          "the app gate, which sends every signed-out request here and brings it back",
         navigation: [
           {
             file: "features/auth/redirect.ts",
@@ -596,7 +652,8 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
           exists. See `DestinationSheet.onOpenMeetings` for why it is a row on
           that sheet rather than an eighth key or a menu over sign-out.
         */
-        surface: "Past meetings, on the sheet the bottom row's meetings key opens",
+        surface:
+          "Past meetings, on the sheet the bottom row's meetings key opens",
         control: {
           file: "features/meetings/components/DestinationSheet.tsx",
           contains: ['label="Past meetings"', "onPress={onOpenMeetings}"],
@@ -611,15 +668,18 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         densities: PHONE,
       },
       {
-        surface: "the pinned row at the head of the rail",
+        surface: "Meetings, at the head of the switcher's menu",
         control: {
-          file: "features/console/ConsoleRail.tsx",
-          contains: ['testID="rail-meetings"', "onPress={onOpenMeetings}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['testID: "switcher-meetings"', "onOpenMeetings?.()"],
         },
         navigation: [
-          { file: CONSOLE_LAYOUT, contains: ["MEETINGS_ROUTE", "router.push(MEETINGS_ROUTE)"] },
+          {
+            file: CONSOLE_LAYOUT,
+            contains: ["MEETINGS_ROUTE", "router.push(MEETINGS_ROUTE)"],
+          },
         ],
-        region: "rail",
+        region: "switcher",
         densities: POINTER,
       },
     ],
@@ -692,28 +752,39 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "Claim your @name, at the end of the context strip",
         control: {
           file: "features/console/ContextStrip.tsx",
-          contains: ['testID="context-strip-claim"', "onPress={onClaimContext!}"],
+          contains: [
+            'testID="context-strip-claim"',
+            "onPress={onClaimContext!}",
+          ],
         },
         navigation: [
-          { file: CONSOLE_LAYOUT, contains: ["WELCOME_ROUTE", "router.push(WELCOME_ROUTE)"] },
+          {
+            file: CONSOLE_LAYOUT,
+            contains: ["WELCOME_ROUTE", "router.push(WELCOME_ROUTE)"],
+          },
         ],
         region: "contextStrip",
         densities: PHONE,
       },
       {
-        surface: "Claim your @name, in the pinned top slot of the rail's one list",
+        surface:
+          "Claim your @name, after the workspaces in the switcher's menu",
         control: {
-          file: "features/console/ConsoleRail.tsx",
-          contains: ['testID="rail-claim-context"', "onPress={onClaimContext!}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['testID: "switcher-claim"', "onClaimContext?.()"],
         },
         navigation: [
-          { file: CONSOLE_LAYOUT, contains: ["WELCOME_ROUTE", "router.push(WELCOME_ROUTE)"] },
+          {
+            file: CONSOLE_LAYOUT,
+            contains: ["WELCOME_ROUTE", "router.push(WELCOME_ROUTE)"],
+          },
         ],
-        region: "rail",
+        region: "switcher",
         densities: POINTER,
       },
       {
-        surface: "the way out of an invitation for somebody with no workspace of their own",
+        surface:
+          "the way out of an invitation for somebody with no workspace of their own",
         control: {
           file: "features/invite/InviteScreen.tsx",
           contains: ['testID="invite-welcome"'],
@@ -738,30 +809,39 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "New workspace, at the end of the context strip",
         control: {
           file: "features/console/ContextStrip.tsx",
-          contains: ['testID="context-strip-create"', "onPress={onCreateWorkspace!}"],
+          contains: [
+            'testID="context-strip-create"',
+            "onPress={onCreateWorkspace!}",
+          ],
         },
         navigation: [
           {
             file: CONSOLE_LAYOUT,
-            contains: ["NEW_WORKSPACE_ROUTE", "router.push(NEW_WORKSPACE_ROUTE)"],
+            contains: [
+              "NEW_WORKSPACE_ROUTE",
+              "router.push(NEW_WORKSPACE_ROUTE)",
+            ],
           },
         ],
         region: "contextStrip",
         densities: PHONE,
       },
       {
-        surface: "New workspace, at the end of the rail's Workspaces group",
+        surface: "New workspace, after the workspaces in the switcher's menu",
         control: {
-          file: "features/console/ConsoleRail.tsx",
-          contains: ['testID="rail-create-workspace"', "onPress={onCreateWorkspace!}"],
+          file: "features/console/SwitcherMenu.tsx",
+          contains: ['testID: "switcher-new"', "onNewWorkspace?.()"],
         },
         navigation: [
           {
             file: CONSOLE_LAYOUT,
-            contains: ["NEW_WORKSPACE_ROUTE", "router.push(NEW_WORKSPACE_ROUTE)"],
+            contains: [
+              "NEW_WORKSPACE_ROUTE",
+              "router.push(NEW_WORKSPACE_ROUTE)",
+            ],
           },
         ],
-        region: "rail",
+        region: "switcher",
         densities: POINTER,
       },
     ],
@@ -783,7 +863,10 @@ export function routeFromFile(relativePath: string): string {
   const withoutExtension = relativePath.replace(/\.[jt]sx?$/, "");
   const segments = withoutExtension
     .split("/")
-    .filter((segment) => segment !== "" && !(segment.startsWith("(") && segment.endsWith(")")));
+    .filter(
+      (segment) =>
+        segment !== "" && !(segment.startsWith("(") && segment.endsWith(")")),
+    );
   if (segments[segments.length - 1] === "index") segments.pop();
   return `/${segments.join("/")}`;
 }

@@ -67,23 +67,28 @@ import { tap } from "./helpers";
  *
  * There used to be one press: `GEAR` named a `PressRow` labelled exactly
  * "Settings", right beside sign-out. `AccountBlock`'s compact form merged
- * that gear into the avatar's own disclosure menu — "the compact corner used
- * to be two controls, and one of them signed you out on one press" is
- * `ConsoleRail.tsx`'s own account of why — so what is beside sign-out now is
+ * that gear into the avatar's own disclosure menu — "the corner used to be two
+ * controls, and one of them signed you out on one press" is `AccountBlock`'s
+ * own account of why — so what is beside sign-out now is
  * one control that opens a menu, and Settings is a row in it labelled
  * "Settings…", not "Settings". Two presses where the fixture's account
  * corner needed one, at the phone viewport this file mostly runs at.
  *
- * **The pointer-width case below no longer goes through that menu**, and the
- * paragraph this replaces is why it used to: `E2EFixtureScreen` drew
- * `AccountBlock`'s compact form at every width, because there was no rail on
- * that screen to hold the pointer layout's own gear. The fixture mounts the
- * real `ConsoleRail` at medium and wide now — it had no context switcher above
- * 880pt until it did, see its header — and the account block moved into the
- * rail's foot with it. So the pointer case presses `rail-settings`, which is
- * the control that surface actually has, and the compact menu is what the
- * phone cases press. Both land on the same section: `openSettings()` with no
- * argument answers a context's own Overview either way.
+ * **The pointer-width case below goes through a third control, and both
+ * paragraphs this replaces are worth keeping.** It pressed the compact menu
+ * once, because `E2EFixtureScreen` drew `AccountBlock`'s compact form at every
+ * width and mounted no rail. Then the fixture mounted the real `ConsoleRail`
+ * at medium and wide, and the case pressed `rail-settings` — the gear at the
+ * foot of that rail.
+ *
+ * The rail has since folded into `SwitcherMenu`
+ * (`docs/decisions/app-and-console.md`), taking its account block and that
+ * gear with it, so the pointer layout's route is now `switcher-settings`: a
+ * row in the menu under the workspace's name, which is exactly where the
+ * product puts it. Two presses at that width too — open the menu, then choose
+ * — for the same reason the phone's corner takes two. All three land on the
+ * same section: `openSettings()` with no argument answers a context's own
+ * Overview whichever control called it.
  *
  * The account menu trigger is itself at rest when this file presses it —
  * nothing has opened a panel yet — so it is reached the same way `GEAR` was,
@@ -259,18 +264,15 @@ test.describe("at a pointer width", () => {
   test("the list and the panel are on screen together", async ({ page }) => {
     await openConsole(page);
     /*
-      `rail-settings` — the gear in `AccountBlock`'s non-`compact` form, at the
-      foot of the rail. This is one press rather than the phone's two because
-      the pointer layout's block never merged its gear into a disclosure menu;
-      see the header. `hasTouch: false` above rules the coordinate helper out,
-      so this is a plain `click`.
+      The switcher's own menu, which is where the rail's gear went. Two presses
+      — open it, then choose — and `hasTouch: false` above rules the coordinate
+      helper out, so both are plain clicks.
 
-      This used to press the compact block's `account-menu`, because the
-      fixture drew that form at every width and mounted no rail at all. It
-      mounts the real one now, so `account-menu` is not on this screen and this
-      control is.
+      See the header for the two controls this replaces and why each was right
+      when it was written.
     */
-    await page.getByTestId("rail-settings").click();
+    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("switcher-settings").click();
 
     // Both at once, which is the whole difference from the phone: no Back,
     // because there is no level to pop.
@@ -302,7 +304,10 @@ test.describe("at a pointer width", () => {
    */
   test("settings is the window, not a card in the middle of it", async ({ page }) => {
     await openConsole(page);
-    await page.getByTestId("rail-settings").click();
+    // The switcher's menu, which is where the rail's gear went — see the
+    // header, and the case above that opens it the same way.
+    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("switcher-settings").click();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
 
     const viewport = page.viewportSize();

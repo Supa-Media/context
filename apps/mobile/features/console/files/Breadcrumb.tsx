@@ -9,9 +9,10 @@ import {
 } from "react-native";
 import { densityFor } from "../../app/frame";
 import { PressRow } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { fonts, layout, pointerType as t, radii, space } from "../../design/tokens";
-import { useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useRightClick } from "./rightClick";
 import { crumbsFor, type Crumb } from "./crumbs";
 import { isGroupVisibility, type Visibility } from "./types";
@@ -185,6 +186,7 @@ export function Breadcrumb({
   pathOnly?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const windowWidth = useWindowDimensions().width;
   const compact = densityFor(windowWidth) === "compact";
   /*
@@ -268,20 +270,38 @@ export function Breadcrumb({
         </Fragment>
       ))}
 
-      <View style={styles.spacer} />
+      {/*
+        WHO CAN SEE THIS, AS PART OF THE LINE RATHER THAN A BADGE ON IT.
 
-      <View
-        style={[
-          styles.chip,
-          readOnly
-            ? styles.chipGenerated
-            : visibility === "team"
-              ? styles.chipTeam
-              : isGroupVisibility(visibility)
-                ? styles.chipGroup
-                : styles.chipPrivate,
-        ]}
-      >
+        It was a filled, bordered pill against the trailing edge — and at
+        `team` it was a green capsule, which made "this note follows its
+        folder" the loudest object on the page. That is a status nobody needs
+        shouted: the note's audience is the ordinary state of a note, and the
+        cases worth noticing (an exception set here, a group, a generated file)
+        are the ones the *words* already name.
+        
+        So it joins the path: a separator, the state's own glyph, and the
+        sentence, in the state's own text colour. The colour still tells the
+        four apart at a glance; the box is what goes. And it sits beside the
+        crumbs rather than pushed to the far edge, because a line that names
+        where the note is and who can see it is one sentence, not two ends of
+        a bar.
+      */}
+      <Text style={styles.separator}>·</Text>
+      <View style={styles.access}>
+        <Icon
+          name={readOnly ? "gear" : visibility === "private" ? "lock" : "people"}
+          size={11}
+          color={
+            readOnly
+              ? colors.muted
+              : visibility === "team"
+                ? colors.okText
+                : isGroupVisibility(visibility)
+                  ? colors.sharedText
+                  : colors.text2
+          }
+        />
         <Text
           style={[
             styles.chipLabel,
@@ -297,6 +317,7 @@ export function Breadcrumb({
           {describe({ visibility, inherited, exception, readOnly, brief: compact })}
         </Text>
       </View>
+      <View style={styles.spacer} />
     </View>
   );
 }
@@ -444,15 +465,35 @@ export function describe({
 }
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
+  /**
+   * The pointer layout's line, and it is a line rather than a bar.
+   *
+   * **No fill and no rule**, which reverses what this style used to be. It had
+   * `surface` behind it and a hairline under it, so it read as a band of
+   * chrome with the note starting below — and once the frame's top bar and the
+   * status bar were counted, that was three horizontal rules stacked down one
+   * window. The frame separates its regions by *value* now
+   * (`chromeSurface`/`pageSurface`, see `tokens.ts`), and this sits on the
+   * page, so a fill of its own would be a fourth surface and the rule would be
+   * drawing a boundary that is not there.
+   *
+   * `paddingHorizontal` is gone with them: `BrowsePane` indents the crumb to
+   * `noteGutterFor` so the path starts at the note's own first character,
+   * which a fixed gutter cannot do — the column is centred and moves with the
+   * width. The trailing actions are outside that padding and keep the
+   * region's edge.
+   *
+   * The vertical padding grows, because a line with no rule under it needs the
+   * air to separate it from the note instead.
+   */
   bar: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingVertical: 7,
-    paddingHorizontal: space.x4,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    backgroundColor: colors.surface,
+    paddingTop: space.x4,
+    paddingBottom: space.x2,
+    paddingRight: space.x4,
+    backgroundColor: "transparent",
   },
   /** See the file comment. */
   barCompact: {
@@ -557,13 +598,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   pathLeaf: { color: colors.text, fontSize: t.label, fontWeight: "600" },
   spacer: { flex: 1, minWidth: space.x3 },
 
-  chip: {
-    flexShrink: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 1,
-    borderRadius: radii.pill,
-    borderWidth: 1,
-  },
+  /** The glyph and the sentence, as one run of the line. */
+  access: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 0 },
   chipLabel: { fontSize: t.label, fontFamily: fonts.body },
   chipTeam: { backgroundColor: colors.okWash, borderColor: colors.okBorder },
   chipTeamLabel: { color: colors.okText },

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FrameIconButton } from "../../app/AppFrame";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
-import { densityFor } from "../../app/frame";
+import { densityFor, noteGutterFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
@@ -192,6 +192,18 @@ export function BrowsePane({
   */
   const reading = useReadMode();
   const [sharing, setSharing] = useState<string | null>(null);
+  /**
+   * How wide the note's column is, so the breadcrumb can start where its text
+   * does.
+   *
+   * Measured rather than derived from the window: this row is inside the
+   * editor region, and how much of the window that region gets depends on the
+   * explorer's width, which somebody drags. `0` until the first layout, which
+   * `noteGutterFor` floors to the plain gutter — the same answer as a window
+   * too narrow for the measure, so the first frame is never wrong in a
+   * direction anybody sees.
+   */
+  const [headWidth, setHeadWidth] = useState(0);
 
   /* ------------------------------------------------------------------ */
   /*                   the folder listing's right-click                  */
@@ -1011,8 +1023,30 @@ export function BrowsePane({
         no panel.
       */}
       {selected !== null && settled && !compact ? (
-        <View style={[styles.noteHead, compact && styles.noteHeadCompact]}>
-          <View style={styles.crumb}>
+        /*
+          THE PAGE'S OWN HEADER, NOT A TOOLBAR ACROSS THE TOP OF THE REGION.
+
+          This row had a fill, a hairline under it and its crumbs against the
+          region's left edge, so it read as a band of chrome with the note
+          starting underneath — three horizontal rules stacked down the window
+          once the status bar and the top bar were counted. The design draws a
+          page: a quiet line of path where the note's own first character is,
+          and the note under it.
+
+          So the fill and the rule are gone (`Breadcrumb.bar`), and the crumbs
+          are indented to `noteGutterFor` — the same sum `LiveEditor.web.tsx`
+          spends in CSS, from the width this row is measured at, which is the
+          editor's width because they are the same column.
+
+          The actions do not move with it. They stay at the region's trailing
+          edge, floating over the note the way the design has them: `gutter`
+          pads the crumb alone rather than the row.
+        */
+        <View
+          style={[styles.noteHead, compact && styles.noteHeadCompact]}
+          onLayout={(event) => setHeadWidth(event.nativeEvent.layout.width)}
+        >
+          <View style={[styles.crumb, { paddingLeft: noteGutterFor(headWidth) }]}>
             <Breadcrumb
               path={selected.path}
               /*
