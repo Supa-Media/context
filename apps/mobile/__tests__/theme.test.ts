@@ -163,8 +163,18 @@ describe("light palette contrast", () => {
     ["codeKey", lightColors.codeKey],
     ["sharedText", lightColors.sharedText],
   ])("%s clears AA on the surfaces it is drawn on", (_name, token) => {
-    expect(contrast(token, lightColors.surface)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(token, lightColors.well)).toBeGreaterThanOrEqual(AA);
+    // All four, not just `surface` and `well`. A wash sits on whatever panel
+    // it lands in, and `surface2`/`surface3` are exactly the raised tints a
+    // menu row, a ghost button's fill and a selected row draw — which is
+    // where these tokens most often carry their words.
+    for (const background of [
+      lightColors.surface,
+      lightColors.surface2,
+      lightColors.surface3,
+      lightColors.well,
+    ]) {
+      expect(contrast(token, background)).toBeGreaterThanOrEqual(AA);
+    }
   });
 
   /**
@@ -225,6 +235,33 @@ describe("dark palette contrast", () => {
     expect(onSurface(darkColors.text)).toBeGreaterThan(onSurface(darkColors.text2));
     expect(onSurface(darkColors.text2)).toBeGreaterThan(onSurface(darkColors.muted));
     expect(onSurface(darkColors.muted)).toBeGreaterThan(onSurface(darkColors.heroDim));
+  });
+
+  /**
+   * The dark palette had no semantic-text coverage at all — only body text,
+   * the hierarchy and `muted`. The light palette was held to AA on its `*Text`
+   * members from the start because it was designed against a signed-off dark
+   * one; the dark members were the signed-off picture and were never asked.
+   * Now that both palettes are designed rather than inherited, both answer.
+   */
+  test.each([
+    ["okText", darkColors.okText],
+    ["warnText", darkColors.warnText],
+    ["critText", darkColors.critText],
+    ["accentText", darkColors.accentText],
+    ["hintText", darkColors.hintText],
+    ["hintStrong", darkColors.hintStrong],
+    ["codeKey", darkColors.codeKey],
+    ["sharedText", darkColors.sharedText],
+  ])("%s clears AA on the dark surfaces it is drawn on", (_name, token) => {
+    for (const background of [
+      darkColors.surface,
+      darkColors.surface2,
+      darkColors.surface3,
+      darkColors.well,
+    ]) {
+      expect(contrast(token, background)).toBeGreaterThanOrEqual(AA);
+    }
   });
 
   /**
