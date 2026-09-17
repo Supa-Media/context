@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
-import { AccountBlock, ConsoleRail } from "./ConsoleRail";
+import { AccountBlock } from "./AccountBlock";
+import { SwitcherMenu } from "./SwitcherMenu";
 import { BrowsePane } from "./panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "./ContextStrip";
 import { NavBandProvider } from "./NavBand";
@@ -11,9 +12,9 @@ import {
   DEFAULT_SETTINGS_SECTION,
   type SettingsSectionKey,
 } from "./settings/sections";
-import { densityFor, initialFrame, regionsFor } from "../app/frame";
-import { LANDING_ROUTE, type ConsoleRoute } from "./nav";
+import { densityFor } from "../app/frame";
 import { layout, space } from "../design/tokens";
+import { atName } from "./format";
 import { selectedContext } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
 
@@ -44,7 +45,7 @@ import { useE2EFixtureConsoleData } from "./e2eFixtureData";
  * for no case that exercises them. If a future case needs the toolbar, it
  * belongs here rather than as a second fixture.
  *
- * ## The rail **is** part of this, and leaving it out was a hole
+ * ## The pointer layout's switcher **is** part of this, and leaving it out was a hole
  *
  * It used to be on that list, on the same argument, and the argument was
  * wrong — not about effort but about what this screen is. Measured in a
@@ -54,28 +55,25 @@ import { useE2EFixtureConsoleData } from "./e2eFixtureData";
  * path. A person could not reach another context on the larger screen at all.
  *
  * That is not what the product does. `BrowsePane` draws `NavBand` at compact
- * only, because at medium and wide the contexts are `ConsoleRail`'s — one
- * switcher per density, never two, which `features/app/frame.ts` argues at
- * length (the strip's dot means *kind*, the rail's means *storage status*, and
- * one glyph with two meanings on one screen is worse than either). A fixture
- * that mounts the compact half and not the pointer half is therefore not "the
- * console minus a region nobody presses": above 880pt it is a console with no
- * navigation, and it reports a defect the product does not have.
+ * only, because at medium and wide the contexts are the title bar's —
+ * one switcher per density, never two, which `features/app/frame.ts` argues at
+ * length. A fixture that mounts the compact half and not the pointer half is
+ * therefore not "the console minus a region nobody presses": above 880pt it is
+ * a console with no navigation, and it reports a defect the product does not
+ * have.
  *
  * So the density decision is taken here the way the product takes it —
- * `densityFor` and `regionsFor`, not a width literal — and the rail is the
- * real `ConsoleRail` in the mode those functions answer. What is still not
- * reproduced is `AppFrame` itself: the column below is a plain `View` at
- * `layout.railWidth`, which is the geometry `appFrameRender.test.ts` owns for
- * real and all this screen needs to put the region on the glass.
+ * `densityFor`, not a width literal — and the pointer half is the real
+ * `SwitcherMenu`. **It used to be the real `ConsoleRail`, in a plain `View` at
+ * `layout.railWidth`**, and that column is gone from the product: the rail
+ * folded into the menu under the name in the title bar
+ * (`docs/decisions/app-and-console.md`). What is still not reproduced is
+ * `AppFrame` itself.
  *
- * The account block moves with it, for the reason the rail exists: the block
- * is the foot of the rail at every pointer density in the product, and drawing
- * it in the corner *as well* would be the second switcher this file just
- * refused. `settings.spec.ts`'s pointer case goes through the rail's own
- * `rail-settings` gear because that is now the control this screen actually
- * has — its previous route, `AccountBlock`'s `compact` menu, was only ever a
- * stand-in for a rail that was not mounted.
+ * The account block stays in the corner at every density now, because there is
+ * no rail for it to be the foot of. `settings.spec.ts`'s pointer case goes
+ * through `switcher-settings` in that menu, which is the control the product
+ * actually has there.
  *
  * ## `onOpenComms`, without a router
  *
@@ -101,7 +99,7 @@ import { useE2EFixtureConsoleData } from "./e2eFixtureData";
  * bucket, and every context in the demo data has one — so the way in here is
  * the same one a phone actually has: `AccountBlock`'s gear, the control
  * `__tests__/accountSettingsControl.test.ts` exists to keep on screen,
- * mounted from `ConsoleRail` rather than reproduced.
+ * mounted from `AccountBlock` rather than reproduced.
  *
  * The section is component state where `app/(app)/console/_layout.tsx` reads
  * it out of `?settings=` and writes it with `router.setParams`. That is the
@@ -132,27 +130,16 @@ export function E2EFixtureScreen({
   const [anchor, setAnchor] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsSectionKey | null>(null);
   /*
-    The density, decided the way the product decides it.
+    The density, decided the way the product decides it — `densityFor`, not a
+    width literal.
 
-    `regionsFor` rather than `densityFor(width) !== "compact"` because the
-    answer this screen needs is not "is this a phone" but "which rail does this
-    width get" — `full` at wide, `icons` at medium — and that mapping belongs
-    to the one function that owns it. `initialFrame` is the untouched
-    preference set: there is no rail-collapse control on this screen, so
-    `railCollapsed` can only be its default.
+    It used to ask `regionsFor` which *rail* this width got, because the answer
+    the screen needed was `full` at wide and `icons` at medium. There is no
+    rail at any density now, so the only question left is the one `densityFor`
+    answers: a phone puts its navigation in `NavBand` inside the scroller, and
+    a pointer layout puts it in the switcher at the top.
   */
-  const density = densityFor(useWindowDimensions().width);
-  const railRegion = regionsFor(density, initialFrame).rail;
-  const railMode = railRegion === "full" || railRegion === "icons" ? railRegion : null;
-  const phone = railMode === null;
-  /*
-    Which context the rail should draw as the one you are in. The real route
-    reads this out of the URL; here the fixture's own selection is the only
-    thing that could answer it, and `LANDING_ROUTE` is what "no context yet"
-    means in that union.
-  */
-  const route: ConsoleRoute =
-    current === null ? LANDING_ROUTE : { kind: "context", slug: current.slug, view: "browse" };
+  const phone = densityFor(useWindowDimensions().width) === "compact";
 
   /*
     Slug in, id out — the resolution `Landing.tsx` and the console layout both
@@ -185,74 +172,58 @@ export function E2EFixtureScreen({
   return (
     <View style={{ flex: 1 }}>
       {/*
-        The rail beside the pane, or the pane alone — `regionsFor`'s answer,
-        drawn.
+        The switcher above the pane on a pointer layout, and the navigation
+        band inside the scroller on a phone — `densityFor`'s answer, drawn.
 
-        **The account block is in exactly one of the two**, which is the half
-        of this that used to be wrong rather than merely missing. This screen
-        drew `AccountBlock`'s `compact` form "at every width", because neither
-        of the containers the real console puts the block in existed here: no
-        phone top bar, no rail. The rail exists now, so the block is at its
-        foot in its full form at medium and wide, and the corner below draws
-        the compact one only where the product does — a phone. Two of the one
-        always-visible settings control on one screen would be the duplication
-        this file's header just refused for the switcher.
+        **One of the two, never both**, which is the half of this that used to
+        be wrong rather than merely missing. This screen drew `AccountBlock`'s
+        `compact` form "at every width", because neither of the containers the
+        real console puts the block in existed here: no phone top bar, no rail.
+
+        The rail is gone from the product, so the pointer half is the real
+        `SwitcherMenu` in a strip standing in for `AppFrame`'s title bar, and
+        the corner below draws the compact account block only where the product
+        does — a phone. Two of the one always-visible settings control on one
+        screen would be the duplication this file's header refuses.
 
         What that costs is one press: `compact` merged its gear into the
-        avatar's disclosure menu (`ConsoleRail.tsx`: "the compact corner used
-        to be two controls, and one of them signed you out on one press"), so
-        a phone reaches Settings through "Settings…" in that menu and a
-        pointer layout reaches it through `rail-settings` in one. That is the
+        avatar's disclosure menu (see `AccountBlock`: "the corner used to be
+        two controls, and one of them signed you out on one press"), so a phone
+        reaches Settings through "Settings…" in that menu and a pointer layout
+        reaches it through `switcher-settings` in the switcher's. That is the
         product's own shape, and `settings.spec.ts` presses whichever the
         viewport it runs at actually has.
       */}
       <View style={styles.frame}>
-        {railMode === null ? null : (
-          <View style={[styles.rail, railMode === "icons" && styles.railIcons]}>
-            <ConsoleRail
+        {phone ? null : (
+          <View style={styles.titleBar}>
+            <SwitcherMenu
               data={data}
-              route={route}
-              mode={railMode}
+              label={current === null ? "Your context" : atName(current.slug)}
+              kind={current?.kind ?? ""}
+              tone={current?.status ?? "warn"}
               /*
-                Only a context row can go anywhere from here. The rail's other
+                Only a context row can go anywhere from here. The menu's other
                 entries are optional props this screen does not pass —
                 Meetings, Claim, New workspace are all navigations out of the
                 console, and there is no router behind this fixture to take
-                them — so `onNavigate` is reached by the context rows alone.
-                It is the same substitution the rest of this file makes:
+                them. It is the same substitution the rest of this file makes:
                 keep what the navigation *does* to this browser's state.
               */
-              onNavigate={(next) => {
-                if (next.kind !== "context") return;
+              onOpenContext={(slug) => {
                 setAnchor(null);
-                openContext(next.slug);
+                openContext(slug);
               }}
-              /*
-                The account block, in the rail's own slot and in the rail's own
-                form — a name, a gear (`rail-settings`) and sign-out, rather
-                than the phone's single disclosure. Drawn `compact` at
-                `icons`, which is what `_layout`'s `Rail` does with the same
-                mode. `touch` stays false: this is the pointer layout.
-              */
-              account={
-                <AccountBlock
-                  name={data.viewer.name}
-                  detail={data.viewer.detail}
-                  initial={data.viewer.initial}
-                  compact={railMode === "icons"}
-                  onOpenSettings={openSettings}
-                  onSignOut={() => {}}
-                />
-              }
+              onOpenSettings={openSettings}
             />
           </View>
         )}
         <View style={styles.main}>
           {/*
             The phone's account corner, and **only** the phone's: at a pointer
-            density this block is the foot of the rail beside it, and drawing
-            it here as well would put two of the one always-visible settings
-            control on one screen.
+            density Settings and sign-out are in the switcher above, and
+            drawing the block here as well would put two of the one
+            always-visible settings control on one screen.
           */}
           {phone ? (
             <View style={styles.account}>
@@ -340,19 +311,23 @@ export function E2EFixtureScreen({
 
 const styles = StyleSheet.create({
   account: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: space.x3 },
-  /** The rail beside the pane, which is the whole of what `AppFrame` does here. */
-  frame: { flex: 1, flexDirection: "row", minHeight: 0 },
+  /** The title bar above the pane, which is the whole of what `AppFrame` does here. */
+  frame: { flex: 1, flexDirection: "column", minHeight: 0 },
   /**
-   * The rail's column.
+   * Where `AppFrame` draws its top bar, at the height it draws it.
    *
-   * Its width and nothing else. `AppFrame` also gives this column a hairline
-   * and the surface fill, which are themed and are that component's to own —
-   * `appFrameRender.test.ts` pins them there. What a fixture needs is the
-   * region on the glass at the width the product gives it, so that is what is
-   * here; the rail draws its own interior either way.
+   * The switcher and nothing else. `AppFrame` also gives that bar a surface
+   * fill and the trailing slots, which are themed and are that component's to
+   * own — `appFrameRender.test.ts` pins them there. What a fixture needs is
+   * the control on the glass in the band the product puts it in, so that is
+   * what is here; the switcher draws its own interior either way.
    */
-  rail: { width: layout.railWidth },
-  railIcons: { width: layout.railIconWidth },
-  /** `minWidth: 0`, so a long note cannot push the rail off the screen. */
+  titleBar: {
+    height: layout.topBarHeight,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: space.x3,
+  },
+  /** `minWidth: 0`, so a long note cannot push the pane off the screen. */
   main: { flex: 1, minWidth: 0 },
 });

@@ -21,7 +21,7 @@ import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
 import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
-import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
+import { AccountBlock, Avatar } from "../../../features/console/AccountBlock";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
 import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
@@ -524,6 +524,24 @@ export default function ConsoleLayout() {
                     : DEFAULT_ACCOUNT_SETTINGS_SECTION,
               });
             }}
+            /*
+              Leave, on the context you are standing in and only where the
+              server would allow it: `leaveWorkspace` refuses an owner
+              (`OWNER_CANNOT_LEAVE`), so a row offered on your own workspace
+              would be a press whose only outcome is an error. Fire-and-watch,
+              exactly as the rail's row was — the membership row deleting is
+              what takes the context out of the list, through the
+              subscription — and then land on `/console` so nobody is left
+              standing in a context they just left.
+            */
+            onLeaveContext={
+              current === null || current.role === "owner" || data.leaveContext === undefined
+                ? undefined
+                : () => {
+                    void data.leaveContext?.(current.id);
+                    router.replace("/console");
+                  }
+            }
             onSignOut={requestSignOut}
           />
         }
@@ -702,9 +720,6 @@ export default function ConsoleLayout() {
             }
           />
         }
-        rail={(mode) => (
-          <Rail data={data} route={route} mode={mode} onSignOut={requestSignOut} />
-        )}
         /*
           `browsing`, not `insideContext`.
 
@@ -1187,9 +1202,6 @@ function Shortcuts({
           case "toggleExplorer":
             frame.toggleExplorer();
             return true;
-          case "toggleRail":
-            frame.toggleRail();
-            return true;
           case "toggleFocus":
             frame.toggleFocus();
             return true;
@@ -1308,144 +1320,6 @@ function Shortcuts({
 const NUMBERED_TABS = [
   "tab1", "tab2", "tab3", "tab4", "tab5", "tab6", "tab7", "tab8", "tab9",
 ] as const;
-
-/**
- * The rail, wired to the router — and, on a phone, to the sheet it is inside.
- *
- * A component rather than an inline node in the slot, because it needs
- * `useFrame`, and the slot is rendered *inside* `AppFrame`'s provider while the
- * layout that passes it is above it.
- *
- * Choosing a destination dismisses the sheet, for the same reason choosing a
- * note dismisses the tree drawer: on a phone the panel is covering the thing
- * you just asked for. It dismisses even when the destination is the route you
- * are already on — you asked for that pane, and a sheet that stays put because
- * the router had nothing to do reads as a dead press.
- *
- * `onClaimContext` leaves the console entirely, which is why it is a callback
- * rather than a `ConsoleRoute`: `/welcome` is not under `/console`, and the
- * rail renders the entry only for somebody who owns nothing. See
- * `offerOwnContext`.
- */
-function Rail({
-  data,
-  route,
-  mode,
-  onSignOut,
-}: {
-  data: ConsoleData;
-  route: ConsoleRoute;
-  mode: "full" | "icons" | "sheet";
-  onSignOut: () => void;
-}) {
-  const frame = useFrame();
-  const router = useRouter();
-
-  return (
-    <ConsoleRail
-      data={data}
-      route={route}
-      mode={mode}
-      onNavigate={(next) => {
-        frame.closeNav();
-        // Pressing the rail entry you are already on should do nothing, not
-        // re-enter the route — which on a context would reset the file browser
-        // out from under an open note.
-        if (!sameRoute(next, route)) router.replace(hrefFor(next));
-      }}
-      account={
-        <Account
-          data={data}
-          compact={mode === "icons"}
-          touch={mode === "sheet"}
-          onSignOut={onSignOut}
-          /*
-            The one settings control that is on screen at every density, next
-            to the person's own name. It was reachable only from the storage
-            chip — pointer-only, and reads as a status rather than a control —
-            and from a long press on a context row, which nobody finds.
-          */
-          /*
-            On every route now. It was `route.kind === "context"` only, which
-            put the one always-visible settings control on some console routes
-            and not others — and the routes it was missing from (Map,
-            Connections, Search) are the ones with no storage chip to fall back
-            to either. Off a context, the section opened is an account one:
-            there is no note in the URL to preserve, and the account scope is
-            what a person on `/console/map` can act on without first choosing a
-            context.
-          */
-          onOpenSettings={() => {
-            frame.closeNav();
-            if (route.kind === "context") {
-              router.setParams({ settings: DEFAULT_SETTINGS_SECTION });
-              return;
-            }
-            router.setParams({ settings: DEFAULT_ACCOUNT_SETTINGS_SECTION });
-          }}
-        />
-      }
-      onClaimContext={() => {
-        frame.closeNav();
-        // `push`, not `replace`: somebody who opens this out of curiosity from
-        // inside a context they were given must be able to come back with the
-        // browser's own Back button. Onboarding has no Back of its own — step 1
-        // claims a name out of a global namespace with no release path — so the
-        // one before it is the only one there can be.
-        router.push(WELCOME_ROUTE);
-      }}
-      /*
-        Offered to everybody, and only in the live console.
-
-        `data.demo` is the condition rather than a role or a count: the landing
-        page renders this same rail as a picture, and an entry there would open
-        a flow that immediately refuses for want of a session. How many
-        workspaces one account may own is the control plane's rule, enforced in
-        `createWorkspace`'s transaction, and it is not restated here — see
-        `onCreateWorkspace` on `ConsoleRail`.
-      */
-      onCreateWorkspace={
-        data.demo
-          ? undefined
-          : () => {
-              frame.closeNav();
-              // `push` for `onClaimContext`'s reason, and one more: this flow
-              // is genuinely abandonable up to the moment the name is claimed,
-              // so Back has somewhere real to return to.
-              router.push(NEW_WORKSPACE_ROUTE);
-            }
-      }
-      /*
-        Meeting capture, which until now had no way in from anywhere in the app.
-
-        `push`, not `replace`, for `onClaimContext`'s reason and one more: the
-        meetings screens sit outside the console entirely, so the browser's Back
-        — and the phone's — is the way back to the note somebody left. A
-        `replace` would take that away and leave `/meetings` with no route out
-        of it at all.
-
-        Offered in the live console only, like `onCreateWorkspace`: the landing
-        page mounts the rail as a picture and has nowhere to send anybody.
-      */
-      onOpenMeetings={
-        data.demo
-          ? undefined
-          : () => {
-              frame.closeNav();
-              router.push(MEETINGS_ROUTE);
-            }
-      }
-      onLeaveContext={(id) => {
-        frame.closeNav();
-        // Fire-and-watch: the membership row deleting is what removes the
-        // context from the rail, via the subscription. Land on the Map so the
-        // person is not left standing in a context they just left.
-        void data.leaveContext?.(id);
-        router.replace("/console");
-      }}
-    />
-  );
-}
 
 /**
  * The thumb's half of the console.

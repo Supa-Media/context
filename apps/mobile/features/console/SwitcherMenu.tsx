@@ -9,7 +9,7 @@ import { useThemedStyles, type Colors } from "../design/theme";
 import { radii, space } from "../design/tokens";
 import type { MenuItem } from "./files/menu";
 import { offerOwnContext } from "../onboarding/route";
-import { railGroup } from "./rail";
+import { isOwnWorkspace, railGroup } from "./rail";
 import type { ConsoleData } from "./types";
 
 /**
@@ -40,8 +40,10 @@ import type { ConsoleData } from "./types";
  *
  * The first draft gave it Map and Connections. The rail has not had those
  * since they became "facts about a context rather than places inside one" and
- * moved into the context's own page — `ConsoleRail` says so in a comment
- * beginning "This is not the `App` group coming back". It *does* carry
+ * moved into the context's own page. The rail carried that reasoning in a
+ * comment beginning "This is not the `App` group coming back", and it moved
+ * here with the list when `ConsoleRail.tsx` was deleted: a group of app-level
+ * destinations is not something this menu grows back. It *does* carry
  * Meetings, "Claim your @name" and "New workspace", which the first draft
  * dropped.
  *
@@ -51,9 +53,9 @@ import type { ConsoleData } from "./types";
  * live in. Those are §1464's "tests that fail if it is reversed" doing exactly
  * what they were written to do.
  *
- * Settings and sign-out follow the workspaces after a rule, because "whose
- * notes am I in" and "where else can I go" are two questions and a menu that
- * runs them together is a menu you have to read twice.
+ * Settings, Leave and sign-out follow the workspaces after a rule, because
+ * "whose notes am I in" and "what can I do about it" are two questions and a
+ * menu that runs them together is a menu you have to read twice.
  */
 export type SwitcherMenuId =
   | `ctx:${string}`
@@ -61,6 +63,7 @@ export type SwitcherMenuId =
   | "claim"
   | "new"
   | "settings"
+  | "leave"
   | "signout";
 
 export function SwitcherMenu({
@@ -73,6 +76,7 @@ export function SwitcherMenu({
   onClaimContext,
   onNewWorkspace,
   onOpenSettings,
+  onLeaveContext,
   onSignOut,
 }: {
   data: ConsoleData;
@@ -84,6 +88,24 @@ export function SwitcherMenu({
   onClaimContext?: () => void;
   onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
+  /**
+   * Leave the context you are in. Omitted where there is nothing to leave.
+   *
+   * **This row is the fold's one real cost, paid rather than lost.** Leaving
+   * somebody else's workspace was a right-click on the rail's row, through
+   * `ContextRowMenu` — and a menu row has no second menu behind it, so the
+   * pointer layout would have had no door out of a shared context at all. The
+   * phone keeps its own: a long press on the strip's pill, the same component,
+   * unchanged.
+   *
+   * Only ever the *current* context, which is what keeps this one row rather
+   * than one per workspace: "leave" is a verb about where you are standing,
+   * and a list of five workspaces each with a destructive row beside it is a
+   * menu you stop reading. The caller decides whether it applies at all —
+   * `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so a row offered
+   * on your own workspace is a press whose only outcome is an error.
+   */
+  onLeaveContext?: () => void;
   onSignOut?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -93,33 +115,102 @@ export function SwitcherMenu({
     The same call the rail makes, with the same two offers, so the list and
     both conditions stay in one place. `offerOwnContext` decides whether the
     claim is on offer at all — the prop only says whether this caller can
-    perform it — which is the rule `ConsoleRail` states and neither of us gets
-    to restate differently.
+    perform it. That split is `offerOwnContext`'s to state and not this
+    component's to restate differently; the rail held the same line.
   */
   const claimable =
     onClaimContext !== undefined &&
     offerOwnContext({ contexts: data.contexts, loading: data.loading });
-  const group = railGroup({ contexts: data.contexts, claimable });
+  /*
+    `creatable` is the caller's answer, not a constant: the landing page mounts
+    a picture of the console with nowhere to send anybody, so "New workspace"
+    is offered exactly where there is a handler for it. `railGroup` defaults it
+    to `false` for that reason and this passes the real one.
+  */
+  const group = railGroup({
+    contexts: data.contexts,
+    claimable,
+    creatable: onNewWorkspace !== undefined,
+  });
 
   const items: MenuItem<SwitcherMenuId>[] = [
-    ...(onOpenMeetings ? [{ id: "meetings" as SwitcherMenuId, label: "Meetings" }] : []),
+    ...(onOpenMeetings
+      ? [
+          {
+            id: "meetings" as SwitcherMenuId,
+            label: "Meetings",
+            testID: "switcher-meetings",
+          },
+        ]
+      : []),
+    /*
+      The claim entry takes the **pinned top slot**, which is `railGroup`'s own
+      rule rather than this menu's: it is the placeholder for exactly the row
+      that would be there, so it cannot be drawn under the workspaces it stands
+      in for. `group.claim` is the second lock on whether it applies at all.
+    */
+    ...(group.claim && onClaimContext
+      ? [
+          {
+            id: "claim" as SwitcherMenuId,
+            label: "Claim your @name",
+            testID: "switcher-claim",
+          },
+        ]
+      : []),
     ...group.contexts.map((context) => ({
       id: `ctx:${context.slug}` as SwitcherMenuId,
       label: `@${context.slug}`,
-      detail: context.pinned === true ? "yours" : undefined,
+      /*
+        The ownership mark, and it is `isOwnWorkspace` rather than `pinned`.
+        `pinned` is the *read-only demo workspace the control plane appends*,
+        held to the end of the list; "yours" belongs on the personal workspace
+        you own, which `railGroup` holds to the front. The rail drew them as
+        two different things and so does this.
+      */
+      detail: isOwnWorkspace(context) ? "yours" : undefined,
       leading: <Dot tone={context.kind === "personal" ? "ok" : "neutral"} />,
+      testID: `switcher-context-${context.slug}`,
     })),
-    ...(group.claim && onClaimContext
-      ? [{ id: "claim" as SwitcherMenuId, label: "Claim your @name" }]
-      : []),
     ...(group.create && onNewWorkspace
-      ? [{ id: "new" as SwitcherMenuId, label: "New workspace" }]
+      ? [
+          {
+            id: "new" as SwitcherMenuId,
+            label: "New workspace",
+            testID: "switcher-new",
+          },
+        ]
       : []),
     ...(onOpenSettings
-      ? [{ id: "settings" as SwitcherMenuId, label: "Settings…", separatorBefore: true }]
+      ? [
+          {
+            id: "settings" as SwitcherMenuId,
+            label: "Settings…",
+            separatorBefore: true,
+            testID: "switcher-settings",
+          },
+        ]
+      : []),
+    ...(onLeaveContext
+      ? [
+          {
+            id: "leave" as SwitcherMenuId,
+            label: `Leave ${label}`,
+            danger: true,
+            testID: "switcher-leave",
+          },
+        ]
       : []),
     ...(onSignOut
-      ? [{ id: "signout" as SwitcherMenuId, label: "Sign out", danger: true, separatorBefore: true }]
+      ? [
+          {
+            id: "signout" as SwitcherMenuId,
+            label: "Sign out",
+            danger: true,
+            separatorBefore: true,
+            testID: "switcher-sign-out",
+          },
+        ]
       : []),
   ];
 
@@ -161,6 +252,7 @@ export function SwitcherMenu({
             else if (id === "claim") onClaimContext?.();
             else if (id === "new") onNewWorkspace?.();
             else if (id === "settings") onOpenSettings?.();
+            else if (id === "leave") onLeaveContext?.();
             else if (id === "signout") onSignOut?.();
           }}
           onDismiss={() => setAnchor(null)}

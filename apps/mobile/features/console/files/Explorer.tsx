@@ -456,7 +456,7 @@ export function Explorer({
    * as much use for a folded tree as its owner does.
    *
    * There is no fifth. A "Close the file tree" button used to be drawn under
-   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘⇧E
+   * `touch`, and on a pointer layout it would be a fourth way to do what ⌘B
    * and the top bar's toggle already do, on the one density where there is
    * nothing covering the note to dismiss.
    *

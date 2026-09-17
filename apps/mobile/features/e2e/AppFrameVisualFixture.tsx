@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { useWindowDimensions } from "react-native";
-
 import { AppFrame } from "../app/AppFrame";
-import { densityFor } from "../app/frame";
-import { AccountBlock, ConsoleRail } from "../console/ConsoleRail";
+import { AccountBlock } from "../console/AccountBlock";
+import { atName } from "../console/format";
+import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { Explorer } from "../console/files/Explorer";
 import { BrowsePane } from "../console/panes/BrowsePane";
@@ -30,8 +29,9 @@ import { Text } from "../design/components/Text";
  * indentation or the note's measure match the artboards — and "the tests pass"
  * was, four times, reported as though it did.
  *
- * So: the real `ConsoleRail` and the real `BrowsePane`, on the same fixture
- * data the WebKit suite already ships, inside the real `AppFrame`. Nothing here
+ * So: the real `SwitcherMenu`, the real `Explorer` and the real `BrowsePane`,
+ * on the same fixture data the WebKit suite already ships, inside the real
+ * `AppFrame`. Nothing here
  * can reach an account or a bucket; `useE2EFixtureConsoleData` is demo data
  * with three capability flags flipped, and there is no deployment behind it.
  *
@@ -42,40 +42,36 @@ import { Text } from "../design/components/Text";
  */
 export function AppFrameVisualFixture() {
   const data = useE2EFixtureConsoleData();
-  const { width } = useWindowDimensions();
-  const density = densityFor(width);
   const [route, setRoute] = useState<ConsoleRoute>(LANDING_ROUTE);
-
-  const railMode = density === "wide" ? "full" : density === "medium" ? "icons" : null;
 
   return (
     <NavBandProvider nodes={{ contexts: null, current: null }}>
       <AppFrame
-        switcher={<Text variant="wsSwitch">@seyi</Text>}
-        topTrailing={<Text variant="treeMeta">actions</Text>}
-        accountSlot={<Text variant="treeMeta">{data.viewer.initial}</Text>}
-        onSearch={() => {}}
-        rail={(mode) =>
-          railMode === null ? null : (
-            <ConsoleRail
-              data={data}
-              route={route}
-              mode={mode === "icons" ? "icons" : "full"}
-              onNavigate={(next) => {
-                if (next.kind === "context") setRoute(next);
-              }}
-              account={
-                <AccountBlock
-                  name={data.viewer.name}
-                  detail={data.viewer.detail}
-                  initial={data.viewer.initial}
-                  compact={mode === "icons"}
-                  onSignOut={() => {}}
-                />
-              }
-            />
-          )
+        switcher={
+          <SwitcherMenu
+            data={data}
+            label={
+              route.kind === "context" ? atName(route.slug) : "Your context"
+            }
+            kind="personal"
+            tone="ok"
+            onOpenContext={(slug) =>
+              setRoute({ kind: "context", slug, view: "browse" })
+            }
+          />
         }
+        topTrailing={<Text variant="treeMeta">actions</Text>}
+        accountSlot={
+          <AccountBlock
+            name={data.viewer.name}
+            detail={data.viewer.detail}
+            initial={data.viewer.initial}
+            compact
+            touch
+            onSignOut={() => {}}
+          />
+        }
+        onSearch={() => {}}
         /*
           The file tree, which is what this column is in the product. The first
           pass put `BrowsePane` here — the *pane*, tree and note together — so
@@ -83,10 +79,12 @@ export function AppFrameVisualFixture() {
           it was empty. Copying `console/_layout`'s own wiring is the point of a
           fixture meant to answer "does this look like the design".
         */
-        explorer={
-          <Explorer files={data.files} contextLabel="@seyi" />
+        explorer={<Explorer files={data.files} contextLabel="@seyi" />}
+        status={
+          <Text variant="treeMeta">
+            2-areas/spirit/bible-study/kings/2-kings-5.md
+          </Text>
         }
-        status={<Text variant="treeMeta">2-areas/spirit/bible-study/kings/2-kings-5.md</Text>}
         bottomBar={<Text variant="treeMeta">toolbar</Text>}
       >
         <BrowsePane data={data} />
@@ -94,4 +92,3 @@ export function AppFrameVisualFixture() {
     </NavBandProvider>
   );
 }
-

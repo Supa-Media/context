@@ -32,8 +32,8 @@ import {
   focusToggleFor,
   initialFrame,
   panelsClearedFor,
-  railToggleFor,
   regionsFor,
+  topBarLeadFor,
   type Density,
   type FrameState,
   type Regions,
@@ -94,25 +94,16 @@ export interface FrameApi {
   regions: Regions;
   state: FrameState;
   /**
-   * The drawer button, and ⌘⇧E on web.
+   * The drawer button, and ⌘B on web.
    *
    * What toggling the explorer *means* is `explorerToggleFor`'s to decide, and
    * at a density where it answers `null` — medium and wide, where the explorer
    * is a permanent column and there is nothing to pull in — this genuinely
-   * does nothing. It used to toggle `railCollapsed` there, which made ⌘⇧E a
-   * second ⌘B that never once touched the explorer.
+   * does nothing. It used to toggle `railCollapsed` there, which made its
+   * chord a second ⌘B that never once touched the explorer — and ⌘B is now
+   * this command's own, the rail having folded into the switcher.
    */
   toggleExplorer: () => void;
-  /**
-   * ⌘B.
-   *
-   * Collapses the rail to its marks on a pointer layout and does nothing on a
-   * phone, where there is no rail to collapse and none to bring in —
-   * `railToggleFor` owns which, for the same reason `explorerToggleFor` owns
-   * the other one. It used to pull the sheet in at compact; the contexts are on
-   * the strip now.
-   */
-  toggleRail: () => void;
   /**
    * ⌘\, and the pill on the focus edge.
    *
@@ -134,11 +125,6 @@ export interface FrameApi {
   setExplorerPeeking: (peeking: boolean) => void;
   closeDrawer: () => void;
   /**
-   * Dismisses the rail sheet. Clears the flag at any density; there is only
-   * anything to see at compact, where the sheet is the thing being dismissed.
-   */
-  closeNav: () => void;
-  /**
    * Puts away whatever panel is over the editor, and says whether there was
    * one.
    *
@@ -147,8 +133,8 @@ export interface FrameApi {
    * that promise honest, returning `false` so the browser's own Escape
    * behaviour survives when nothing was open.
    *
-   * It closes the drawer and the rail sheet — the panels this component
-   * renders — **and** whatever registered itself through `registerDismissable`,
+   * It closes the drawer and the peek — the panels this component renders —
+   * **and** whatever registered itself through `registerDismissable`,
    * nearest first.
    */
   closeOverlays: () => boolean;
@@ -284,11 +270,9 @@ export function useFrame(): FrameApi {
       regions: fallbackRegions,
       state: initialFrame,
       toggleExplorer: noop,
-      toggleRail: noop,
       toggleFocus: noop,
       setExplorerPeeking: noop,
       closeDrawer: noop,
-      closeNav: noop,
       closeOverlays: () => false,
       // Nothing outside a provider has a frame to be closed by, so the
       // registration is real and the unregistration is a no-op.
@@ -403,36 +387,6 @@ export interface AppFrameProps {
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
-   * The rail, told how much room it has and what shape it is in.
-   *
-   * The three modes are `Regions.rail` minus `hidden`, passed straight through
-   * rather than folded into two: a phone sheet has the width for labels *and*
-   * needs targets a thumb can hit, and collapsing it to `full` here is what
-   * made the sheet inherit a pointer layout's 35pt rows.
-   *
-   * **Amended, in the change that reversed it.** This used to read: "Reachable
-   * at every density — a column on a pointer layout, a sheet the top bar brings
-   * in on a phone. It is not optional and must not become so: the app-level
-   * panes, the other contexts and sign-out are reachable through this node and
-   * no other, so a density with no way to reach it is a density you cannot
-   * navigate out of."
-   *
-   * The premise in that sentence is the half that expired — *through this node
-   * and no other*. On a phone the other contexts are the navigation band
-   * inside the scroller (`features/console/NavBand.tsx`), the signed-in
-   * identity is the `accountSlot` in the top bar, and the app's other
-   * places are keys on the bottom row; none of the three is behind a control,
-   * so none of them can be missing. The conclusion still holds wherever the
-   * premise does, which is medium and wide: there this is a permanent column
-   * and it is not optional.
-   *
-   * At compact it is not rendered at all — `regions.rail` is `"hidden"` and
-   * there is no sheet — so the slot is still a function rather than a node,
-   * now because a pointer layout asks for exactly one of three modes rather
-   * than because a phone mounts it late.
-   */
-  rail: (mode: "full" | "icons" | "sheet") => ReactNode;
-  /**
    * The file tree, rendered as a column or inside the drawer.
    *
    * Omit it for a route that has no tree — Map and Connections are app-level
@@ -454,7 +408,6 @@ export function AppFrame({
   topTrailing,
   accountSlot,
   onSearch,
-  rail,
   explorer,
   status,
   bottomBar,
@@ -482,7 +435,7 @@ export function AppFrame({
 
   // One command with one meaning per density, and `frame.ts` owns which. The
   // field it names is toggled; a `null` is a real no-op, not a licence to do
-  // something else — toggling the rail here is what made ⌘⇧E a duplicate of
+  // something else — toggling the rail here is what made this a duplicate of
   // ⌘B on every layout that has an explorer column.
   const toggleExplorer = useCallback(() => {
     setState((current) => {
@@ -497,7 +450,7 @@ export function AppFrame({
         preference on a pane that cannot show it, discovered later as a missing
         tree back on Browse. `explorerToggleFor` owns that and answers `null`,
         which must stay a genuine no-op — "does nothing" means *nothing*, not
-        "does the other command", which is what made ⌘⇧E a second ⌘B.
+        "does the other command", which is what made this a second ⌘B.
       */
       const field = explorerToggleFor(densityFor(width), { hasExplorer });
       if (field === null) return current;
@@ -509,29 +462,6 @@ export function AppFrame({
   }, [width, hasExplorer]);
 
   // Same rule as `toggleExplorer`: `frame.ts` owns what the command means and
-  // `null` is a real no-op. At compact there is no rail to collapse and no
-  // sheet to bring in — the contexts are on the strip — so ⌘B does nothing
-  // there rather than writing a preference nothing reads, which is the bug
-  // `railToggleFor` was extracted to end.
-  const toggleRail = useCallback(
-    () =>
-      setState((current) => {
-        if (current.focus) return { ...current, focus: false };
-        const field = railToggleFor(densityFor(width));
-        if (field === null) return current;
-        return { ...current, [field]: !current[field] };
-      }),
-    [width],
-  );
-  /*
-    ⌘\ and the focus edge's pill.
-
-    `focusToggleFor` owns whether this density has anything to fold, for the
-    reason the other two commands have owners: a chord that wrote `focus` on a
-    phone would be setting a mode no compact layout reads, which is the ⌘B
-    failure exactly. Entering takes the peek with it — the seam it was resting
-    on is about to stop existing.
-  */
   const toggleFocus = useCallback(
     () =>
       setState((current) => {
@@ -555,10 +485,6 @@ export function AppFrame({
   );
   const closeDrawer = useCallback(
     () => setState((current) => (current.drawerOpen ? { ...current, drawerOpen: false } : current)),
-    [],
-  );
-  const closeNav = useCallback(
-    () => setState((current) => (current.navOpen ? { ...current, navOpen: false } : current)),
     [],
   );
   /**
@@ -607,20 +533,19 @@ export function AppFrame({
     /*
       Then the frame's own panels, which are the outermost thing Escape can
       reach and so genuinely the last resort — including the two the folding
-      side panels added. The peek is over the editor and focus mode has taken
-      both panels away, and Escape is the key everybody tries for either.
+      tree added. The peek is over the editor and focus mode has taken the
+      panels away, and Escape is the key everybody tries for either.
     */
-    const wasOpen = state.drawerOpen || state.navOpen || state.explorerPeeking || state.focus;
+    const wasOpen = state.drawerOpen || state.explorerPeeking || state.focus;
     if (wasOpen)
       setState((current) => ({
         ...current,
         drawerOpen: false,
-        navOpen: false,
         explorerPeeking: false,
         focus: false,
       }));
     return wasOpen;
-  }, [state.drawerOpen, state.navOpen, state.explorerPeeking, state.focus]);
+  }, [state.drawerOpen, state.explorerPeeking, state.focus]);
   const setExplorerWidth = useCallback(
     (next: number) =>
       setState((current) => ({ ...current, explorerWidth: clampExplorerWidth(next) })),
@@ -634,8 +559,8 @@ export function AppFrame({
    *
    * Asked of `explorerToggleFor` rather than re-derived, because it is the same
    * question the command asks and the answer has to be one answer: a control
-   * that folds where ⌘⇧E does nothing is a button that lies, and a control that
-   * does not exist where ⌘⇧E works is a chord nobody can discover.
+   * that folds where ⌘B does nothing is a button that lies, and a control that
+   * does not exist where ⌘B works is a chord nobody can discover.
    *
    * It says `null` on a phone, which has no left panel at all, and on Map and
    * Connections, which have no tree — and both of those were drawing a closed
@@ -759,11 +684,9 @@ export function AppFrame({
       regions,
       state,
       toggleExplorer,
-      toggleRail,
       toggleFocus,
       setExplorerPeeking,
       closeDrawer,
-      closeNav,
       closeOverlays,
       registerDismissable,
       setExplorerWidth,
@@ -780,11 +703,9 @@ export function AppFrame({
       regions,
       state,
       toggleExplorer,
-      toggleRail,
       toggleFocus,
       setExplorerPeeking,
       closeDrawer,
-      closeNav,
       closeOverlays,
       registerDismissable,
       setExplorerWidth,
@@ -842,7 +763,7 @@ export function AppFrame({
             At medium and wide the switcher is unchanged and still the leading
             element of a real bar with a surface and a hairline.
           */}
-          {compact ? (
+          {topBarLeadFor(density) === "account" ? (
             <>
               {accountSlot == null ? null : (
                 /*
@@ -900,39 +821,6 @@ export function AppFrame({
         </View>
 
         <View style={styles.body}>
-          {regions.rail === "full" || regions.rail === "icons" ? (
-            <View
-              style={[styles.rail, regions.rail === "icons" && styles.railIcons]}
-              role="navigation"
-              aria-label="Console"
-            >
-              {rail(regions.rail)}
-            </View>
-          ) : null}
-
-          {/*
-            The rail's seam, and the first half of the whole design: the control
-            that folds a panel lives on the panel's own edge, so the control
-            that unfolds it is where the panel was. A toggle in the top bar
-            would put the affordance for bringing a left column back forty
-            points above and to the right of where it used to be, which is how
-            people come to believe a feature was removed. ⌘B still works and is
-            still the fast way; until this there was nothing else, and nothing
-            on the screen said so.
-          */}
-          {regions.rail === "full" || regions.rail === "icons" ? (
-            <PanelSeam
-              collapsed={regions.rail === "icons"}
-              onPress={toggleRail}
-              testID="rail-seam"
-              label={
-                regions.rail === "icons"
-                  ? "Show the navigation labels"
-                  : "Collapse the navigation rail to icons"
-              }
-            />
-          ) : null}
-
           {regions.explorer === "column" ? (
             <View style={[styles.explorerColumn, { width: state.explorerWidth }]}>
               {explorer}
@@ -1028,14 +916,7 @@ export function AppFrame({
                 styles.explorerPeek,
                 styles.panelRounded,
                 {
-                  left:
-                    (regions.rail === "full"
-                      ? layout.railWidth
-                      : regions.rail === "icons"
-                        ? layout.railIconWidth
-                        : 0) +
-                    layout.seamWidth +
-                    layout.seamClosedWidth,
+                  left: layout.seamWidth + layout.seamClosedWidth,
                   width: state.explorerWidth,
                 },
               ]}
@@ -1129,69 +1010,6 @@ export function AppFrame({
             </View>
           ) : null}
 
-          {/*
-            The rail, over the editor rather than beside it. Full labels, not
-            the icon rail: a sheet has the width, and a phone has no hover to
-            recover a glyph's meaning with. It carries the account block too,
-            which is why sign-out *was* unreachable on a phone until this
-            existed.
-
-            **No density reaches this branch, and neither does the drawer above
-            it or the scrim above that.** `regionsFor` answers `rail: "hidden"`,
-            `explorer: "hidden"` and `scrim: false` at compact and never
-            `"sheet"` or `"drawer"` anywhere; a phone's navigation is the
-            context strip and the bottom row, and sign-out is on the pinned
-            account mark in that strip.
-
-            They are on `frame.ts`'s "what is deliberately kept" list, and this
-            is the *rendering* half of that entry rather than a second decision.
-            The list keeps the `sheet` and `drawer` arms of `Regions`, the
-            `scrim` flag and the two panel flags on `FrameState` because
-            `AppFrame`'s API — `closeDrawer`, `closeNav`, `closeOverlays`,
-            `closesOnSelect` — is held outside this feature, so retiring the
-            representation is one coordinated change made where those callers
-            are. A representable region with nothing that can draw it is exactly
-            the hole that list exists to keep out, so the drawings stay for as
-            long as the arms do and go in the same change.
-
-            What separates that from `Explorer`'s `touch` fork, which was
-            deleted rather than kept: that fork was a second *presentation* of a
-            region, decided by a density, with one caller inside this feature and
-            no representation depending on it.
-          */}
-          {regions.rail === "sheet" ? (
-            <View
-              /*
-                The home indicator. `insets.bottom` is applied to the bottom bar
-                and nowhere else, and Map and Connections have no bottom bar —
-                which is to say the panes you land on after signing in are
-                exactly the ones where a full-height panel runs to the edge of
-                the glass. The account block is pinned to the foot of this
-                sheet, so without this, sign-out sits under the indicator on the
-                one surface it is reachable from.
-              */
-              style={[
-                styles.navSheet,
-                compact && styles.panelRounded,
-                compact
-                  ? {
-                      // The tree drawer's arithmetic, and for its reasons — see
-                      // the comment there. The two panels are one object in two
-                      // sizes; the toggle crosses off both of them and the
-                      // toolbar is put away under both of them.
-                      paddingTop: insets.top + layout.panelGutter,
-                      paddingBottom: insets.bottom,
-                    }
-                  : { paddingBottom: insets.bottom },
-              ]}
-              accessibilityViewIsModal
-              role="navigation"
-              aria-label="Console"
-              testID="frame-nav-sheet"
-            >
-              {rail("sheet")}
-            </View>
-          ) : null}
         </View>
 
         {regions.statusBar && status ? (
@@ -1213,18 +1031,11 @@ export function AppFrame({
               It is also the only one of the two a keyboard can reach by
               tabbing, and the only one left standing in focus mode.
             */}
-            <PanelToggle
-              testID="status-toggle-rail"
-              label="Navigation rail"
-              chord="⌘B"
-              state={regions.rail === "full" ? "open" : regions.rail === "icons" ? "half" : "off"}
-              onPress={toggleRail}
-            />
             {hasExplorer ? (
               <PanelToggle
                 testID="status-toggle-explorer"
                 label="File tree"
-                chord="⌘⇧E"
+                chord="⌘B"
                 state={regions.explorer === "column" ? "open" : "off"}
                 onPress={toggleExplorer}
               />
@@ -1568,45 +1379,6 @@ function ExplorerResizer({
 }
 
 /**
- * A seam between two panels, and the control that folds the leading one.
- *
- * Draws the hairline the layout needs anyway, brightens under the pointer, and
- * reveals a chevron pill. At rest it is exactly the rule it was before this
- * existed — the affordance costs nothing until somebody goes looking for it,
- * which is the trade that lets a permanent control live on every seam.
- */
-function PanelSeam({
-  collapsed,
-  onPress,
-  testID,
-  label,
-}: {
-  collapsed: boolean;
-  onPress: () => void;
-  testID: string;
-  label: string;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  // `onHoverIn`/`onHoverOut` rather than `Pressable`'s style callback, which
-  // carries `pressed` and `focused` but not `hovered` in RN's own types. Every
-  // hover in this app is done this way; see `design/components/Button.tsx`.
-  const [hovered, setHovered] = useState(false);
-  return (
-    <Pressable
-      style={[styles.seam, hovered && styles.seamHot]}
-      onPress={onPress}
-      onHoverIn={() => setHovered(true)}
-      onHoverOut={() => setHovered(false)}
-      role="button"
-      accessibilityLabel={label}
-      testID={`${testID}-toggle`}
-    >
-      <SeamPill shown={hovered} direction={collapsed ? "expand" : "collapse"} />
-    </Pressable>
-  );
-}
-
-/**
  * The seam left standing where the folded tree was.
  *
  * Two controls in one 10pt strip, and they are different gestures on purpose:
@@ -1783,17 +1555,13 @@ function PanelToggle({
       onHoverIn={() => setHovered(true)}
       onHoverOut={() => setHovered(false)}
       role="switch"
-      aria-checked={state !== "off"}
+      aria-checked={state === "open"}
       accessibilityLabel={`${label} (${chord})`}
       testID={testID}
     >
       <View style={styles.toggleGlyph}>
         <View
-          style={[
-            styles.toggleCell,
-            state !== "off" && styles.toggleCellOn,
-            state === "half" && styles.toggleCellHalf,
-          ]}
+          style={[styles.toggleCell, state === "open" && styles.toggleCellOn]}
         />
         <View style={styles.toggleDoc} />
       </View>
@@ -1940,19 +1708,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   /*
-    No border. The rail, the explorer and the page were all `surface` — one
-    value across three regions — so a hairline had to be drawn between each
-    pair to say they were different things. They are different values now
-    (`chromeSurface` against `pageSurface`), which is what separates panels in
-    this design; the only hairlines left in the frame are the seams, and a seam
-    is a 7pt drag target that has to be visible to be usable.
+    No border. The explorer and the page were both `surface` — one value across
+    two regions — so a hairline had to be drawn between them to say they were
+    different things. They are different values now (`chromeSurface` against
+    `pageSurface`), which is what separates panels in this design; the only
+    hairlines left in the frame are the seams, and a seam is a 7pt drag target
+    that has to be visible to be usable.
   */
-  rail: {
-    width: layout.railWidth,
-    backgroundColor: colors.chromeSurface,
-  },
-  railIcons: { width: layout.railIconWidth },
-
   explorerColumn: {
     backgroundColor: colors.chromeSurface,
     position: "relative",
@@ -2114,7 +1876,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderColor: colors.lineStrong,
   },
   toggleCellOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  toggleCellHalf: { height: 5 },
   toggleDoc: { width: 8, height: 11, borderRadius: 1, backgroundColor: colors.line },
   statusDivider: {
     width: 1,

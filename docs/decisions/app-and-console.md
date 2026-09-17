@@ -4241,3 +4241,106 @@ decisions and `e2e/webkit/callouts.spec.ts` holds that they reach a screen; six
 sabotages confirm them, and a seventh was removed rather than kept, because a
 `Decoration.mark` inside a `Decoration.replace` paints nothing and no test could
 tell the difference.
+
+## The rail folds into the switcher, and the column it occupied goes to the note
+
+The owner's words, looking at four screenshots of the console beside Obsidian
+and Notion: *"the design system for context.lc is non-existent and its very
+generic, and does not feel cohesive."* The palette, the type scale and the radii
+were the first three answers. This is the fourth, and it is the only one that
+changes what is on the screen rather than what colour it is.
+
+The console drew **three columns**: a 216pt rail of workspaces and app
+destinations, a 260pt file tree, and the note. The design canvas draws two —
+the tree and the page. Three columns on a 1440pt window leave the note 964pt
+before its own gutters, which is why the measure looked cramped in a window
+nobody would call small, and why the app read as busier than the two products
+it was being compared to.
+
+**Five workspaces and four destinations do not earn a permanent column.** They
+earn a menu under the name already in the title bar, which is where you look to
+know whose notes are open. `features/console/SwitcherMenu.tsx` is that menu, and
+it carries `railGroup`'s list unchanged: one group, the personal workspace
+pinned first and marked "yours", everything after it in the order the control
+plane sent, the claim entry in the pinned top slot and "New workspace" at the
+foot.
+
+### What it reverses, and what it only moves
+
+**"The rail is one list, with the personal workspace pinned to the top"** is
+*moved*, not reversed. Same `railGroup`, same pin, same mark, same two offers
+under the same two conditions — a different container. `railGroup.test.ts` is
+untouched and still passes, which is the evidence rather than the claim.
+
+**"The contexts moved into the scroller, because navigation is not a verb"** is
+untouched. That decision is about a phone, where a strip of pills lay across
+somebody's note at every scroll position; `compact` still has no rail, still
+draws `NavBand` inside the scroller, and still pins the account mark alone in
+the corner. `topBarLeadFor` is the one function that says which of the two a
+density gets, and it exists so the reachability guard has an input again —
+that guard used to read `Regions.rail`, and a rule whose input has been deleted
+is a rule that agrees with everything.
+
+**"Both left panels fold, and the seam between them is the control"** loses half
+its subject. There is one left panel, so there is one seam and one status-bar
+toggle. `PanelToggle`'s third state went with the rail: `half` meant "narrowed
+to its icons", which had to exist because `icons` was not `off` — the rail was
+still there and still navigable — and the tree is drawn or it is not.
+
+**⌘B is repointed rather than retired, and an earlier draft of this change said
+the opposite.** That draft argued: *"quietly moving a shortcut onto a different
+panel than the one its user learned is worse than a shortcut that stops doing
+anything."* The premise was wrong. Nobody learned "⌘B narrows the workspace
+column"; they learned what VS Code, Zed and Obsidian all mean by it, which is
+*fold the left panel and give me the width*. There is exactly one left panel
+now, so that is what it does, and ⌘⇧E is gone rather than kept beside it —
+`keymap.test.ts` allows a command exactly one chord, which is what keeps
+`describeBinding` from having to choose which alias to print. The collision with
+`bold` in a note is unchanged, and so is the rule that settles it.
+
+### What the fold cost, and where it was paid
+
+**Right-click on a workspace.** `ContextRowMenu` hung off every rail row through
+`RightClickTarget`, which reached the real DOM node to attach a `contextmenu`
+listener react-native-web would otherwise strip. A menu row has no second menu
+behind it, so that wrapper is deleted and a pointer layout has no right-click on
+a workspace at all. The phone's own gesture is untouched: a long press on the
+strip's pill, the same component, same two verbs.
+
+The two verbs are what had to be paid, and they are rows in the switcher's own
+menu: **Settings…**, and **Leave**, offered only on the context you are standing
+in and only where `leaveWorkspace` would allow it — a row offered on your own
+workspace is a press whose only outcome is `OWNER_CANNOT_LEAVE`. One row rather
+than one per workspace, because "leave" is a verb about where you are standing
+and a list of five workspaces each with a destructive row beside it is a menu
+you stop reading.
+
+Without that row this change would have taken the only door out of a shared
+context on a desktop, which is the kind of quiet subtraction a fold is most
+likely to make.
+
+**What a simplification costs.** Bringing the rail back is the third column and
+the cramped measure; it is also `Regions.rail`, `Regions.navToggle`,
+`FrameState.navOpen`, `FrameState.railCollapsed`, `railToggleFor`, `AppFrame`'s
+`rail` slot and `closeNav`, the rail column, the rail seam, the nav sheet and
+`ConsoleRail.tsx` itself, all of which went in one change because `frame.ts`'s
+own list refuses a representable region with nothing that can draw it. Dropping
+the Leave row leaves a shared context with no way out on a pointer layout.
+Dropping the claim entry's top slot puts a placeholder under the rows it stands
+in for. Leaving ⌘B unbound leaves the chord every editor uses doing nothing, and
+leaves `keymap.ts`'s scope-precedence rule with no live example to be tested
+against.
+
+**The tests that fail if it is reversed.** `appFrame.test.ts` ("a pointer layout
+is the tree and the note, and nothing more"; "and the leading end of its title
+bar is the switcher"; "`railToggleFor` is gone, and ⌘B belongs to the one panel
+that is left"), `appFrameRender.test.ts` (the account slot, the seams, the one
+status-bar toggle), `consoleIdentityChrome.test.ts` (the whole list, the pin,
+the mark and both offers, read out of the opened menu),
+`routeReachability.test.ts` ("a control `SwitcherMenu` draws is claimed as the
+switcher", and `REGION_DENSITIES` read off `topBarLeadFor`),
+`meetingsEntry.test.ts`, `ownContextPrompt.test.ts`, `consoleChrome.test.ts`,
+`signOutHygiene.test.ts` and `fixtureConsoleDensity.test.ts`. Fifty-one
+assertions across eight suites named the rail as the container they lived in;
+every one was rewritten rather than deleted, because they are the reversal
+guards of the decision this moves.

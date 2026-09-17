@@ -306,8 +306,23 @@ function mountConsole(width = 1440) {
     byLabel: (label: string) =>
       document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`),
     press,
-    signOut: () =>
-      press(document.body.querySelector<HTMLElement>('[data-testid="rail-sign-out"]')),
+    /*
+      Sign out, two presses, and that is the product's own shape rather than a
+      test detail.
+
+      It used to be one: `rail-sign-out`, the power glyph at the foot of the
+      rail's account block. The rail folded into `SwitcherMenu`
+      (`docs/decisions/app-and-console.md`), so on a pointer layout signing out
+      is a row in the menu under the workspace's name — open the menu, then
+      choose. The phone's own route is unchanged and is `AccountBlock`'s
+      `compact` disclosure, which was always two presses for the same reason:
+      a press that ends a session with no question asked is a press people
+      make by accident.
+    */
+    signOut: async () => {
+      await press(document.body.querySelector<HTMLElement>('[data-testid="frame-switcher"]'));
+      await press(document.body.querySelector<HTMLElement>('[data-testid="switcher-sign-out"]'));
+    },
     unmount: () => {
       act(() => root.unmount());
       container.remove();
