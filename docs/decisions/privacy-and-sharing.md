@@ -1336,3 +1336,56 @@ to prove it.
 refuses the root. A link over `""` is not a folder share with a wide reach, it
 is a different product, and every bound here is expressed relative to a prefix
 that a root would make empty.
+
+### A `@name` rule reaches an AI client through its grant, and that half is not built
+
+The console half landed with "A `@name` rule grants somebody something" above.
+This is the other half, written down before it is built because the shape is
+not obvious and one attractive shortcut is actively unsafe.
+
+**The requirement, which is already a decision.** `canSee`'s own docstring
+states it: "a connection a person added at team tier cannot see, search or list
+a note scoped to a group *even when that person is in the group*". So a client's
+reach cannot be resolved from its person's memberships — it has to ride on the
+**grant**, as `context:group:<name>` scopes clamped at approval time against the
+groups that person is actually in, and intersected again with live membership
+when the session resolves. Resolving from membership alone would hand every
+connected client every group note its person can reach, which is the answer
+somebody deliberately gave the narrower tier is entitled not to get.
+
+**Today it fails closed**, and that is the only reason this is a gap rather than
+a hole: nothing passes `grantedGroups` in the gateway, so a `@name` rule reaches
+no AI client at all.
+
+**The shortcut that looks safe and is not.** The gateway has ~31 `canSee` call
+sites in `index.js`, which is plain JavaScript — so unlike the control plane,
+where making the clearance one value let the compiler find every site, a missed
+site here is silent. The tempting alternative is to leave every call site alone
+and instead **rewrite the loaded rules** for a request, mapping each granted
+`@name` to `team` before handing them to the engine. It is one place, it cannot
+miss a site, and it fails closed if it does not run.
+
+It is still wrong. `persistExactVisibility` takes `rules` as an argument and
+uses it on the legacy branch — `visibilityOf(path, rules)` — to decide what to
+write to the legacy ACL key. The rewritten array reaches a **write** path, where
+`@leads` reading as `team` changes what is persisted. A read-time doctoring of
+the manifest is only safe if the doctored copy can never reach a writer, and
+here it can. Anybody reaching for this shortcut should stop at that call, not at
+the idea.
+
+**So the completeness guard has to be a structural test**, in the shape
+`__tests__/privacyAccessors.test.ts` already uses: read the file, find every
+`canSee(` call, assert each passes the caller's names, strip comments first, and
+carry a self-test so a matcher that accepts everything fails. That is weaker
+than a compiler and it is what this file has; it is worth saying plainly rather
+than pretending the threading is as safe as the control plane's was.
+
+**And one product question is open rather than answered.** Per-name scopes mean
+an owner who points a folder at a *new* group has to re-consent every client
+that should follow it — the grant records what it was issued with, which is the
+property the tier rule wants, and it is also friction nobody has agreed to. The
+alternative is a single `context:groups` scope meaning "the groups its person is
+in, resolved live", which is one checkbox and re-widens silently as membership
+changes. This file's existing rule favours the first; whether that is the right
+trade for a person managing several clients is the owner's call, and it should
+be made before the scopes are minted rather than after they are in grants.
