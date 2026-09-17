@@ -304,7 +304,10 @@ test.describe("at a pointer width", () => {
    */
   test("settings is the window, not a card in the middle of it", async ({ page }) => {
     await openConsole(page);
-    await page.getByTestId("rail-settings").click();
+    // The switcher's menu, which is where the rail's gear went — see the
+    // header, and the case above that opens it the same way.
+    await page.getByTestId("frame-switcher").click();
+    await page.getByTestId("switcher-settings").click();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
 
     const viewport = page.viewportSize();

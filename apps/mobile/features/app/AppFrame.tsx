@@ -347,6 +347,21 @@ export interface AppFrameProps {
    * ever becomes pressable again, the label comes back with it.
    */
   switcher: ReactNode;
+  /**
+   * The open notes, hanging from the foot of the title bar. **Pointer layouts
+   * only** — tabs are a pointer instrument and a phone has `RecentSheet`.
+   *
+   * A slot in the frame rather than a strip the editor region draws, because
+   * the thing that makes a tab look like a tab is the *boundary*: the active
+   * one is filled in `pageSurface` against the bar's `chromeSurface`, so it
+   * reads as the front edge of the page below. A strip drawn on the page has
+   * no boundary to meet and the active tab disappears into its own ground —
+   * measured, in exactly that state, before this moved.
+   *
+   * Absent draws nothing at all, which is what a route with no tabs open and
+   * every compact layout pass.
+   */
+  tabs?: ReactNode;
   /** Storage chip, avatar — the trailing edge of the top bar. */
   topTrailing?: ReactNode;
   /**
@@ -405,6 +420,7 @@ export interface AppFrameProps {
 
 export function AppFrame({
   switcher,
+  tabs,
   topTrailing,
   accountSlot,
   onSearch,
@@ -777,6 +793,34 @@ export function AppFrame({
           ) : (
             <View style={styles.topLead}>{switcher}</View>
           )}
+
+          {/*
+            THE OPEN NOTES, IN THE TITLE BAR, HANGING FROM ITS FOOT.
+
+            **They were a band of their own between this bar and the note**,
+            drawn by `EditorRegion` at the top edge of the editor region — with
+            a `surface2` ground, a hairline under it, a right rule between every
+            tab and an accent rule over the active one. Three horizontal bands
+            stacked down a 900pt window, the middle one saying nothing the
+            other two did not.
+
+            Here they are what every browser and every editor with a real title
+            bar draws: tabs hanging from the bottom edge of the chrome, with
+            the active one filled in the *page's* own surface so it reads as
+            the front edge of what is below it. That is why this slot is in
+            the frame rather than in the region — the effect is the tab meeting
+            the page across the boundary between two surfaces, and a strip
+            drawn on the page has no boundary to meet.
+
+            `alignSelf: "flex-end"` on the slot rather than a taller bar: the
+            bar keeps `topBarHeight` and the tabs are shorter than it, which is
+            what leaves the air above them.
+
+            Compact draws none of this. Tabs are a pointer instrument
+            (`TabStrip.tsx`: "there is no mobile half any more") and a phone
+            has `RecentSheet` over `history.ts` instead.
+          */}
+          {tabs == null ? null : <View style={styles.topTabs}>{tabs}</View>}
 
           {/*
             The trailing slot, which on a phone is **the** grouped container.
@@ -1645,6 +1689,24 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     backgroundColor: "transparent",
   },
   topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
+  /**
+   * The tabs' room in the title bar.
+   *
+   * `flex: 1` so the strip gets the middle of the bar and scrolls inside it
+   * rather than pushing the trailing group off the edge; `minWidth: 0` so it
+   * really can shrink, which a flex child does not do by default.
+   *
+   * `alignSelf: "flex-end"` and `alignItems: "flex-end"` are the whole visual
+   * idea: the tabs hang from the bar's foot and meet the page, instead of
+   * floating in the middle of a row that is centring everything else.
+   */
+  topTabs: {
+    flex: 1,
+    minWidth: 0,
+    alignSelf: "flex-end",
+    alignItems: "flex-end",
+    flexDirection: "row",
+  },
   /**
    * The account mark, pinned at the leading end of a phone's top row.
    *

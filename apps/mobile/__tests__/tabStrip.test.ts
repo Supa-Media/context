@@ -220,14 +220,26 @@ describe("the tab strip draws what tabs.ts says", () => {
     ).map((node) => node.textContent);
     expect(labels).toEqual(["notes", "plan", "health"]);
 
-    // Distinguished two ways, and both matter: the accent edge is what a person
-    // sees, `aria-selected` is what everybody else gets.
+    /*
+      Distinguished two ways, and both matter: the surface is what a person
+      sees, `aria-selected` is what everybody else gets.
+
+      **The surface is `pageSurface`, and that is the assertion rather than an
+      incidental colour.** This read `surface` under an accent top border —
+      a VS Code strip, where every tab is a cell in a table and the active one
+      is picked out by a rule above it. The design draws what a browser draws:
+      the active tab is *the same surface as the page under it*, so it reads as
+      the page's front edge rather than as a box that happens to be lit. An
+      idle tab has no fill at all, which is what the transparent assertion
+      below holds — `surface2` there would be the row of boxes again.
+    */
     const active = strip.need(`tab-${PLAN}`);
     const idle = strip.need(`tab-${NOTES}`);
-    expect(colorOf(active, "border-top-color")).toBe(channels(darkColors.accent));
-    expect(colorOf(idle, "border-top-color")).not.toBe(channels(darkColors.accent));
-    expect(colorOf(active, "background-color")).toBe(channels(darkColors.surface));
-    expect(colorOf(idle, "background-color")).toBe(channels(darkColors.surface2));
+    expect(colorOf(active, "background-color")).toBe(channels(darkColors.pageSurface));
+    expect(colorOf(idle, "background-color")).not.toBe(channels(darkColors.pageSurface));
+    // Transparent: react-native-web spells it `rgba(0, 0, 0, 0)`, so the
+    // channels are black and what says "nothing" is the alpha.
+    expect(window.getComputedStyle(idle).backgroundColor).toMatch(/rgba\(0,\s*0,\s*0,\s*0\)|transparent/);
 
     expect(strip.need(`tab-open-${PLAN}`).getAttribute("aria-selected")).toBe("true");
     expect(strip.need(`tab-open-${NOTES}`).getAttribute("aria-selected")).toBe("false");

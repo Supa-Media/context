@@ -40,6 +40,7 @@ import { itemsFromListings } from "../../../features/console/files/palette";
 import { useContextSearch } from "../../../features/console/files/useContextSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
+import { TabStrip } from "../../../features/console/files/TabStrip";
 import { tabAt } from "../../../features/console/files/tabs";
 import {
   canGoBack,
@@ -555,6 +556,27 @@ export default function ConsoleLayout() {
           label again, which reads its own text. The prop went with the reader.
         */
         /*
+          The open notes, in the title bar — see `AppFrame`'s `tabs` prop.
+
+          `browsing && !phone` is exactly the condition `EditorRegion` applied
+          when it drew the strip itself: tabs are Browse's, and they are a
+          pointer instrument. The emptiness check moved here with them, so a
+          route with nothing open passes `undefined` and the frame draws no
+          slot rather than an empty one.
+        */
+        tabs={
+          browsing && !phone && tabs.state.tabs.length > 0 ? (
+            <TabStrip
+              state={tabs.state}
+              onActivate={tabs.activate}
+              onClose={closeTab}
+              onCloseOthers={tabs.closeOthers}
+              onCloseToRight={tabs.closeToRight}
+              onReopen={tabs.reopen}
+            />
+          ) : undefined
+        }
+        /*
           Absent on a phone, where both chips have moved to the foot of the
           context's own page — `features/console/files/contextFoot.ts` composes
           the line and `FolderView` draws it.
@@ -928,13 +950,7 @@ export default function ConsoleLayout() {
             ) : null,
           }}
         >
-          <EditorRegion
-            browse={browsing}
-            failure={data.failure}
-            tabs={browsing && !phone ? tabs : null}
-            onCloseTab={closeTab}
-            phone={phone}
-          >
+          <EditorRegion browse={browsing} failure={data.failure} phone={phone}>
             <Slot />
           </EditorRegion>
         </NavBandProvider>

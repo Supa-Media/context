@@ -689,8 +689,6 @@ describe("the console's panes, through the frame that carries them", () => {
             {
               browse: false,
               failure: null,
-              tabs: null,
-              onCloseTab: () => {},
               phone: true,
               children: createElement(Text, null, "@seyi settings"),
             },

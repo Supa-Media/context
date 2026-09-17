@@ -123,6 +123,18 @@ export function replaceDocument(view: EditorView, text: string): void {
  * `frontmatterBlock` only answers for a document that opens with a terminated
  * block, so a note with no frontmatter, an unterminated fence, or a `---`
  * further down all answer 0 — which is the first character either way.
+ *
+ * ## It is load-bearing for the browser suite, which is how it was measured
+ *
+ * Sabotaged — `return 0` — `editorFormatting.spec.ts`'s two Bold cases fail,
+ * and they fail in the way that names the cause. A caret at 0 sits inside the
+ * hidden block, so the block is revealed on arrival; the **first** click of
+ * `selectFirstWord`'s double-click moves the caret out of it, the block
+ * collapses, and the document reflows upward *between the two clicks*. The
+ * second click lands on a different line than the one that was measured, and
+ * the bold goes somewhere nobody asked for: the run came back
+ * `A** **shared context is just a workspace…`. Nothing about that failure
+ * points at the caret, which is why it is written down here.
  */
 export function openingCaret(text: string): number {
   const front = frontmatterBlock(text);

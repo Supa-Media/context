@@ -6,6 +6,8 @@ import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { selectedContext } from "../console/types";
 import { Explorer } from "../console/files/Explorer";
+import { TabStrip } from "../console/files/TabStrip";
+import type { TabsState } from "../console/files/tabs";
 import { statusSegments } from "../console/files/status";
 import { describeIndexProgress } from "../console/search/fastSearch";
 import { storagePillLabel } from "../console/storage/pill";
@@ -46,6 +48,22 @@ import { Text } from "../design/components/Text";
  * inlined at export time, so every shipped build redirects the route to `/` as
  * if it did not exist.
  */
+/**
+ * Two tabs, the second of them active — the shape the design draws.
+ *
+ * `preview: false` on both: an italic label is `tabs.ts`'s own cue for "the
+ * next click replaces this", and a fixture for looking at should not be
+ * showing a transient state as if it were the resting one.
+ */
+const TABS: TabsState = {
+  tabs: [
+    { path: "1-projects/dc-chapter.md", preview: false, dirty: false },
+    { path: "1-projects/context-lc.md", preview: false, dirty: false },
+  ],
+  activePath: "1-projects/context-lc.md",
+  closed: [],
+};
+
 export function AppFrameVisualFixture() {
   const data = useE2EFixtureConsoleData();
   const [route, setRoute] = useState<ConsoleRoute>(LANDING_ROUTE);
@@ -135,6 +153,29 @@ export function AppFrameVisualFixture() {
           />
         }
         bottomBar={<Text variant="treeMeta">toolbar</Text>}
+        /*
+          The tab strip in the frame's own slot, which is the point of putting
+          it here at all: what this fixture is for is the *boundary* — the
+          active tab filled in `pageSurface` against the bar's `chromeSurface`,
+          meeting the page below it. Drawn as a child of the pane it would be a
+          strip on the page with nothing to meet, which is the arrangement the
+          slot exists to replace, and the screenshot would show the old design
+          while the app showed the new one.
+
+          Stubbed state rather than `useTabs`: that hook belongs to the console
+          layout and needs a `FileBrowser` behind it. Every rule about which tab
+          a close lands on is `tabs.ts`'s and is tested there.
+        */
+        tabs={
+          <TabStrip
+            state={TABS}
+            onActivate={() => {}}
+            onClose={() => {}}
+            onCloseOthers={() => {}}
+            onCloseToRight={() => {}}
+            onReopen={() => {}}
+          />
+        }
       >
         <BrowsePane data={data} />
       </AppFrame>

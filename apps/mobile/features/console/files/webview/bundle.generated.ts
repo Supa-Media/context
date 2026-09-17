@@ -15,7 +15,7 @@
 /** Every file in this repository that went into the bundle, by SHA-256. */
 export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mcp/src/forms.js": "9a6e1fd949e922bdb1497eb5ad9b1918d02c81976eaa1903cbdc1fda6a125639",
-  "apps/mobile/features/console/files/editorSetup.ts": "889aead3193eff9f6e8764ebe438d8711f4b379346d7914e9670e740f05b3d35",
+  "apps/mobile/features/console/files/editorSetup.ts": "e03a0222a7bbe686c29128240016f2cd4f67bceaa85319535aca7a564cbec98e",
   "apps/mobile/features/console/files/formBlock.ts": "451e18240c0875fd674c9d2e04305e1ede7c4614cf7f3a11a4199628219299ed",
   "apps/mobile/features/console/files/formComplete.ts": "4976e74de8aa9a7980a9ff674cd001112680ab42dea845c2215398af2f963238",
   "apps/mobile/features/console/files/linkComplete.ts": "90b09a612d887564735e29a3102e6f31c8952ea4cd4de3e4004d27f4873ecff0",
