@@ -33,6 +33,7 @@ import { Text, type TextVariant } from "./Text";
  */
 export type ButtonVariant =
   | "white"
+  | "accent"
   | "ghost"
   | "mini"
   | "danger"
@@ -42,6 +43,7 @@ export type ButtonVariant =
 
 const radiusFor: Record<ButtonVariant, number> = {
   white: radii.cta,
+  accent: radii.cta,
   ghost: radii.xs,
   mini: radii.md,
   danger: radii.md,
@@ -52,6 +54,7 @@ const radiusFor: Record<ButtonVariant, number> = {
 
 const labelVariant: Record<ButtonVariant, TextVariant> = {
   white: "cta",
+  accent: "cta",
   ghost: "ghost",
   mini: "mini",
   danger: "mini",
@@ -183,6 +186,33 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
       "0 2px 0 rgba(0,0,0,.4), 0 18px 44px -18px rgba(255,255,255,.28)",
   },
 
+  /**
+   * THE PRIMARY CALL TO ACTION, IN THE ONE HUE THE INTERFACE SPENDS ON ITSELF.
+   *
+   * `white` fills with `colors.white`, which is near-white on graphite and
+   * near-*black* on paper — so the landing page's main button was a black slab
+   * in light mode, and the accent appeared nowhere above the fold on the one
+   * page that has to say what this product is. The design canvas fills it with
+   * `accent`, which `tokens.ts` reserves for "here, active, yours" and which is
+   * exactly what a "start here" button is.
+   *
+   * It shares `cta`'s label, and that is the part that makes it work in both
+   * palettes without a second thought: `cta` is drawn in `ink`, which is
+   * near-black on graphite's light teal and near-white on paper's dark teal.
+   * The pair inverts together.
+   *
+   * No glow. `white`'s `boxShadow` is a white bloom tuned for a dark ground,
+   * and a coloured button does not need one to be found — it is the only
+   * saturated object in its band.
+   */
+  accent: {
+    gap: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 27,
+    borderRadius: radii.cta,
+    backgroundColor: colors.accent,
+  },
+
   /** `.ghost` */
   ghost: {
     gap: 9,
@@ -264,6 +294,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
 });
 
 const makeHoverStyles = (colors: Colors) => StyleSheet.create({
+  /** The same lift `white` makes, without the glow it makes it with. */
+  accent: { transform: [{ translateY: -1 }] },
   white: {
     // `.btn-white:hover{transform:translateY(-1px)}` plus the deeper glow.
     transform: [{ translateY: -1 }],

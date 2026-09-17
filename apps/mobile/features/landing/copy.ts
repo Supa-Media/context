@@ -60,6 +60,23 @@ export const ALSO_ON_PHONE = "Also on your phone:";
 export const STORE_IOS = "iOS";
 export const STORE_ANDROID = "Android";
 
+/**
+ * The navigation bar's two links, and its two actions.
+ *
+ * Two, not the canvas's four: it draws Docs / Architecture / Pricing / GitHub,
+ * and of those only Architecture and GitHub have somewhere to go. A nav row
+ * with a `Docs` link and no docs is a worse page than one with two links, and
+ * "match the picture" does not extend to inventing destinations.
+ *
+ * `NAV_START` is the same action as the hero's primary button and deliberately
+ * says something shorter: a nav button is read as "how do I begin", the hero's
+ * as "begin with what".
+ */
+export const NAV_ARCHITECTURE = "Architecture";
+export const NAV_GITHUB = "GitHub";
+export const NAV_SIGN_IN = "Sign in";
+export const NAV_START = "Get started";
+
 /** The two legal links in the foot. */
 export const PRIVACY_LINK = "Privacy";
 export const TERMS_LINK = "Terms";
@@ -107,6 +124,10 @@ export const LANDING_COPY = [
   ALSO_ON_PHONE,
   STORE_IOS,
   STORE_ANDROID,
+  NAV_ARCHITECTURE,
+  NAV_GITHUB,
+  NAV_SIGN_IN,
+  NAV_START,
   PRIVACY_LINK,
   TERMS_LINK,
   DEMO_FOOT,
