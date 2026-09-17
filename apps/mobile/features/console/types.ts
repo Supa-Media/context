@@ -51,6 +51,15 @@ export interface ConsoleContext {
   kind: string;
   status: StatusTone;
   /**
+   * The layout a setup flow recorded for this context, when one got that far.
+   *
+   * Read in exactly one place — `console/setup.ts`, to decide whether a
+   * *half-written* layout is the console's to finish. `custom` means somebody
+   * named their own folders, and finishing those belongs to the flow that took
+   * them rather than to a card that only knows the standard five.
+   */
+  structureTemplate?: string;
+  /**
    * Where meetings land in this context, when its owner has chosen one.
    *
    * Absent is the default, resolved by `features/meetings/destination.ts`
@@ -161,6 +170,16 @@ export interface ConsoleStorage {
    * binding updates.
    */
   dropboxAccountId?: string;
+  /**
+   * What the verifier found in this bucket, straight from the row.
+   *
+   * Read in exactly one place — `console/setup.ts`, which decides whether an
+   * unfinished context is offered a layout — and read as a value rather than a
+   * closed union for `status`'s reason: a newer deployment can send a word this
+   * bundle has never heard of, and the honest response to one is to offer
+   * nothing rather than to guess.
+   */
+  scaffoldReason?: string;
   /** Real, from the connect-time capability probe. */
   conditionalWrite: boolean;
   /**

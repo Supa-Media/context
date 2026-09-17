@@ -99,6 +99,11 @@ interface WorkspaceSummary {
   role: string;
   /** Where meetings land here, when the owner has chosen. Absent is the default. */
   meetingsFolder?: string;
+  /**
+   * The layout a setup flow last recorded — `para` or `custom`, absent where
+   * neither flow got that far. `listMyWorkspaces` has always returned it.
+   */
+  structureTemplate?: string;
   /** The pinned context. See `ConsoleContext.pinned` for what it changes here. */
   pinned?: boolean;
 }
@@ -155,6 +160,16 @@ interface StorageBinding {
   noteCount?: number;
   noteCountedAt?: number;
   noteCountTruncated?: boolean;
+  /**
+   * The verifier's word for what it found in the bucket — `empty`,
+   * `existing-context`, `created`, `partial`, `failed`.
+   *
+   * Absent means nobody has looked, or a deployment older than the field, and
+   * **never** "empty": `features/console/setup.ts` turns on that distinction,
+   * because the difference between the two is a card offering to write folders
+   * into somebody's live vault.
+   */
+  scaffoldReason?: string;
   /**
    * Where the storage-layout migration got to. Absent until it has run through
    * us, which is the only state the console still offers it in.
@@ -416,6 +431,7 @@ export function useLiveConsoleData(): ConsoleData {
     displayName: workspace.displayName,
     role: workspace.role,
     kind: workspace.kind,
+    structureTemplate: workspace.structureTemplate,
     /*
       `contextToneFor`, not `contextTone`: the pinned context has no storage
       subscription behind it (see `memberOf`), and `contextTone` reads that
@@ -538,6 +554,7 @@ export function useLiveConsoleData(): ConsoleData {
           noteCount: binding.noteCount,
           noteCountedAt: binding.noteCountedAt,
           noteCountTruncated: binding.noteCountTruncated,
+          scaffoldReason: binding.scaffoldReason,
           layoutState: binding.storageLayoutState,
           layoutStateAt: binding.storageLayoutAt,
           layoutChecked: binding.storageLayoutCheckedAt !== undefined,

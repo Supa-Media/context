@@ -50,6 +50,8 @@ import { MAIL_CONNECT_ENABLED } from "../communications/flags";
 import { classifyCommsPath } from "../communications/paths";
 import { removalHandler } from "../files/access";
 import type { SettingsSectionKey } from "../settings/sections";
+import { contextSetupFor, setupPromptVisible } from "../setup";
+import { SetupPrompt } from "../setup/SetupPrompt";
 
 /**
  * Browse — the note, and nothing between you and it.
@@ -443,6 +445,26 @@ export function BrowsePane({
   const noBucket = data.storage === null;
   const manifestBroken = files.listings[""]?.manifestUsable === false;
   /*
+    THE CONTEXT NOBODY FINISHED SETTING UP.
+
+    A layout is chosen in `/welcome` or `/workspace/new`, and both can be left
+    for good: the managed-storage card goes to Stripe, and Stripe returns to
+    Premium settings because those flows are component state with no URL to
+    resume. What that leaves is an owner in this console, on a verified and
+    entirely empty bucket, being told by the notice below that `privacy.md`
+    could not be read — with nothing on screen that would write one.
+
+    So the offer is drawn here, in the band that is already about the state of
+    this context's storage. `../setup.ts` owns when, and it is deliberately
+    narrow: a bucket the verifier has positively reported as empty, never one
+    it has not looked in.
+  */
+  const setup = contextSetupFor({
+    role: current?.role,
+    storage: data.storage,
+    structureTemplate: current?.structureTemplate,
+  });
+  /*
     Ask the bucket before offering anything, once per context.
 
     `storageMigrationWorthOffering` now needs the bucket to have *answered*
@@ -519,6 +541,7 @@ export function BrowsePane({
   const tierNote = tierSentence(current?.role);
   const hasNotice =
     tierNote !== null ||
+    setupPromptVisible(setup) ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
@@ -536,6 +559,32 @@ export function BrowsePane({
    */
   const notices = !hasNotice ? null : (
     <View style={[styles.notices, compact && styles.noticesCompact]}>
+      {/*
+        First in the band, and above the privacy warning it is the answer to.
+
+        On an empty context both are drawn: there is no `privacy.md` in a bucket
+        nothing has ever been written to, so the manifest notice below is
+        correct, alarming, and — for this one state — something the owner can do
+        nothing about directly. Writing a layout writes the manifest with it, so
+        the card above the warning is the fix above the symptom. Ordered rather
+        than conditional: the warning is still true until the scaffold lands,
+        and hiding a fails-closed privacy notice because a fix is on offer is
+        the wrong way round.
+      */}
+      {setupPromptVisible(setup) && current?.id !== undefined ? (
+        <SetupPrompt
+          setup={setup}
+          workspaceId={current.id}
+          /*
+            The importer is Settings → Storage's and is not rebuilt here. A
+            lambda with the section it means, for `browse-connect-storage`'s
+            reason: a press handler is called with a gesture event, and passing
+            `onOpenSettings` bare sends the route `?settings=[object Object]`.
+          */
+          onImportVault={onOpenSettings === undefined ? undefined : () => onOpenSettings("storage")}
+        />
+      ) : null}
+
       {tierNote !== null ? (
         <View style={styles.notice} testID="browse-tier-notice">
           {/*
