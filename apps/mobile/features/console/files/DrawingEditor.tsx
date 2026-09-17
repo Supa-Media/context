@@ -128,11 +128,24 @@ export function DrawingEditor({
         onMessage={onMessage}
         onError={() => setFailed(true)}
         onHttpError={() => setFailed(true)}
-        // The editor is one page and never navigates. Refusing everything else
-        // means a redirect cannot turn this frame into a browser pointed at
-        // somebody else's site while wearing the console's chrome.
+        /*
+          The editor is one page and never navigates. Refusing everything else
+          means a redirect cannot turn this frame into a browser pointed at
+          somebody else's site while wearing the console's chrome.
+
+          **Through `isEditorPageUrl`, which is what "one page" means.** This
+          was a `startsWith` on the same string, and a prefix is not a page: it
+          admits every same-origin path that merely begins with the editor's —
+          `…/index.html.other`, `…/index.htmlx`, `…/index.html/../elsewhere`.
+          Nothing foreign was ever admissible, because the prefix carries the
+          origin and `originWhitelist` sits behind it, so this is a tightening
+          rather than a hole — but the sentence above already specified the
+          stricter rule, and the strict comparison was already imported for the
+          message gate a few lines up, where its own comment records the
+          fail-open it was introduced to end.
+        */
         onShouldStartLoadWithRequest={(request) =>
-          request.url.startsWith(`${origin}${DRAWING_EDITOR_PATH}`)
+          isEditorPageUrl(request.url, `${origin}${DRAWING_EDITOR_PATH}`)
         }
         originWhitelist={[origin]}
         javaScriptEnabled
