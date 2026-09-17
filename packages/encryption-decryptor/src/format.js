@@ -214,7 +214,14 @@ export async function decryptNote(noteText, keys) {
         fromBase64Url(recipient.wrapped),
       ),
     );
-  } catch {
+  } catch (error) {
+    // A structural refusal keeps its own sentence. `assertIv` throws from
+    // inside this `try` — it sits in the argument to `decrypt` — and without
+    // this line its "malformed IV" became "wrong key, or a tampered envelope",
+    // which sends somebody holding a perfectly good key to check their key.
+    // The gateway's own catch has said `if (error instanceof …) throw error`
+    // for exactly this reason; this copy did not.
+    if (error instanceof DecryptorError) throw error;
     throw new DecryptorError("failed to unwrap the note key — wrong key, or a tampered envelope");
   }
   if (noteKeyBytes.byteLength !== KEY_BYTE_LENGTH) {
@@ -233,7 +240,11 @@ export async function decryptNote(noteText, keys) {
       noteKey,
       fromBase64Url(envelope.ct),
     );
-  } catch {
+  } catch (error) {
+    // As above: the IV guard's refusal is a different fact from a failed
+    // authentication tag, and this is the tool somebody reaches for when
+    // nothing else works, so it must not report the second for the first.
+    if (error instanceof DecryptorError) throw error;
     throw new DecryptorError("failed to decrypt the note — tampered ciphertext, or the wrong context");
   }
   return new TextDecoder().decode(plaintext);
