@@ -14,7 +14,7 @@ import { describeIndexProgress } from "../console/search/fastSearch";
 import { storagePillLabel } from "../console/storage/pill";
 import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
-import { CurrentContextPill } from "../console/ContextStrip";
+import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
 import { NavBandProvider } from "../console/NavBand";
 import type { ConsoleRoute } from "../console/nav";
 import { Text } from "../design/components/Text";
@@ -97,12 +97,26 @@ export function AppFrameVisualFixture() {
       reporting a defect the product does not have — which is the thing this
       file exists to stop doing.
 
-      `contexts` stays `null`: that row is the strip of *other* workspaces, and
-      the switcher above already offers them here.
+      `contexts` was `null` too, on the argument that the switcher above
+      already offers them — which is true at a *pointer* width and false at the
+      one this fixture is reviewed at. `Phone-Note.dc.html` opens with the
+      strip: `[S] @seyi`, then the other workspaces, then the pinned one. It is
+      the phone's whole way between contexts, there is no switcher up there,
+      and a board that omitted it could not show the one control the artboard
+      leads with.
     */
     <NavBandProvider
       nodes={{
-        contexts: null,
+        contexts: (
+          <ContextStrip
+            contexts={data.contexts}
+            currentSlug={route.kind === "context" ? route.slug : null}
+            recent={[]}
+            loading={false}
+            onOpen={(slug) => setRoute({ kind: "context", slug, view: "browse" })}
+            onSelect={setRoute}
+          />
+        ),
         current:
           current === null ? null : (
             <CurrentContextPill context={current} onOpenRoot={() => {}} onSelect={() => {}} />

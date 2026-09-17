@@ -1,6 +1,7 @@
 import { Fragment, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ContextRowMenu } from "./ContextRowMenu";
+import { WorkspaceMark } from "./WorkspaceMark";
 import { Dot } from "../design/components/Dot";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -365,12 +366,24 @@ export function CurrentContextPill({
         accessibilityLabel={`${atName(context.slug)}, the context you are in — open its root`}
         current
         /*
-          `head`, not the switcher's mark — see `Pill`'s own comment on the
-          variant. No `leading`: the dot is `toneForKind`'s answer to "tell
+          `head`, and a mark with it.
+
+          **No `leading` here used to mean no dot**, and that argument still
+          holds exactly as written: the dot is `toneForKind`'s answer to "tell
           these contexts apart in a list", and a list of the one context you
-          are standing in tells nothing apart. That is 13pt back for a control
-          this row already keeps quiet.
+          are standing in tells nothing apart.
+
+          A mark is not a dot. It carries the workspace's own letter, so it
+          answers *which* rather than *how is it* — which is the one question
+          this control exists for, and the same reversal the pointer layout's
+          switcher chip made when its `Dot` became a `WorkspaceMark`. The
+          canvas draws it on both: `Phone-Note` opens with `[S] @seyi`.
+
+          `toneForKind`'s answer is still in here, because `WorkspaceMark`
+          takes a tone and paints itself with it — so a workspace whose storage
+          is in trouble is still the thing your eye lands on.
         */
+        leading={<WorkspaceMark label={atName(context.slug)} tone={toneForKind(context)} />}
         head
         onPress={onOpenRoot}
         onLongPress={() => setMenuOpen(true)}

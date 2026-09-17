@@ -4,9 +4,10 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Dot, type DotTone } from "../design/components/Dot";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
+import { WorkspaceMark } from "./WorkspaceMark";
 import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
-import { radii, space, pointerType as t } from "../design/tokens";
+import { radii, space } from "../design/tokens";
 import type { MenuItem } from "./files/menu";
 import { offerOwnContext } from "../onboarding/route";
 import { isOwnWorkspace, railGroup } from "./rail";
@@ -266,41 +267,6 @@ export function SwitcherMenu({
   );
 }
 
-/**
- * The workspace's mark: an 18pt rounded square carrying one letter.
- *
- * **It was a `Dot`, and a dot cannot say which workspace this is.** The dot
- * was a *status* light — `tone` is still exactly that — and it was doing two
- * jobs in a chip whose entire purpose is identity. The canvas draws an avatar
- * here, the same mark the account block draws at 26pt, and the letter is what
- * distinguishes `@seyi` from `@lk` at a glance before you have read either.
- *
- * Status did not go with the dot: `tone` picks the mark's fill, so a workspace
- * whose storage is in trouble is still the thing your eye lands on first.
- *
- * Not `AccountBlock`'s `Avatar`, which is a 26pt circle: this is smaller, it
- * is square-with-a-radius rather than round, and the two are different objects
- * — a person and a workspace. Sharing one component would mean a prop that
- * only ever has two values, each used in one place.
- */
-function WorkspaceMark({ label, tone }: { label: string; tone: DotTone }) {
-  const styles = useThemedStyles(makeStyles);
-  /*
-    The first letter that is one, so `@seyi` marks S rather than `@`. A label
-    with no letters at all — a slug of digits — falls back to the first
-    character rather than drawing an empty square.
-  */
-  const letter = (/\p{L}/u.exec(label)?.[0] ?? label.slice(0, 1)).toUpperCase();
-  return (
-    <View
-      style={[styles.mark, tone === "warn" && styles.markWarn, tone === "crit" && styles.markCrit]}
-      aria-hidden
-    >
-      <Text style={styles.markLetter}>{letter}</Text>
-    </View>
-  );
-}
-
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     /**
@@ -326,18 +292,6 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.chipFill,
       minWidth: 0,
     },
-    mark: {
-      width: 18,
-      height: 18,
-      borderRadius: 5,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.accent,
-    },
-    markWarn: { backgroundColor: colors.warn },
-    markCrit: { backgroundColor: colors.crit },
-    /** `ink` is the colour that reads on a filled mark in either scheme. */
-    markLetter: { fontSize: t.label, fontWeight: "600", color: colors.ink },
     /** Chrome's grey, not a label's — see `chromeMuted`. */
     chevron: { opacity: 0.9 },
   });
