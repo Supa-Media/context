@@ -75,9 +75,9 @@ export function Landing() {
     lineHeight: leading(heroSize, 0.98),
     letterSpacing: tracking(heroSize, -0.035),
   };
-  // `max-width: 14ch`, resolved against Onest's actual "0" advance rather than
-  // guessed — see `hero.ts`. A flat pixel value cannot be right at both ends
-  // of a `clamp(46px, 7.6vw, 98px)` type scale.
+  // `max-width: 14ch`, resolved against the display face's measured "0"
+  // advance rather than a guessed one — see `hero.ts`. A flat pixel value
+  // cannot be right at both ends of a `clamp(46px, 7.6vw, 98px)` type scale.
   const heroWidth = { maxWidth: heroHeadingWidth(heroSize) };
 
   return (

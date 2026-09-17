@@ -349,8 +349,27 @@ export const lightGraphColors: GraphColors = {
 const webStack = (primary: string, fallback: string) => `${primary}, ${fallback}`;
 
 export const fonts = {
+  /**
+   * The display voice.
+   *
+   * It was Onest, a second sans bought and shipped alongside the body face —
+   * and nothing in a console is set large enough to tell two humanist sans
+   * apart. The two faces differed by about a point and a half of width per
+   * hundred pixels and by nothing a reader would name, so the second webfont
+   * was a download that bought no identity.
+   *
+   * `display` stays as a token because the *role* is real: a wordmark, a hero,
+   * a pane title and a legal page's headings want one voice and the interface
+   * wants another, and keeping the name means that distinction can be given a
+   * face again later without touching a call site. It just resolves to the
+   * body face now, and the difference between display and interface is carried
+   * by size, weight and tracking instead.
+   */
   display: Platform.select({
-    web: webStack("Onest", "ui-sans-serif, system-ui, sans-serif"),
+    web: webStack(
+      "Instrument Sans",
+      "ui-sans-serif, system-ui, -apple-system, sans-serif",
+    ),
     default: undefined,
   }),
   body: Platform.select({
