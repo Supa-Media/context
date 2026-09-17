@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AppFrame } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
+import { ConsoleBottomBar } from "../console/ConsoleBottomBar";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { selectedContext } from "../console/types";
@@ -165,7 +166,34 @@ export function AppFrameVisualFixture() {
             testID="console-status"
           />
         }
-        bottomBar={<Text variant="treeMeta">toolbar</Text>}
+        /*
+          THE REAL SEVEN KEYS, NOT THE WORD "TOOLBAR".
+
+          This slot held `<Text>toolbar</Text>`, which made the phone board
+          useless for the one question it exists to answer. `ConsoleBottomBar`
+          was defined inside `app/(app)/console/_layout.tsx` and therefore
+          unmountable from anywhere else, so the stub was not laziness — it was
+          the only thing that could go here. It is a module now.
+
+          A history with one entry rather than `emptyHistory`: at an empty
+          history `‹`, `›` and Recent are all dimmed, and a board showing three
+          dead keys out of seven is a board showing a state nobody reviewing a
+          design is asking about. One entry is the ordinary case — you have
+          opened a note — and it lights Recent while leaving `›` correctly
+          dead, which is what a phone actually looks like.
+        */
+        bottomBar={
+          <ConsoleBottomBar
+            data={data}
+            history={{ entries: ["1-projects/context-lc.md"], at: 0 }}
+            hasRecent
+            onStep={() => {}}
+            onSearch={() => {}}
+            onOpenRecent={() => {}}
+            onNewNote={() => {}}
+            onStartMeeting={() => {}}
+          />
+        }
         /*
           The tab strip in the frame's own slot, which is the point of putting
           it here at all: what this fixture is for is the *boundary* — the
