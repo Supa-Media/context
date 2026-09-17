@@ -858,14 +858,6 @@ export function AppFrame({
           )}
 
           {/*
-            Search sits in the top bar where there is a pointer and in the
-            bottom toolbar where there is a thumb. Rendering it in both places
-            would put the same control twice on the one screen that has least
-            room for it.
-          */}
-          {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
-
-          {/*
             The trailing slot, which on a phone is **the** grouped container.
 
             Obsidian's top bar is exactly two objects: a rounded-square sidebar
@@ -886,8 +878,24 @@ export function AppFrame({
             hairline, the chips have room, and a container around them would be
             a box in a box — so `topTrail` alone, unfilled.
           */}
-          {topTrailing == null ? null : (
-            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>{topTrailing}</View>
+          {/*
+            The trailing group, and search is part of it.
+
+            Search sits in the top bar where there is a pointer and in the
+            bottom toolbar where there is a thumb — rendering it in both would
+            put the same control twice on the screen with least room. What
+            changed is *where* in the bar: it was centred, on its own
+            `marginLeft: "auto"`, which put two auto margins in one row and
+            split the free space between them — so it sat in the middle of the
+            band looking like a browser's omnibox rather than beside the other
+            actions. One group, one push to the trailing edge, and the centre
+            of the bar is free for what belongs there.
+          */}
+          {topTrailing == null && !(onSearch && !compact) ? null : (
+            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>
+              {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
+              {topTrailing}
+            </View>
           )}
         </View>
 
@@ -1326,12 +1334,13 @@ function SearchTrigger({ onPress }: { onPress: () => void }) {
       style={[styles.search, hovered && styles.searchHover]}
     >
       <Icon name="search" size={15} color={colors.muted} />
-      <Text variant="rowSub">Search this context</Text>
       {Platform.OS === "web" ? (
-        <View style={styles.kbd}>
-          <Text variant="treeMeta">⌘K</Text>
-        </View>
-      ) : null}
+        <Text variant="treeMeta" style={styles.kbd}>
+          ⌘K
+        </Text>
+      ) : (
+        <Text variant="rowSub">Search</Text>
+      )}
     </Pressable>
   );
 }
@@ -1897,30 +1906,29 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
 
   search: {
-    flexShrink: 1,
-    maxWidth: 420,
-    minWidth: 200,
-    marginHorizontal: "auto",
+    /*
+      A control at the trailing edge, not a field across the middle.
+
+      It was a 420pt bordered input centred in the title bar — browser
+      furniture, and the widest object in the band, for a feature whose whole
+      interface is a keystroke. Centred, it also forced the band into three
+      fixed slots, so there was nowhere for tabs to go. As a button beside the
+      other actions it costs about 60pt and gives the centre back.
+
+      The label goes with the width: on web the shortcut *is* the label, and a
+      magnifier beside it says what it opens. Native keeps a word, having no
+      shortcut to show.
+    */
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
-    paddingVertical: 5,
-    paddingHorizontal: space.x3,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.well,
+    height: 28,
+    paddingHorizontal: space.x2,
+    borderRadius: radii.sm,
+    backgroundColor: "transparent",
   },
-  searchHover: { borderColor: colors.lineStrong },
-  kbd: {
-    marginLeft: "auto",
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radii.xs,
-    borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface3,
-  },
+  searchHover: { backgroundColor: colors.surface3 },
+  kbd: { color: colors.muted },
 
   /** The three columns. `flex: 1` plus `minHeight: 0` is what makes the
       children scroll instead of the frame growing past the viewport. */
