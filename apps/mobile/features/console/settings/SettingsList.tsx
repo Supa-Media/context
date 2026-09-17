@@ -107,6 +107,14 @@ export function SettingsList({
       selected={entry.key === active}
       compact={compact}
       testID={`settings-section-${entry.key}`}
+      /*
+        Its own prefix, not `${testID}-marker`. Every row in this list is
+        found by `[data-testid^="settings-section-"]` — `settings.spec.ts`
+        sweeps them to measure label alignment — and a child sharing that
+        prefix joins the sweep as a row with no label and no box. Found
+        exactly that way, by the sweep, the first time this was drawn.
+      */
+      markerTestID={`settings-marker-${entry.key}`}
       onPress={() => {
         onSelect(entry.key);
         /*
@@ -126,10 +134,25 @@ export function SettingsList({
     return (
       <View key={key} style={styles.group}>
         {heading}
-        <View style={[styles.card, compact ? styles.cardCompact : null]}>
+        {/*
+          A plain stack under a pointer, and the grouped card only under a
+          thumb. The card was drawn at both, and at a pointer it put a border,
+          a fill and five hairlines around a nineteen-row index that is beside
+          its own content — six boxes stacked down a 252pt column, each one a
+          line the eye has to cross to read the next label. The heading and the
+          gap already say where a group starts.
+
+          A phone keeps it, and that is not an inconsistency: there the list is
+          the whole screen with nothing beside it, and a grouped card is what
+          iOS and Obsidian mobile both use to say a row is pressable.
+        */}
+        <View
+          style={compact ? [styles.card, styles.cardCompact] : null}
+          testID={`settings-group-${key}`}
+        >
           {entries.map((entry, index) => (
             <Fragment key={entry.key}>
-              {index === 0 ? null : <View style={styles.divider} />}
+              {index === 0 || !compact ? null : <View style={styles.divider} />}
               {row(entry)}
             </Fragment>
           ))}
@@ -322,6 +345,7 @@ function SettingsRow({
   compact,
   onPress,
   testID,
+  markerTestID,
 }: {
   icon: IconName;
   label: string;
@@ -331,6 +355,8 @@ function SettingsRow({
   compact: boolean;
   onPress: () => void;
   testID: string;
+  /** Deliberately not derived from `testID` — see the call site. */
+  markerTestID: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -362,6 +388,14 @@ function SettingsRow({
       testID={testID}
       style={[styles.row, compact ? styles.rowTouch : null, selected ? styles.rowOn : null]}
     >
+      {/*
+        The marker, not only the fill. A selected row that differs by
+        background alone is the first thing lost to a contrast problem or a
+        dimmed screen, and the tree beside the notes already marks its
+        selection this way — so the two selections in this app are drawn the
+        same, which is most of what makes them read as one idea.
+      */}
+      {selected ? <View style={styles.marker} testID={markerTestID} /> : null}
       <Icon
         name={icon}
         size={compact ? 19 : 17}
@@ -392,21 +426,32 @@ function SettingsRow({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     wrap: { flex: 1, minHeight: 0 },
+    /*
+      A field on the rail rather than a boxed one: `surface` on `ground` is the
+      same one-step lift the rest of this column uses, so the border went with
+      the cards. The touch minimum stays on a phone (`searchTouch`), where the
+      field is a real target rather than a 32pt control under a pointer.
+    */
     search: {
-      margin: space.x3,
+      marginHorizontal: space.x3,
+      marginTop: space.x3,
       marginBottom: space.x2,
-      minHeight: layout.minTouchTarget,
+      height: 32,
       paddingHorizontal: space.x3,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: colors.line,
-      backgroundColor: colors.well,
+      borderRadius: radii.xs,
+      backgroundColor: colors.surface,
       color: colors.text,
       fontSize: t.ui,
     },
     // 15 rather than 13, for the reason `railTouch` is 15.5: a field somebody
     // types into on a phone is read at the size the phone is read at.
-    searchTouch: { fontSize: touchType.ui, backgroundColor: colors.surface2, borderRadius: radii.xl },
+    searchTouch: {
+      minHeight: layout.minTouchTarget,
+      height: undefined,
+      fontSize: touchType.ui,
+      backgroundColor: colors.surface2,
+      borderRadius: radii.xl,
+    },
     scroll: { paddingBottom: space.x6, paddingHorizontal: space.x3 },
     empty: { paddingHorizontal: space.x2, paddingVertical: space.x3 },
     group: { marginTop: space.x4 },
@@ -434,19 +479,45 @@ const makeStyles = (colors: Colors) =>
       deny.
     */
     divider: { height: 1, backgroundColor: colors.line, marginLeft: 42 },
+    /*
+      28 tall under a pointer — `paddingVertical: 4` around a ~20pt line — and
+      on the 4pt ladder rather than the 8/11 it was, which were two of the
+      literals the structure sweep exists to remove. A row is `radii.xs` so the
+      selection is a band with corners rather than a stripe across a card that
+      is no longer there.
+
+      `position: relative` for the marker, which is absolutely placed so it
+      cannot push the mark and the label along by its own width.
+    */
     row: {
+      position: "relative",
       flexDirection: "row",
       alignItems: "center",
-      gap: space.x3,
-      paddingVertical: 8,
-      paddingHorizontal: 11,
+      gap: space.x2,
+      paddingVertical: space.x1,
+      paddingHorizontal: space.x3,
+      borderRadius: radii.xs,
     },
     /*
       The touch minimum, the arithmetic `ConsoleRail` already wrote down: 8pt
       around a ~21pt line is 37, which is right there and wrong under a thumb.
     */
     rowTouch: { minHeight: layout.minTouchTarget, paddingVertical: space.x3 },
-    rowOn: { backgroundColor: colors.accentDim },
+    rowOn: { backgroundColor: colors.surface3 },
+    /*
+      2×14 at the leading edge, the same mark the file tree draws. `surface3`
+      above carries "this row" and this carries "this one is the accent's" —
+      the fill is the state and the mark is the hue, which is the rule the
+      palette states for every other selected thing.
+    */
+    marker: {
+      position: "absolute",
+      left: space.x1,
+      width: 2,
+      height: 14,
+      borderRadius: radii.pill,
+      backgroundColor: colors.accent,
+    },
     label: { flexShrink: 1 },
     labelOn: { color: colors.accentText },
     /*

@@ -248,6 +248,39 @@ test.describe("at a pointer width", () => {
     await expect(page.getByText(/Your bucket, your credentials/)).toBeVisible();
     await expect(page.getByTestId("settings-sections")).toBeVisible();
   });
+
+  /**
+   * The page fills the window, measured in a real engine.
+   *
+   * This is the assertion jsdom cannot make and the one the defect was
+   * visible in: a 940×660 panel centred on a scrim, on a 1280×900 window,
+   * with the console greyed out around it. `settingsFrame.test.ts` proves the
+   * styles no longer *say* card; this proves the box no longer *is* one,
+   * which is a different claim and the one a screenshot would have settled.
+   */
+  test("settings is the window, not a card in the middle of it", async ({ page }) => {
+    await openConsole(page);
+    await page.getByTestId("rail-settings").click();
+    await expect(page.getByTestId("settings-sections")).toBeVisible();
+
+    const viewport = page.viewportSize();
+    if (viewport === null) throw new Error("no viewport");
+    const surface = await page.getByTestId("settings-overlay-panel").boundingBox();
+    if (surface === null) throw new Error("no box for the settings page");
+
+    // Flush to all four edges. A panel with `padding: space.x6` around a
+    // scrim sat 24pt in on every side, so any of these catches a revert.
+    expect(surface.x).toBe(0);
+    expect(surface.y).toBe(0);
+    expect(surface.width).toBe(viewport.width);
+    expect(surface.height).toBe(viewport.height);
+
+    // And the section list starts at the very left, rather than at the edge
+    // of a floating card — the cheapest way to tell the two apart by eye.
+    const list = await page.getByTestId("settings-sections").boundingBox();
+    if (list === null) throw new Error("no box for the list");
+    expect(list.x).toBeLessThan(24);
+  });
 });
 
 /**

@@ -22,6 +22,7 @@ export function Pill({
   leading,
   dashed = false,
   style,
+  testID,
 }: {
   tone?: PillTone;
   children: ReactNode;
@@ -39,10 +40,11 @@ export function Pill({
    */
   dashed?: boolean;
   style?: ViewStyle;
+  testID?: string;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
-    <View style={[styles.base, styles[tone], dashed && styles.dashed, style]}>
+    <View style={[styles.base, styles[tone], dashed && styles.dashed, style]} testID={testID}>
       {leading}
       <Text variant="pill" style={styles[`${tone}Text` as const]}>
         {children}
