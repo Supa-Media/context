@@ -935,6 +935,27 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
+   * THE WORDS REACH THE SCREEN, NOT JUST THE MODULE.
+   *
+   * `audienceWords.test.ts` proves what the sentences say; this proves the
+   * sheet is the thing saying them. The two halves are worth keeping apart:
+   * the vocabulary changed underneath a dialog that went on rendering, and
+   * every existing test passed either way because none of them read a label.
+   *
+   * "Everyone in @…" rather than "Workspace" is the whole point — a set the
+   * reader can check against the People list, instead of a word naming a set
+   * that exists nowhere.
+   */
+  test("the sheet names the context rather than saying `team`", () => {
+    const app = mountConsole(dataWith());
+    app.press(app.find("note-share"));
+    const team = sheet("share-audience-team")!;
+    expect(team.getAttribute("aria-label")).toMatch(/^Everyone in @/);
+    expect(team.getAttribute("aria-label")).not.toMatch(/workspace/i);
+    expect(sheet("share-audience-private")!.getAttribute("aria-label")).toBe("Restricted");
+  });
+
+  /**
    * What the icon could only imply, the control says. A padlock has to be
    * decoded; a marked position is read.
    */

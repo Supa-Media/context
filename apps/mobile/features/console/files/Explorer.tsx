@@ -21,6 +21,7 @@ import {
   newNoteHint,
 } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
+import type { AudienceContext } from "../privacy/audience";
 import { consoleOrigin } from "./shareOrigin";
 import { sharesBreakingWarning } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
@@ -124,6 +125,8 @@ export function Explorer({
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
     /** The workspace's slug, for showing the name a new group's label becomes. */
     groupSlug?: string;
+    /** Whose context this is, so every audience can be named. */
+    audience?: AudienceContext;
     /**
      * Make a group and point this path at it. Owner-only upstream.
      *
@@ -764,6 +767,8 @@ export function ExplorerDialogs({
     ) => ((route: RemovalRoute, row: AccessRow) => void) | undefined;
     /** The workspace's slug, for showing the name a new group's label becomes. */
     groupSlug?: string;
+    /** Whose context this is, so every audience can be named. */
+    audience?: AudienceContext;
     /**
      * Make a group and point this path at it. Owner-only upstream.
      *
@@ -936,6 +941,7 @@ export function ExplorerDialogs({
           }
           onRemovalRoute={access?.removalRouteFor?.(dialog.path, entryKind)}
           groupSlug={access?.groupSlug}
+          context={access?.audience}
           onCreateGroup={
             access?.onCreateGroup === undefined
               ? undefined

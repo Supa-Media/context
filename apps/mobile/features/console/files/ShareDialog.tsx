@@ -61,7 +61,6 @@ import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { baseName } from "./paths";
 import {
   accessRows,
-  accessSummary,
   type AccessMember,
   type AccessRow,
   type RemovalRoute,
@@ -69,7 +68,14 @@ import {
 import { noMatchHint, recipientsFor, type RecipientGroup } from "./recipients";
 import { canMakeGroup, memberLabel, previewGroupName } from "../groups/groups";
 import { isGroupVisibility, type Visibility } from "./types";
-import { SCOPE_LABELS, describeGoingPublic, scopeOf, type NoteScope } from "./scope";
+import { describeGoingPublic, scopeLabels, scopeOf, type NoteScope } from "./scope";
+import {
+  audienceDetail,
+  audienceName,
+  audienceSource,
+  contextHandle,
+  type AudienceContext,
+} from "../privacy/audience";
 import {
   describeOpenLink,
   describePersonalShare,
@@ -99,6 +105,7 @@ export function ShareDialog({
   entryKind = "file",
   onSetScope,
   groups,
+  context = { slug: null, kind: null, viewerIsOwner: true },
 }: {
   path: string;
   /** Every share on this context, or `undefined` while the query is in flight. */
@@ -117,6 +124,16 @@ export function ShareDialog({
   onShareWithGroup?: (group: string) => void;
   /** The groups this context has, for the field to offer. Owner-only upstream. */
   groups?: readonly RecipientGroup[];
+  /**
+   * Whose context this is, so every audience can be named rather than
+   * described. See `privacy/audience.ts`: "team" names a set the reader cannot
+   * check and "Everyone in @supa" names one they can.
+   *
+   * Defaulted rather than required because the landing page's read-only demo
+   * builds these props from local data with no backend, and a demo that cannot
+   * render the sheet is worse than one that says "this context".
+   */
+  context?: AudienceContext;
   /**
    * Take somebody's access away, by the route they picked.
    *
@@ -580,7 +597,7 @@ export function ShareDialog({
                   */}
                   {onSetScope === undefined ? null : isGroupVisibility(access.visibility) ? (
                     <Text variant="meta" style={styles.accessReason} testID="share-scope-group">
-                      {`This note is shared with ${access.visibility}. Change that where the group is defined — the row below takes you there.`}
+                      {`${entryKind === "folder" ? "This folder" : "This note"} is shared with ${audienceName(access.visibility, context)}. Change that where the group is defined — the row below takes you there.`}
                     </Text>
                   ) : (
                     <AudienceControl
@@ -588,10 +605,14 @@ export function ShareDialog({
                       canOpenLink={entryKind === "file"}
                       name={baseName(path)}
                       onSet={onSetScope}
+                      context={context}
                     />
                   )}
                   <Text variant="paneSub">
-                    {accessSummary(access.visibility, access.exception)}
+                    {audienceDetail(access.visibility, context)}
+                  </Text>
+                  <Text variant="meta" style={styles.accessReason}>
+                    {audienceSource(access.exception, entryKind)}
                   </Text>
                   {rows.map((row) => {
                     /*
@@ -791,14 +812,18 @@ function AudienceControl({
   canOpenLink,
   name,
   onSet,
+  context,
 }: {
   scope: NoteScope;
   canOpenLink: boolean;
   name: string;
   onSet: (from: NoteScope, to: NoteScope) => void;
+  /** Whose context this is, so the middle position can carry its name. */
+  context: AudienceContext;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [confirming, setConfirming] = useState(false);
+  const labels = scopeLabels(context);
 
   const positions: NoteScope[] = canOpenLink
     ? ["private", "team", "anyone"]
@@ -815,7 +840,7 @@ function AudienceControl({
               style={[styles.segment, on && styles.segmentOn]}
               role="radio"
               aria-checked={on}
-              accessibilityLabel={SCOPE_LABELS[position].label}
+              accessibilityLabel={labels[position].label}
               testID={`share-audience-${position}`}
               onPress={() => {
                 if (on) return;
@@ -828,7 +853,7 @@ function AudienceControl({
               }}
             >
               <Text variant="meta" style={on ? styles.segmentTextOn : styles.segmentText}>
-                {SCOPE_LABELS[position].label}
+                {labels[position].label}
               </Text>
             </Pressable>
           );
@@ -838,13 +863,13 @@ function AudienceControl({
       {/*
         No detail line under the control.
 
-        `SCOPE_LABELS[scope].detail` says who can read it; `accessSummary`,
-        immediately below, says who can read it AND where the rule came from —
-        which is the half a list cannot show and the difference between "this
-        is fine" and "wait, that folder?". Two sentences making one point read
-        as two points, which is the accumulation this sweep is about. The
-        labels keep their `detail` because the confirmation and future callers
-        want the words; this position does not need them twice.
+        `scopeLabels(context)[scope].detail` says who can read it, and the two
+        lines under the control say the same thing once and then say where the
+        rule came from — which is the half a list cannot show and the
+        difference between "this is fine" and "wait, that folder?". Two
+        sentences making one point would read as two points; these make two.
+        The labels keep their `detail` because the confirmation and future
+        callers want the words; this position does not need them twice.
       */}
 
       {!confirming ? null : (

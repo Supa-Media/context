@@ -11,7 +11,6 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   accessRows,
-  accessSummary,
   removalHandler,
   type AccessMember,
 } from "../features/console/files/access";
@@ -58,22 +57,15 @@ describe("who reaches a note", () => {
   });
 });
 
-describe("the summary line", () => {
-  test("names the group instead of calling it private", () => {
-    expect(accessSummary("@supa-leads", true)).toContain("@supa-leads");
-    expect(accessSummary("@supa-leads", true)).not.toMatch(/\bprivate\b/i);
-  });
+/*
+  The summary line moved out of this module.
 
-  test("says where the rule came from, which is the half a list cannot show", () => {
-    expect(accessSummary("team", false)).toMatch(/inherited from its folder/);
-    expect(accessSummary("team", true)).toMatch(/set on this note/);
-  });
-
-  test("the two tiers read as themselves", () => {
-    expect(accessSummary("team", false)).toMatch(/Everyone in this workspace/);
-    expect(accessSummary("private", false)).toMatch(/Only owners/);
-  });
-});
+  It said "Everyone in this workspace can read it" — a set the reader cannot
+  check — and the sentences now come from `privacy/audience.ts`, which names
+  the context ("Everyone in @supa") and is tested in `audienceWords.test.ts`
+  against the claims copy here may not make. `accessSummary` was deleted rather
+  than left beside its replacement, so there is one vocabulary and not two.
+*/
 
 describe("not loaded is not empty", () => {
   /**
@@ -85,8 +77,6 @@ describe("not loaded is not empty", () => {
   test("a membership still in flight draws no rows rather than an empty context", () => {
     expect(accessRows("team", false, undefined)).toEqual([]);
     expect(accessRows("private", false, undefined)).toEqual([]);
-    // The summary is unaffected, because it does not depend on the list.
-    expect(accessSummary("team", false)).toMatch(/Everyone in this workspace/);
   });
 
   test("an actually-empty membership is still empty, so the two are not conflated", () => {

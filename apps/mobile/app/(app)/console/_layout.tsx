@@ -86,6 +86,8 @@ import type { FileBrowser } from "../../../features/console/files/browser";
 import {
 } from "../../../features/console/files/scope";
 import { removalHandler } from "../../../features/console/files/access";
+import { audienceContextOf } from "../../../features/console/privacy/audience";
+import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
@@ -1039,6 +1041,16 @@ export default function ConsoleLayout() {
               narrowing a note names the note — see `removalHandler`.
             */
             groupSlug: current?.slug,
+            /*
+              Named audiences, from the one derivation every surface uses. The
+              share sheet says "Everyone in @supa" rather than "Workspace",
+              which is a set the reader can check. See `privacy/audience.ts`.
+            */
+            audience: audienceContextOf(
+              current?.slug,
+              current?.kind,
+              capabilitiesForRole(current?.role).isOwner,
+            ),
             onCreateGroup:
               data.groups?.actions === undefined
                 ? undefined

@@ -144,14 +144,6 @@ export interface AccessMember {
   isMe: boolean;
 }
 
-/** What the note's own rule is called, for the summary line. */
-export function accessSummary(visibility: Visibility, exception: boolean): string {
-  const source = exception ? "set on this note" : "inherited from its folder";
-  if (visibility === "team") return `Everyone in this workspace can read it — ${source}.`;
-  if (visibility === "private") return `Only owners can read it — ${source}.`;
-  return `Only ${visibility} can read it — ${source}.`;
-}
-
 /**
  * The people and rules that reach this note.
  *

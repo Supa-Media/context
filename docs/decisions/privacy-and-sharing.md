@@ -1172,3 +1172,76 @@ What a member still learns, stated rather than left to be rediscovered: the
 row's action, actor and timestamp are ungated, so "the owner pointed this folder
 at somebody at 14:02" is visible. That is the incidence signal this file already
 leaves open for every other action, and it names nobody.
+
+### The console names the context; the manifest keeps its two words
+
+Asked for by the owner (2026-09-17), in the form of three questions they could
+not answer from the screen in front of them: *"what's team? what's private? can
+I share a private note with a group?"*
+
+None of the three is a misunderstanding. They are fair questions about words
+this product chose:
+
+- **"Private"** is the manifest's word for *owners only*. In a shared context
+  that is not "mine", it is "not the members, not the editors" — and somebody
+  learns that by marking a folder private and locking out their co-lead, which
+  is why `privateMeans` already existed to say so.
+- **"Team"** names a set that exists nowhere as an object. There is no team;
+  there is this workspace's members, whom the owner invited by name. Worse, it
+  is the one word in the product that *sounds* like it might reach further,
+  which is the reading non-negotiable #5 exists to forbid.
+- **"Can I share a private note with a group?"** has the answer **yes** — a
+  note override may name one — and nothing on screen suggested it.
+
+So the console moves to the words this audience already holds, from Drive and
+Dropbox: `private` → **Restricted**, `team` → **Everyone in @supa**, a `@name`
+rule → **the name**, a link → **Anyone with the link**, unchanged because it was
+already honest.
+
+**`privacy.md` is untouched, and that is the point.** It is the stable on-bucket
+format (#3), parsed by a gateway that fails *closed* on a rule it cannot read,
+so renaming a word in the file would make every note in every bucket private for
+anybody on an older deployment. `Scope` stays two-valued. This is the console
+speaking, and nothing about what the file means moved.
+
+**Naming the context is the change that does the work.** "Everyone in @supa" is
+checkable against the People list; "Workspace" is not. A reader cannot conclude
+from a name that it might mean the internet, which is what the old word invited.
+Where the handle has not loaded, every sentence has a form that is true without
+it — "Everyone in this context" — because a label reading "Everyone in
+@undefined" is worse than one that is merely vague.
+
+**`Restricted` claims nothing about who, and the sentence beside it does.** That
+is what lets one word be honest in a personal context ("Yours alone") and in a
+shared one ("Owners of this context only — not its editors, and not its
+members") without either being the default that misleads the other.
+
+Three things hold it, and each fails a test:
+
+- **A group is never labelled "Restricted".** The exact defect `words.ts` opens
+  by naming, pointed at the new vocabulary: a note two colleagues can read,
+  labelled as reaching nobody but its owner. A live member count rides along
+  when the caller knows it, and `undefined` is not zero — a group whose
+  membership is still loading must not render as a group nobody is in.
+- **The words reach the screen, not just the module.** `audienceWords.test.ts`
+  proves what the sentences say; `noteChrome.test.ts` proves the sheet is the
+  thing saying them. Both were needed: the first version of this change passed
+  every existing test while the dialog went on rendering the old labels,
+  because no test read one. The render assertion failed immediately and
+  correctly — no caller was passing the context yet.
+- **A half-rename fails.** `privacyPanelRender.test.ts` asserts the *retired*
+  words are absent from the whole panel, not merely that the new ones appear.
+  That assertion exists because renaming the pills without the prose around
+  them shipped a panel saying "Restricted" over a paragraph explaining how to
+  "mark it team" — two vocabularies for one question, which is worse than
+  either alone and is precisely the confusion being fixed.
+
+**And the padlock that this was going to remove had already gone.** The three
+functions modelling it — `nextScope`, `SCOPE_ICON`, `scopeActionLabel` — were
+imported by nothing but the tests describing them, dead since the audience moved
+into the sheet as named positions. Deleted rather than deprecated. The property
+they carried is not: *no single press takes a note from private to a public
+link*, which is now asserted against `stepsTo`, the model the sheet actually
+drives, where reaching `anyone` from `private` is two steps and the public one
+is confirmed in words. `accessSummary` went the same way, replaced by the shared
+vocabulary rather than left beside it.
