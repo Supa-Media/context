@@ -228,15 +228,55 @@ describe("dark palette contrast", () => {
   });
 
   /**
-   * `muted` in the signed-off dark palette lands at 4.26:1 on `surface` —
-   * under AA. It is pinned rather than fixed because the dark values are the
-   * mockup and changing them is a redesign, not a light-mode change. The light
-   * palette is held to the real threshold above; this exists so that if
-   * somebody does revisit the dark values, the number they are moving is
-   * written down rather than rediscovered.
+   * `muted` used to be the one known AA failure in this file: the signed-off
+   * dark palette landed it at 4.26:1 on `surface`, and it was pinned rather
+   * than fixed because the dark values were the mockup and moving them was a
+   * redesign rather than a light-mode change.
+   *
+   * The redesign happened — Graphite and Paper — and the note left here for
+   * whoever did it said to write down the number they were moving. It was
+   * 4.26. It is now above AA on every surface `muted` is drawn on, so the
+   * exception is retired and the token is held to the same threshold as the
+   * rest. This assertion is the thing that stops it coming back.
    */
-  test("muted is a known, pinned exception", () => {
-    expect(contrast(darkColors.muted, darkColors.surface)).toBeCloseTo(4.26, 1);
+  test("muted clears AA on every dark surface, the old exception retired", () => {
+    for (const background of [
+      darkColors.ground,
+      darkColors.surface,
+      darkColors.surface2,
+      darkColors.surface3,
+      darkColors.well,
+    ]) {
+      expect(contrast(darkColors.muted, background)).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  /**
+   * The palette's accents were, every one of them, a Tailwind default:
+   * blue-500, emerald-400, amber-400, red-400, violet-500, and their light
+   * counterparts blue-600, red-600 and violet-600. A palette assembled from a
+   * framework's defaults looks like every other application assembled from
+   * them, which was the single largest reason this app read as generic.
+   *
+   * They are easy to reintroduce one at a time and impossible to notice one at
+   * a time, so they are named here. If a future palette genuinely wants one of
+   * these values, deleting its line is a deliberate act with a reviewer.
+   */
+  test("no retired framework default has crept back into either palette", () => {
+    const RETIRED = [
+      "#3B82F6",
+      "#2563EB",
+      "#34D399",
+      "#FBBF24",
+      "#F87171",
+      "#DC2626",
+      "#8B5CF6",
+      "#7C3AED",
+    ];
+    const used = [...Object.values(darkColors), ...Object.values(lightColors)].map((value) =>
+      value.toUpperCase(),
+    );
+    expect(RETIRED.filter((value) => used.includes(value))).toEqual([]);
   });
 });
 
