@@ -1319,6 +1319,19 @@ owner is choosing that when they mint it, and the answer to somebody proposing
 to "fix" it with an expiry or a view count is that neither un-publishes
 anything.
 
+**A folder link's card names the folder and nothing inside it**, and that is a
+boundary rather than an omission. "A folder link may also name two or three
+things inside it" above is about `/console/@slug?note=<folder>` — an address the
+owner chose, answered with a live `members` row behind it — and it does **not**
+carry over to `/s/<64 hex>`. The obvious tidy-up is to make the two cards match,
+and it is refused: an unlisted link is pasted into channels and forwarded, this
+file's own honest rule is that anything reaching a card is permanently public
+(Discord and WhatsApp copy the image to their own CDNs, iMessage bakes it into
+the sent message), and the names of somebody's notes are the most sensitive
+string this product publishes. `previewTitleForToken` returns the owner-chosen
+title and `openToAnyone`, and a test sabotages the title into carrying children
+to prove it.
+
 **The whole context is never the subject of one.** `checkFolderSharePath`
 refuses the root. A link over `""` is not a folder share with a wide reach, it
 is a different product, and every bound here is expressed relative to a prefix

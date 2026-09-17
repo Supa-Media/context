@@ -424,3 +424,63 @@ describe("a folder link is revocable and owner-only", () => {
     expect(errorCode(refused)).toBe("NOT_AUTHENTICATED");
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                 6. and the card names the folder, nothing in it            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ATTACK: LEARN WHAT IS IN SOMEBODY'S FOLDER FROM AN UNFURL.
+ *
+ * `previewTitleForToken` is unauthenticated — that is the point of it — and a
+ * folder link's card is the first surface a stranger sees. The decisions file
+ * records that a **team** folder link's card may name two or three of its
+ * team-visible children, argued for separately and bounded three times. That
+ * argument is about `/console/@slug?note=<folder>`, an address the owner chose
+ * and a card that is fetched with a live `members` row behind it.
+ *
+ * It does **not** carry over to `/s/<64 hex>`, and this test is here because
+ * the obvious "improvement" is to make the two cards match. An unlisted folder
+ * link is pasted into channels and forwarded; the decisions file's own honest
+ * rule is to treat anything that reaches a card as permanently public, because
+ * Discord and WhatsApp copy the image onto their own CDNs and iMessage bakes it
+ * into the sent message. Names of somebody's notes are the most sensitive
+ * string this product publishes, and an unlisted link's card must not carry
+ * them.
+ */
+describe("a folder link's card names the folder and nothing inside it", () => {
+  test("the title is the folder's own name", async () => {
+    const f = await fixture();
+    const token = await link(f);
+    const card = await f.t.query(api.functions.shares.previewTitleForToken, { token });
+    expect(card.title).toBe("Transition");
+    expect(card.openToAnyone).toBe(true);
+  });
+
+  test("no note inside it reaches the card", async () => {
+    const f = await fixture();
+    const token = await link(f);
+    const card = await f.t.query(api.functions.shares.previewTitleForToken, { token });
+    const said = JSON.stringify(card);
+    for (const name of ["overview", "deep", "salaries", "notes"]) {
+      expect(said.toLowerCase()).not.toContain(name);
+    }
+  });
+
+  test("a revoked folder link's card is the same absence as one that never existed", async () => {
+    const f = await fixture();
+    const token = await link(f);
+    const shares = await asUser(f.t, f.owner).query(api.functions.shares.listShares, {
+      workspaceId: f.workspaceId,
+    });
+    await asUser(f.t, f.owner).mutation(api.functions.shares.revokeShare, {
+      shareId: shares.find((share) => share.entryPath === SHARED)!.shareId as Id<"noteShares">,
+    });
+
+    const revoked = await f.t.query(api.functions.shares.previewTitleForToken, { token });
+    const invented = await f.t.query(api.functions.shares.previewTitleForToken, {
+      token: "b".repeat(64),
+    });
+    expect(JSON.stringify(revoked)).toBe(JSON.stringify(invented));
+  });
+});
