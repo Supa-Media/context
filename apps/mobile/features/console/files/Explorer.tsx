@@ -446,6 +446,7 @@ export function Explorer({
    * close, so the two cannot come to disagree about whether closing clears.
    */
   const closeFilter = useCallback(() => setQuery(""), []);
+  const [toolsShown, setToolsShown] = useState(false);
 
   /**
    * The controls across the top of the column.
@@ -523,7 +524,26 @@ export function Explorer({
   );
 
   return (
-    <View style={styles.explorer}>
+    <View
+      style={styles.explorer}
+      /*
+        Chrome on approach.
+
+        Four icon buttons sat lit above the tree at all times. None of them is
+        pressed often enough to earn a resting pixel, and together they were
+        the loudest thing in a column whose job is to be a quiet list of
+        names. They fade in when the pointer enters the column and fade out
+        when it leaves.
+
+        Opacity rather than mounting: the buttons keep their box, so the
+        toolbar does not reflow under the pointer, keyboard focus still
+        reaches them, and the e2e cases that press them by testID still find
+        them where they were. `focusable` chrome that vanishes from the tree
+        is chrome you cannot tab to.
+      */
+      onPointerEnter={() => setToolsShown(true)}
+      onPointerLeave={() => setToolsShown(false)}
+    >
       <View style={styles.toolbar}>
         {filterField}
         {query !== "" ? (
@@ -535,7 +555,7 @@ export function Explorer({
           />
         ) : null}
         <View style={styles.toolbarSpacer} />
-        {actions}
+        <View style={[styles.tools, toolsShown && styles.toolsShown]}>{actions}</View>
       </View>
 
       <ScrollView
@@ -1022,8 +1042,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     gap: 6,
     paddingHorizontal: space.x2,
     paddingVertical: space.x2,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
   },
   /**
    * Holds the create buttons at the trailing edge while the filter is away.
@@ -1034,6 +1052,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * beside it is revealed.
    */
   toolbarSpacer: { flexGrow: 1, flexShrink: 1 },
+  /* See the column's `onPointerEnter`: present, laid out, and unlit at rest. */
+  tools: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    opacity: 0,
+  },
+  toolsShown: { opacity: 1 },
   filter: {
     flex: 1,
     minWidth: 0,
