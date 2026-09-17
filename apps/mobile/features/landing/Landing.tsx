@@ -24,7 +24,26 @@ import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { ConsoleHalo, StageBackdrop } from "../design/components/StageBackdrop";
 import { FloatingTiles } from "./FloatingTiles";
 import { ContinuityDemo } from "./ContinuityDemo";
-import { HERO_ALSO, HERO_LINE_ONE, HERO_LINE_TWO, HERO_SUB } from "./copy";
+import {
+  ALSO_ON_PHONE,
+  ARCHITECTURE_CTA,
+  DEMO_FOOT,
+  HERO_ALSO,
+  HERO_LINE_ONE,
+  HERO_LINE_TWO,
+  HERO_SUB,
+  LICENCE_BADGE,
+  LICENCE_FOOT,
+  PROOF_EYEBROW,
+  PROOF_FOLDER,
+  PROOF_BODY,
+  PROOF_FOOT,
+  PROOF_TITLE,
+  PRIVACY_LINK,
+  STORE_ANDROID,
+  STORE_IOS,
+  TERMS_LINK,
+} from "./copy";
 import { heroHeadingWidth } from "./hero";
 
 /** github.com/Supa-Media/context — the repo this page is built from. */
@@ -102,7 +121,7 @@ export function Landing() {
               </Text>
             </Text>
             <PressRow
-              accessibilityLabel="Context is MIT licensed open source on GitHub"
+              accessibilityLabel={LICENCE_BADGE}
               role="link"
               radius={radii.pill}
               style={styles.badge}
@@ -154,7 +173,7 @@ export function Landing() {
                 style={styles.actionItem}
               />
               <Button
-                label="Read the architecture"
+                label={ARCHITECTURE_CTA}
                 variant="ghost"
                 style={styles.actionItem}
                 onPress={() => {
@@ -172,13 +191,13 @@ export function Landing() {
                 see the build report.
               */}
               <Text variant="alsoLine">
-                Also on your phone:{" "}
+                {ALSO_ON_PHONE}{" "}
                 <Text variant="alsoLine" style={styles.alsoTarget}>
-                  iOS
+                  {STORE_IOS}
                 </Text>{" "}
                 ·{" "}
                 <Text variant="alsoLine" style={styles.alsoTarget}>
-                  Android
+                  {STORE_ANDROID}
                 </Text>
                 {"  "}
                 <Text variant="alsoLine" style={styles.soon}>
@@ -193,20 +212,18 @@ export function Landing() {
           <View style={styles.markdownBridge} testID="markdown-bridge">
             <View style={styles.markdownCopy}>
               <Text variant="eyebrow" style={styles.markdownEyebrow}>
-                No magic layer
+                {PROOF_EYEBROW}
               </Text>
-              <Text style={styles.markdownTitle}>Just Markdown. Yours to touch.</Text>
+              <Text style={styles.markdownTitle}>{PROOF_TITLE}</Text>
               <Text style={styles.markdownBody}>
-                Context stores ordinary files and folders—the same building blocks you already
-                know from Obsidian. Let an AI organize them, or open the editor yourself to write,
-                rename, move, and shape it all by hand.
+                {PROOF_BODY}
               </Text>
             </View>
 
             <View style={styles.markdownProof}>
               <View style={styles.markdownProofHead}>
                 <View style={styles.markdownProofDot} />
-                <Text style={styles.markdownProofLabel}>your-workspace/</Text>
+                <Text style={styles.markdownProofLabel}>{PROOF_FOLDER}</Text>
                 <Text variant="meta">plain files</Text>
               </View>
               <Text style={styles.fileLine}>├── 1-projects/</Text>
@@ -216,7 +233,7 @@ export function Landing() {
               <Text style={styles.fileLine}>└── inbox.md</Text>
               <View style={styles.proofRule} />
               <Text style={styles.proofCaption}>
-                Edit here · open in Obsidian · sync or self-host
+                {PROOF_FOOT}
               </Text>
             </View>
           </View>
@@ -244,14 +261,14 @@ export function Landing() {
           </View>
 
           <View style={styles.foot}>
-            <Text variant="foot">Demo — sign in for your own workspace</Text>
+            <Text variant="foot">{DEMO_FOOT}</Text>
             <Text variant="foot">{HERO_ALSO}</Text>
-            <Text variant="foot">MIT · self-hostable</Text>
+            <Text variant="foot">{LICENCE_FOOT}</Text>
             <Link href="/privacy" style={styles.legalLink}>
-              Privacy
+              {PRIVACY_LINK}
             </Link>
             <Link href="/terms" style={styles.legalLink}>
-              Terms
+              {TERMS_LINK}
             </Link>
           </View>
         </View>

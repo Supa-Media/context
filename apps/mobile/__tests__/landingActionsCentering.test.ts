@@ -45,7 +45,15 @@ describe("the landing hero centres its actions", () => {
     // without the override, so the count is what matters.
     const start = LANDING.indexOf("<View style={styles.actions}>");
     expect(start).toBeGreaterThan(-1);
-    const end = LANDING.indexOf("</View>", LANDING.indexOf("Also on your phone", start));
+    /*
+      The block's far edge is found by the identifier that renders that line,
+      not by the line itself. It used to be the sentence "Also on your phone",
+      and when the page's words were lifted into `features/landing/copy.ts` the
+      `indexOf` went to −1 and this slice collapsed to nothing — a test that
+      counted zero Buttons and said so. Copy is expected to change; the name a
+      component imports is refactored with it.
+    */
+    const end = LANDING.indexOf("</View>", LANDING.indexOf("ALSO_ON_PHONE", start));
     const block = LANDING.slice(start, end);
 
     const buttons = block.match(/<Button\b/g) ?? [];

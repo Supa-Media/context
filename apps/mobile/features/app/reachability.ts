@@ -254,7 +254,14 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "Privacy link in the public landing page footer",
         control: {
           file: "features/landing/Landing.tsx",
-          contains: ['href="/privacy"', "Privacy"],
+          /*
+            The label is named by the identifier that renders it, not by the
+            word. The page's words live in `features/landing/copy.ts` now, so a
+            needle of "Privacy" stopped matching the component the day they
+            moved — evidence that went stale because the copy was tidied, not
+            because the link went away.
+          */
+          contains: ['href="/privacy"', "PRIVACY_LINK"],
         },
         navigation: [
           {
@@ -276,7 +283,7 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
         surface: "Terms link in the public landing page footer",
         control: {
           file: "features/landing/Landing.tsx",
-          contains: ['href="/terms"', "Terms"],
+          contains: ['href="/terms"', "TERMS_LINK"],
         },
         navigation: [
           {
