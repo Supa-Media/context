@@ -342,6 +342,53 @@ type PathCheck =
   | { ok: true; path: string }
   | { ok: false; code: "PATH_INVALID" | "PATH_NOT_SHAREABLE"; message: string };
 
+/**
+ * The path a **folder** link may point at.
+ *
+ * Not `checkSharePath` with the `.md` test removed: a folder and an
+ * extensionless file are the same string, which `checkTeamSharePath` already
+ * records as the reason "note or folder" was never implementable from a path.
+ * So the *caller* declares which it meant and this checks the rest — and the
+ * declaration is proved against the bucket by the listing probe in
+ * `createLinkShare` before any row is written.
+ *
+ * The root is refused. A link over `""` is a link to the whole context, which
+ * is not a folder share with a wide reach but a different product — and every
+ * bound below is expressed relative to a prefix that a root would make empty.
+ */
+function checkFolderSharePath(input: string): PathCheck {
+  const path = normalizePath(input);
+  if (path === null || path === "") {
+    return { ok: false, code: "PATH_INVALID", message: "That path is not valid." };
+  }
+  if (isPlumbing(path)) {
+    return {
+      ok: false,
+      code: "PATH_NOT_SHAREABLE",
+      message:
+        "That folder is part of how this context works, not a folder of notes. It cannot be shared.",
+    };
+  }
+  return { ok: true, path };
+}
+
+/**
+ * Is `path` inside the folder this share is rooted at?
+ *
+ * **The trailing slash is the whole function.** `startsWith(folder)` hands over
+ * `1-projects/transition-old` to a link minted on `1-projects/transition` —
+ * a different folder whose name merely begins with the shared one's, which is
+ * the kind of near-miss that reads correct and leaks a sibling. Equality is
+ * allowed separately so the folder itself can be listed.
+ *
+ * Both sides arrive through `normalizePath`, so a dot-segment climb has already
+ * been resolved or refused before this is asked; this is the bound, not the
+ * sanitiser.
+ */
+function withinSharedFolder(folder: string, path: string): boolean {
+  return path === folder || path.startsWith(`${folder}/`);
+}
+
 function checkSharePath(input: string): PathCheck {
   const path = normalizePath(input);
   if (path === null) {
@@ -773,6 +820,15 @@ export const createLinkShare = action({
   args: {
     workspaceId: v.id("workspaces"),
     path: v.string(),
+    /**
+     * What `path` is. Absent means a note, which is every caller that existed
+     * before folder links and the shape this action has always had.
+     *
+     * Declared rather than sniffed, because a folder and an extensionless file
+     * are the same string — and proved against the bucket below before a row is
+     * written, so a caller cannot mint a folder share over a note by saying so.
+     */
+    kind: v.optional(v.union(v.literal("note"), v.literal("folder"))),
     titleInPreview: v.optional(v.boolean()),
   },
   returns: v.object({
@@ -803,6 +859,31 @@ export const createLinkShare = action({
       workspaceId: args.workspaceId,
       minimum: "owner",
     });
+
+    /*
+      AN UNSTATED KIND IS RESOLVED FROM THE LIVE ROW, NOT DEFAULTED TO `note`.
+
+      Two console callers re-mint a link without thinking about what it points
+      at: pressing Copy link, and toggling whether the card shows the name.
+      Both call this with a path and nothing else. Defaulting them to `note`
+      made a folder link answer "Only a note can be shared" — and, one refactor
+      further in, would have re-stamped a live folder share to `note` while
+      keeping its token, which breaks every link already sent and reports
+      nothing.
+
+      So "supersede this share" preserves what the share points at. It cannot
+      *create* a folder share by accident: a path with no live row still
+      resolves to `note`, and `checkSharePath` still refuses a folder. Minting
+      one over a folder for the first time still means saying so.
+    */
+    const kind =
+      args.kind ??
+      (await ctx.runQuery(internal.functions.shares.linkShareKind, {
+        workspaceId: args.workspaceId,
+        path: args.path,
+      }));
+
+    if (kind === "folder") return await mintFolderLink(ctx, args, userId);
 
     const pathCheck = checkSharePath(args.path);
     if (!pathCheck.ok) throw pathRejection(pathCheck);
@@ -862,12 +943,128 @@ export const createLinkShare = action({
       workspaceId: args.workspaceId,
       actorUserId: userId,
       path: pathCheck.path,
+      // Stated rather than defaulted: `mintLinkShare` requires it, so this
+      // branch says the thing it has just proved with a read.
+      entryKind: "note",
       ...(args.titleInPreview === undefined
         ? {}
         : { titleInPreview: args.titleInPreview }),
     });
   },
 });
+
+/**
+ * What an existing unlisted link over this path points at, or `note`.
+ *
+ * INTERNAL. Only `createLinkShare` calls it, and only when its caller did not
+ * say — see the comment there for why "supersede this share" has to preserve
+ * the kind rather than default it.
+ *
+ * `note` for a path with no live row is the safe answer in both directions: it
+ * cannot create a folder share by accident, and it is what every row written
+ * before folder links existed is.
+ */
+export const linkShareKind = internalQuery({
+  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  returns: v.union(v.literal("note"), v.literal("folder")),
+  handler: async (ctx, args) => {
+    const path = normalizePath(args.path);
+    if (path === null) return "note";
+    const existing = await ctx.db
+      .query("noteShares")
+      .withIndex("by_workspace_entry_recipient", (q) =>
+        q
+          .eq("workspaceId", args.workspaceId)
+          .eq("entryPath", path)
+          .eq("recipientKind", "anyone")
+          .eq("recipient", ""),
+      )
+      .unique();
+    if (existing === null || !isLive(existing, Date.now())) return "note";
+    return existing.entryKind ?? "note";
+  },
+});
+
+/**
+ * Mint a link over a folder, and prove the folder is one first.
+ *
+ * ## Why the probe is a LIST and not a read
+ *
+ * The note path's courtesy check reads the note: a link that silently resolves
+ * to "not available" for everybody who opens it is indistinguishable, from the
+ * owner's side, from having published something. A folder has the same failure
+ * and one more — the path may not be a folder at all — so the probe is the
+ * listing the reader will actually get, at the scope they will actually get it
+ * at.
+ *
+ * `team` scope, not the owner's `private`: the question is what the link's
+ * readers will see. A folder that lists **nothing** at `team` is refused, which
+ * covers a private folder, a folder whose every note is held back, a path that
+ * is really a note, and a path that is not there — all the ways an owner would
+ * otherwise paste a link into a channel and publish an empty room. They are one
+ * refusal because at `team` scope they are genuinely indistinguishable, which is
+ * the same indistinguishability that stops a member enumerating private paths
+ * and is not something to unpick for the owner's convenience.
+ *
+ * And as with every other check here, it is a **courtesy**: the read path
+ * re-derives everything from the live `privacy.md` on every request, because a
+ * folder made private after the link was pasted is exactly the case a
+ * mint-time check cannot see.
+ */
+async function mintFolderLink(
+  ctx: ActionCtx,
+  args: { workspaceId: Id<"workspaces">; path: string; titleInPreview?: boolean },
+  userId: Id<"users">,
+): Promise<{ token: string; title: string | null }> {
+  const pathCheck = checkFolderSharePath(args.path);
+  if (!pathCheck.ok) throw pathRejection(pathCheck);
+
+  try {
+    const listing = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope: "team",
+      operation: { kind: "list", path: pathCheck.path },
+    });
+    if (listing.kind !== "listing" || listing.entries.length === 0) {
+      throw notTeamVisibleFolder();
+    }
+  } catch (error) {
+    // A folder the manifest hides, a folder that is not there, and a note
+    // wearing a folder's argument answer identically at `team` scope. Anything
+    // else — an unreachable bucket, a binding that is gone — is passed through,
+    // because reporting an outage as "not shared" would have an owner
+    // republishing a folder that was never the problem.
+    if (error instanceof ConvexError) throw error;
+    throw error;
+  }
+
+  return await ctx.runMutation(internal.functions.shares.mintLinkShare, {
+    workspaceId: args.workspaceId,
+    actorUserId: userId,
+    path: pathCheck.path,
+    entryKind: "folder",
+    ...(args.titleInPreview === undefined
+      ? {}
+      : { titleInPreview: args.titleInPreview }),
+  });
+}
+
+/**
+ * A folder an unlisted link may not be minted over.
+ *
+ * Its own code beside `PATH_NOT_TEAM_VISIBLE`, worded for the thing the owner
+ * is actually looking at: "share the folder with your team first" is the action,
+ * and naming a folder rather than a note is what stops them hunting for a note
+ * that is not the problem.
+ */
+function notTeamVisibleFolder(): ConvexError<{ code: string; message: string }> {
+  return new ConvexError({
+    code: "PATH_NOT_TEAM_VISIBLE",
+    message:
+      "Your team cannot read anything in that folder, so a link cannot either. " +
+      "Share the folder with your team first, then make the link.",
+  });
+}
 
 /**
  * A note an unlisted link may not be minted over, because its readers could not
@@ -929,6 +1126,17 @@ export const mintLinkShare = internalMutation({
     workspaceId: v.id("workspaces"),
     actorUserId: v.id("users"),
     path: v.string(),
+    /**
+     * What `path` is. **Required**, and that is the guard rather than a
+     * formality: this mutation supersedes an active row *in place and keeps
+     * its token*, and it re-stamps the row's fields from its arguments. A
+     * defaulted `entryKind` meant any re-mint that did not name the kind
+     * turned a live folder share into a note share without changing its token
+     * — every link already sent stopped reaching the subtree, and nothing
+     * anywhere reported it. Required, so a caller that does not say does not
+     * compile.
+     */
+    entryKind: v.union(v.literal("note"), v.literal("folder")),
     titleInPreview: v.optional(v.boolean()),
   },
   returns: v.object({
@@ -988,6 +1196,7 @@ export const mintLinkShare = internalMutation({
       shareId = await ctx.db.insert("noteShares", {
         workspaceId: args.workspaceId,
         entryPath: args.path,
+        entryKind: args.entryKind,
         // Nobody to name, and nobody to sign in. One field carries the
         // audience — see the schema.
         recipientKind: "anyone",
@@ -1006,7 +1215,7 @@ export const mintLinkShare = internalMutation({
       actorUserId: args.actorUserId,
       action: "share.link.created",
       paths: [args.path],
-      details: { audience: "anyone" },
+      details: { audience: "anyone", entryKind: args.entryKind },
     });
 
     await scheduleCardRender(ctx, shareId);
@@ -1371,6 +1580,15 @@ export const authorizeShareRead = internalQuery({
       workspaceId: v.id("workspaces"),
       entryPath: v.string(),
       /**
+       * Whether `entryPath` is one note or a folder whose subtree this reaches.
+       *
+       * Defaulted to `note` where the row has no field, which is every row
+       * written before folder links: a share's reach must never depend on a
+       * backfill having run, and the direction this must fail is "an old row
+       * reaches one note", never "an old row reaches a subtree".
+       */
+      entryKind: v.union(v.literal("note"), v.literal("folder")),
+      /**
        * Whether this share needs no session at all.
        *
        * Reported rather than inferred downstream, because the viewer has a
@@ -1432,6 +1650,10 @@ export const authorizeShareRead = internalQuery({
       shareId: share._id,
       workspaceId: share.workspaceId,
       entryPath: share.entryPath,
+      // Absent means a note. Defaulted here, at the one place every reader
+      // goes through, rather than at each call site — a call site that forgot
+      // would widen an old row from one note to a subtree.
+      entryKind: share.entryKind ?? "note",
       openToAnyone: share.recipientKind === "anyone",
       editableInContext,
     };
@@ -1485,7 +1707,34 @@ export const readSharedNote = action({
   },
   returns: v.object({
     path: v.string(),
-    text: v.string(),
+    /**
+     * The note's markdown, or `null` for a folder.
+     *
+     * One action answers both because a reader arrives holding **only a
+     * token** — they cannot know which kind they have until we tell them, so a
+     * separate `readSharedFolder` would need them to guess and retry, and the
+     * wrong guess is an error message that differs by kind. One round trip,
+     * one refusal.
+     */
+    text: v.union(v.string(), v.null()),
+    /** `note` or `folder`, so the viewer knows which half of this is filled. */
+    kind: v.union(v.literal("note"), v.literal("folder")),
+    /**
+     * What is directly inside, when `path` is a folder. Empty for a note.
+     *
+     * **One level, not the whole subtree flattened.** The reader navigates in,
+     * which is what Drive and Dropbox do and what keeps a large folder from
+     * becoming one enormous response. The *reach* is still the whole subtree —
+     * any path under the root opens — and that is decided by the bound, not by
+     * what a listing happens to contain.
+     */
+    entries: v.array(
+      v.object({
+        path: v.string(),
+        name: v.string(),
+        kind: v.union(v.literal("file"), v.literal("folder")),
+      }),
+    ),
     /** The entry note this share is rooted at, so the viewer can offer a way back. */
     entryPath: v.string(),
     /** Paths the viewer may follow from here — the entry note's links, resolved. */
@@ -1523,7 +1772,9 @@ export const readSharedNote = action({
     args,
   ): Promise<{
     path: string;
-    text: string;
+    text: string | null;
+    kind: "note" | "folder";
+    entries: { path: string; name: string; kind: "file" | "folder" }[];
     entryPath: string;
     links: string[];
     openToAnyone: boolean;
@@ -1559,6 +1810,37 @@ export const readSharedNote = action({
       args.path === undefined ? grant.entryPath : normalizePath(args.path);
     if (requested === null) throw anonymousSafe(actorUserId, shareUnavailable());
 
+    /*
+      A FOLDER SHARE IS BOUNDED BY ITS PREFIX, AND NOTHING ELSE AUTHORIZES A HOP.
+
+      A note share's traversal is its entry note's own links, depth one. A
+      folder has no such natural edge, so the bound is the folder itself: a
+      reader may reach what is under it and may not reach anything else. That
+      is checked HERE, before a single byte of the customer's bucket is spent,
+      so a path outside the folder costs no GET and no LIST and cannot be told
+      apart from a path inside it that does not exist.
+
+      `withinSharedFolder` and not `startsWith(entryPath)` — the trailing slash
+      is what stops `1-projects/transition-old` being handed to a link minted
+      on `1-projects/transition`. `requested` has already been through
+      `normalizePath`, so a dot-segment climb is resolved or refused before it
+      arrives; this is the bound, not the sanitiser.
+
+      Everything past the bound is the ordinary engine: `runFileOperation` at
+      `team` scope with no granted names, re-derived from the live `privacy.md`
+      on every request. So a note held back by name, a subfolder made private,
+      and a note pointed at a group are all absent — a folder link publishes a
+      narrowing of what the folder already said, never a widening of it, which
+      is where this is deliberately stricter than Drive's inherit-unless-
+      restricted model.
+    */
+    if (grant.entryKind === "folder") {
+      if (!withinSharedFolder(grant.entryPath, requested)) {
+        throw anonymousSafe(actorUserId, shareUnavailable());
+      }
+      return await readWithinSharedFolder(ctx, grant, requested, actorUserId);
+    }
+
     // The entry note is read on every request. It is what step 3 is checked
     // against, and — for a linked target — it is the only thing that authorizes
     // the hop. Reading it twice when it is itself the target is one extra bucket
@@ -1587,6 +1869,8 @@ export const readSharedNote = action({
       return {
         path: requested,
         text: target.text,
+        kind: "note" as const,
+        entries: [],
         entryPath: grant.entryPath,
         links,
         openToAnyone: grant.openToAnyone,
@@ -1597,6 +1881,8 @@ export const readSharedNote = action({
     return {
       path: grant.entryPath,
       text: entry.text,
+      kind: "note" as const,
+      entries: [],
       entryPath: grant.entryPath,
       links,
       openToAnyone: grant.openToAnyone,
@@ -1604,6 +1890,105 @@ export const readSharedNote = action({
     };
   },
 });
+
+/**
+ * Serve one path inside a shared folder: a listing, or a note.
+ *
+ * The caller has already proved `requested` is inside the folder. What is left
+ * is to decide which of the two it is, and the honest way is to **ask the
+ * engine** rather than to guess from the path — `1-projects/transition` is a
+ * folder here and an extensionless file elsewhere, which is the same reason the
+ * share row stores its kind.
+ *
+ * A listing is tried first and a read second, and the order matters for what a
+ * failure looks like: both answer through `runFileOperation` at `team` scope,
+ * so a path that is neither — private, held back, gone, plumbing — comes back
+ * from whichever ran last as the one refusal every other miss gets. Nothing
+ * here distinguishes "not a folder" from "not allowed", and it must not: a
+ * reader who could tell them apart would be enumerating somebody's bucket one
+ * path at a time.
+ *
+ * **Plumbing never appears and never opens.** `listFolder` drops it and
+ * `canSee` refuses it, so `.history/` inside a shared folder is absent for the
+ * same reason it is absent everywhere — this adds no second rule that could
+ * disagree with the first.
+ */
+async function readWithinSharedFolder(
+  ctx: ActionCtx,
+  grant: {
+    workspaceId: Id<"workspaces">;
+    entryPath: string;
+    openToAnyone: boolean;
+    editableInContext: string | null;
+  },
+  requested: string,
+  actorUserId: Id<"users"> | null,
+): Promise<{
+  path: string;
+  text: string | null;
+  kind: "note" | "folder";
+  entries: { path: string; name: string; kind: "file" | "folder" }[];
+  entryPath: string;
+  links: string[];
+  openToAnyone: boolean;
+  editableInContext: string | null;
+}> {
+  const shared = {
+    entryPath: grant.entryPath,
+    links: [],
+    openToAnyone: grant.openToAnyone,
+    editableInContext: grant.editableInContext,
+  };
+
+  // A note, if it is one. Tried first because it is the cheaper answer and the
+  // commoner request: a reader clicks a note far more often than a folder.
+  if (requested.toLowerCase().endsWith(".md")) {
+    const note = await readThroughShare(
+      ctx,
+      grant.workspaceId,
+      requested,
+      actorUserId,
+      grant.openToAnyone,
+    );
+    return { path: requested, text: note.text, kind: "note", entries: [], ...shared };
+  }
+
+  let listing;
+  try {
+    listing = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: grant.workspaceId,
+      scope: "team",
+      operation: { kind: "list", path: requested },
+    });
+  } catch {
+    // A folder this scope cannot open answers not-found, which is the same
+    // answer a folder that does not exist gets — by design, so that a prefix
+    // cannot become a way to ask whether a hidden folder has anything in it.
+    throw anonymousSafe(actorUserId, shareUnavailable());
+  }
+  if (listing.kind !== "listing") throw anonymousSafe(actorUserId, shareUnavailable());
+
+  /*
+    AN EMPTY FOLDER IS NOT A REFUSAL, AND THE ROOT IS THE CASE THAT PROVES IT.
+
+    A subfolder whose every note is private lists nothing, and so does one that
+    genuinely holds nothing. Serving both as an empty listing is the same
+    indistinguishability the rest of this path keeps — refusing on emptiness
+    would tell a reader that a folder they can see the name of has something
+    inside it they may not read.
+  */
+  return {
+    path: requested,
+    text: null,
+    kind: "folder",
+    entries: listing.entries.map((entry: { path: string; name: string; kind: string }) => ({
+      path: entry.path,
+      name: entry.name,
+      kind: entry.kind === "folder" ? ("folder" as const) : ("file" as const),
+    })),
+    ...shared,
+  };
+}
 
 /**
  * The refusal a caller with no session gets, whatever they presented.

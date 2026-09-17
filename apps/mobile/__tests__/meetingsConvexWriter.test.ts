@@ -718,6 +718,13 @@ describe("the premise this file rests on", () => {
       "utf8",
     );
     const writeFile = ops.slice(ops.indexOf("export async function writeFile("));
-    expect(writeFile.slice(0, 2000)).toContain("canSee(path, options.scope");
+    // `options.clearance` since a `@name` rule gained a read path: the check is
+    // the caller's tier AND the names they answer to, which is one value so
+    // that a site which was not updated does not compile. Matching the tier
+    // half alone would keep passing if the names were dropped, which is the
+    // direction this assertion exists to catch.
+    expect(writeFile.slice(0, 2000)).toContain(
+      "canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)",
+    );
   });
 });

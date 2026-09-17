@@ -60,6 +60,7 @@ import {
   type FileStore,
 } from "./fileOps";
 import { canSee, isPlumbing } from "./privacy";
+import { type Clearance } from "./clearance";
 import type { Scope } from "./privacy";
 import { isEncryptedNote } from "./noteEncryption";
 
@@ -165,7 +166,7 @@ function valuesFromAnswers(answers: FormAnswer[]): Record<string, string> {
  */
 async function resolveForm(
   store: FileStore,
-  scope: Scope,
+  clearance: Clearance,
   pathInput: string,
   formId: string | undefined,
 ): Promise<{ config: FormConfig; responsesPath: string }> {
@@ -174,7 +175,7 @@ async function resolveForm(
     throw refuse("PATH_INVALID", "That path is not valid.");
   }
   const state = await loadPrivacyState(store);
-  if (!canSee(path, scope, state.rules, state.overrides)) {
+  if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) {
     throw refuse("FILE_NOT_FOUND", "That file does not exist.");
   }
   const object = await store.get(path);
@@ -225,11 +226,11 @@ async function resolveForm(
  */
 export async function runFormAction(
   store: FileStore,
-  options: { scope: Scope; path: string; formId?: string; actor: FormActor; action: FormAction },
+  options: { clearance: Clearance; path: string; formId?: string; actor: FormActor; action: FormAction },
 ): Promise<FormResult> {
   const { config, responsesPath } = await resolveForm(
     store,
-    options.scope,
+    options.clearance,
     options.path,
     options.formId,
   );
