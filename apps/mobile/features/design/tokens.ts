@@ -86,6 +86,31 @@ export const darkColors = {
   rowSelected: "#2B2825",
 
   /**
+   * THE ONE OBJECT THAT DOES NOT INVERT, AND WHY IT IS A TOKEN RATHER THAN A
+   * LITERAL.
+   *
+   * The landing page's endpoint bar — the MCP address you copy into a client —
+   * is drawn in graphite on *both* design boards, including the paper one.
+   * That is not an oversight in the canvas: it is a terminal-shaped object, and
+   * a URL you paste somewhere reads as one. Re-tinting it to paper would make
+   * it a slightly different paper, which is not a different kind of thing.
+   *
+   * These are therefore the same three values in both palettes, and they are
+   * tokens rather than hexes at the call site because `paletteDiscipline.test.ts`
+   * is right: a component that names a colour is a component no palette can
+   * answer for, and "this one is meant to be fixed" is exactly the claim that
+   * needs to be written down somewhere a reviewer will find it.
+   *
+   * Nothing else may use them. If a second object wants a fixed dark surface,
+   * that is a decision about inversion and belongs in `docs/decisions/`.
+   */
+  terminalSurface: "#201E1B",
+  terminalInk: "#EDE8E0",
+  terminalAccent: "#6BC8C1",
+  terminalChip: "rgba(237,232,224,0.09)",
+  terminalChipHover: "rgba(237,232,224,0.16)",
+
+  /**
    * The `team` marker in the file tree, and only that.
    *
    * Visibility is the one thing a row says about itself that is not about the
@@ -302,6 +327,13 @@ export const lightColors: Colors = {
    * draws it two steps down.
    */
   rowSelected: "#E6E1D6",
+
+  /** Identical to the dark palette's, deliberately — see its note. */
+  terminalSurface: "#201E1B",
+  terminalInk: "#EDE8E0",
+  terminalAccent: "#6BC8C1",
+  terminalChip: "rgba(237,232,224,0.09)",
+  terminalChipHover: "rgba(237,232,224,0.16)",
   /** See the dark palette's note. */
   markTeam: "#6A46B8",
 

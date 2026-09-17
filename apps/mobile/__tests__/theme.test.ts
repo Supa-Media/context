@@ -99,13 +99,56 @@ describe("palette key parity", () => {
     expect(Object.keys(lightShadows).sort()).toEqual(Object.keys(darkShadows).sort());
   });
 
+  /**
+   * ONE EXCEPTION, NAMED — AND NAMING IT IS THE POINT.
+   *
+   * This test exists to catch the commonest way a palette goes wrong: a token
+   * added to `darkColors`, copied into `lightColors` to make the types line
+   * up, and never given a light value. It fires on *identity*, so a token that
+   * is deliberately the same in both worlds looks exactly like that bug.
+   *
+   * The landing page's endpoint bar is deliberately the same in both. It is a
+   * terminal-shaped object — the MCP address you copy into a client — and the
+   * design canvas draws it in graphite on the paper board too; re-tinting it
+   * would make it a slightly different paper, which is not a different kind of
+   * thing. `tokens.ts` argues it at the tokens themselves.
+   *
+   * An allowlist rather than a weakened rule: every other token must still
+   * differ, and adding a name here is a line in a diff somebody has to justify.
+   * If this list grows past a handful, that is inversion policy and belongs in
+   * `docs/decisions/` rather than in a test's exception list.
+   */
+  const INTENTIONALLY_FIXED = [
+    "terminalSurface",
+    "terminalInk",
+    "terminalAccent",
+    "terminalChip",
+    "terminalChipHover",
+  ];
+
   test("no token was left as its dark value", () => {
     const unchanged = Object.keys(darkColors).filter(
       (key) =>
+        !INTENTIONALLY_FIXED.includes(key) &&
         lightColors[key as keyof typeof lightColors] ===
-        darkColors[key as keyof typeof darkColors],
+          darkColors[key as keyof typeof darkColors],
     );
     expect(unchanged).toEqual([]);
+  });
+
+  test("and every allowed exception is actually fixed, not merely listed", () => {
+    /*
+      The allowlist's own guard. A name left in it after its token started
+      differing is an exception protecting nothing, and — worse — a name
+      *mistyped* into it silences nothing while looking as though it does.
+      Both are caught by asking the list to be true.
+    */
+    for (const key of INTENTIONALLY_FIXED) {
+      expect(Object.keys(darkColors)).toContain(key);
+      expect(lightColors[key as keyof typeof lightColors]).toBe(
+        darkColors[key as keyof typeof darkColors],
+      );
+    }
   });
 
   test("every token is a colour string in both palettes", () => {
