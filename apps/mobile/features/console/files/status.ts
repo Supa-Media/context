@@ -84,7 +84,6 @@ export interface StatusSegment {
     | "connection"
     | "queue"
     | "words"
-    | "characters"
     | "save"
     | "index"
     | "conflictCheck"
@@ -102,6 +101,15 @@ export interface StatusSegment {
    * keys the same way; a bar that drew this one in the prose face would be the
    * only surface in the product that did.
    */
+  /**
+   * A 6pt pip in front of the words — see `StatusBarSegment.pip`.
+   *
+   * One segment uses it: `storage`, which is the bar's only *health* claim
+   * rather than a measurement. A flag rather than "every toned segment gets
+   * one", because every segment has a tone and a row of lights is the opposite
+   * of a bar you can read at a glance.
+   */
+  pip?: boolean;
   mono?: boolean;
 }
 
@@ -118,19 +126,6 @@ export function countWords(text: string): number {
   const trimmed = text.trim();
   if (trimmed === "") return 0;
   return trimmed.split(/\s+/).length;
-}
-
-/**
- * `text.length` — **UTF-16 code units**, which is what JavaScript counts and
- * what the editor holds for the exact string handed to the bucket adapter to be
- * encoded. It is deliberately not described to the person as "characters you
- * can see": an emoji outside the BMP is two code units, and a combining
- * sequence is several, so this is not a grapheme count and must never be
- * labelled as one. It is also not a byte count — UTF-8 encoding happens below
- * this layer and inflates non-ASCII further.
- */
-function countUnits(text: string): number {
-  return text.length;
 }
 
 /** 1234 → "1,234". Written out rather than via `toLocaleString`, which varies. */
@@ -372,13 +367,25 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
       text: plural(countWords(editor.draft), "word", "words"),
       tone: "quiet",
     });
-    segments.push({
-      id: "characters",
-      text: plural(countUnits(editor.draft), "character", "characters"),
-      tone: "quiet",
-      // Says what is counted, without claiming graphemes or bytes.
-      detail: "Counted in UTF-16 code units, so an emoji counts as more than one.",
-    });
+    /*
+      NO CHARACTER COUNT.
+
+      "61 words" and "390 characters" are the same fact told twice, and the
+      second one is the one nobody asked for: a word count is how long a note
+      is, and a UTF-16 code-unit count is a fact about an encoding that had to
+      be explained in its own tooltip. Two segments of arithmetic beside the
+      save claim is also what pushed the bar's leading group past the middle of
+      a 1440pt window.
+
+      `countUnits` went with it rather than staying as an exported counter
+      nobody counts with: it was this segment's and only this segment's, and a
+      helper kept "in case" is the dead code this repository asks to be
+      removed. The arithmetic was never the interesting part — that a code-unit
+      count is not a grapheme count was, and it was interesting *because* the
+      label had to avoid claiming otherwise.
+
+      The canvas's bar is `path … words · saved · R2`.
+    */
   }
 
   const save = saveSegment(facts);
@@ -419,6 +426,9 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
       id: "storage",
       text: facts.storageLabel,
       tone: "quiet",
+      // The one health claim in the bar, and the only segment with a pip. See
+      // `StatusBarSegment.pip`.
+      pip: true,
       detail: "Your notes live in this bucket, which you own. Context is a tenant in it.",
     });
   }

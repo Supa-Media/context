@@ -40,7 +40,14 @@
  * without a browser, a renderer, or a mounted editor.
  */
 
-import { EditorState, Range, RangeSet, StateField, type Extension } from "@codemirror/state";
+import {
+  EditorState,
+  Range,
+  RangeSet,
+  StateEffect,
+  StateField,
+  type Extension,
+} from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { FormWidget, formFences, formHost } from "./formBlock";
 /*
@@ -1875,6 +1882,68 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
  * concatenated rather than pushed as they are found.
  */
 /**
+ * Is somebody working in this document?
+ *
+ * Not "does it have the keyboard", which is what this was first written as and
+ * is the wrong question by a hair that costs a feature. Focus is a fact about
+ * the DOM and it moves for reasons that have nothing to do with editing: a
+ * right-click menu is a React popover, and opening one blurs the editor.
+ *
+ * Measured in Chromium: right-click → Bold inserted the `**` correctly, and the
+ * note redrew with every mark hidden, so Bold looked like it had done nothing.
+ * `runMenuAction` calls `view.focus()` immediately after the command and
+ * `document.activeElement` really was `.cm-content` — a blur transaction simply
+ * arrived last. Chasing that ordering is a losing game; every popover, toolbar
+ * and side panel this product grows would be another round of it.
+ *
+ * So the field is engagement, and it is one-way within a document:
+ *
+ *  - `false` when a note is **put on screen** — `replaceDocument` says so
+ *    explicitly, which is the whole state this exists to draw.
+ *  - `true` the moment somebody clicks into the text or changes it
+ *    (`select.pointer`, `input`, `delete`) or focuses the editor at all.
+ *  - and it does not go back on blur. Reaching for a menu is not leaving.
+ *
+ * A `StateEffect` and a field rather than reading `view.hasFocus`, because
+ * `decorationsFor` is a pure function of `EditorState` and that is what makes
+ * it testable at all.
+ */
+const setEditorEngaged = StateEffect.define<boolean>();
+
+/**
+ * Engage or disengage the document. Exported for its two callers:
+ * `replaceDocument`, which closes the gate on every note it opens, and
+ * `livePreview.test.ts`, which has no view to click in.
+ */
+export function engageEditor(engaged: boolean) {
+  return setEditorEngaged.of(engaged);
+}
+
+/** Starts closed: a document that has just been put on screen is untouched. */
+export const editorEngaged = StateField.define<boolean>({
+  create: () => false,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setEditorEngaged)) return effect.value;
+    }
+    /*
+      A pointer selection is a click inside the text; `input` and `delete` are
+      edits, including the ones a menu command dispatches. None of them is
+      `replaceDocument` opening a note, which carries no user event and closes
+      the gate explicitly anyway.
+    */
+    if (
+      transaction.isUserEvent("select.pointer") ||
+      transaction.isUserEvent("input") ||
+      transaction.isUserEvent("delete")
+    ) {
+      return true;
+    }
+    return value;
+  },
+});
+
+/**
  * The selection the reveal rule may act on.
  *
  * NOTHING REVEALS IN A DOCUMENT NOBODY CAN TYPE INTO. Markup comes back when
@@ -1894,9 +1963,36 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
  * Both callers take it from here rather than each mapping the ranges, because
  * the two are one rule: `htmlPreviews` withdrawing a preview while
  * `decorationsFor` keeps the markup hidden is a half-revealed note.
+ *
+ * ## AND NOTHING REVEALS IN A DOCUMENT NOBODY HAS TOUCHED
+ *
+ * The same sentence, one step weaker, and it is the half that was missing. A
+ * caret exists the moment the document does — at 0, or wherever
+ * `replaceDocument` put it — whether or not anybody has gone near the editor.
+ * So a note *opened* rather than edited drew the markup of whichever construct
+ * the caret happened to land in, at a reader who had not touched anything.
+ *
+ * That is not hypothetical and it is how this was found: `openingCaret` puts
+ * the caret past the frontmatter, which is the first line of the writing — and
+ * on a note that opens with `# Title`, which is most of them, the page's title
+ * rendered as `# Title` with the hash showing. The canvas draws it clean, and
+ * so does every editor with a live preview: markup comes back **where you are
+ * working**, and a person who has not touched the note is not working
+ * anywhere.
+ *
+ * `editorEngaged` is what that reads, and its own comment argues why it is
+ * engagement rather than DOM focus — the short version being that a right-click
+ * menu blurs the editor and Bold would have appeared to do nothing.
+ *
+ * A state with no such field — every direct `decorationsFor` call in the unit
+ * suite, and any configuration that does not install `livePreview` — reveals
+ * as it always did. The gate is something the extension opts into, so a test
+ * that builds a bare `EditorState` to ask what a construct looks like still
+ * gets an answer about the construct.
  */
 function revealSelection(state: EditorState): Array<{ from: number; to: number }> {
   if (state.readOnly) return [];
+  if ((state.field(editorEngaged, false) ?? true) === false) return [];
   return state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
 }
 
@@ -2251,6 +2347,16 @@ export function livePreview() {
     update(value, transaction) {
       const readOnlyChanged = transaction.startState.readOnly !== transaction.state.readOnly;
       /*
+        Engagement, which is the fourth input and arrives by its own route: a
+        transaction carrying only `setEditorEngaged` changes no document, no
+        selection and no `readOnly`, so without this the whole document would
+        stay as it was drawn when nobody was in it — clicking into a note would
+        put a caret in markup that never came back.
+      */
+      const focusChanged =
+        transaction.startState.field(editorEngaged, false) !==
+        transaction.state.field(editorEngaged, false);
+      /*
         And the tree, which arrives late on a note of any size. CodeMirror parses
         the first few thousand characters synchronously and finishes the rest on
         an idle callback, announcing it with a transaction that carries no
@@ -2264,7 +2370,13 @@ export function livePreview() {
         it has parsed further, and the same one otherwise.
       */
       const treeChanged = syntaxTree(transaction.state) !== syntaxTree(transaction.startState);
-      if (!transaction.docChanged && !transaction.selection && !readOnlyChanged && !treeChanged) {
+      if (
+        !transaction.docChanged &&
+        !transaction.selection &&
+        !readOnlyChanged &&
+        !treeChanged &&
+        !focusChanged
+      ) {
         return value;
       }
       return decorationsFor(transaction.state);
@@ -2273,7 +2385,19 @@ export function livePreview() {
   });
   // The one place this extension is more than decorations: a drawn checkbox has
   // to answer a press. See `taskToggle`.
-  return [decorations, taskToggle];
+  return [
+    editorEngaged,
+    /*
+      Focus opens the gate and never closes it — see `editorEngaged`. Tabbing
+      into the editor is somebody arriving to write, and a blur is a popover,
+      not a departure.
+    */
+    EditorView.focusChangeEffect.of((_state, focusing) =>
+      focusing ? setEditorEngaged.of(true) : null,
+    ),
+    decorations,
+    taskToggle,
+  ];
 }
 
 /**
@@ -2292,14 +2416,29 @@ export const livePreviewStyles = `
   line-height: 1.3;
 }
 /*
-  Measured off Obsidian mobile rather than chosen: 1.625em, 1.3em and 1.15em
-  against a 16px body. The multiples were 1.7 / 1.4 / 1.2, which is a wider
-  ladder than a document needs and made an H1 the loudest thing on a phone
-  screen that is mostly body text.
+  THE TYPE SCALE, RESTATED AS MULTIPLES OF THE BODY.
+
+  30 / 23 / 19 against a 16px body, which is pointerType's title, h2 and h3
+  exactly -- the scale this product already declares, arrived at here by
+  division rather than by a second opinion.
+
+  It was 1.625 / 1.3 / 1.15, measured off Obsidian mobile, and that was a third
+  ladder: neither the tokens' nor the 1.7 / 1.4 / 1.2 it replaced. Two scales in
+  one application is one of them being wrong wherever they meet, and where they
+  met was the note -- a 30pt title in the tokens, a 26pt one on the page. The
+  design canvas sides with the tokens.
+
+  Literals rather than a custom property because these are ratios to the
+  editor's own font size, which is what em means here. typeScale.test.ts holds
+  them to tokens.ts by reading this file as text.
+
+  (No backticks anywhere in this comment: it is inside a template literal and
+  one would end the string. That is not hypothetical -- writing this comment
+  with them is what broke the build a minute before it was rewritten.)
 */
-.cm-lp-h1 { font-size: 1.625em; }
-.cm-lp-h2 { font-size: 1.3em; }
-.cm-lp-h3 { font-size: 1.15em; }
+.cm-lp-h1 { font-size: 1.875em; }
+.cm-lp-h2 { font-size: 1.4375em; }
+.cm-lp-h3 { font-size: 1.1875em; }
 .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 { font-size: 1.05em; }
 /*
   A note's metadata, drawn as metadata. Not hidden: the buffer is the Markdown,

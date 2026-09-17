@@ -669,13 +669,24 @@ describe("who does not get it", () => {
       The note IS open — otherwise this would pass for the wrong reason, which
       is what the first version of this test did.
 
-      `privacy`, not `privacy.md`: the breadcrumb's leaf drops the extension on
-      both densities now, which is the trim `noteHeading` has always made when
-      it falls back to a filename. The chip beside it is what says this file is
-      the access map.
+      This used to prove that by finding `privacy` in the pane: the breadcrumb's
+      leaf, minus its extension. The pointer breadcrumb draws folders only now
+      — the note's name is the H1 below it and the tab above it, and a line that
+      repeats both in a smaller face is a line a reader learns to skip — so this
+      file has no folders and therefore no crumbs at all.
+
+      `access map` is the replacement and is a better witness than the name was:
+      `Breadcrumb` only draws the access clause for a selection, so the string
+      cannot appear unless a note is open, whereas a filename could have come
+      from anywhere in the pane. `Write in markdown…` is the editor's own
+      placeholder, which pins the second half — the note is open *in the
+      editor*, not merely selected somewhere.
+
+      The wording is the brief form at every density now; `the access map` with
+      its article was the long one.
     */
-    expect(pane.textContent).toContain("privacy");
-    expect(pane.textContent).toContain("the access map");
+    expect(pane.textContent).toContain("access map");
+    expect(pane.textContent).toContain("Write in markdown");
     expect(pane.querySelector('[data-testid="browse-share"]')).toBeNull();
   });
 

@@ -358,8 +358,10 @@ export interface AppFrameProps {
    * no boundary to meet and the active tab disappears into its own ground —
    * measured, in exactly that state, before this moved.
    *
-   * Absent draws nothing at all, which is what a route with no tabs open and
-   * every compact layout pass.
+   * Absent draws nothing at all, which is what a route with no tabs open
+   * passes — and a compact layout is refused the slot whether it passes one or
+   * not, because a prop whose contract lives only in its callers is a contract
+   * one caller can break silently. See the render.
    */
   tabs?: ReactNode;
   /** Storage chip, avatar — the trailing edge of the top bar. */
@@ -816,11 +818,20 @@ export function AppFrame({
             bar keeps `topBarHeight` and the tabs are shorter than it, which is
             what leaves the air above them.
 
-            Compact draws none of this. Tabs are a pointer instrument
-            (`TabStrip.tsx`: "there is no mobile half any more") and a phone
-            has `RecentSheet` over `history.ts` instead.
+            Compact draws none of this, and **the frame is where that is
+            enforced** rather than only where it is described. Tabs are a
+            pointer instrument (`TabStrip.tsx`: "there is no mobile half any
+            more") and a phone has `RecentSheet` over `history.ts` instead.
+
+            `_layout.tsx` also guards with `!phone`, and that guard is worth
+            keeping — it avoids building a strip nothing will draw. But a prop
+            whose contract lives only in its callers is a contract one caller
+            can break silently, and one did: the visual fixture passed `tabs`
+            unconditionally, so a 390pt board came back with a pointer tab
+            strip across the top of the phone's note. Nothing failed; it was
+            visible only in a screenshot.
           */}
-          {tabs == null ? null : <View style={styles.topTabs}>{tabs}</View>}
+          {tabs == null || compact ? null : <View style={styles.topTabs}>{tabs}</View>}
 
           {/*
             The trailing slot, which on a phone is **the** grouped container.

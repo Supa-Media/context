@@ -107,11 +107,22 @@ async function openConsole(page: Page): Promise<void> {
   /*
     The breadcrumb rather than `note-scroll`: the fixture's default note is
     drawn by a scroller on a phone and by the live editor at a pointer width,
-    and this file runs at both. The leaf is the one landmark both layouts
-    paint, and painting it means the demo data and the tree behind it have
-    already resolved.
+    and this file runs at both. Painting the line means the demo data and the
+    tree behind it have already resolved.
+
+    A *folder* segment, not the leaf. This waited on `breadcrumb-leaf`, and the
+    pointer breadcrumb stopped drawing one: the note's name is the H1 below the
+    line and the tab above it, so the line is its folders. The phone still
+    draws a leaf, so waiting on it was a wait that passed at 390pt and hung for
+    the full timeout at 1280 — which is exactly how this was found, as two
+    pointer-width cases timing out in `openConsole` rather than in an
+    assertion.
+
+    `1-projects` is the fixture's default selection (`placeholderData.ts`'s
+    `defaultSelection` is `1-projects/context-lc.md`), and a folder crumb is
+    drawn at both densities.
   */
-  await page.getByTestId("breadcrumb-leaf").waitFor();
+  await page.getByTestId("breadcrumb-folder-1-projects").waitFor();
 }
 
 /**

@@ -33,6 +33,7 @@ import { syntaxTree } from "@codemirror/language";
 import type { SyntaxNode } from "@lezer/common";
 import {
   codeHighlighting,
+  engageEditor,
   frontmatterBlock,
   livePreview,
   markdownLanguage,
@@ -93,6 +94,14 @@ export function replaceDocument(view: EditorView, text: string): void {
   view.dispatch({
     changes: { from: 0, to: view.state.doc.length, insert: text },
     selection: { anchor: openingCaret(text) },
+    /*
+      A note put on screen is a note nobody has touched, so Live Preview draws
+      it clean until somebody does — see `editorEngaged`. Closed here rather
+      than left to the field's own `create`, because this view is built once and
+      has notes swapped through it: without this, the second note you open
+      inherits the first one's engagement and shows its markup on arrival.
+    */
+    effects: [engageEditor(false)],
     annotations: [externalDoc.of(true), Transaction.addToHistory.of(false)],
   });
 }
