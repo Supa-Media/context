@@ -1,5 +1,6 @@
 import { StyleSheet, View } from "react-native";
 import { gradient, maskImage, repeatingPattern } from "../css";
+import { useColors } from "../theme";
 
 /**
  * `.stage::before` and `.stage::after` — the faint engineering grid and the
@@ -11,6 +12,7 @@ import { gradient, maskImage, repeatingPattern } from "../css";
  * the palette is designed to hold on its own.
  */
 export function StageBackdrop() {
+  const colors = useColors();
   return (
     <>
       <View
@@ -18,8 +20,8 @@ export function StageBackdrop() {
         style={[
           styles.grid,
           repeatingPattern(
-            "linear-gradient(rgba(255,255,255,.028) 1px, transparent 1px)," +
-              "linear-gradient(90deg, rgba(255,255,255,.028) 1px, transparent 1px)",
+            `linear-gradient(${colors.line} 1px, transparent 1px),` +
+              `linear-gradient(90deg, ${colors.line} 1px, transparent 1px)`,
             "64px 64px",
           ),
           maskImage(
@@ -32,7 +34,7 @@ export function StageBackdrop() {
         style={[
           styles.halo,
           gradient(
-            "radial-gradient(ellipse at center, rgba(59,130,246,.10), transparent 66%)",
+            `radial-gradient(ellipse at center, ${colors.accentDim}, transparent 66%)`,
           ),
         ]}
       />
@@ -42,13 +44,14 @@ export function StageBackdrop() {
 
 /** `.consolestage::before` — a second, tighter halo above the console. */
 export function ConsoleHalo() {
+  const colors = useColors();
   return (
     <View
       aria-hidden
       style={[
         styles.consoleHalo,
         gradient(
-          "radial-gradient(ellipse at center, rgba(59,130,246,.09), transparent 70%)",
+          `radial-gradient(ellipse at center, ${colors.accentDim}, transparent 70%)`,
         ),
       ]}
     />

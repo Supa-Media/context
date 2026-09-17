@@ -4,7 +4,6 @@ import { PressRow, WindowDots } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
-import { gradient } from "../design/css";
 import { layout, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "./format";
@@ -85,7 +84,7 @@ export function ConsoleShell({
           )}
         </View>
         <View
-          style={[styles.avatar, gradient("linear-gradient(140deg,#3B82F6,#8B5CF6)")]}
+          style={styles.avatar}
           accessibilityLabel="Your account"
         >
           <Text style={styles.avatarInitial}>{data.viewer.initial}</Text>
@@ -327,13 +326,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 13.5,
     alignItems: "center",
     justifyContent: "center",
-    // Flat fallback for platforms that drop the gradient.
-    backgroundColor: "#5F6EF6",
+    /*
+      The one mark that says "this is yours", so it wears the one hue the
+      interface spends on itself. It was a `#3B82F6` → `#8B5CF6` gradient over
+      a flat `#5F6EF6` fallback — blue-500 to violet-500, the two framework
+      defaults the palette retired, surviving in a gradient string where
+      nothing was looking for them. Flat, because a gradient here is decoration
+      spending the budget that `sharedWash` needs to mean something.
+    */
+    backgroundColor: colors.accent,
   },
   avatarInitial: {
     fontSize: t.label,
     fontWeight: "700",
-    color: "#fff",
+    color: colors.ink,
   },
   /** `.cbody` */
   body: {

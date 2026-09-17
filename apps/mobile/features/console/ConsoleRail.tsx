@@ -13,7 +13,6 @@ import { Dot } from "../design/components/Dot";
 import { Icon, type IconName } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { Text } from "../design/components/Text";
-import { gradient } from "../design/css";
 import { layout, pointerType as t, radii, space } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { offerOwnContext } from "../onboarding/route";
@@ -732,7 +731,7 @@ export function Avatar({ initial }: { initial: string }) {
   const styles = useThemedStyles(makeStyles);
   return (
     <View
-      style={[styles.avatar, gradient("linear-gradient(140deg,#3B82F6,#8B5CF6)")]}
+      style={styles.avatar}
       aria-hidden
     >
       <Text style={styles.avatarInitial}>{initial}</Text>
@@ -1011,9 +1010,10 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#5F6EF6",
+    /* See `ConsoleShell`'s avatar: one hue, flat, no retired defaults. */
+    backgroundColor: colors.accent,
   },
-  avatarInitial: { fontSize: t.label, fontWeight: "700", color: "#fff" },
+  avatarInitial: { fontSize: t.label, fontWeight: "700", color: colors.ink },
 
   signOut: {
     width: 28,
