@@ -756,15 +756,17 @@ export function ShareDialog({
                 exists; this row hands you the one that does.
 
                 Absent entirely when there is none, rather than a row offering
-                to copy nothing. A folder never has one: `createLinkShare` is
-                note-only.
+                to copy nothing — and it never mints one either: the audience
+                control owns whether a link exists. A folder can have one now;
+                it reaches the folder's subtree, filtered to what the workspace
+                can already read.
               */}
               {openLink === undefined ? null : (
                 <View style={styles.linkRow}>
                   <View style={styles.linkMain}>
                     <Text variant="rowTitle">Anyone with the link</Text>
                     <Text variant="meta" style={styles.linkNote}>
-                      {describeOpenLink()}
+                      {describeOpenLink(entryKind)}
                     </Text>
                   </View>
                   <View style={styles.row}>
