@@ -33,19 +33,58 @@ afterEach(() => {
   (globalThis as { ClipboardItem?: unknown }).ClipboardItem = realItem;
 });
 
-/** A clipboard that records the order it was called in. */
+/**
+ * jsdom's `Blob` has neither `text()` nor `arrayBuffer()`, and there is no
+ * `Response` to borrow one from. `FileReader` is what it does have.
+ */
+function readBlob(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(blob);
+  });
+}
+
+/**
+ * A clipboard that records the order it was called in — **and what it was
+ * actually handed**.
+ *
+ * The recording half is new, and the reason is this file's own lesson pointed
+ * at itself. `write` used to ignore its argument entirely, so **no test had
+ * ever observed a single byte reaching the clipboard** — only that `write` was
+ * called and what `copyDeferred` returned afterwards. That is enough to prove
+ * the ordering this file was written for, and blind to what is written.
+ *
+ * So this models the part of the spec that matters: `write` resolves each
+ * item's promise, and **a part that rejects rejects the write and leaves the
+ * clipboard untouched**. Making the fake more faithful is what
+ * `meetingsCapture.test.ts` had to do for the same kind of hole.
+ */
 function stubClipboard(options: { supportsItems: boolean; refuse?: boolean }) {
   const order: string[] = [];
+  /** Everything that actually landed on the clipboard, in order. */
+  const written: string[] = [];
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
     value: {
-      write: async () => {
+      write: async (items: { parts: Record<string, Promise<Blob>> }[]) => {
         order.push("write");
         if (options.refuse === true) throw new Error("NotAllowedError");
+        const landed: string[] = [];
+        for (const item of items) {
+          for (const part of Object.values(item.parts)) {
+            // A rejection here is a rejected `write`, and nothing is recorded —
+            // the clipboard keeps whatever it already held.
+            landed.push(await readBlob(await part));
+          }
+        }
+        written.push(...landed);
       },
       writeText: async (text: string) => {
         order.push(`writeText:${text}`);
         if (options.refuse === true) throw new Error("NotAllowedError");
+        written.push(text);
       },
     },
   });
@@ -54,12 +93,12 @@ function stubClipboard(options: { supportsItems: boolean; refuse?: boolean }) {
         constructor(readonly parts: Record<string, unknown>) {}
       }
     : undefined;
-  return order;
+  return { order, written };
 }
 
 describe("copying something the press has not fetched yet", () => {
   test("the clipboard is asked for without waiting for the round trip", async () => {
-    const order = stubClipboard({ supportsItems: true });
+    const { order } = stubClipboard({ supportsItems: true });
     let minted = 0;
     let release: ((url: string) => void) | null = null;
     const produce = () => {
@@ -93,7 +132,7 @@ describe("copying something the press has not fetched yet", () => {
   });
 
   test("a browser with no ClipboardItem still copies, the ordinary way", async () => {
-    const order = stubClipboard({ supportsItems: false });
+    const { order } = stubClipboard({ supportsItems: false });
 
     const result = await copyDeferred(async () => "https://context.lc/s/abc");
 
@@ -102,7 +141,7 @@ describe("copying something the press has not fetched yet", () => {
   });
 
   test("a refused write falls back, and does not mint twice", async () => {
-    const order = stubClipboard({ supportsItems: true, refuse: true });
+    const { order } = stubClipboard({ supportsItems: true, refuse: true });
     let minted = 0;
     const result = await copyDeferred(async () => {
       minted += 1;
@@ -125,6 +164,46 @@ describe("copying something the press has not fetched yet", () => {
     // that from "the clipboard would not take it", or it replaces a real
     // refusal with a symptom of one.
     expect(await copyDeferred(async () => null)).toEqual({ ok: false, text: null });
+  });
+
+  test("AND A LINK THAT COULD NOT BE MINTED DOES NOT EMPTY THE CLIPBOARD", async () => {
+    /*
+      The write is issued *before* the outcome is known — that is the whole
+      design, and it is what keeps Safari's activation window. The consequence
+      is that the refusal arrives after the clipboard has already been asked
+      for, and the only way to decline at that point is to **reject the part**,
+      which per spec rejects the write and leaves the clipboard alone.
+
+      Resolving an empty blob instead also "finishes" the write, and finishing
+      it sets the clipboard to the empty string. Somebody presses Copy link, the
+      server refuses to mint the share, they are told so — and the address, the
+      paragraph or the password they had on their clipboard is gone, with
+      nothing on screen connecting the two. **It is not a disclosure and it is
+      not a security row**; it is silent destruction of something outside the
+      app on a failure path.
+
+      The test above cannot see it: it asserts what `copyDeferred` returned,
+      which was already right. This asserts what the clipboard was handed.
+    */
+    const { order, written } = stubClipboard({ supportsItems: true });
+
+    expect(await copyDeferred(async () => null)).toEqual({ ok: false, text: null });
+
+    expect(order).toContain("write");
+    expect(written).toEqual([]);
+  });
+
+  test("and a link that WAS minted lands on it, byte for byte", async () => {
+    // Anti-vacuity for the assertion above: `written` staying empty has to mean
+    // "nothing was copied", not "this stub never records anything".
+    const { written } = stubClipboard({ supportsItems: true });
+
+    expect(await copyDeferred(async () => "https://context.lc/s/abc")).toEqual({
+      ok: true,
+      text: "https://context.lc/s/abc",
+    });
+
+    expect(written).toEqual(["https://context.lc/s/abc"]);
   });
 });
 
