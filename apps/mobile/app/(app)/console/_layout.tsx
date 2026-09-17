@@ -6,13 +6,12 @@ import {
   DEFAULT_ACCOUNT_SETTINGS_SECTION,
   DEFAULT_SETTINGS_SECTION,
 } from "../../../features/console/settings/sections";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { StyleSheet, useWindowDimensions } from "react-native";
 import { PressRow } from "../../../features/design/components/Button";
 import { Dot } from "../../../features/design/components/Dot";
 import { Pill } from "../../../features/design/components/Pill";
 import { Palette } from "../../../features/design/components/Palette";
 import { StatusBar } from "../../../features/design/components/StatusBar";
-import { Text } from "../../../features/design/components/Text";
 import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
@@ -21,6 +20,7 @@ import { setReadMode, useReadMode } from "../../../features/console/files/readMo
 import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
 import { BottomBar } from "../../../features/console/BottomBar";
+import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
 import { AccountBlock, Avatar, ConsoleRail } from "../../../features/console/ConsoleRail";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
@@ -123,7 +123,6 @@ import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
  * for which context you are in — both unchanged.
  */
 export default function ConsoleLayout() {
-  const styles = useThemedStyles(makeStyles);
   const data = useLiveConsoleData();
   const { width } = useWindowDimensions();
   const router = useRouter();
@@ -483,50 +482,50 @@ export default function ConsoleLayout() {
       <PluginTextDialog runtime={data.pluginRuntime} />
       <PluginSettingsPane runtime={data.pluginRuntime} />
       <AppFrame
-        switcher={
-          insideContext ? (
-            /*
-              A pointer layout's control, and only a pointer layout's.
+        /*
+          The switcher is the rail now.
 
-              `AppFrame` renders this slot in the `!compact` arm — a phone's top
-              row is the pinned account mark and the context strip — so nothing
-              here is ever on a phone. It used to carry a `phone &&
-              styles.switcherCompact` that took the chip's border and fill away,
-              justified by `AppFrame`'s `navToggleCompact` "already drawing a
-              shadowed white capsule around it". That capsule went with the
-              phone's rail toggle; the style it named had no call sites left,
-              and this override had no render to reach. Both are gone.
-            */
-            <View style={styles.switcher}>
-              <Dot tone={current?.status ?? "warn"} />
-              <Text variant="wsSwitch" numberOfLines={1}>
-                {contextLabel}
-              </Text>
-              <Text variant="wsSwitch" style={styles.switcherKind}>
-                {current?.kind ?? ""}
-              </Text>
-            </View>
-          ) : (
-            // Map and Connections are not inside anything, and a context chip
-            // above them would be naming a scope the pane is not in. "Your
-            // context" is the aggregate — everything this person can reach —
-            // which is exactly what these panes span (see CLAUDE.md,
-            // "Vocabulary").
-            <View style={styles.switcher}>
-              <Text variant="wsSwitch">Your context</Text>
-              {/*
-                No number until the list has arrived. `contexts` is empty on a
-                cold launch because nothing has been fetched, and "0 reachable"
-                over somebody's own console is the same accusation the storage
-                banner used to make — see `ConsoleData.storage`.
-              */}
-              {data.loading ? null : (
-                <Text variant="wsSwitch" style={styles.switcherKind}>
-                  {`${data.contexts.length} reachable`}
-                </Text>
-              )}
-            </View>
-          )
+          It was a static chip naming the open context, beside a 216pt column.
+          `regionsFor` answers `rail: "hidden"` at every pointer density (see
+          `features/app/frame.ts`), so the column is gone and everything it
+          offered is under the name you already look at to know whose notes are
+          open. `SwitcherMenu` carries `railGroup`'s list unchanged, with the
+          same two offers behind the same conditions.
+
+          Each callback keeps the navigation the rail entry had, including
+          which of `push` and `replace` it used and why — a claim, a new
+          workspace and Meetings all leave the console, so Back has to be the
+          way home.
+        */
+        switcher={
+          <SwitcherMenu
+            data={data}
+            label={insideContext ? contextLabel : "Your context"}
+            kind={
+              insideContext
+                ? (current?.kind ?? "")
+                : data.loading
+                  ? ""
+                  : `${data.contexts.length} reachable`
+            }
+            tone={insideContext ? (current?.status ?? "warn") : "neutral"}
+            onOpenContext={(slug: string) => {
+              const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
+              if (!sameRoute(next, route)) router.replace(hrefFor(next));
+            }}
+            onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
+            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
+            onNewWorkspace={data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)}
+            onOpenSettings={() => {
+              router.setParams({
+                settings:
+                  route.kind === "context"
+                    ? DEFAULT_SETTINGS_SECTION
+                    : DEFAULT_ACCOUNT_SETTINGS_SECTION,
+              });
+            }}
+            onSignOut={requestSignOut}
+          />
         }
         /*
           No `switcherLabel`.

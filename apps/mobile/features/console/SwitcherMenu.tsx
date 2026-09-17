@@ -8,6 +8,7 @@ import { Text } from "../design/components/Text";
 import { useThemedStyles, type Colors } from "../design/theme";
 import { radii, space } from "../design/tokens";
 import type { MenuItem } from "./files/menu";
+import { offerOwnContext } from "../onboarding/route";
 import { railGroup } from "./rail";
 import type { ConsoleData } from "./types";
 
@@ -68,6 +69,9 @@ export function SwitcherMenu({
   kind,
   tone,
   onOpenContext,
+  onOpenMeetings,
+  onClaimContext,
+  onNewWorkspace,
   onOpenSettings,
   onSignOut,
 }: {
@@ -76,21 +80,41 @@ export function SwitcherMenu({
   kind: string;
   tone: DotTone;
   onOpenContext: (slug: string) => void;
+  onOpenMeetings?: () => void;
+  onClaimContext?: () => void;
+  onNewWorkspace?: () => void;
   onOpenSettings?: () => void;
   onSignOut?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
 
-  const group = railGroup({ contexts: data.contexts, claimable: false });
+  /*
+    The same call the rail makes, with the same two offers, so the list and
+    both conditions stay in one place. `offerOwnContext` decides whether the
+    claim is on offer at all — the prop only says whether this caller can
+    perform it — which is the rule `ConsoleRail` states and neither of us gets
+    to restate differently.
+  */
+  const claimable =
+    onClaimContext !== undefined &&
+    offerOwnContext({ contexts: data.contexts, loading: data.loading });
+  const group = railGroup({ contexts: data.contexts, claimable });
 
   const items: MenuItem<SwitcherMenuId>[] = [
+    ...(onOpenMeetings ? [{ id: "meetings" as SwitcherMenuId, label: "Meetings" }] : []),
     ...group.contexts.map((context) => ({
       id: `ctx:${context.slug}` as SwitcherMenuId,
       label: `@${context.slug}`,
       detail: context.pinned === true ? "yours" : undefined,
       leading: <Dot tone={context.kind === "personal" ? "ok" : "neutral"} />,
     })),
+    ...(group.claim && onClaimContext
+      ? [{ id: "claim" as SwitcherMenuId, label: "Claim your @name" }]
+      : []),
+    ...(group.create && onNewWorkspace
+      ? [{ id: "new" as SwitcherMenuId, label: "New workspace" }]
+      : []),
     ...(onOpenSettings
       ? [{ id: "settings" as SwitcherMenuId, label: "Settings…", separatorBefore: true }]
       : []),
@@ -133,6 +157,9 @@ export function SwitcherMenu({
           onSelect={(id) => {
             setAnchor(null);
             if (id.startsWith("ctx:")) onOpenContext(id.slice(4));
+            else if (id === "meetings") onOpenMeetings?.();
+            else if (id === "claim") onClaimContext?.();
+            else if (id === "new") onNewWorkspace?.();
             else if (id === "settings") onOpenSettings?.();
             else if (id === "signout") onSignOut?.();
           }}
