@@ -3,14 +3,37 @@ import { Platform } from "react-native";
 /**
  * Design tokens for Context.
  *
- * The dark palette is lifted verbatim from `docs/design/console-mockup.html`,
- * which is the signed-off design and remains the app's own ground: every
- * colour is painted explicitly so nothing borrows a host background.
+ * ## Graphite and Paper
  *
- * There is now a light palette beside it, because `app.config.js` declares
- * `userInterfaceStyle: "automatic"` and that should be true rather than
- * aspirational. It is a **design**, not an inversion — see `lightColors` for
- * where the two deliberately diverge and why.
+ * The palettes are warm neutrals — Graphite in the dark, Paper in the light —
+ * and they replace a ramp of blue-blacks whose every accent was a Tailwind
+ * default (`#3B82F6` blue-500, `#34D399` emerald-400, `#FBBF24` amber-400,
+ * `#F87171` red-400, `#8B5CF6` violet-500). That is worth naming as the reason
+ * rather than as trivia: a palette assembled from a framework's defaults looks
+ * like every other application assembled from them, and no amount of layout
+ * work recovers from it. The product is plain files somebody owns, so the
+ * ground is paper and graphite and the greys carry warmth rather than a cast
+ * borrowed from a CSS framework.
+ *
+ * ## Hue is meaning here, so it is rationed
+ *
+ * Five hues, each with exactly one job, placed far enough apart on the wheel
+ * that no two can be confused at a glance:
+ *
+ *   - **petrol** (`accent`, `hint*`, `codeKey`) — here, active, yours. Never a
+ *     status. It is the only hue the interface spends on itself.
+ *   - **sage** (`ok*`) — synced, saved, bound.
+ *   - **amber** (`warn*`, `warm`) — degraded but working.
+ *   - **rust** (`crit*`) — conflict, revoked, failed.
+ *   - **iris** (`shared*`, `graphColors.shared`) — somebody else's context.
+ *
+ * `private` — the default state of everything in this product — wears no hue
+ * at all, which is why the neutral ramp has to do real work and has four steps
+ * in each palette rather than two near-identical ones.
+ *
+ * Both palettes are a **design**, not an inversion of one another — see
+ * `lightColors` for where they deliberately diverge and why. Every colour is
+ * painted explicitly so nothing borrows a host background.
  *
  * Neither palette is a module-level global any more. Screens obtain one
  * through `useColors()` / `useThemedStyles()` in `./theme`; non-React code
@@ -20,8 +43,8 @@ import { Platform } from "react-native";
  * is exactly the bug this file used to guarantee.
  */
 export const darkColors = {
-  ground: "#050506",
-  surface: "#0B0B0D",
+  ground: "#100F0E",
+  surface: "#191715",
   /**
    * `surface` at zero alpha, for the one thing that needs to fade *to* it.
    *
@@ -33,50 +56,52 @@ export const darkColors = {
    * file and adding some for one token is a worse trade than two literals a
    * test can compare.
    */
-  surfaceClear: "rgba(11,11,13,0)",
-  surface2: "#111114",
-  surface3: "#18181C",
+  surfaceClear: "rgba(25,23,21,0)",
+  surface2: "#201E1B",
+  surface3: "#2B2825",
 
   /** Hairline separators. RN has no `currentColor`, so these are literal rgba. */
-  line: "rgba(255,255,255,0.07)",
-  lineStrong: "rgba(255,255,255,0.14)",
+  line: "rgba(237,232,224,0.07)",
+  lineStrong: "rgba(237,232,224,0.14)",
 
-  text: "#F2F2F4",
-  text2: "#A8A8B2",
-  muted: "#75757F",
+  text: "#EDE8E0",
+  text2: "#C3BCB2",
+  muted: "#A79F95",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#5E5E68",
+  heroDim: "#7A736A",
 
-  accent: "#3B82F6",
-  accentDim: "rgba(59,130,246,0.13)",
-  accentText: "#CFE0FF",
+  accent: "#6BC8C1",
+  accentDim: "rgba(107,200,193,0.13)",
+  accentText: "#A9DEDA",
 
-  ok: "#34D399",
-  okText: "#6EE7B7",
-  okWash: "rgba(52,211,153,0.10)",
-  okBorder: "rgba(52,211,153,0.22)",
+  ok: "#82C98E",
+  okText: "#A6DBAE",
+  okWash: "rgba(130,201,142,0.10)",
+  okBorder: "rgba(130,201,142,0.22)",
 
-  warn: "#FBBF24",
-  warnText: "#FCD34D",
-  warnWash: "rgba(251,191,36,0.10)",
-  warnBorder: "rgba(251,191,36,0.22)",
+  warn: "#DFAC52",
+  warnText: "#E9C47E",
+  warnWash: "rgba(223,172,82,0.10)",
+  warnBorder: "rgba(223,172,82,0.22)",
 
-  crit: "#F87171",
-  critText: "#FCA5A5",
-  critBorder: "rgba(248,113,113,0.24)",
-  critWash: "rgba(248,113,113,0.09)",
+  crit: "#F08C7C",
+  critText: "#F5B0A4",
+  critBorder: "rgba(240,140,124,0.24)",
+  critWash: "rgba(240,140,124,0.09)",
 
   /**
-   * The violet that means "somebody else's access" — `graphColors.shared`'s
-   * family, as a wash and a label.
+   * Iris — "somebody else's access" — `graphColors.shared`'s family, as a
+   * wash and a label.
    *
-   * Tokens rather than the two literals that used to sit in
-   * `ContinuityDemo.tsx`: a hardcoded `#D8C9FF` is legible on this ground and
-   * invisible on the light one, and a colour with no token is a colour no
-   * palette can answer for.
+   * It is the one hue in the budget that is not warm, and deliberately: a
+   * context that is not yours should not sit in the same family as the paper
+   * it is drawn on. Tokens rather than the two literals that used to sit in
+   * `ContinuityDemo.tsx`, because a hardcoded value legible on one ground is
+   * invisible on the other, and a colour with no token is a colour no palette
+   * can answer for.
    */
-  sharedWash: "rgba(139,92,246,0.13)",
-  sharedText: "#D8C9FF",
+  sharedWash: "rgba(185,163,242,0.13)",
+  sharedText: "#CEBCF7",
   /**
    * The edge of that wash, for the one place the wash alone cannot carry it:
    * the pinned context's pill on the phone strip, which takes the lit pill's
@@ -86,25 +111,25 @@ export const darkColors = {
    * Same alpha relationship the `ok`/`warn`/`crit` families use between their
    * own wash and border, so it sits in the palette rather than beside it.
    */
-  sharedBorder: "rgba(139,92,246,0.30)",
+  sharedBorder: "rgba(185,163,242,0.30)",
 
   /** Inverse ink, used on the white CTA and on the "You" node in the map. */
-  ink: "#08080A",
-  white: "#F2F2F4",
+  ink: "#100F0E",
+  white: "#EDE8E0",
 
   /** The near-black used for insets: code blocks, the map field, field values. */
-  well: "#030304",
+  well: "#0A0908",
 
   /** Warm accent for the first floating tile's mark. */
-  warm: "#FB9256",
+  warm: "#DFAC52",
 
-  hintWash: "rgba(59,130,246,0.06)",
-  hintBorder: "rgba(59,130,246,0.16)",
-  hintText: "#B9CEF5",
-  hintStrong: "#DCE8FF",
+  hintWash: "rgba(107,200,193,0.06)",
+  hintBorder: "rgba(107,200,193,0.16)",
+  hintText: "#A9DEDA",
+  hintStrong: "#CCEBE8",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#7DA6F5",
+  codeKey: "#8FD3CE",
 
   /* ------------------------------------------------------------------ *
    * Floating chrome.
@@ -117,8 +142,8 @@ export const darkColors = {
    * its own ground to carry an edge on its own; these two are a step further
    * out, and the shadow underneath does the rest.
    * ------------------------------------------------------------------ */
-  chrome: "#191920",
-  chromePressed: "#24242C",
+  chrome: "#262421",
+  chromePressed: "#322E2A",
 
   /**
    * The wash over the editor while a panel is out.
@@ -131,7 +156,7 @@ export const darkColors = {
    * white sheet, which is a modal dialog's weight for a file tree you flick in
    * and out of a dozen times an hour. Obsidian barely tints it.
    */
-  scrim: "rgba(0,0,0,0.60)",
+  scrim: "rgba(10,9,8,0.60)",
 } as const;
 
 /**
@@ -169,8 +194,8 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  *     button's fill, a neutral pill, a selected row on a phone.
  *   - `well` stays the deepest inset, as it is in the dark palette.
  *
- * **`ground` and `surface` are both white, and that is the design rather than
- * a value nobody filled in.** This palette used to ground at `#EDEDF2` with
+ * **`ground` and `surface` are the same paper tone, and that is the design
+ * rather than a value nobody filled in.** This palette used to ground at `#EDEDF2` with
  * `#14141A` ink so that a white panel could lift off the page without a
  * border. On a desktop that is a defensible picture and on a phone it is the
  * single thing that made the app read as grey: the note, the file tree and the
@@ -200,96 +225,97 @@ export type Colors = Readonly<Record<keyof typeof darkColors, string>>;
  * Contrast is asserted, not asserted-in-prose: see `__tests__/theme.test.ts`.
  */
 export const lightColors: Colors = {
-  ground: "#FFFFFF",
-  surface: "#FFFFFF",
+  ground: "#FFFDF9",
+  surface: "#FFFDF9",
   /** `surface` at zero alpha. See the dark palette's own note. */
-  surfaceClear: "rgba(255,255,255,0)",
-  surface2: "#FAFAFA",
-  surface3: "#F1F1F3",
+  surfaceClear: "rgba(255,253,249,0)",
+  surface2: "#F7F4ED",
+  surface3: "#F0ECE3",
 
   /** Hairline separators — black at low alpha, mirroring the dark palette's white. */
-  line: "rgba(0,0,0,0.09)",
-  lineStrong: "rgba(0,0,0,0.18)",
+  line: "rgba(26,23,20,0.09)",
+  lineStrong: "rgba(26,23,20,0.18)",
 
   /**
    * Ink, and its two quieter voices.
    *
-   * `#222222` rather than a near-black with a blue cast. The cast was there to
-   * agree with a grey-blue ground that no longer exists; against paper it is a
-   * tint nobody asked for on every word in the app, and the type it is set in
-   * is a body face at 16/24 rather than a display face where a cool black
-   * reads as deliberate.
+   * A warm near-black rather than a neutral or blue-cast one. The earlier
+   * value was `#222222`, chosen to stop a cool cast fighting a grey-blue
+   * ground; now that the ground is paper, the ink is warmed to sit in the same
+   * family rather than merely stop clashing with it. The difference is small
+   * per character and unmissable over a page of prose, which is what this
+   * colour is mostly used for.
    */
-  text: "#222222",
-  text2: "#444444",
-  muted: "#6B6B6B",
+  text: "#1A1714",
+  text2: "#4A443C",
+  muted: "#635C52",
   /** The second hero line, deliberately dimmer than `muted`. */
-  heroDim: "#858585",
+  heroDim: "#7A7264",
 
-  accent: "#2563EB",
-  accentDim: "rgba(37,99,235,0.10)",
-  accentText: "#1D4ED8",
+  accent: "#0E6C69",
+  accentDim: "rgba(14,108,105,0.10)",
+  accentText: "#0A5350",
 
-  ok: "#068A5F",
-  okText: "#065F46",
-  okWash: "rgba(6,138,95,0.10)",
-  okBorder: "rgba(6,138,95,0.28)",
+  ok: "#3E7A4E",
+  okText: "#2C5C39",
+  okWash: "rgba(62,122,78,0.10)",
+  okBorder: "rgba(62,122,78,0.28)",
 
-  warn: "#B45309",
-  warnText: "#92400E",
-  warnWash: "rgba(180,83,9,0.12)",
-  warnBorder: "rgba(180,83,9,0.30)",
+  warn: "#96600A",
+  warnText: "#7A4E08",
+  warnWash: "rgba(150,96,10,0.12)",
+  warnBorder: "rgba(150,96,10,0.30)",
 
-  crit: "#DC2626",
-  critText: "#B91C1C",
-  critBorder: "rgba(220,38,38,0.28)",
-  critWash: "rgba(220,38,38,0.08)",
+  crit: "#B23A2B",
+  critText: "#962E21",
+  critBorder: "rgba(178,58,43,0.28)",
+  critWash: "rgba(178,58,43,0.08)",
 
-  sharedWash: "rgba(124,58,237,0.10)",
-  sharedText: "#5B21B6",
-  sharedBorder: "rgba(124,58,237,0.30)",
+  sharedWash: "rgba(106,70,184,0.10)",
+  sharedText: "#55329E",
+  sharedBorder: "rgba(106,70,184,0.30)",
 
   /** See the note above: the CTA fill is dark here, and its ink is white. */
-  ink: "#FFFFFF",
-  white: "#14141A",
+  ink: "#FFFDF9",
+  white: "#1A1714",
 
   /**
    * The recessed grey used for insets: code blocks, the map field, field
    * values — and, in a note, the ground under an inline `code` span, which is
    * where most people will actually see it.
    */
-  well: "#F5F5F5",
+  well: "#EDE9E1",
 
   /** Warm accent for the first floating tile's mark. */
-  warm: "#C2410C",
+  warm: "#B5761C",
 
-  hintWash: "rgba(37,99,235,0.06)",
-  hintBorder: "rgba(37,99,235,0.22)",
-  hintText: "#2A57C4",
-  hintStrong: "#1B3F96",
+  hintWash: "rgba(14,108,105,0.06)",
+  hintBorder: "rgba(14,108,105,0.22)",
+  hintText: "#0E6C69",
+  hintStrong: "#0A4442",
 
   /** Syntax tints in the note preview. */
-  codeKey: "#2A5DB0",
+  codeKey: "#0A5350",
 
   /**
    * Floating chrome. A floating object in a light world is white and reads as
    * above the page through its shadow rather than through being brighter than
    * everything under it — there is nothing brighter than white.
    */
-  chrome: "#FFFFFF",
-  chromePressed: "#E9E9F0",
+  chrome: "#F4F1EA",
+  chromePressed: "#E4DFD4",
 
   /** See the dark palette's note: a tint here, not a blackout. */
-  scrim: "rgba(0,0,0,0.22)",
+  scrim: "rgba(26,23,20,0.22)",
 };
 
 /** Edge/node colours in the constellation map, keyed by relationship. */
 export const darkGraphColors = {
-  own: "#3B82F6",
-  team: "#75757F",
-  shared: "#8B5CF6",
-  client: "#34D399",
-  you: "#F2F2F4",
+  own: "#6BC8C1",
+  team: "#A79F95",
+  shared: "#B9A3F2",
+  client: "#82C98E",
+  you: "#EDE8E0",
 } as const;
 
 export type GraphKind = keyof typeof darkGraphColors;
@@ -303,11 +329,11 @@ export type GraphColors = Readonly<Record<GraphKind, string>>;
  * disc drawn in the ground's opposite — near-black here, near-white there.
  */
 export const lightGraphColors: GraphColors = {
-  own: "#2563EB",
-  team: "#626270",
-  shared: "#7C3AED",
-  client: "#059669",
-  you: "#14141A",
+  own: "#0E6C69",
+  team: "#635C52",
+  shared: "#6A46B8",
+  client: "#3E7A4E",
+  you: "#1A1714",
 };
 
 /**
@@ -340,17 +366,111 @@ export const fonts = {
   }),
 } as const;
 
+/**
+ * The type scale.
+ *
+ * ## Why this file did not have one, and what that cost
+ *
+ * Colour, radii, spacing and shadows were all tokenised here and type was not,
+ * so every screen picked its own size. The result, counted across `features/`
+ * and `app/`: **26 distinct font sizes**, drifting in half-points — 10, 10.5,
+ * 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17 and up. That
+ * is not a scale, it is a ramp with every rung on it, and it is the single
+ * largest reason two panels built by two different hands never looked related.
+ *
+ * Nine sizes, integers only. Half-points were never a design decision; they
+ * are what happens when somebody nudges a number until one screen looks right,
+ * and they blur on any display that is not 2x.
+ *
+ * ## Two densities, one scale
+ *
+ * A phone is not this scale shrunk. `pointerType` and `touchType` are the same
+ * nine roles at two sizes, and `typeFor(density)` picks one — the same shape as
+ * `radii`'s pointer/phone split, which this file already argued for and which
+ * was previously expressed as three lonely radius values.
+ *
+ * Note that `title` gets **smaller** on a phone, not larger: the measure it has
+ * to fit into is roughly 342pt rather than 640, and a title that wraps to three
+ * lines is not emphatic, it is in the way.
+ */
+export const pointerType = {
+  /** Uppercase section labels, tracked +0.08em, weight 600. */
+  label: 11,
+  /** Counts, timestamps, paths, anything a row says about itself. */
+  meta: 12,
+  /** The default: tree rows, tabs, buttons, menu items, fields. */
+  ui: 13,
+  /** Settings prose, dialog bodies, empty states. */
+  lede: 15,
+  /** The note. Set against `layout.readingMeasureEm`. */
+  body: 16,
+  h3: 19,
+  h2: 23,
+  /** A note title. */
+  title: 30,
+  /** Marketing and first-run only; nothing in the console is this size. */
+  display: 40,
+} as const;
+
+export type TypeScale = Readonly<Record<keyof typeof pointerType, number>>;
+
+export const touchType: TypeScale = {
+  label: 11,
+  meta: 12,
+  ui: 16,
+  lede: 17,
+  body: 17,
+  h3: 20,
+  h2: 22,
+  title: 28,
+  display: 46,
+};
+
+/**
+ * The scale for a density.
+ *
+ * `compact` is the phone — see `features/app/frame.ts`, which owns the word.
+ * The two wider densities are pointer densities and share one scale: a medium
+ * window is a narrower desktop, not a larger phone.
+ */
+export function typeFor(density: "compact" | "medium" | "wide"): TypeScale {
+  return density === "compact" ? touchType : pointerType;
+}
+
+
 export const radii = {
+  /* ------------------------------------------------------------------ *
+   * Three corners, and a pill.
+   *
+   * These eleven names used to hold nine values — 6, 7, 8, 9, 10, 11, 12, 13,
+   * 16, 26 — which is a ramp rather than a family: no two of them read as
+   * related, and a row at 7 inside a card at 12 inside a panel at 13 has three
+   * corners that disagree by a point each, which is exactly close enough to
+   * look like a mistake and not close enough to look like a decision.
+   *
+   * The names are kept, because they say where a radius belongs and there are
+   * call sites for all of them. What changed is that they now resolve to three
+   * values chosen to nest:
+   *
+   *   **inner 6** — a row, a chip, an input, a small button.
+   *   **container 10** — a card, a panel, a menu, a popover.
+   *   **outer 16** — a window, a dialog, anything that is the widest thing on
+   *   the screen.
+   *
+   * The nesting rule is that a child's radius is its parent's minus the
+   * padding between them: 16 − 6 = 10, 10 − 4 = 6. Concentric corners are the
+   * difference between nested panels looking drawn and looking stacked.
+   * ------------------------------------------------------------------ */
   xs: 6,
-  sm: 7,
-  md: 8,
-  lg: 9,
+  sm: 6,
+  md: 6,
+  lg: 6,
   xl: 10,
-  card: 12,
-  panel: 13,
+  card: 10,
+  panel: 10,
+  cta: 10,
   console: 16,
-  tile: 26,
-  cta: 11,
+  tile: 16,
   pill: 999,
 
   /* ------------------------------------------------------------------ *
