@@ -126,7 +126,16 @@ export function PluginsPanel({
         what it does, or a tool name" on a pane titled Plugins.
       */}
       <Row style={styles.toolbar} testID="plugins-toolbar">
-        <Grow>
+        {/*
+          `flexBasis` rather than `Grow`, and it is the whole of the phone
+          case. On a wrapping row a growing child takes what is left *after*
+          its siblings, so three chips worth 300pt left the field 84pt at a
+          390pt width — a search box too narrow to show a word of what you
+          typed. A basis wider than the chips can leave makes the row wrap
+          instead, which puts the filters on their own line and gives the
+          field the width. Measured in `settings.spec.ts`, at 390.
+        */}
+        <View style={styles.queryBox}>
           <TextField
             label="Search plugins"
             labelHidden
@@ -137,7 +146,7 @@ export function PluginsPanel({
             autoCapitalize="none"
             autoCorrect={false}
           />
-        </Grow>
+        </View>
         {PLUGIN_FILTERS.map((entry) => (
           <Button
             key={entry.value}
@@ -723,6 +732,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   // exceed a phone's width, and wrapping is what keeps this a settings row
   // instead of a horizontal scroller.
   toolbar: { flexWrap: "wrap", alignItems: "center", gap: space.x2 },
+  queryBox: { flexGrow: 1, flexShrink: 1, flexBasis: 320, minWidth: 0 },
   filterActive: { backgroundColor: colors.accentDim, borderColor: colors.accent },
   check: { color: colors.accentText },
   action: { marginTop: 13, alignItems: "flex-start" },
