@@ -15,11 +15,18 @@
  * module joins two answers somebody else gave; it never derives a third.
  *
  * That distinction decides the one hard case. A rule naming a group
- * (`@supa-leads`) says who reaches the note, and **this console cannot resolve
- * it** — group membership is a control-plane object that does not exist yet,
- * so nothing here knows whether a given member is in it. The honest row is
- * therefore the rule itself rather than a guess at its members, and the
- * alternative — listing everybody and hoping — is the overstatement
+ * (`@supa-leads`) says who reaches the note, and **this module still does not
+ * resolve it** — but the reason changed, and the old one is worth correcting
+ * rather than leaving: it said group membership was "a control-plane object
+ * that does not exist yet", which stopped being true when `workspaceGroups`
+ * landed and was still being read as a design rule long afterwards.
+ *
+ * What is true now is the rule this module opens with: it joins answers other
+ * people gave and never derives a third. The owner-only `listGroups` knows who
+ * is in a group; this module is handed a **count** from it and nothing more,
+ * which is enough to answer the question a bare name cannot — "does this reach
+ * anybody?" — without this file growing a second copy of group resolution. The
+ * alternative, listing everybody and hoping, is the overstatement
  * `privacy/words.ts` opens by forbidding, pointed the other way.
  *
  * ## Why "and why" is half the value
@@ -172,6 +179,14 @@ export function accessRows(
    * what every caller meant before folders were considered.
    */
   kind: "file" | "folder" = "file",
+  /**
+   * How many live people the named group reaches, when the caller knows.
+   *
+   * From the owner-only `listGroups`, through the caller, rather than resolved
+   * here — this module joins answers and never derives one. `undefined` where
+   * the caller cannot know, which is a non-owner and the demo.
+   */
+  liveCount?: number,
 ): AccessRow[] {
   if (members === undefined) return [];
   const label = (member: AccessMember) =>
@@ -192,9 +207,24 @@ export function accessRows(
         })),
       {
         key: visibility,
-        label: visibility,
+        /*
+          The count is the whole reason this row is not just the name. A group
+          everybody has left reaches nobody, and the rule still reads as access
+          having been given — which is the same overstatement as labelling a
+          group note "Restricted", pointed at emptiness instead of at secrecy.
+          `undefined` is not zero: a count still in flight is omitted rather
+          than rendered as none, the rule this module already follows for a
+          member list that has not landed.
+        */
+        label:
+          liveCount === undefined
+            ? visibility
+            : `${visibility} (${liveCount} ${liveCount === 1 ? "person" : "people"})`,
         role: "group",
-        reason: "Named on this note. Who is in it is set in this context's groups.",
+        reason:
+          liveCount === 0
+            ? `Named on this ${kind === "folder" ? "folder" : "note"}, but nobody is in it — so it reaches no one.`
+            : `Named on this ${kind === "folder" ? "folder" : "note"}. Who is in it is set in this context's groups.`,
         isMe: false,
         removal: removalFor("group", kind),
       },

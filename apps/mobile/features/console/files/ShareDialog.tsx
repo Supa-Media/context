@@ -345,7 +345,15 @@ export function ShareDialog({
   const rows =
     access === undefined
       ? []
-      : accessRows(access.visibility, access.exception, access.members, entryKind);
+      : accessRows(
+          access.visibility,
+          access.exception,
+          access.members,
+          entryKind,
+          isGroupVisibility(access.visibility)
+            ? groups?.find((group) => `@${group.name}` === access.visibility)?.liveCount
+            : undefined,
+        );
   const reachingUserIds = new Set(
     rows.filter((row) => row.role !== "group").map((row) => row.key),
   );
