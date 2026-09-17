@@ -866,14 +866,7 @@ export function AppFrame({
 
         <View style={styles.body}>
           {regions.explorer === "column" ? (
-            <View style={[styles.explorerColumn, { width: state.explorerWidth }]}>
-              {explorer}
-              <ExplorerResizer
-                width={state.explorerWidth}
-                onResize={setExplorerWidth}
-                onClose={toggleExplorer}
-              />
-            </View>
+            <View style={[styles.explorerColumn, { width: state.explorerWidth }]}>{explorer}</View>
           ) : null}
 
           {/*
@@ -911,6 +904,32 @@ export function AppFrame({
           >
             {children}
           </View>
+
+          {/*
+            The tree's drag handle, **after the editor rather than inside the
+            column it resizes**, and that is a hit-testing fact rather than a
+            preference.
+
+            It straddles the column's border — a target you can grab is wider
+            than a hairline, and people aim *at* the edge rather than a few
+            points inside it — so part of it lies over the editor. As the
+            column's last child it was drawn there and pressed nowhere: later
+            siblings are on top, the editor is a later sibling, and it took
+            every press that landed on the outer half of the strip. What that
+            felt like is a handle that ignored the first grab and answered the
+            second, or answered only a pull that started well inside the tree.
+
+            So it is a sibling of the editor, laid over the border from the
+            width the column was given, and painted before the scrim and the
+            peek, which still cover it.
+          */}
+          {regions.explorer === "column" ? (
+            <ExplorerResizer
+              width={state.explorerWidth}
+              onResize={setExplorerWidth}
+              onClose={toggleExplorer}
+            />
+          ) : null}
 
           {/*
             The panels are painted last so they lie over the editor without any
@@ -1291,6 +1310,63 @@ export function FrameIconButton({
 }
 
 /**
+ * Hold the document still for the length of a drag, and hand it back.
+ *
+ * **A pointer moving with the button down is a text selection, as far as a
+ * browser is concerned, and that is what used to kill this gesture.**
+ * react-native-web's responder system listens for `selectionchange` on the
+ * document and terminates the current responder the moment the selection
+ * becomes a real one — a non-empty string with a text node at either end
+ * (`isSelectionValid`) — asking `onResponderTerminationRequest` first, which
+ * defaults to yes. Mid-drag that is `onPanResponderTerminate`: the gesture
+ * ends, and nothing says so except the column stopping under the pointer.
+ *
+ * It read as a one-directional handle. Dragging the seam **left** puts the
+ * pointer over the tree's note names as soon as it gets ahead of the column,
+ * so the browser starts selecting and the drag dies a few pixels in; dragging
+ * **right** puts it over CodeMirror's editing host, where a selection begun
+ * outside does not extend, so that direction never hit it. What was left
+ * worked only when it was moved slowly enough to stay inside the 7pt handle,
+ * which is the one strip on that side with no text in it.
+ *
+ * Refusing the termination request is what keeps the gesture (see the
+ * responder below). This is what keeps the page from painting a selection
+ * across the tree underneath it, and keeps the resize cursor on the pointer
+ * once it is past the handle. Returning the restore rather than a second
+ * exported function keeps the pair impossible to mismatch.
+ */
+function holdDocumentStill(): () => void {
+  if (Platform.OS !== "web" || typeof document === "undefined") return () => {};
+  const { body } = document;
+  const previous = {
+    userSelect: body.style.userSelect,
+    webkitUserSelect: body.style.getPropertyValue("-webkit-user-select"),
+    cursor: body.style.cursor,
+  };
+  body.style.userSelect = "none";
+  // Safari is a real target here — `e2e/webkit` exists for it — and it wants
+  // the prefix. react-native-web writes both for a `userSelect` style; this
+  // sets the property directly, so it has to write both itself.
+  body.style.setProperty("-webkit-user-select", "none");
+  body.style.cursor = "col-resize";
+  /*
+    Nothing clears an existing selection here, and the absence is deliberate:
+    the browser collapses one on the press by itself — measured in Chromium, on
+    a page that turns `user-select` off in the same handler this one does — and
+    a `removeAllRanges` for the engines where that might not hold would be a
+    line no test in this repository can fail on. What the gesture actually
+    needs from the selection is below, where it refuses to be terminated by
+    one.
+  */
+  return () => {
+    body.style.userSelect = previous.userSelect;
+    if (previous.webkitUserSelect === "") body.style.removeProperty("-webkit-user-select");
+    else body.style.setProperty("-webkit-user-select", previous.webkitUserSelect);
+    body.style.cursor = previous.cursor;
+  };
+}
+
+/**
  * The explorer's drag handle.
  *
  * `PanResponder` rather than web pointer events, because it is the one gesture
@@ -1365,6 +1441,25 @@ function ExplorerResizer({
     liveClose.current = onClose;
   }, [onClose]);
 
+  /**
+   * What `holdDocumentStill` handed back, for as long as the drag runs.
+   *
+   * Cleared by the release and by a terminate, and those two are the whole of
+   * it — including the case that looks like it needs a third. The column can
+   * go away mid-gesture (⌘⇧E, or a window narrowed out of this density), and
+   * react-native-web's `removeNode` terminates the responder it is unmounting,
+   * so the terminate arm covers an unmount as well; an effect cleanup beside it
+   * would be a guard that never runs, and `appFrameRender` holds the claim
+   * instead. It matters that something does: a page left unselectable with a
+   * resize cursor on it is a worse bug than the one this fixes, and the only
+   * way back from it is a reload.
+   */
+  const releaseDocument = useRef<(() => void) | null>(null);
+  const endHold = useCallback(() => {
+    releaseDocument.current?.();
+    releaseDocument.current = null;
+  }, []);
+
   const responder = useMemo(
     () =>
       PanResponder.create({
@@ -1372,6 +1467,7 @@ function ExplorerResizer({
         onMoveShouldSetPanResponder: () => true,
         onPanResponderGrant: () => {
           startWidth.current = liveWidth.current;
+          releaseDocument.current = holdDocumentStill();
           setActive(true);
         },
         onPanResponderMove: (_event, gesture) => {
@@ -1389,7 +1485,22 @@ function ExplorerResizer({
           }
           onResize(raw);
         },
+        /*
+          **A drag on this handle is not up for negotiation, and that is the
+          fix.** The default answer is yes, which hands the gesture to whatever
+          asks — and on the web the thing that asks is the browser's own text
+          selection, every time the pointer crosses a note's name on its way
+          left. See `holdDocumentStill` above for what that looked like.
+
+          It costs nothing a resize wants: `selectionchange`, `scroll` and
+          `contextmenu` are the only events routed through this request, and
+          none of them should end a drag somebody is in the middle of. A real
+          cancel — `dragstart`, a lost touch — does not ask, and still
+          terminates below.
+        */
+        onPanResponderTerminationRequest: () => false,
         onPanResponderRelease: () => {
+          endHold();
           setActive(false);
           if (armed.current) liveClose.current();
           armed.current = false;
@@ -1402,18 +1513,24 @@ function ExplorerResizer({
           not to be, so it only disarms.
         */
         onPanResponderTerminate: () => {
+          endHold();
           setActive(false);
           armed.current = false;
           setArming(false);
         },
       }),
-    [onResize],
+    [endHold, onResize],
   );
 
   return (
     <View
       {...responder.panHandlers}
-      style={[styles.resizer, active && styles.resizerActive, arming && styles.resizerArming]}
+      style={[
+        styles.resizer,
+        { left: width - layout.explorerSeamOverhang },
+        active && styles.resizerActive,
+        arming && styles.resizerArming,
+      ]}
       accessibilityLabel="Resize the file tree"
       role="separator"
       testID="explorer-resizer"
@@ -1798,9 +1915,14 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     position: "absolute",
     top: 0,
     bottom: 0,
-    // Straddles the border so the target is comfortable without being visible.
-    right: -3,
-    width: 7,
+    /*
+      Placed from the left, because it is no longer a child of the column it
+      belongs to — see the frame's body. `left` is the column's own width less
+      the overhang, so the strip straddles the border it is drawn on rather
+      than sitting beside it: `explorerSeamOverhang` of it lies over the
+      editor and the rest over the tree.
+    */
+    width: layout.seamWidth,
     // RN's `CursorValue` is `"auto" | "pointer"` only; every other CSS cursor
     // needs the same escape hatch `css.ts` uses for gradients and masks.
     ...(Platform.OS === "web" ? ({ cursor: "col-resize" } as unknown as ViewStyle) : null),
