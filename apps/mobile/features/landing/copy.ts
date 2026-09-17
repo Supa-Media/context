@@ -111,11 +111,30 @@ export const CLIENT_ZED = "Zed";
  * `landingCopy.test.ts`'s overclaim list is aimed at exactly this block.
  */
 export const ASSURE_BUCKET_TITLE = "It is your bucket";
+/*
+  SCOPED TO THE CONTROL PLANE, AND THE ONE EXCEPTION IS NAMED.
+
+  This said "We hold accounts, grants and audit — never a line of your note
+  content", which is `CLAUDE.md`'s first non-negotiable with its scope removed.
+  That promise is about **the control plane**: "the control plane holds
+  metadata only ... and never note content". The second non-negotiable names
+  what else we hold — managed buckets "and the per-context search databases" —
+  and `functions/lib/fastSearch.ts` says what that is without flinching:
+  turning Fast Search on "adds a derived copy of that context's note text,
+  including private notes, in a database Supa Media owns".
+
+  So the unqualified version was a promise the product does not keep, on the
+  page where somebody decides whether to trust us with their notes. This block
+  exists to say each non-negotiable "once, plainly, and nothing beyond it";
+  the exception is named here rather than rounded off, which is the same
+  reason `fastSearch.ts` makes opting in a decision rather than a preference.
+*/
 export const ASSURE_BUCKET_BODY =
   "Canonical Markdown and attachments live in storage dedicated to your " +
-  "workspace. We hold accounts, grants and audit — never a line of your note " +
-  "content. Revoke our credential and you still have a complete, working " +
-  "set of notes.";
+  "workspace. Our control plane holds accounts, grants and audit — never your " +
+  "note content. One feature changes that and it is off until you turn it on: " +
+  "Fast Search keeps a rebuildable copy of your text in a database we run. " +
+  "Revoke our credential and you still have a complete, working set of notes.";
 export const ASSURE_FILES_TITLE = "Plain files stay canonical";
 export const ASSURE_FILES_BODY =
   "A note lives at a real path in a real folder. Not in a database, not " +
