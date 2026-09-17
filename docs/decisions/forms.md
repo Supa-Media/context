@@ -241,6 +241,15 @@ The widget is compared on the fence's **text**, never on the parsed config: the
 decoration set is rebuilt on every transaction, and a widget that reported itself
 new would be torn down with a half-written bug report still in it.
 
+That left one gap, and a form page is the only note it was ever true of: a page
+built to be *used* opened as the source of the thing that draws it, and every
+visitor had to find the eye first. So a note may ask to be opened for reading —
+`view: read` in its frontmatter, read by `files/viewMode.ts`. It is a default
+rather than a mode: the pencil still outranks it, which is what keeps a fence
+that will not parse fixable. The reasoning, including why it is frontmatter and
+not a key in the block, is
+[app-and-console](./app-and-console.md#a-note-may-declare-the-mode-it-opens-in-and-the-person-still-outranks-it).
+
 ## Autocomplete is the authoring help, and the grammar is the list
 
 The owner ruled out a builder — "it should all be text editable" — and asked for

@@ -873,6 +873,44 @@ describe("the top row ends in one group, and it is the note's", () => {
   });
 
   /**
+   * …AND THE NOTE ITSELF MAY ASK, WHICH IS THE SAME MODE FROM THE OTHER END.
+   *
+   * A page built around a ` ```form ` fence is drawn as a fillable form only
+   * while it is read (`formBlock.ts`), so the one kind of page whose purpose is
+   * to be *used* opened as a code fence and every visitor had to find the eye
+   * first. Its author can now say so in the frontmatter.
+   *
+   * This is the claim that the wiring exists at all: `files/viewMode.ts` has
+   * its own suite for the vocabulary and the layering (`noteViewMode.test.ts`),
+   * and all of it is inert if `BrowsePane` never calls the hook. So the
+   * assertion here is the same `contenteditable` the press is asserted on
+   * above, reached without a press.
+   *
+   * ## Sabotage record
+   *
+   * Dropping `useDeclaredView` from `BrowsePane`: **1** failed here — this one,
+   * on its first assertion — and **none** in `noteViewMode.test.ts`, which is
+   * the whole reason this test is in this file as well.
+   */
+  test("a note that declares `view: read` opens read, with no press at all", () => {
+    const declaring = FILE.replace("status: unprocessed", "view: read");
+    const app = mountConsole(
+      dataWith({
+        editor: { ...emptyEditor, status: "clean", path: NOTE, baseline: declaring, draft: declaring },
+      }),
+    );
+
+    expect(document.body.querySelector('[contenteditable="true"]')).toBeNull();
+    // The control agrees with the state rather than lagging it: the way out is
+    // the pencil, because the note is already being read.
+    expect(app.find("note-read")!.getAttribute("aria-label")).toBe("Edit this note");
+
+    // And the person outranks the file — the one place a broken fence is fixed.
+    app.press(app.find("note-read"));
+    expect(document.body.querySelector('[contenteditable="true"]')).not.toBeNull();
+  });
+
+  /**
    * Share had to land somewhere when the breadcrumb went, and "somewhere" is
    * the thing that is easy to skip. `browseShare.test.ts` states the rule this
    * is the phone's half of: a control that is correct in `menu.ts` and

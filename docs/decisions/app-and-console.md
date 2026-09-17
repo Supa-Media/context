@@ -3583,6 +3583,78 @@ which is exactly the round trip `livePreview.ts` exists to avoid — "the buffer
 **is** the Markdown", and nothing here parses the document into another model
 and writes it back.
 
+### A note may declare the mode it opens in, and the person still outranks it
+
+Reading mode is a *session* mode and the section above it says why: it is how
+you are working, not a property of the file, and resetting it on every selection
+"makes it a property of the note rather than of how you are working, and then it
+belongs in the file rather than here".
+
+For one kind of note it does belong in the file. A page whose content is a
+` ```form ` fence is drawn as a fillable form **only while the note is read** —
+that is the rule directly above, arrived at for reasons that are not going to
+change — so the one page in the product whose purpose is to be *used* rather
+than written opened as a code fence, and everybody who visited it had to find
+the eye in the trailing group first. The owner's words: forms should "be easily
+sent without more clicks".
+
+So a note may say so in its frontmatter, and `files/viewMode.ts` reads it:
+
+```yaml
+---
+view: read      # or reading, preview; and edit, editing, source
+---
+```
+
+Four things are decided here rather than left to the next reader.
+
+**It is frontmatter, not a key in the `form` block.** The question is "how does
+this page open", which is true of a note with no form in it at all — a
+long reference someone only ever reads, a diagram page — and a block that
+declares it would answer it only for pages with blocks. It also keeps
+`forms.md`'s rule that the fence declares the response path and nothing about
+presentation.
+
+**`obsidianUIMode: preview | source` is read too, and ours wins on a tie.**
+These buckets are open in Obsidian while the console is looking at them, and
+that is the key Obsidian already honours for exactly this. Honouring it costs
+one row in one table and means one line in the file rather than two that can
+disagree; refusing it would have meant every form page carrying both.
+
+**A value neither table knows is ignored rather than guessed at.** The note
+opens however the person was already working, which is what every note did
+before this existed. `view: readonly` is not "near enough to `read`": a key
+that half-works is worse than one that does nothing, because the author
+believes they were understood.
+
+**The declaration is a default, so it is a second layer and never the mode
+itself.** `readMode.ts` holds the person's `chosen` and the open note's
+`declared`, and everybody reads `declared ?? chosen`. The first version
+collapsed them — a declaration simply called `setReadMode` — and it is wrong in
+the direction nobody reports as a bug: opening one form page would put the
+*session* into reading mode, and every ordinary note opened afterwards would
+come up unwritable with nothing on screen saying why. A file may decide how it
+is opened; it may not decide how you work. For the same reason the declaration
+is applied once, when the note's identity changes: pressing the pencil wins for
+as long as that note is open, which matters because the one place a `form` fence
+that will not parse can be fixed is its source.
+
+What this costs, stated: a note stored encrypted declares nothing the console
+can see, because what it holds is the ciphertext and the envelope's plaintext
+frontmatter is the encryption marker rather than the note's own. Such a note
+opens in the session's mode. And nothing *writes* the key — `frontmatter.ts` is
+a reader and gains no serializer for this, so setting it is typing a line, or
+asking an agent to.
+
+**The tests that fail if this is reversed**: `a declaration does not follow you
+onto the next note`, `the person's own mode still persists across notes` and
+`the pencil outranks the file, and keeps outranking it` in
+`apps/mobile/__tests__/noteViewMode.test.ts` — the three that collapsing the
+layers turns red while every parsing test stays green — plus `a note that
+declares \`view: read\` opens read, with no press at all` in
+`noteChrome.test.ts`, which is the only one that fails if `BrowsePane` stops
+calling the hook.
+
 ### The `--lp-*` palette is a contract between two hosts, and a missing one fails silently
 
 Every rule drawn inside the note editor names its colours as `--lp-*` custom
