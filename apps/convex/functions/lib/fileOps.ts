@@ -2100,6 +2100,480 @@ export async function movePath(
   return { from, to, paths: pairs.map((pair) => pair.destination), references };
 }
 
+/* -------------------------------------------------------------------------- */
+/*                       moving between two contexts                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ONE MOVE, TWO BUCKETS, AND NEITHER FUNCTION HOLDS BOTH.
+ *
+ * `movePath` above is the whole operation in one call because it has one
+ * store. A move into *another* context has two, in two different customers'
+ * accounts under two different credentials, and there is no portable
+ * server-side copy between them — the adapter has `get`/`put`/`delete`/`list`
+ * and nothing else. So the bytes have to travel through the caller, and the
+ * caller is the control plane.
+ *
+ * That is why this is three exported functions rather than one. Each takes a
+ * single store, so each runs behind its own credential barrier
+ * (`runFileOperation`), and the orchestrator that calls all three in turn
+ * — `functions/contextMoves.ts` — never holds a bucket key at all. A single
+ * `moveAcrossStores(source, destination, …)` would have been shorter and would
+ * have required a second credential barrier to exist, holding two customers'
+ * plaintext secrets in one scope. The enumeration in
+ * `__tests__/structure.test.ts` says what that costs; this is the shape that
+ * does not pay it.
+ *
+ * The order is copy, verify, delete, per batch, which is the discipline the
+ * gateway's `materialize_move` already uses: nothing is removed from the
+ * source until the destination has answered with an etag for it. A batch that
+ * dies halfway leaves objects in both places, which is recoverable by running
+ * the move again — the copied ones are gone from the source by then, so the
+ * next pass simply does not see them. The opposite order is not recoverable.
+ *
+ * ## What a cross-context move deliberately does not do
+ *
+ *  - **It does not rewrite links.** `movePath` rewrites every reference it can
+ *    see, because the notes that point at the moved one are in the same
+ *    bucket. Across a boundary they are not, and a rewrite would have to reach
+ *    into a context the mover may only be an editor of. The gateway's
+ *    cross-context `move_note` says the same thing in its own output —
+ *    "references: not rewritten across workspace boundaries".
+ *  - **It does not carry attachments.** Images live under `IMAGE_PREFIX`,
+ *    which `isPlumbing` refuses, and they are addressed by leaf name for the
+ *    whole context rather than per folder. Carrying them would mean parsing
+ *    every body to find which leaves a subtree depends on.
+ *  - **It does not widen anything, ever.** See `landingVisibility`.
+ */
+
+/** Objects one batch may carry. Bounded by the Convex argument limit, not the store. */
+export const CONTEXT_MOVE_BATCH_OBJECTS = 40;
+
+/**
+ * Bytes one batch may carry.
+ *
+ * Convex caps a function's arguments and return value at 16 MiB, and one batch
+ * crosses that boundary twice — out of the export barrier and into the import
+ * one — so the real ceiling is well under half of it. Eight megabytes leaves
+ * room for the paths and etags travelling beside the bodies, and a single
+ * object larger than this is still carried: the check is made *before* each
+ * read rather than after, so a batch always carries at least one object and a
+ * move can never wedge on a note it refuses to pick up.
+ */
+export const CONTEXT_MOVE_BATCH_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Objects a move may leave behind before it stops asking.
+ *
+ * Something left behind is skipped by every later batch, so the skip list is
+ * the one part of a move's state that grows. It is small in practice — a note
+ * encrypted to the source context's key is the only thing that lands on it —
+ * and a folder with a hundred of them is a different problem from the one this
+ * operation solves.
+ */
+export const CONTEXT_MOVE_SKIP_CAP = 100;
+
+export interface ContextMoveObject {
+  /** Key in the source bucket. */
+  source: string;
+  /** Key in the destination bucket. */
+  destination: string;
+  bytes: ArrayBuffer;
+  /** What the source held when it was read. The delete is conditional on it. */
+  etag: string;
+  /**
+   * The source's effective visibility, collapsed to the two tiers.
+   *
+   * A group rule reads `private` here, and that is the gateway's decision made
+   * again rather than a lossy cast: `@supa-leads` names a group in the SOURCE
+   * workspace, and the destination resolves names in its own. Carrying the
+   * string would write a rule the destination cannot resolve — reaching nobody
+   * today, and reaching the wrong people the day that name is minted there.
+   */
+  sourceVisibility: "private" | "team";
+}
+
+/** A key this move will not carry, and the reason it can be shown. */
+export interface ContextMoveSkip {
+  path: string;
+  reason: "encrypted";
+}
+
+export interface ContextMoveExport {
+  objects: ContextMoveObject[];
+  skipped: ContextMoveSkip[];
+  /** Whether anything under the source is still waiting after these. */
+  remaining: boolean;
+}
+
+/**
+ * What the destination should land an object at, which is never wider than
+ * either end.
+ *
+ * Two questions, and the answer is the narrower of the two: what the object
+ * could be seen as where it came from, and what the folder it is landing in
+ * already publishes. A `team` note into a private-default folder lands
+ * private — the destination's own default wins. A `private` note into a
+ * team-default folder lands private too, with an exception written for it —
+ * the source's tier wins.
+ *
+ * **So a cross-context move never publishes anything to anybody who could not
+ * already read it, on either side, and it needs no confirmation step to say
+ * so.** The gateway's `move_note` refuses that second case instead, behind
+ * `confirm_team_publish`; refusing is the right answer for a tool call, where
+ * an agent picked the destination and the person may not have seen it, and the
+ * wrong one for a folder of mixed notes that somebody dragged somewhere on
+ * purpose — one checkbox cannot express per-note intent, and the safe reading
+ * of it is the one this function already takes.
+ */
+export function landingVisibility(
+  sourceVisibility: "private" | "team",
+  destinationFolderDefault: Visibility,
+): "private" | "team" {
+  return sourceVisibility === "team" && destinationFolderDefault === "team" ? "team" : "private";
+}
+
+/**
+ * Read the next bounded piece of what is moving out of this context.
+ *
+ * **It lists from the beginning of the subtree every time, and that is the
+ * property that makes a move of any size finish.** A persisted continuation
+ * cursor over a listing whose keys are being deleted underneath it can skip
+ * objects on S3-compatible providers — `clearVaultBatch` says the same thing
+ * above, for the same reason — and it would also make every retry a guess
+ * about how far the last attempt got. Listing from the start costs nothing
+ * extra because the previous batch's objects are *gone* by the time this runs:
+ * the first page is already the next thing to move. Only what was deliberately
+ * left behind is paged over again, which is what `skip` is for and why it is
+ * capped.
+ *
+ * So this has no cap on the size of the folder. `keysUnder` refuses past
+ * `FOLDER_OPERATION_CAP` because a single-store move rewrites the manifest as
+ * though the whole walk happened and a partial walk cannot be operated on
+ * safely. Here the unit that must be all-or-nothing is one *object* — copied,
+ * verified, then deleted — so a pass that sees only the first forty of nine
+ * thousand is an ordinary pass rather than a half-done move.
+ */
+export async function exportContextMoveBatch(
+  store: FileStore,
+  options: {
+    from: string;
+    to: string;
+    clearance: Clearance;
+    /** Keys an earlier pass could not carry. Never re-offered. */
+    skip?: readonly string[];
+    limit?: number;
+    maxBytes?: number;
+  },
+): Promise<ContextMoveExport> {
+  const from = requirePath(options.from);
+  const to = requirePath(options.to);
+  assertWritablePath(from);
+  assertWritablePath(to);
+
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read in the context this is moving out of. Nothing was moved.",
+    );
+  }
+  if (!canSee(from, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+    throw notFound();
+  }
+
+  const limit = options.limit ?? CONTEXT_MOVE_BATCH_OBJECTS;
+  const maxBytes = options.maxBytes ?? CONTEXT_MOVE_BATCH_BYTES;
+  const skip = new Set(options.skip ?? []);
+
+  const sourceIsFolder = await isFolder(store, from);
+  const candidates: string[] = [];
+  let remaining = false;
+
+  if (!sourceIsFolder) {
+    if (!skip.has(from)) candidates.push(from);
+  } else {
+    const prefix = `${from}/`;
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    pages: for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      const listing = await store.list({ prefix, cursor, limit: 1_000 });
+      for (const object of listing.objects ?? []) {
+        const key = object.key;
+        if (isPlumbing(key)) continue;
+        if (skip.has(key)) continue;
+        if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+          // Only reachable if this ever runs at `team`, which it does not:
+          // starting a move out of a context requires owning it, and an owner
+          // reads at `private`. Kept because "the caller sees everything" is an
+          // argument about a caller, and this function takes a clearance.
+          continue;
+        }
+        if (candidates.length >= limit) {
+          remaining = true;
+          break pages;
+        }
+        candidates.push(key);
+      }
+      if (!listing.truncated) break;
+      if (!listing.cursor || seen.has(listing.cursor)) {
+        // A store that will not page is not a store this can finish against,
+        // and saying so beats moving an arbitrary prefix of a folder.
+        throw new FileOpError(
+          "LISTING_INCOMPLETE",
+          "That folder could not be listed to the end, so nothing more was moved. Try again.",
+        );
+      }
+      seen.add(listing.cursor);
+      cursor = listing.cursor;
+    }
+  }
+
+  const objects: ContextMoveObject[] = [];
+  const skipped: ContextMoveSkip[] = [];
+  let carried = 0;
+  let looked = 0;
+  for (const key of candidates) {
+    // Checked before the read, so one object over the ceiling is still carried
+    // rather than refused forever. The pass after this one starts behind it.
+    if (carried > 0 && carried >= maxBytes) break;
+    looked += 1;
+    const object = await store.get(key);
+    if (object === null) continue; // deleted underneath us; nothing to carry
+    const bytes = await object.arrayBuffer();
+    if (key.endsWith(".md") && isEncryptedNote(new TextDecoder().decode(bytes))) {
+      /*
+        AN ENCRYPTED NOTE IS ENCRYPTED TO *THIS* CONTEXT'S KEY.
+
+        Its ciphertext would arrive in the destination as a note nobody there
+        can ever open, including the person who moved it — the data key is held
+        per workspace (`functions/encryptionKeys.ts`) and does not travel.
+        Carrying it would be a silent, permanent loss dressed up as a
+        successful move, so it stays where it can still be read and the move
+        reports it by name.
+      */
+      skipped.push({ path: key, reason: "encrypted" });
+      continue;
+    }
+    carried += bytes.byteLength;
+    objects.push({
+      source: key,
+      destination: sourceIsFolder ? `${to}${key.slice(from.length)}` : to,
+      bytes,
+      etag: object.etag,
+      sourceVisibility:
+        effectiveVisibility(key, state.rules, state.overrides) === "team" ? "team" : "private",
+    });
+  }
+
+  // Anything this pass listed but did not reach is still waiting. Folded in
+  // here rather than set at each `break` above, because the two ceilings and
+  // the skip both leave work behind and only one of them is a loop exit.
+  return { objects, skipped, remaining: remaining || looked < candidates.length };
+}
+
+export interface ContextMoveImport {
+  /** What actually exists at the destination now, with the etag it was given. */
+  landed: { source: string; destination: string; etag: string }[];
+  /**
+   * Why the batch stopped, if it did.
+   *
+   * A partial batch is reported rather than thrown, because the sources for
+   * everything in `landed` must still be deleted: throwing would leave copies
+   * in both buckets with nothing recording that they are copies.
+   */
+  failure: { destination: string; code: FileErrorCode; message: string } | null;
+}
+
+/**
+ * Land a batch in the destination context, narrowing before it writes.
+ *
+ * The exceptions go in **first**, in one manifest write for the whole batch,
+ * and the objects follow. The order is the whole point: a private note put
+ * into a team-default folder and then narrowed is a note that was readable by
+ * the destination's team for as long as the second write took. The gateway's
+ * cross-context move makes the same choice, one note at a time
+ * (`persistExactVisibility` before the `put`).
+ */
+export async function importContextMoveBatch(
+  store: FileStore,
+  options: { objects: readonly ContextMoveObject[]; clearance: Clearance },
+): Promise<ContextMoveImport> {
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read in the context this is moving into. Nothing was moved.",
+    );
+  }
+
+  const planned = options.objects.map((object) => {
+    const destination = requirePath(object.destination);
+    assertWritablePath(destination);
+    return {
+      object,
+      destination,
+      visibility: landingVisibility(object.sourceVisibility, visibilityOf(destination, state.rules)),
+    };
+  });
+
+  /*
+    THE MOVER'S OWN CLEARANCE IN THE DESTINATION, ASKED BEFORE ANYTHING IS
+    WRITTEN.
+
+    Starting a move needs `editor` there, and an editor reads at `team` — so
+    the same rule every other write in this file obeys applies here: they may
+    land something in a folder they can see, and a `private` folder of somebody
+    else's context is not one. Without this, "move into @theirs" would be a way
+    to write into a folder the mover cannot list, and to learn from the result
+    that it is there.
+
+    The identical guard `movePath` uses, deliberately: this is the one place a
+    write arrives in a context from outside it, and a second implementation of
+    "may they write here" is a second one to get wrong. An owner
+    (`scope: "private"`) passes it unconditionally, which is the arm every move
+    started by the destination's own owner takes.
+  */
+  assertDestinationsVisible(
+    planned.map((entry) => entry.destination),
+    options.clearance,
+    state.rules,
+    state.overrides,
+  );
+
+  const narrowed = planned.filter(
+    (entry) => entry.visibility !== visibilityOf(entry.destination, state.rules),
+  );
+  if (narrowed.length > 0) {
+    await mutateManifest(store, (current) => {
+      let overrides = current.overrides;
+      for (const entry of narrowed) {
+        overrides = nextOverrides(entry.destination, entry.visibility, current.rules, overrides);
+      }
+      return { rules: current.rules, overrides };
+    });
+  }
+
+  const landed: ContextMoveImport["landed"] = [];
+  for (const entry of planned) {
+    try {
+      if ((await store.get(entry.destination)) !== null) {
+        return {
+          landed,
+          failure: {
+            destination: entry.destination,
+            code: "DESTINATION_EXISTS",
+            message: `Something already exists at ${entry.destination}.`,
+          },
+        };
+      }
+      const created =
+        store.capabilities?.conditionalCreate === true
+          ? await store.put(entry.destination, entry.object.bytes, { onlyIf: { absent: true } })
+          : await store.put(entry.destination, entry.object.bytes);
+      if (created === null) {
+        return {
+          landed,
+          failure: {
+            destination: entry.destination,
+            code: "DESTINATION_EXISTS",
+            message: `Something already exists at ${entry.destination}.`,
+          },
+        };
+      }
+      landed.push({
+        source: entry.object.source,
+        destination: entry.destination,
+        etag: created.etag,
+      });
+    } catch (error) {
+      return {
+        landed,
+        failure: {
+          destination: entry.destination,
+          code: "STORAGE_UNSAFE",
+          message: error instanceof Error ? error.message : "The destination bucket refused a write.",
+        },
+      };
+    }
+  }
+  return { landed, failure: null };
+}
+
+/**
+ * Take the copied objects out of the source, and only those.
+ *
+ * Conditional on the etag each was read at, so a note somebody edited between
+ * the copy and this call is **not** deleted: the copy at the destination is
+ * the older text, and silently removing the newer one would lose the edit. It
+ * is reported as a conflict instead, and the caller removes the stale copy it
+ * made and stops — see `contextMoves.ts`.
+ */
+export async function deleteMovedSources(
+  store: FileStore,
+  options: { sources: readonly { path: string; etag: string }[] },
+): Promise<{ deleted: string[]; conflicts: string[] }> {
+  const deleted: string[] = [];
+  const conflicts: string[] = [];
+  const conditional = store.capabilities?.conditionalDelete === true;
+  for (const source of options.sources) {
+    const removed = conditional
+      ? await store.delete(source.path, { onlyIf: { etagMatches: source.etag } })
+      : await store.delete(source.path);
+    if (removed === null) conflicts.push(source.path);
+    else deleted.push(source.path);
+  }
+
+  if (deleted.length > 0) {
+    const state = await loadPrivacyState(store);
+    if (state.text !== null && !state.invalid && deleted.some((path) => hasOverride(state.overrides, path))) {
+      await mutateManifest(store, (current) => {
+        let overrides = current.overrides;
+        for (const path of deleted) overrides = clearedOverrides(path, overrides);
+        return { rules: current.rules, overrides };
+      });
+    }
+  }
+  return { deleted, conflicts };
+}
+
+/**
+ * Forget what the source manifest still says about a subtree nothing is left in.
+ *
+ * Run once, after the last batch. A folder rule whose folder is gone is not
+ * inert: the name comes back the day anybody recreates that path — an
+ * ingestion alias filing into `1-projects/acme`, a new note saved to the same
+ * place — and it comes back carrying a visibility nobody chose for it. Rules
+ * covering something that stayed behind are kept, which is why this takes the
+ * survivors rather than assuming there are none.
+ */
+export async function clearMovedSourceRules(
+  store: FileStore,
+  options: { from: string; survivors?: readonly string[] },
+): Promise<void> {
+  const from = requirePath(options.from);
+  const survivors = options.survivors ?? [];
+  const state = await loadPrivacyState(store);
+  if (state.text === null || state.invalid) return;
+
+  const under = (path: string) => path === from || path.startsWith(`${from}/`);
+  const kept = (prefix: string) =>
+    survivors.some((path) => path === prefix || path.startsWith(`${prefix}/`));
+
+  const staleRule = state.rules.some((rule) => under(rule.prefix) && !kept(rule.prefix));
+  const staleOverride = [...state.overrides.keys()].some(
+    (path) => under(path) && !survivors.includes(path),
+  );
+  if (!staleRule && !staleOverride) return;
+
+  await mutateManifest(store, (current) => ({
+    rules: current.rules.filter((rule) => !under(rule.prefix) || kept(rule.prefix)),
+    overrides: new Map(
+      [...current.overrides].filter(([path]) => !under(path) || survivors.includes(path)),
+    ),
+  }));
+}
+
 /**
  * How many notes a move will read looking for references to what moved.
  *

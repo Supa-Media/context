@@ -180,7 +180,14 @@ import {
   type FileStore,
   clearVaultBatch,
   archivePath,
+  clearMovedSourceRules,
+  type ContextMoveExport,
+  type ContextMoveImport,
+  type ContextMoveObject,
   copyPath,
+  deleteMovedSources,
+  exportContextMoveBatch,
+  importContextMoveBatch,
   createFolder,
   deletePath,
   duplicatePath,
@@ -632,6 +639,53 @@ const deletedValidator = v.object({
   paths: v.array(v.string()),
 });
 
+const contextMoveExportedValidator = v.object({
+  kind: v.literal("contextMoveExported"),
+  objects: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    bytes: v.bytes(),
+    etag: v.string(),
+    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+  })),
+  skipped: v.array(v.object({
+    path: v.string(),
+    reason: v.literal("encrypted"),
+  })),
+  remaining: v.boolean(),
+});
+
+const contextMoveLandedValidator = v.object({
+  kind: v.literal("contextMoveLanded"),
+  landed: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    etag: v.string(),
+  })),
+  /**
+   * Why the batch stopped short, when it did.
+   *
+   * Reported rather than thrown, because the sources of everything in `landed`
+   * still have to be removed — see `importContextMoveBatch`. A thrown error
+   * here would leave the same objects in both buckets with nothing recording
+   * which of them is the copy.
+   */
+  failure: v.union(
+    v.null(),
+    v.object({ destination: v.string(), code: v.string(), message: v.string() }),
+  ),
+});
+
+const contextMoveRemovedValidator = v.object({
+  kind: v.literal("contextMoveRemoved"),
+  deleted: v.array(v.string()),
+  conflicts: v.array(v.string()),
+});
+
+const contextMoveFinishedValidator = v.object({
+  kind: v.literal("contextMoveFinished"),
+});
+
 const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),
@@ -879,6 +933,10 @@ const operationResultValidator = v.union(
   writtenValidator,
   movedValidator,
   deletedValidator,
+  contextMoveExportedValidator,
+  contextMoveLandedValidator,
+  contextMoveRemovedValidator,
+  contextMoveFinishedValidator,
   visibilityResultValidator,
   folderCreatedValidator,
   privacyResetValidator,
@@ -1047,6 +1105,41 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
+  /*
+    THE THREE HALVES OF A MOVE INTO ANOTHER CONTEXT.
+
+    Three operations rather than one because they run against three different
+    buckets' worth of credential — export and delete against the source, import
+    against the destination — and `runFileOperation` opens exactly one. See the
+    section header in `lib/fileOps.ts`: keeping them apart is what stops a
+    cross-context move from needing a second credential barrier that holds two
+    customers' plaintext secrets at once.
+  */
+  v.object({
+    kind: v.literal("contextMoveExport"),
+    from: v.string(),
+    to: v.string(),
+    skip: v.array(v.string()),
+  }),
+  v.object({
+    kind: v.literal("contextMoveImport"),
+    objects: v.array(v.object({
+      source: v.string(),
+      destination: v.string(),
+      bytes: v.bytes(),
+      etag: v.string(),
+      sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+    })),
+  }),
+  v.object({
+    kind: v.literal("contextMoveDelete"),
+    sources: v.array(v.object({ path: v.string(), etag: v.string() })),
+  }),
+  v.object({
+    kind: v.literal("contextMoveFinish"),
+    from: v.string(),
+    survivors: v.array(v.string()),
+  }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string() }),
   v.object({ kind: v.literal("trash"), path: v.string() }),
@@ -1162,6 +1255,10 @@ type FileOperation =
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
   | { kind: "copy"; from: string; to: string }
+  | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
+  | { kind: "contextMoveImport"; objects: ContextMoveObject[] }
+  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
+  | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string }
   | { kind: "trash"; path: string }
@@ -1341,6 +1438,10 @@ type OperationResult =
       forms: FormSeedResult;
     }
   | { kind: "moved"; from: string; to: string; paths: string[] }
+  | ({ kind: "contextMoveExported" } & ContextMoveExport)
+  | ({ kind: "contextMoveLanded" } & ContextMoveImport)
+  | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
+  | { kind: "contextMoveFinished" }
   | { kind: "deleted"; paths: string[] }
   | {
       kind: "visibility";
@@ -3359,6 +3460,33 @@ export async function executeOperation(
           now,
         });
         return { kind: "moved", ...moved };
+      }
+      case "contextMoveExport": {
+        const exported = await exportContextMoveBatch(store, {
+          from: operation.from,
+          to: operation.to,
+          clearance,
+          skip: operation.skip,
+        });
+        return { kind: "contextMoveExported", ...exported };
+      }
+      case "contextMoveImport": {
+        const landed = await importContextMoveBatch(store, {
+          objects: operation.objects,
+          clearance,
+        });
+        return { kind: "contextMoveLanded", ...landed };
+      }
+      case "contextMoveDelete": {
+        const removed = await deleteMovedSources(store, { sources: operation.sources });
+        return { kind: "contextMoveRemoved", ...removed };
+      }
+      case "contextMoveFinish": {
+        await clearMovedSourceRules(store, {
+          from: operation.from,
+          survivors: operation.survivors,
+        });
+        return { kind: "contextMoveFinished" };
       }
       case "copy": {
         const copied = await copyPath(store, {
