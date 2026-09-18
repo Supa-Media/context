@@ -38,9 +38,11 @@ import {
   createUser,
   createWorkspace,
   drainScheduled,
+  gatewayPost,
   seedStorageBinding,
   setupTest,
 } from "./fixtures.helpers";
+import { hashToken } from "../functions/lib/crypto";
 import { memoryS3 } from "./storeStub.helpers";
 import { CAPABILITY_SWEEP_BATCH } from "../functions/storage";
 
@@ -290,5 +292,74 @@ describe("the batch is bounded", () => {
         PROBED_CAPABILITIES,
       );
     }
+  });
+});
+
+
+/* -------------------------------------------------------------------------- */
+
+describe("the repaired capabilities reach the gateway", () => {
+  /**
+   * The last hop, and the one the sweep above turned from dormant into an
+   * outage.
+   *
+   * `/gateway/binding` is a second return validator with a second field list,
+   * and it restated the capability object inline instead of using
+   * `capabilitiesValidator`. So `serverSideCopy` — added to the schema here,
+   * written by every probe, and backfilled onto every existing row by the
+   * sweep this file tests — was an extra key the union refused, `v.object` is
+   * exact, and `openStorageBinding` threw `ReturnsValidationError` on its own
+   * answer. The gateway reads a control-plane error as no storage at all: every
+   * client on every context was told `storage_unavailable`, and told to
+   * reconnect, which could not have helped.
+   *
+   * Nothing caught it because every other gateway test seeds
+   * `seedStorageBinding`'s default `{ conditionalWrite: true }` — the legacy
+   * shape, which the stale validator accepted. This one seeds the shape a
+   * probed row actually holds.
+   */
+  test("/gateway/binding answers with every probed capability", async () => {
+    const accessToken = `cat_capabilities_${"0".repeat(20)}`;
+    const { t, owner, workspaceIds } = await deployment(1);
+    const workspaceId = workspaceIds[0];
+    await seedStorageBinding(t, {
+      workspaceId,
+      boundBy: owner,
+      status: "connected",
+      capabilities: PROBED_CAPABILITIES,
+    });
+    await t.run(async (ctx) =>
+      ctx.db.insert("oauthGrants", {
+        workspaceId,
+        userId: owner,
+        clientId: "mcp_client_alpha",
+        scopes: ["context:read"],
+        hashedRefreshToken: await hashToken(`${accessToken}-refresh`),
+        hashedAccessToken: await hashToken(accessToken),
+        accessTokenExpiresAt: Date.now() + 3_600_000,
+        status: "active" as const,
+        createdAt: Date.now(),
+      }),
+    );
+    await gatewayPost(t, "/gateway/clients/register", {
+      clientId: "mcp_client_alpha",
+      clientName: "Example AI Client",
+      redirectUris: ["https://client.example/callback"],
+      hashedClientSecret: null,
+      tokenEndpointAuthMethod: "none",
+    });
+
+    const response = await gatewayPost(t, "/gateway/binding", {
+      accessToken,
+      expectedWorkspaceId: null,
+    });
+    // A 200 is half the assertion: the validator throws *after* the handler
+    // returns, so the route answers 500 and the gateway sees a control-plane
+    // failure rather than a binding.
+    expect(response.status).toBe(200);
+    const body = JSON.parse(await response.text()) as {
+      binding: { capabilities?: Record<string, boolean> } | null;
+    };
+    expect(body.binding?.capabilities).toEqual(PROBED_CAPABILITIES);
   });
 });
