@@ -107,8 +107,8 @@ describe("a context that has never touched a plugin", () => {
       plugins: showPluginsSection(UNTOUCHED),
     }).map((section) => section.key);
     expect(keys).not.toContain("plugins");
-    // The rest of "Your notes" is untouched: this is one row, not a group.
-    expect(keys).toEqual(expect.arrayContaining(["storage", "search", "advanced"]));
+    // The rest of the list is untouched: this is one row, not a group.
+    expect(keys).toEqual(expect.arrayContaining(["storage", "advanced"]));
   });
 });
 
@@ -284,8 +284,9 @@ describe("the section is hidden, not deleted", () => {
     const hidden = settingsSectionsFor("personal", { plugins: false }).map((s) => s.key);
     const shown = settingsSectionsFor("personal", { plugins: true }).map((s) => s.key);
     expect(shown.filter((key) => key !== "plugins")).toEqual(hidden);
-    // And in its old place: after Search, before Advanced.
-    expect(shown.indexOf("search")).toBeLessThan(shown.indexOf("plugins"));
+    // And in its old place: after Storage — which is where Search's index
+    // block now lives too — and before Advanced.
+    expect(shown.indexOf("storage")).toBeLessThan(shown.indexOf("plugins"));
     expect(shown.indexOf("plugins")).toBeLessThan(shown.indexOf("advanced"));
   });
 

@@ -282,20 +282,20 @@ export const SETTINGS_SECTIONS = [
   },
   {
     key: "storage",
-    keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup",
+    /*
+      The index's words are here because the index is: Search was the row
+      below this one, asking the same question one level down — where are my
+      notes kept, and where is the thing that finds them. An index is a
+      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
+      this screen rather than a row beside it, and "rebuild index" has to land
+      here or it lands nowhere.
+    */
+    keywords:
+      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild",
     scope: "context",
     label: "Storage",
     group: "Your notes",
     icon: "drive",
-    personalOnly: false,
-  },
-  {
-    key: "search",
-    keywords: "find index fast lookup rebuild",
-    scope: "context",
-    label: "Search",
-    group: "Your notes",
-    icon: "search",
     personalOnly: false,
   },
   {

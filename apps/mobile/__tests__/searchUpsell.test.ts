@@ -189,7 +189,7 @@ describe("a context with no hosted index is searched, not apologised for", () =>
     expect(text()).toContain("Fast search makes it instant");
 
     await press("search-upsell-open-my-workspace");
-    expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=search");
+    expect(onOpen).toHaveBeenCalledWith("/console/@my-workspace?settings=storage");
   });
 
   test("an owner who is not paying is sent to Premium, not to a switch they cannot throw", async () => {

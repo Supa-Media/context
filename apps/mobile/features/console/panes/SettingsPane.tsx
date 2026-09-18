@@ -282,6 +282,27 @@ export function SettingsPane({
         </View>
       ) : null}
 
+      {/*
+        The index, under the bucket it is built from.
+
+        Search was a row of its own, one below Storage, and the two rows asked
+        the same question at two depths: where are my notes kept, and where is
+        the thing that finds them. An index is a disposable derivative of the
+        files — `CLAUDE.md` #3, rebuildable and never the only copy of
+        anything — so it belongs under them rather than beside them.
+
+        What it switches is still per context, which is why it is here at all
+        and not at app level: two workspaces can be answered from two
+        different places, and a switch above the context picker would claim
+        there is one setting for all of them.
+      */}
+      <SubHead title="Search">
+        Where this context&apos;s search is answered from. Your Markdown never moves:
+        the index is a copy that can be deleted and rebuilt, and it is off until an
+        owner turns it on.
+      </SubHead>
+      <FastSearchCard view={data.fastSearch} demo={data.demo} />
+
       </>
       ) : null}
 
@@ -431,24 +452,6 @@ export function SettingsPane({
 
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 
-      {show("search") ? (
-      <>
-      <PanelHead section="search" sectioned={section !== undefined}>
-        Where this context&apos;s search is answered from. Your Markdown never moves:
-        the index is a copy that can be deleted and rebuilt, and it is off until an
-        owner turns it on.
-      </PanelHead>
-
-      {/*
-        Under the same gear as storage and ingestion, and here rather than at
-        app level for the same reason this whole pane moved: what it switches
-        is per context. Two workspaces can be answered from two different places,
-        and a switch above the context picker would claim there is one setting
-        for all of them.
-      */}
-      <FastSearchCard view={data.fastSearch} demo={data.demo} />
-      </>
-      ) : null}
 
       {show("plugins") ? (
       <>

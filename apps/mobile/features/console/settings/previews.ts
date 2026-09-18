@@ -1,4 +1,3 @@
-import { fastSearchPill } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
 import { pluginsPreview } from "../plugins/plugins";
 import type { ConsoleData } from "../types";
@@ -105,17 +104,15 @@ export function settingsPreview(
     }
 
     case "storage":
-      // `null` in, `null` out, for both of the absences it covers.
+      /*
+        The binding, not the index. `null` in, `null` out, for both of the
+        absences it covers — and the index has no claim on this row even
+        though it is now a block on the screen: "R2 · notes-bucket" answers
+        where the notes are, which is what somebody reading the row wants, and
+        a second clause about the index would be the row trying to be the
+        panel.
+      */
       return storagePillLabel(data.storage);
-
-    case "search": {
-      const status = data.fastSearch.status;
-      if (status === null) return null;
-      // The same judgement the card's own chip makes, from the same function:
-      // `off` and `unavailable` are working states, and a label on a working
-      // state is a badge somebody clears by turning on a copy of their notes.
-      return fastSearchPill(status.state)?.label ?? null;
-    }
 
     case "plugins":
       /*
