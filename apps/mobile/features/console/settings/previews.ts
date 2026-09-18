@@ -1,4 +1,3 @@
-import { receivesMail } from "../ingestion/settings";
 import { fastSearchPill } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
 import { pluginsPreview } from "../plugins/plugins";
@@ -57,12 +56,6 @@ export function settingsPreview(
   data: ConsoleData,
 ): string | null {
   switch (key) {
-    case "apps":
-      // `clients` is `[]` while the workspace list is still in flight, which
-      // is not "no AI apps connected".
-      if (data.loading) return null;
-      return data.clients.length === 0 ? "None" : `${data.clients.length} active`;
-
     case "profile":
       return data.viewer.name;
 
@@ -73,40 +66,26 @@ export function settingsPreview(
       return pending === 0 ? null : `${pending} pending`;
     }
 
-    case "email": {
-      const mailboxes = data.googleConnections.filter(
-        (connection) => connection.gmail !== undefined,
-      ).length;
-      if (mailboxes > 0) return plural(mailboxes, "mailbox", "mailboxes");
-      if (receivesMail(data.ingestion)) return "Forwarding on";
+    case "integrations": {
       /*
-        And no "Not connected" from here, however tempting.
+        The AI apps, and nothing else on the row.
 
-        Mail reaches a workspace by two mechanisms and this row can only see one
-        and a half of them. `useLiveConsoleData` builds `googleConnections`
-        through `usable()`, which returns `undefined` for a query in flight
-        **and** for one that came back an error — so an empty list is three
-        different things, and only one of them is "no mailbox". Somebody with
-        Gmail connected would read "Not connected" on every load until that
-        subscription landed, and permanently if it failed.
+        Four counts — apps, mailboxes, calendars, chats — do not fit in a
+        right-aligned string, and summing them into "6 connected" would be a
+        number nobody can act on. The apps count is the one a person glancing
+        at the row is actually asking about, and it is the only one of the
+        four this module can state without qualification: `clients` is a
+        complete list once it has landed, while `googleConnections` comes back
+        empty for a query in flight, one that failed, and a genuinely
+        unconnected account alike — and Chats can only ever see half its own
+        mechanism, because this Mac's iMessages never reach `ConsoleData`.
+
+        So the blocks inside the panel keep their own claims, where each can
+        say what it does and does not know, and the row says the one thing
+        that is true on its own.
       */
-      return null;
-    }
-
-    case "calendar": {
-      const calendars = data.googleConnections.filter(
-        (connection) => connection.calendar !== undefined,
-      ).length;
-      return calendars === 0 ? null : plural(calendars, "calendar", "calendars");
-    }
-
-    case "chats": {
-      // Half the mechanism — see the header. A count is honest; its absence
-      // is not, so zero says nothing rather than "Not connected".
-      const chats = data.googleConnections.filter(
-        (connection) => connection.chat !== undefined,
-      ).length;
-      return chats === 0 ? null : "Google Chat";
+      if (data.loading) return null;
+      return data.clients.length === 0 ? "None" : `${data.clients.length} active`;
     }
 
     case "sharing": {
@@ -159,8 +138,4 @@ export function settingsPreview(
     case "advanced":
       return null;
   }
-}
-
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
 }

@@ -72,7 +72,10 @@ jest.mock("../features/console/google/leaveForGoogle", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
-import { SettingsPane } from "../features/console/panes/SettingsPane";
+import { EmailPanel } from "../features/console/settings/panels/EmailPanel";
+import { CalendarPanel } from "../features/console/settings/panels/CalendarPanel";
+import { ChatsPanel } from "../features/console/settings/panels/ChatsPanel";
+import { MeetingsPanel } from "../features/console/settings/panels/MeetingsPanel";
 import {
   GoogleConnectionsCard,
   type GoogleConnection,
@@ -89,7 +92,6 @@ const SYNCING_HOURLY: GoogleSyncSchedule = {
   nextDueAt: Date.parse("2026-09-09T10:00:00.000Z"),
 };
 import type { ConsoleData } from "../features/console/types";
-import type { SettingsSectionKey } from "../features/console/settings/sections";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -128,13 +130,36 @@ function demoData(contextId: string): ConsoleData {
 const OWNED = "seyi";
 const WORKSPACE = "pw";
 
-function panelElement(contextId: string, section: SettingsSectionKey): HTMLElement {
+/**
+ * The four capture blocks, mounted one at a time.
+ *
+ * They used to be four sections and this took a `SettingsSectionKey`, mounting
+ * the whole `SettingsPane` for each. Email, Calendar and Chats are blocks of
+ * one Integrations panel now, so a pane mount would put all three on the
+ * screen at once and "Email is not carrying the other two services" would
+ * assert nothing. Each block is mounted on its own instead, which is what
+ * every one of these tests was always about.
+ */
+const BLOCKS = {
+  email: EmailPanel,
+  calendar: CalendarPanel,
+  chats: ChatsPanel,
+  meetings: MeetingsPanel,
+} as const;
+
+type BlockName = keyof typeof BLOCKS;
+
+function panelElement(contextId: string, block: BlockName): HTMLElement {
   const data = demoData(contextId);
-  return mount(() => createElement(SettingsPane, { data, onClose: () => {}, section }));
+  return mount(() =>
+    block === "meetings"
+      ? createElement(BLOCKS.meetings, { data, sectioned: true })
+      : createElement(BLOCKS[block], { data }),
+  );
 }
 
-function panel(contextId: string, section: SettingsSectionKey): string {
-  return panelElement(contextId, section).textContent ?? "";
+function panel(contextId: string, block: BlockName): string {
+  return panelElement(contextId, block).textContent ?? "";
 }
 
 /*
@@ -387,7 +412,7 @@ describe("a workspace is never told it can connect somebody's Gmail", () => {
 });
 
 describe("no panel is an empty card under a heading", () => {
-  const cases: Array<[string, SettingsSectionKey]> = [
+  const cases: Array<[string, BlockName]> = [
     [OWNED, "email"],
     [OWNED, "calendar"],
     [OWNED, "chats"],

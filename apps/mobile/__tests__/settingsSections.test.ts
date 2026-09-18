@@ -29,15 +29,15 @@ import {
 } from "../features/console/settings/sections";
 
 describe("which sections a context has", () => {
-  test("both kinds get all four communications sections", () => {
-    // The capture *address* is personal-only and each panel gates its own
+  test("both kinds get the capture sections", () => {
+    // The capture *address* is personal-only and each block gates its own
     // controls, but the sentence explaining why a workspace cannot connect
     // Gmail lives in the same block — hiding the section would take the
     // explanation with it. "Absent, not disabled" is right for a control that
     // would be refused and wrong for the sentence that says why.
     for (const kind of ["personal", "shared"] as const) {
       const keys = settingsSectionsFor(kind).map((section) => section.key);
-      for (const key of ["email", "calendar", "chats", "meetings"]) {
+      for (const key of ["integrations", "meetings"]) {
         expect(keys).toContain(key);
       }
     }
@@ -53,7 +53,7 @@ describe("which sections a context has", () => {
 describe("the order and the grouping", () => {
   test("what comes in is asked before where it is kept", () => {
     const keys = SETTINGS_SECTIONS.map((section) => section.key);
-    expect(keys.indexOf("email")).toBeLessThan(keys.indexOf("storage"));
+    expect(keys.indexOf("integrations")).toBeLessThan(keys.indexOf("storage"));
     expect(keys.indexOf("meetings")).toBeLessThan(keys.indexOf("storage"));
   });
 
@@ -88,7 +88,6 @@ describe("two scopes in one list", () => {
     // personal workspace and a context still loading all keep them.
     for (const kind of ["personal", "shared", null] as const) {
       const keys = settingsSectionsFor(kind).map((section) => section.key);
-      expect(keys).toContain("apps");
       expect(keys).toContain("profile");
     }
   });
@@ -174,7 +173,7 @@ describe("two scopes in one list", () => {
   });
 
   test("and are recognisable without knowing the list", () => {
-    expect(isAccountSection("apps")).toBe(true);
+    expect(isAccountSection("profile")).toBe(true);
     expect(isAccountSection("storage")).toBe(false);
   });
 
@@ -189,9 +188,9 @@ describe("searching the list", () => {
     // The whole point: nobody types "sources" looking for Gmail, and nobody
     // types "account" meaning cancel.
     const all = settingsSectionsFor("personal");
-    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("email");
+    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("integrations");
     expect(matchSettingsSections(all, "bucket").map((s) => s.key)).toContain("storage");
-    expect(matchSettingsSections(all, "cursor").map((s) => s.key)).toContain("apps");
+    expect(matchSettingsSections(all, "cursor").map((s) => s.key)).toContain("integrations");
   });
 
   test("every word has to match, so two words narrow", () => {
@@ -233,19 +232,19 @@ describe("searching the list", () => {
   test.each([
     ["sign out", "profile"],
     ["delete my account", "profile"],
-    ["gmail", "email"],
-    ["mailbox", "email"],
-    ["forward", "email"],
-    ["imessage", "chats"],
-    ["messages", "chats"],
-    ["calendar", "calendar"],
-    ["ical", "calendar"],
-    ["schedule", "calendar"],
+    ["gmail", "integrations"],
+    ["mailbox", "integrations"],
+    ["forward", "integrations"],
+    ["imessage", "integrations"],
+    ["messages", "integrations"],
+    ["calendar", "integrations"],
+    ["ical", "integrations"],
+    ["schedule", "integrations"],
     ["zoom", "meetings"],
     ["recording", "meetings"],
     ["transcript", "meetings"],
-    ["claude", "apps"],
-    ["revoke", "apps"],
+    ["claude", "integrations"],
+    ["revoke", "integrations"],
     ["username", "profile"],
     ["dropbox", "storage"],
     ["rebuild index", "search"],
@@ -391,7 +390,11 @@ describe("the panel is headed by the row that opened it", () => {
 describe("reading a section out of a URL", () => {
   test("only names we have", () => {
     expect(isSettingsSection("storage")).toBe(true);
-    expect(isSettingsSection("email")).toBe(true);
+    expect(isSettingsSection("integrations")).toBe(true);
+    // The four rows Integrations replaced: a URL still carrying one is an
+    // alias's job (`nav.ts`), never a section this list admits to having.
+    expect(isSettingsSection("email")).toBe(false);
+    expect(isSettingsSection("apps")).toBe(false);
     // The section this one replaced. A URL still carrying it must fail the
     // check and fall back to the default, not open a blank panel.
     expect(isSettingsSection("sources")).toBe(false);

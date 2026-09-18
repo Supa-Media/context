@@ -24,6 +24,7 @@ import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
+import { ConnectedAppsCard } from "../settings/AccountSections";
 import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
@@ -388,19 +389,46 @@ export function SettingsPane({
       </>
       ) : null}
 
+      {show("integrations") ? (
+      <>
       {/*
-        Four panels where there was one section, each in its own file.
+        Everything that talks to this context without being typed into it.
 
-        "Mail, calendar & chats" was one block because a Google *account*
-        carries Gmail, Calendar and Chat together — our plumbing, not
-        anybody's question. Each of these answers one question a person
-        actually has, and the bodies live under `settings/panels/` so this file
-        gains four `show()` branches rather than four screens of copy. See
-        `settings/sections.ts` for the argument.
+        It was five rows — AI apps, Email, Calendar, Chats — under a heading
+        nobody navigates by. The split was right about one thing and wrong
+        about the other: a person does ask "why isn't my mail here" rather than
+        "what does my Google account do", and that question is answered on one
+        page whatever number of mechanisms it takes. But five pages to ask five
+        versions of "what is plugged in" is the list Sayo called overwhelming.
+
+        AI apps leads, because an MCP client is the first thing most people
+        connect and the word they arrive with. It is account-scoped — a
+        connection reaches every workspace its person is a live member of — and
+        the block says so in its own sentence, which is what keeps an
+        account-wide fact on a context-scoped page from being a lie.
+
+        Meetings is deliberately *not* here. It is the one capture surface
+        people open on purpose rather than configure once, and Sayo asked for
+        it separately by name.
       */}
-      {show("email") ? <EmailPanel data={data} sectioned={section !== undefined} /> : null}
-      {show("calendar") ? <CalendarPanel data={data} sectioned={section !== undefined} /> : null}
-      {show("chats") ? <ChatsPanel data={data} sectioned={section !== undefined} /> : null}
+      <PanelHead section="integrations" sectioned={section !== undefined}>
+        Everything that fills this context without being typed into it: the AI
+        apps holding a grant, the mailboxes and calendars we read, and the chats.
+      </PanelHead>
+
+      <SubHead title="AI apps">
+        One address, added once per app. A connection reaches every workspace you
+        are a live member of, and each app can be cut off on its own without
+        touching the others.
+      </SubHead>
+      <ConnectedAppsCard data={data} />
+
+      <EmailPanel data={data} />
+      <CalendarPanel data={data} />
+      <ChatsPanel data={data} />
+      </>
+      ) : null}
+
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 
       {show("search") ? (

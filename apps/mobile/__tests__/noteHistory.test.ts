@@ -250,9 +250,9 @@ describe("history covers every kind of destination", () => {
   });
 
   test("two settings sections are two places", () => {
-    // Sections are addressable — `?settings=storage` and `?settings=email`
+    // Sections are addressable — `?settings=storage` and `?settings=integrations`
     // are different URLs — so stepping between them is a step.
-    const state = walkPlaces(settingsPlace("storage"), settingsPlace("email"));
+    const state = walkPlaces(settingsPlace("storage"), settingsPlace("integrations"));
     expect(canGoBack(state)).toBe(true);
     expect(currentPlace(stepped(state, -1))).toEqual(settingsPlace("storage"));
   });

@@ -9,7 +9,7 @@ import { selectedContext, type ConsoleData } from "../../types";
   nothing else.
 */
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
-import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
+import { SubHead, WorkspaceRefusalCard } from "./PanelHead";
 
 /**
  * Chats: Google Chat, and this Mac's iMessages.
@@ -28,17 +28,15 @@ import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
  */
 export function ChatsPanel({
   data,
-  sectioned,
 }: {
   data: ConsoleData;
-  sectioned: boolean;
 }) {
   const current = selectedContext(data);
   const personal = current?.kind === "personal";
 
   return (
     <>
-      <PanelHead section="chats" sectioned={sectioned}>
+      <SubHead title="Chats">
         {/*
           "in the desktop app" rather than "on this Mac", and it is not a
           hedge. `ThisMachineCard` draws nothing in a browser or on a phone —
@@ -49,7 +47,7 @@ export function ChatsPanel({
         {personal
           ? "Google Chat spaces, and — in the desktop app — the Messages on your Mac. Two different mechanisms, one place to look."
           : "Chats are read into a personal workspace, not into a shared one. A conversation has people in it who did not agree to a shared bucket."}
-      </PanelHead>
+      </SubHead>
 
       {personal ? (
         <>

@@ -162,7 +162,7 @@ describe("a half-visible mechanism never claims the whole", () => {
       can see would be a flat lie to anybody capturing iMessages.
     */
     const base = demoData();
-    expect(settingsPreview("chats", { ...base, googleConnections: [] })).toBeNull();
+    expect(settingsPreview("integrations", { ...base, googleConnections: [] })).not.toBe("None");
   });
 
   test("no Google mailbox is not 'no mail' either", () => {
@@ -175,7 +175,7 @@ describe("a half-visible mechanism never claims the whole", () => {
       subscription landed, and for ever if it failed.
     */
     const base = demoData();
-    expect(settingsPreview("email", { ...base, googleConnections: [] })).toBeNull();
+    expect(settingsPreview("integrations", { ...base, loading: true })).toBeNull();
   });
 
   test("meetings keeps quiet, because nothing here knows", () => {
