@@ -2018,6 +2018,11 @@ export interface MoveResult {
   paths: string[];
   /** What the link rewrite did. See `rewriteReferences`. */
   references?: ReferenceRewrite;
+  /**
+   * The moved note's etag at its new path — a single note only, and only where
+   * the bucket answered the write with one. See `movePath`.
+   */
+  etag?: string;
 }
 
 export interface ReferenceRewrite {
@@ -2283,7 +2288,29 @@ function rulesAfterFolderMove(
  */
 export async function movePath(
   store: FileStore,
-  options: { from: string; to: string; clearance: Clearance; now: number; expectedEtag?: string },
+  options: {
+    from: string;
+    to: string;
+    clearance: Clearance;
+    now: number;
+    /**
+     * The version of the note this move was asked about. Given, the move is
+     * refused with `CONFLICT` and the current etag when the note is anywhere
+     * else — the same answer a queued edit gets, for the same reason: a rename
+     * typed offline is a decision about the note as it was then. Absent is an
+     * online press made while looking at the listing, exactly as before.
+     *
+     * A note only: a folder has no version to name.
+     */
+    expectedEtag?: string;
+    /**
+     * Refuse, rather than read-compare, where the bucket cannot make the check
+     * atomic. The plugin runtime asks for this — a plugin renames as part of a
+     * transaction it cannot see the end of. A person's queued rename does not:
+     * it gets the check an online save gets on the same bucket.
+     */
+    requireAtomic?: boolean;
+  },
 ): Promise<MoveResult> {
   const from = requirePath(options.from);
   const to = requirePath(options.to);
@@ -2312,14 +2339,31 @@ export async function movePath(
 
   const sourceIsFolder = await isFolder(store, from);
   if (options.expectedEtag !== undefined && sourceIsFolder) {
-    throw new FileOpError("PATH_INVALID", "Plugins may only rename files, not folders.");
+    throw new FileOpError(
+      "PATH_INVALID",
+      options.requireAtomic === true
+        ? "Plugins may only rename files, not folders."
+        : "A folder has no version, so it cannot be moved against one.",
+    );
   }
-  if (
+  /*
+    Atomic where the bucket can do both halves conditionally — the copy
+    `onlyIf: { absent }` and the delete `onlyIf: { etagMatches }` — and a
+    read-compare where it cannot: the source's etag is compared just before it
+    is copied, which is what an online save on such a bucket gets too. Only the
+    plugin runtime refuses the second kind.
+  */
+  const atomic =
     options.expectedEtag !== undefined &&
-    (store.capabilities?.conditionalCreate !== true || store.capabilities?.conditionalDelete !== true)
-  ) {
+    store.capabilities?.conditionalCreate === true &&
+    store.capabilities?.conditionalDelete === true;
+  if (options.expectedEtag !== undefined && options.requireAtomic === true && !atomic) {
     throw new FileOpError("STORAGE_UNSAFE", "This storage cannot safely rename plugin files.");
   }
+  const changedElsewhere =
+    options.requireAtomic === true
+      ? "That file changed somewhere else while the plugin was using it."
+      : "That note changed somewhere else after this was asked for.";
 
   // The header of this function says "the destination must not exist: this
   // never merges and never overwrites". That was true of files, which the
@@ -2390,24 +2434,37 @@ export async function movePath(
     }
   }
 
+  /*
+    The etag the note has at its new path, for a single note. A queue that
+    renamed a note and then deletes it offline sends the delete against *this*
+    version — the one its own rename produced — and without it would have to
+    either guess or drop the check.
+  */
+  let movedEtag: string | undefined;
   for (const pair of pairs) {
     const object = await store.get(pair.source);
-    if (object === null) continue; // vanished mid-move; nothing to carry
+    if (object === null) {
+      // Vanished mid-move. Nothing to carry — unless this move was asked
+      // against a version, and then the version it named is not there.
+      if (options.expectedEtag !== undefined) throw new FileOpError("CONFLICT", changedElsewhere);
+      continue;
+    }
     if (options.expectedEtag !== undefined && object.etag !== options.expectedEtag) {
-      throw new FileOpError("CONFLICT", "That file changed somewhere else while the plugin was using it.", object.etag);
+      throw new FileOpError("CONFLICT", changedElsewhere, object.etag);
     }
     const body = await object.text();
-    const created = options.expectedEtag === undefined
-      ? await store.put(pair.destination, body)
-      : await store.put(pair.destination, body, { onlyIf: { absent: true } });
+    const created = atomic
+      ? await store.put(pair.destination, body, { onlyIf: { absent: true } })
+      : await store.put(pair.destination, body);
     if (created === null) throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${pair.destination}.`);
-    const removed = options.expectedEtag === undefined
-      ? await store.delete(pair.source)
-      : await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag } });
+    const removed = atomic
+      ? await store.delete(pair.source, { onlyIf: { etagMatches: options.expectedEtag! } })
+      : await store.delete(pair.source);
     if (removed === null) {
       if (created?.etag) await store.delete(pair.destination, { onlyIf: { etagMatches: created.etag } });
-      throw new FileOpError("CONFLICT", "That file changed somewhere else while the plugin was using it.");
+      throw new FileOpError("CONFLICT", changedElsewhere);
     }
+    if (!sourceIsFolder && created?.etag) movedEtag = created.etag;
   }
 
   await remapPrivacy(store, {
@@ -2420,9 +2477,23 @@ export async function movePath(
     clearance: options.clearance,
     state,
     renames: new Map(pairs.map((pair) => [pair.source, pair.destination])),
+    /*
+      A note that links to itself is rewritten here too, which moves its etag
+      past the one the copy produced — and the queue would then send its next
+      step against a version its own rename had already superseded.
+    */
+    onRewritten: (key, etag) => {
+      if (!sourceIsFolder && key === to) movedEtag = etag;
+    },
   });
 
-  return { from, to, paths: pairs.map((pair) => pair.destination), references };
+  return {
+    from,
+    to,
+    paths: pairs.map((pair) => pair.destination),
+    references,
+    ...(movedEtag === undefined ? {} : { etag: movedEtag }),
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -3162,6 +3233,8 @@ async function rewriteReferences(
     clearance: Clearance;
     state: PrivacyState;
     renames: ReadonlyMap<string, string>;
+    /** Told the new etag of every note this rewrites. See `movePath`'s `etag`. */
+    onRewritten?: (key: string, etag: string) => void;
   },
 ): Promise<ReferenceRewrite> {
   if (options.renames.size === 0) return { notes: 0, links: 0, capped: false };
@@ -3199,7 +3272,8 @@ async function rewriteReferences(
       path alone would restore the write amplification that decision removed
       from every other one.
     */
-    await store.put(key, rewritten.text);
+    const put = await store.put(key, rewritten.text);
+    if (put?.etag) options.onRewritten?.(key, put.etag);
   }
   return { notes, links, capped: false };
 }
@@ -3397,7 +3471,13 @@ export async function duplicatePath(
  */
 export async function archivePath(
   store: FileStore,
-  options: { path: string; clearance: Clearance; now: number },
+  options: {
+    path: string;
+    clearance: Clearance;
+    now: number;
+    /** The version this archive was asked about. See `movePath`. */
+    expectedEtag?: string;
+  },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   // Ahead of the destination rather than after it: which folder this context
@@ -3454,6 +3534,7 @@ export async function archivePath(
     to: destination,
     clearance: options.clearance,
     now: options.now,
+    ...(options.expectedEtag === undefined ? {} : { expectedEtag: options.expectedEtag }),
   });
 }
 
@@ -3464,7 +3545,19 @@ export async function archivePath(
  */
 export async function trashPath(
   store: FileStore,
-  options: { path: string; clearance: Clearance; now: number },
+  options: {
+    path: string;
+    clearance: Clearance;
+    now: number;
+    /**
+     * The version this delete was asked about — see `movePath`. A delete typed
+     * offline must not put somebody's newer text in the trash without the
+     * person who asked for it being told it changed. Compared after the
+     * visibility check, so a note the caller cannot see is `notFound()` and its
+     * version is never on the wire.
+     */
+    expectedEtag?: string;
+  },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
   assertWritablePath(path);
@@ -3472,11 +3565,29 @@ export async function trashPath(
   if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
 
   const sourceIsFolder = await isFolder(store, path);
+  if (options.expectedEtag !== undefined && sourceIsFolder) {
+    throw new FileOpError("PATH_INVALID", "A folder has no version, so it cannot be deleted against one.");
+  }
   const walk = sourceIsFolder
     ? await keysUnder(store, path, options.clearance, state.rules, state.overrides)
     : { keys: [path], withheld: [] };
-  if (!sourceIsFolder && (await store.get(path)) === null) throw notFound();
+  const source = sourceIsFolder ? null : await store.get(path);
+  if (!sourceIsFolder && source === null) throw notFound();
   if (walk.keys.length === 0) throw notFound();
+  /*
+    A read-compare, made just before the move, on every bucket. `movePairs` is
+    shared with the restore and copies-then-deletes unconditionally; the window
+    between this read and that delete is the one an online save on a
+    read-compare bucket has, and what lands in it is recoverable from the trash
+    rather than gone.
+  */
+  if (options.expectedEtag !== undefined && source !== null && source.etag !== options.expectedEtag) {
+    throw new FileOpError(
+      "CONFLICT",
+      "That note changed somewhere else after this was asked for.",
+      source.etag,
+    );
+  }
 
   const stamp = timestampSlug(options.now);
   let destination = `${TRASH_ROOT}/${stamp}/${path}`;

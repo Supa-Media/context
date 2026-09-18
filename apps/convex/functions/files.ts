@@ -685,6 +685,12 @@ const movedValidator = v.object({
   references: v.optional(
     v.object({ notes: v.number(), links: v.number(), capped: v.boolean() }),
   ),
+  /**
+   * A single note's etag at its new path, where the bucket answered with one.
+   * The offline queue carries it on to whatever it was asked to do next with
+   * that note — see `movePath`.
+   */
+  etag: v.optional(v.string()),
 });
 
 const deletedValidator = v.object({
@@ -1170,7 +1176,17 @@ const operationValidator = v.union(
     json: v.string(),
     expectedEtag: v.union(v.string(), v.null()),
   }),
-  v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
+  /*
+    `expectedEtag` on these three is the version a queued rename, move or
+    delete was asked about — see `movePath`. Optional, and absent is the online
+    press it always was.
+  */
+  v.object({
+    kind: v.literal("move"),
+    from: v.string(),
+    to: v.string(),
+    expectedEtag: v.optional(v.string()),
+  }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
   /*
     THE THREE HALVES OF A MOVE INTO ANOTHER CONTEXT.
@@ -1216,8 +1232,8 @@ const operationValidator = v.union(
     survivors: v.array(v.string()),
   }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
-  v.object({ kind: v.literal("archive"), path: v.string() }),
-  v.object({ kind: v.literal("trash"), path: v.string() }),
+  v.object({ kind: v.literal("archive"), path: v.string(), expectedEtag: v.optional(v.string()) }),
+  v.object({ kind: v.literal("trash"), path: v.string(), expectedEtag: v.optional(v.string()) }),
   v.object({ kind: v.literal("restoreTrash"), from: v.string(), to: v.string() }),
   v.object({
     kind: v.literal("delete"),
@@ -1330,7 +1346,7 @@ type FileOperation =
    */
   | { kind: "removeEncryption"; path: string; text: string; expectedEtag?: string }
   | { kind: "createFolder"; path: string }
-  | { kind: "move"; from: string; to: string }
+  | { kind: "move"; from: string; to: string; expectedEtag?: string }
   | { kind: "copy"; from: string; to: string }
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
@@ -1338,8 +1354,8 @@ type FileOperation =
   | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
-  | { kind: "archive"; path: string }
-  | { kind: "trash"; path: string }
+  | { kind: "archive"; path: string; expectedEtag?: string }
+  | { kind: "trash"; path: string; expectedEtag?: string }
   | { kind: "restoreTrash"; from: string; to: string }
   | { kind: "delete"; path: string; confirmation: string }
   | { kind: "setVisibility"; path: string; visibility: "private" | "team" }
@@ -3379,6 +3395,7 @@ export async function executeOperation(
           clearance,
           now,
           expectedEtag: operation.expectedEtag,
+          requireAtomic: true,
         });
         return { kind: "moved", ...moved };
       }
@@ -3565,6 +3582,7 @@ export async function executeOperation(
           to: operation.to,
           clearance,
           now,
+          ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
         });
         return { kind: "moved", ...moved };
       }
@@ -3613,11 +3631,21 @@ export async function executeOperation(
         return { kind: "moved", ...copied };
       }
       case "archive": {
-        const moved = await archivePath(store, { path: operation.path, clearance, now });
+        const moved = await archivePath(store, {
+          path: operation.path,
+          clearance,
+          now,
+          ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+        });
         return { kind: "moved", ...moved };
       }
       case "trash": {
-        const moved = await trashPath(store, { path: operation.path, clearance, now });
+        const moved = await trashPath(store, {
+          path: operation.path,
+          clearance,
+          now,
+          ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+        });
         return { kind: "moved", ...moved };
       }
       case "restoreTrash": {
@@ -5150,7 +5178,18 @@ export const createDirectory = action({
 
 /** Move or rename a file or folder. Requires `editor`. */
 export const moveEntry = action({
-  args: { workspaceId: v.id("workspaces"), from: v.string(), to: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    from: v.string(),
+    to: v.string(),
+    /**
+     * The version of the note this move was asked about. The offline queue
+     * sends it, so a rename typed on a train is refused with `CONFLICT` if the
+     * note changed meanwhile rather than carrying somebody's newer text under
+     * a name chosen for something else. See `movePath`.
+     */
+    expectedEtag: v.optional(v.string()),
+  },
   returns: movedValidator,
   handler: async (
       ctx,
@@ -5166,7 +5205,12 @@ export const moveEntry = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
-      operation: { kind: "move", from: args.from, to: args.to },
+      operation: {
+        kind: "move",
+        from: args.from,
+        to: args.to,
+        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -5251,7 +5295,12 @@ export const duplicateEntry = action({
  * because it is not destructive. Requires `editor`.
  */
 export const archiveEntry = action({
-  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The version this archive was asked about. See `moveEntry`. */
+    expectedEtag: v.optional(v.string()),
+  },
   returns: movedValidator,
   handler: async (
       ctx,
@@ -5267,7 +5316,11 @@ export const archiveEntry = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
-      operation: { kind: "archive", path: args.path },
+      operation: {
+        kind: "archive",
+        path: args.path,
+        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      },
     })) as Extract<OperationResult, { kind: "moved" }>;
 
     await ctx.runMutation(internal.functions.audit.recordEvent, {
@@ -5283,7 +5336,12 @@ export const archiveEntry = action({
 
 /** Move an entry into hidden, recoverable trash. Requires `editor`. */
 export const trashEntry = action({
-  args: { workspaceId: v.id("workspaces"), path: v.string() },
+  args: {
+    workspaceId: v.id("workspaces"),
+    path: v.string(),
+    /** The version this delete was asked about. See `moveEntry`. */
+    expectedEtag: v.optional(v.string()),
+  },
   returns: movedValidator,
   handler: async (ctx, args): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
@@ -5296,7 +5354,11 @@ export const trashEntry = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
-      operation: { kind: "trash", path: args.path },
+      operation: {
+        kind: "trash",
+        path: args.path,
+        ...(args.expectedEtag === undefined ? {} : { expectedEtag: args.expectedEtag }),
+      },
     })) as Extract<OperationResult, { kind: "moved" }>;
     await ctx.runMutation(internal.functions.audit.recordEvent, {
       workspaceId: args.workspaceId,

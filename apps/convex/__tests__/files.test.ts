@@ -2925,6 +2925,69 @@ describe("a stale save is a conflict, never a silent overwrite", () => {
     expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
   });
 
+  /*
+    The offline queue's rename, move and delete: each sent with the version it
+    was asked about, through the same actions an online press uses.
+    `offlineFileOps.test.ts` has the rules; this is that they reach the client.
+  */
+  test("a queued rename or delete of a note that changed is a conflict with the current etag", async () => {
+    const f = await fixture();
+    const as = asUser(f.t, f.owner);
+    const read = await as.action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/shared.md",
+    });
+    await as.action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: read.path,
+      text: "# Theirs\n",
+      expectedEtag: read.etag,
+    });
+
+    for (const attempt of [
+      () => as.action(api.functions.files.moveEntry, {
+        workspaceId: f.workspaceId,
+        from: read.path,
+        to: "1-projects/renamed.md",
+        expectedEtag: read.etag,
+      }),
+      () => as.action(api.functions.files.trashEntry, {
+        workspaceId: f.workspaceId,
+        path: read.path,
+        expectedEtag: read.etag,
+      }),
+      () => as.action(api.functions.files.archiveEntry, {
+        workspaceId: f.workspaceId,
+        path: read.path,
+        expectedEtag: read.etag,
+      }),
+    ]) {
+      const error = await captureError(attempt);
+      expect(errorCode(error)).toBe("CONFLICT");
+      expect((error as { data: { currentEtag?: string } }).data.currentEtag).toBe(
+        f.backend.objects.get("1-projects/shared.md")!.etag,
+      );
+    }
+    expect(f.backend.snapshot()["1-projects/shared.md"]).toBe("# Theirs\n");
+    expect(f.backend.snapshot()["1-projects/renamed.md"]).toBeUndefined();
+  });
+
+  test("a queued rename at the version it was asked about lands, and says the note's new etag", async () => {
+    const f = await fixture();
+    const as = asUser(f.t, f.owner);
+    const read = await as.action(api.functions.files.readNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/shared.md",
+    });
+    const moved = await as.action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: read.path,
+      to: "1-projects/renamed.md",
+      expectedEtag: read.etag,
+    });
+    expect(moved.etag).toBe(f.backend.objects.get("1-projects/renamed.md")!.etag);
+  });
+
   test("a backend that ignores If-Match still reports it, and the write says how it was checked", async () => {
     const f = await fixture({ ignoreIfMatch: true, conditionalWrite: false });
     const as = asUser(f.t, f.owner);
