@@ -358,6 +358,12 @@ export interface FileBrowser {
    * no queue, and absent marks nothing.
    */
   pending?: PendingMarks;
+  /**
+   * A person's answer to a parked rename, move, archive, delete or new folder
+   * — `OpRow.answers` says which are offered. Optional for the reason `pending`
+   * is: the demo console has no queue.
+   */
+  answerOp?: (id: string, answer: "override" | "retry" | "discard") => void;
 
   /** The last thing that went wrong, or a confirmation of what just happened. */
   notice: string | null;

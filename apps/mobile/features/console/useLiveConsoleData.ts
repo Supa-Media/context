@@ -48,7 +48,7 @@ import { useMirrorSync, type MirrorActions } from "../offline/useMirrorSync";
 import { useMirrorStatuses } from "../offline/mirrorStatus";
 import type { BatchRead, ManifestPage } from "../offline/mirrorSync";
 import { useRememberedContexts } from "../offline/useRememberedContexts";
-import { queuedWriteSender } from "./files/queuedWrite";
+import { queuedOpSender, queuedWriteSender } from "./files/queuedWrite";
 import { defaultContext } from "./nav";
 import {
   buildConstellation,
@@ -913,7 +913,21 @@ export function useLiveConsoleData(): ConsoleData {
     argument, including why the open context is excluded rather than shared.
   */
   const sendQueuedTo = useMemo(() => queuedWriteSender(writeNoteAction), [writeNoteAction]);
-  useBackgroundDrain({ openWorkspaceId: selectedContextId, write: sendQueuedTo });
+  const moveEntryAction = useAction(api.functions.files.moveEntry);
+  const archiveEntryAction = useAction(api.functions.files.archiveEntry);
+  const trashEntryAction = useAction(api.functions.files.trashEntry);
+  const createDirectoryAction = useAction(api.functions.files.createDirectory);
+  const sendQueuedOpTo = useMemo(
+    () =>
+      queuedOpSender({
+        moveEntry: moveEntryAction,
+        archiveEntry: archiveEntryAction,
+        trashEntry: trashEntryAction,
+        createDirectory: createDirectoryAction,
+      }),
+    [archiveEntryAction, createDirectoryAction, moveEntryAction, trashEntryAction],
+  );
+  useBackgroundDrain({ openWorkspaceId: selectedContextId, write: sendQueuedTo, op: sendQueuedOpTo });
 
   /*
     Every note of every context this person can reach, on the device, kept in

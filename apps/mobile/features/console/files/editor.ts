@@ -190,6 +190,15 @@ export type EditorAction =
       notice?: string;
       /** Work found waiting for this note in the offline queue. */
       restored?: RestoredDraft;
+      /**
+       * The note is not in the bucket: it was created on this device and its
+       * create is still queued. Its etag is `null` — "did not exist" — which is
+       * what makes every save of it a *create* (`writeNote` with no
+       * `expectedEtag`), refused if a note appeared at that path meanwhile.
+       * Inventing an etag here instead would make that save a conditional
+       * update of a version the bucket never had.
+       */
+      unsent?: boolean;
     }
   | { type: "closed" }
   | { type: "edited"; text: string }
@@ -218,6 +227,13 @@ export type EditorAction =
    * ordinary conditional write.
    */
   | { type: "resolving"; text: string; etag: string | null }
+  /**
+   * A queued rename of this note reached the bucket. The note is now at its
+   * new name at `etag`, which is the version the next save must be checked
+   * against — and only if the editor was still on the version the rename
+   * carried (`from`): an editor that has since moved on keeps its own.
+   */
+  | { type: "rebased"; from: string | null; etag: string }
   | { type: "discarded" };
 
 export function editorReducer(state: EditorState, action: EditorAction): EditorState {
@@ -228,7 +244,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         path: action.note.path,
         baseline: action.note.text,
         draft: action.note.text,
-        etag: action.note.etag,
+        etag: action.unsent === true ? null : action.note.etag,
         readOnly: action.note.readOnly,
         encrypted: action.note.encrypted === true,
         // Carried from the OpenNote, same as the other construction below —
@@ -272,6 +288,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
 
     case "closed":
       return emptyEditor;
+
+    case "rebased":
+      if (state.path === null || state.etag !== action.from) return state;
+      return { ...state, etag: action.etag };
 
     case "edited": {
       if (state.readOnly || state.path === null) return state;

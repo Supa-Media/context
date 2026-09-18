@@ -149,7 +149,13 @@ describe("draining the queue", () => {
 
     expect(bucket.asked[0]!.baseEtag).toBe("e1");
     expect(report.sent).toEqual([
-      { path: "a.md", etag: "server", conflictCheck: "conditional", sentUpdatedAt: 1_000 },
+      {
+        path: "a.md",
+        etag: "server",
+        conflictCheck: "conditional",
+        sentUpdatedAt: 1_000,
+        sentBaseEtag: "e1",
+      },
     ]);
     expect(outbox.writes).toEqual([]);
   });
@@ -189,7 +195,13 @@ describe("draining the queue", () => {
     const drained = await drainOutbox(outbox, { write: bucket.write, now });
 
     expect(bucket.asked).toEqual([]);
-    expect(drained.report).toEqual({ sent: [], conflicted: [], rejected: [], stoppedEarly: false });
+    expect(drained.report).toEqual({
+      sent: [],
+      conflicted: [],
+      rejected: [],
+      ops: { done: [], conflicted: [], rejected: [] },
+      stoppedEarly: false,
+    });
   });
 
   test("one note's conflict does not hold up the rest of the queue", async () => {
@@ -432,6 +444,7 @@ describe("typing through a drain", () => {
     sent,
     conflicted: [],
     rejected: [],
+    ops: { done: [], conflicted: [], rejected: [] },
     stoppedEarly: false,
   });
 
@@ -440,7 +453,7 @@ describe("typing through a drain", () => {
     const after = reconcile(
       live,
       emptyOutbox("ws1"),
-      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000 }]),
+      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000, sentBaseEtag: "e1" }]),
     );
     expect(after.writes).toEqual([]);
   });
@@ -457,7 +470,7 @@ describe("typing through a drain", () => {
     const after = reconcile(
       live,
       emptyOutbox("ws1"),
-      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000 }]),
+      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000, sentBaseEtag: "e1" }]),
     );
 
     expect(after.writes[0]!.text).toBe("one and more");
@@ -490,7 +503,7 @@ describe("typing through a drain", () => {
     const after = reconcile(
       live,
       emptyOutbox("ws1"),
-      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000 }]),
+      report([{ path: "a.md", etag: "e2", conflictCheck: "conditional", sentUpdatedAt: 1_000, sentBaseEtag: "e1" }]),
     );
 
     expect(after.writes.map((w) => w.path)).toEqual(["new.md"]);
@@ -611,7 +624,7 @@ describe("what the person is told", () => {
     // Sign-out wipes everything this feature holds, so this is the last moment
     // anybody can be told.
     expect(signOutWarning({ pending: 2, conflicted: 1, rejected: 0 })).toContain(
-      "3 notes have edits",
+      "3 changes have not reached",
     );
   });
 
@@ -623,7 +636,7 @@ describe("what the person is told", () => {
     expect(signOutWarning(zero, 2)).toContain("2 meetings' audio has not been transcribed yet");
     // Both, when both are waiting: neither sentence may crowd out the other.
     const both = signOutWarning({ pending: 1, conflicted: 0, rejected: 0 }, 1)!;
-    expect(both).toContain("1 note has edits");
+    expect(both).toContain("1 change has not reached");
     expect(both).toContain("1 meeting's audio");
   });
 

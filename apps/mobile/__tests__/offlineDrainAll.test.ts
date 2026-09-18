@@ -44,7 +44,7 @@ import { getOutbox, putOutbox } from "../features/offline/cache";
 import { drainOtherContexts, workspacesWithQueues } from "../features/offline/drainAll";
 import { keyFor } from "../features/offline/keys";
 import { memoryStore, type KeyValueStore } from "../features/offline/memory";
-import { emptyOutbox, enqueue, type Outbox } from "../features/offline/outbox";
+import { emptyOutbox, enqueue, opsOf, queueMove, type Outbox } from "../features/offline/outbox";
 import type { WriteOutcome } from "../features/offline/sync";
 
 const OPEN = "ws_open";
@@ -175,6 +175,52 @@ describe("what each write is", () => {
       "etag-from-the-train",
       null,
     ]);
+  });
+
+  /**
+   * The same property for a rename or delete queued offline. A pass that sent
+   * `plan.md → plan-2026.md` through the sender bound to the open context
+   * would rename a note with that name in somebody else's context — or be
+   * refused there for a path they never had, and park a rename nobody can
+   * explain.
+   */
+  test("every rename names the context its queue is filed under, and an ops-only queue is visited", async () => {
+    const renamed = queueMove(emptyOutbox(OTHER), {
+      id: "op1",
+      path: "plan.md",
+      to: "plan-2026.md",
+      etag: "e1",
+      now: 1_000,
+      coalesce: true,
+    })!;
+    await putOutbox(store, renamed);
+    await putOutbox(store, queued(OPEN, "mine.md"));
+    const ops: { workspaceId: string; path: string; baseEtag: string | null }[] = [];
+
+    await drainOtherContexts(store, OPEN, {
+      ...deps(recorder().write),
+      op: async (workspaceId, op) => {
+        ops.push({ workspaceId, path: op.path, baseEtag: op.baseEtag });
+        return { kind: "done", etag: "e2" };
+      },
+    });
+
+    expect(ops).toEqual([{ workspaceId: OTHER, path: "plan.md", baseEtag: "e1" }]);
+    expect(opsOf(await getOutbox(store, OTHER))).toEqual([]);
+  });
+
+  test("with no op sender, a queued rename is left exactly as it was", async () => {
+    const renamed = queueMove(emptyOutbox(OTHER), {
+      id: "op1",
+      path: "plan.md",
+      to: "plan-2026.md",
+      etag: "e1",
+      now: 1_000,
+      coalesce: true,
+    })!;
+    await putOutbox(store, renamed);
+    await drainOtherContexts(store, OPEN, deps(recorder().write));
+    expect(opsOf(await getOutbox(store, OTHER))).toEqual(opsOf(renamed));
   });
 
   test("a sent write leaves the queue, and the queue on disk says so", async () => {

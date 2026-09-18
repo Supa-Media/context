@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { PressRow } from "../../design/components/Button";
+import { Button, PressRow } from "../../design/components/Button";
 import { Dot } from "../../design/components/Dot";
 import { FocusRing } from "../../design/components/FocusRing";
 import { Icon } from "../../design/components/Icon";
@@ -10,7 +10,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import type { SyncFacts } from "../../offline/copy";
 import { baseName, displayName, displayPath, parentPath } from "./paths";
-import type { PendingMarks } from "./pendingMarks";
+import { describeSyncMark, type OpRow as QueuedOp, type PendingMarks } from "./pendingMarks";
 import { compactSync, syncSheetSections, type StatusSegment, type SyncSheetSection } from "./status";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { mirrorSheetSection } from "../../offline/mirrorCopy";
@@ -91,12 +91,15 @@ export function SyncSheet({
   save,
   pending,
   onOpen,
+  onAnswer,
   onDismiss,
 }: {
   sync: SyncFacts | undefined;
   save: StatusSegment | null;
   pending: PendingMarks;
   onOpen: (path: string) => void;
+  /** A person's answer to a parked op — `FileBrowser.answerOp`. */
+  onAnswer?: (id: string, answer: "override" | "retry" | "discard") => void;
   onDismiss: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -134,7 +137,13 @@ export function SyncSheet({
           </Text>
           <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
             {sections.map((section) => (
-              <Section key={section.id} section={section} pending={pending} onOpen={onOpen} />
+              <Section
+                key={section.id}
+                section={section}
+                pending={pending}
+                onOpen={onOpen}
+                onAnswer={onAnswer}
+              />
             ))}
           </ScrollView>
         </Pressable>
@@ -147,12 +156,23 @@ function Section({
   section,
   pending,
   onOpen,
+  onAnswer,
 }: {
   section: SyncSheetSection;
   pending: PendingMarks;
   onOpen: (path: string) => void;
+  onAnswer?: (id: string, answer: "override" | "retry" | "discard") => void;
 }) {
   const styles = useThemedStyles(makeStyles);
+  /*
+    The queued renames, moves, deletes and new folders, in the block their
+    state belongs to: waiting ones under "waiting to sync", parked ones under
+    the block that says somebody is needed — with the answers right on the row,
+    because a delete has no note to open and answer from.
+  */
+  const ops = (pending.operations ?? []).filter((op) =>
+    section.id === "stuck" ? op.mark === "conflict" : section.id === "waiting" ? op.mark === "queued" : false,
+  );
   return (
     <View style={styles.section} testID={`sync-section-${section.id}`}>
       <View style={styles.sectionHead}>
@@ -179,10 +199,85 @@ function Section({
         <NoteRow
           key={path}
           path={path}
+          label={pending.labelFor?.(path) ?? null}
           mark={pending.stateFor(path)}
           onPress={() => onOpen(path)}
         />
       ))}
+      {ops.map((op) => (
+        <OperationRow
+          key={op.id}
+          op={op}
+          onOpen={op.open === undefined ? undefined : () => onOpen(op.open!)}
+          onAnswer={onAnswer}
+        />
+      ))}
+    </View>
+  );
+}
+
+const ANSWER_LABELS = {
+  override: "Do it anyway",
+  retry: "Try again",
+  discard: "Discard",
+} as const;
+
+/**
+ * One queued op: "Rename plan → plan-2026 · waiting to sync". Pressing the text
+ * opens what it left behind, where there is something; a parked one carries
+ * its answers as buttons. Discard takes the op back — the note stays as the
+ * bucket has it — and is never offered on one that is simply waiting: that is
+ * the undo the toast offered, and a button here would be a way to cancel a
+ * rename that is already on the wire.
+ */
+function OperationRow({
+  op,
+  onOpen,
+  onAnswer,
+}: {
+  op: QueuedOp;
+  onOpen?: () => void;
+  onAnswer?: (id: string, answer: "override" | "retry" | "discard") => void;
+}) {
+  const colors = useColors();
+  const styles = useThemedStyles(makeStyles);
+  const status = describeSyncMark(op.mark);
+  return (
+    <View style={styles.opRow} testID={`sync-op-${op.id}`}>
+      <Pressable
+        role={onOpen === undefined ? undefined : "button"}
+        accessibilityLabel={`${op.text} · ${status}`}
+        onPress={onOpen}
+        disabled={onOpen === undefined}
+        style={styles.opText}
+      >
+        <Icon name="file" size={17} color={colors.muted} />
+        <View style={styles.rowText}>
+          <Text variant="rowTitle" numberOfLines={2}>
+            {`${op.text} · ${status}`}
+          </Text>
+          {op.detail === undefined ? null : (
+            <Text variant="rowSub" numberOfLines={3}>
+              {op.detail}
+            </Text>
+          )}
+        </View>
+        <SyncMarkDot mark={op.mark} />
+      </Pressable>
+      {onAnswer === undefined || op.answers.length === 0 ? null : (
+        <View style={styles.answers}>
+          {op.answers.map((answer) => (
+            <Button
+              key={answer}
+              label={ANSWER_LABELS[answer]}
+              variant={answer === "discard" ? "danger" : "mini"}
+              accessibilityLabel={`${ANSWER_LABELS[answer]}: ${op.text}`}
+              onPress={() => onAnswer(op.id, answer)}
+              testID={`sync-op-${op.id}-${answer}`}
+            />
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -190,10 +285,13 @@ function Section({
 /** One note the sheet is about. Pressing it opens it, which is the answer. */
 function NoteRow({
   path,
+  label,
   mark,
   onPress,
 }: {
   path: string;
+  /** "New note: Groceries" for a note that exists only on this device. */
+  label: string | null;
   mark: ReturnType<PendingMarks["stateFor"]>;
   onPress: () => void;
 }) {
@@ -201,7 +299,7 @@ function NoteRow({
   const styles = useThemedStyles(makeStyles);
   const [focused, setFocused] = useState(false);
   const folder = parentPath(path);
-  const name = displayName(baseName(path));
+  const name = label ?? displayName(baseName(path));
 
   return (
     <Pressable
@@ -261,6 +359,15 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderTopColor: colors.lineStrong,
     backgroundColor: colors.surface,
     maxHeight: "70%",
+    /*
+      A phone's width, centred, on a pointer layout — the same sheet rising from
+      the bottom edge rather than a second, desktop-only surface with its own
+      copy of the rows and answers. Narrower than this, it is the full width it
+      always was.
+    */
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
     boxShadow: shadows.rising,
   },
   grabber: {
@@ -288,4 +395,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderRadius: radii.md,
   },
   rowText: { flexGrow: 1, flexShrink: 1 },
+  opRow: { gap: 6, paddingVertical: 4 },
+  opText: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 44,
+    paddingHorizontal: 10,
+  },
+  answers: { flexDirection: "row", flexWrap: "wrap", gap: space.x2, paddingLeft: 37 },
 });

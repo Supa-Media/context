@@ -1,4 +1,5 @@
-import type { PendingWrite } from "../../offline/outbox";
+import type { PendingOp, PendingState, PendingWrite } from "../../offline/outbox";
+import { baseName, displayName, displayPath, parentPath } from "./paths";
 
 /**
  * Which notes in a listing have not reached the bucket, as one read-only value.
@@ -52,6 +53,39 @@ export interface PendingMarks {
   queued: readonly string[];
   /** Waiting for a person, oldest first. */
   conflicted: readonly string[];
+  /**
+   * What a row should be called when "the note at this path" is not the whole
+   * story — "New note: Groceries" for a note that exists only on this device.
+   * `null` for an ordinary edit, whose row is just the note.
+   */
+  labelFor?: (path: string) => string | null;
+  /** The renames, moves, deletes and new folders waiting — see `OpRow`. */
+  operations?: readonly OpRow[];
+}
+
+/**
+ * One queued operation, as the sync sheet lists it.
+ *
+ * `text` is plain language — "Rename plan → plan-2026", "Delete old-notes",
+ * "New folder: Trips" — and the sheet adds "waiting to sync" or "needs you"
+ * from `mark`. `open` is where pressing the row goes (the renamed note, the new
+ * folder), absent for a delete: there is nothing to open, and the row's
+ * answers are the only thing to do with it.
+ */
+export interface OpRow {
+  id: string;
+  text: string;
+  mark: SyncMark;
+  /** Why it is parked, in the server's own words. */
+  detail?: string;
+  open?: string;
+  /**
+   * What a person may answer. `override` — do it anyway, against the version
+   * the conflict reported; `retry` — send a refusal again unchanged;
+   * `discard` — take it back. A waiting op offers nothing: it is going on
+   * its own, and the undo was offered when it was pressed.
+   */
+  answers: readonly ("override" | "retry" | "discard")[];
 }
 
 /** What a screen reader hears for a mark, and what a test looks for. */
@@ -63,31 +97,114 @@ export const NO_PENDING: PendingMarks = {
   stateFor: () => null,
   queued: [],
   conflicted: [],
+  labelFor: () => null,
+  operations: [],
 };
 
 /**
- * Build the marks from a queue's writes.
+ * Build the marks from a queue's writes, and its ops.
  *
  * Takes the writes rather than an `Outbox` so a caller holding a different
  * shape of the same facts — a test, or a picture — does not have to invent a
  * workspace id to get a mark.
+ *
+ * An op marks the row it left behind: a renamed or moved note at its new
+ * name, a new folder at itself. A deleted or archived note has no row to mark
+ * — the tree has already taken it out — so it is only in `operations`, which
+ * is where the sheet lists it. An edit of a note this device renamed is filed
+ * under the bucket's name for it and marked on the row the person sees.
  */
 export function pendingMarks(
   writes: readonly Pick<PendingWrite, "path" | "state" | "queuedAt">[],
+  queue: {
+    ops?: readonly PendingOp[];
+    /** Where the console shows a bucket path — `localPathOf`. */
+    localPathOf?: (path: string) => string;
+    /** Bucket paths of notes that exist only on this device. */
+    creates?: ReadonlySet<string>;
+  } = {},
 ): PendingMarks {
-  if (writes.length === 0) return NO_PENDING;
+  const ops = queue.ops ?? [];
+  if (writes.length === 0 && ops.length === 0) return NO_PENDING;
+  const local = queue.localPathOf ?? ((path: string) => path);
   const byPath = new Map<string, SyncMark>();
+  const mark = (path: string, next: SyncMark) => {
+    // The louder one wins: a note whose edit is waiting and whose rename is
+    // parked needs somebody.
+    if (byPath.get(path) === "conflict") return;
+    byPath.set(path, next);
+  };
   const ordered = [...writes].sort((a, b) => a.queuedAt - b.queuedAt);
   const queued: string[] = [];
   const conflicted: string[] = [];
+  const created = new Set<string>();
   for (const write of ordered) {
-    const mark: SyncMark = write.state === "pending" ? "queued" : "conflict";
-    byPath.set(write.path, mark);
-    (mark === "queued" ? queued : conflicted).push(write.path);
+    const path = local(write.path);
+    const state = markOf(write.state);
+    mark(path, state);
+    (state === "queued" ? queued : conflicted).push(path);
+    if (queue.creates?.has(write.path) === true) created.add(path);
+  }
+  const operations: OpRow[] = [];
+  for (const op of [...ops].sort((a, b) => a.queuedAt - b.queuedAt)) {
+    const state = markOf(op.state);
+    const shown = op.kind === "move" ? op.to : op.kind === "folder" ? op.path : undefined;
+    if (shown !== undefined) mark(shown, state);
+    const why = op.state === "conflicted" ? op.conflict?.message : op.state === "rejected" ? op.rejection?.message : undefined;
+    operations.push({
+      id: op.id,
+      text: describeOp(op),
+      mark: state,
+      ...(why === undefined ? {} : { detail: why }),
+      ...(shown === undefined ? {} : { open: shown }),
+      answers:
+        op.state === "conflicted"
+          ? op.conflict?.currentEtag === undefined
+            ? ["discard"]
+            : ["override", "discard"]
+          : op.state === "rejected"
+            ? ["retry", "discard"]
+            : [],
+    });
   }
   return {
     stateFor: (path) => byPath.get(path) ?? null,
     queued,
     conflicted,
+    labelFor: (path) => (created.has(path) ? `New note: ${displayName(baseName(path))}` : null),
+    operations,
   };
+}
+
+function markOf(state: PendingState): SyncMark {
+  return state === "pending" ? "queued" : "conflict";
+}
+
+/**
+ * An op in the words somebody would use for it.
+ *
+ * Rename when only the name changed, Move when only the folder did, and the
+ * whole destination when both did. Names are drawn as the tree draws them —
+ * sort numbers and `.md` dropped — because this is a sentence about rows the
+ * person just saw, not a path they typed.
+ */
+export function describeOp(op: Pick<PendingOp, "kind" | "path" | "to">): string {
+  const name = displayName(baseName(op.path));
+  switch (op.kind) {
+    case "folder":
+      return `New folder: ${name}`;
+    case "trash":
+      return `Delete ${name}`;
+    case "archive":
+      return `Archive ${name}`;
+    case "move": {
+      const to = op.to ?? op.path;
+      if (parentPath(op.path) === parentPath(to)) return `Rename ${name} → ${displayName(baseName(to))}`;
+      if (baseName(op.path) === baseName(to)) {
+        const folder = parentPath(to) === "" ? "the root of your context" : displayPath(parentPath(to));
+        return `Move ${name} → ${folder}`;
+      }
+      return `Move ${name} → ${displayPath(parentPath(to))}/${displayName(baseName(to))}`;
+    }
+  }
 }

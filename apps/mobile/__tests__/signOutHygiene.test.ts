@@ -393,7 +393,7 @@ describe("signing out takes the notes off the device", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(1);
-    expect(app.text()).not.toContain("edits that have not reached your bucket");
+    expect(app.text()).not.toContain("not reached your bucket");
     app.unmount();
   });
 });
@@ -409,7 +409,7 @@ describe("signing out with work that never reached the bucket", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(0);
-    expect(app.text()).toContain("2 notes have edits that have not reached your bucket");
+    expect(app.text()).toContain("2 changes have not reached your bucket");
     // Nothing has been discarded while the question is open, either.
     expect(ownedNow().length).toBeGreaterThan(0);
     app.unmount();
@@ -473,7 +473,7 @@ describe("signing out with work that never reached the bucket", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(0);
-    expect(app.text()).toContain("1 note has edits that have not reached your bucket");
+    expect(app.text()).toContain("1 change has not reached your bucket");
     app.unmount();
   });
 
@@ -499,7 +499,7 @@ describe("signing out with work that never reached the bucket", () => {
     const app = mountConsole();
     await app.signOut();
 
-    expect(app.text()).toContain("1 note has edits that have not reached your bucket");
+    expect(app.text()).toContain("1 change has not reached your bucket");
     app.unmount();
   });
 
@@ -518,7 +518,7 @@ describe("signing out with work that never reached the bucket", () => {
     await app.signOut();
 
     expect(signOutCalls).toBe(0);
-    expect(app.text()).toContain("2 notes have edits that have not reached your bucket");
+    expect(app.text()).toContain("2 changes have not reached your bucket");
     app.unmount();
   });
 });
