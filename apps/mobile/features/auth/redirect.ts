@@ -148,10 +148,24 @@ export function resolveProtectedRoute(
  * `app/(app)/console/index.tsx` already owns "which context does this account
  * open on" and answers it from the rail's own order. Deciding it twice is how
  * the two answers come to disagree.
+ *
+ * `rememberedSession` is the same escape `resolveProtectedRoute` takes, and
+ * this gate needs it for the same reason: every native launch lands here
+ * first, so a bare `wait` in front of the console's own gate made that one
+ * unreachable from a cold start. Offline, `isLoading` never ends, and `/`
+ * rendered `null` — a blank ground — for as long as the app was open. The
+ * console's gate still decides what renders; this only stops standing in
+ * front of it.
  */
-export function resolveRootRoute(state: AuthState, web: boolean): RouteDecision {
+export function resolveRootRoute(
+  state: AuthState,
+  web: boolean,
+  rememberedSession = false,
+): RouteDecision {
   if (web) return { action: "render" };
-  if (state.isLoading) return { action: "wait" };
+  if (state.isLoading) {
+    return rememberedSession ? { action: "redirect", href: CONSOLE_ROUTE } : { action: "wait" };
+  }
   return { action: "redirect", href: state.isAuthenticated ? CONSOLE_ROUTE : LOGIN_ROUTE };
 }
 
