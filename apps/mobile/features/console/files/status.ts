@@ -581,9 +581,10 @@ export function compactSync(
 
 /** One block of the phone's sync sheet. */
 export interface SyncSheetSection {
-  id: "connection" | "stuck" | "waiting" | "note";
+  id: "connection" | "stuck" | "waiting" | "note" | "mirror";
   text: string;
-  tone: "warn" | "crit";
+  /** `quiet` only for `mirror` — a whole mirror is a fact, never a warning. */
+  tone: "quiet" | "warn" | "crit";
   detail: string;
   /** The notes this block is about, each one a row that opens it. */
   paths: readonly string[];

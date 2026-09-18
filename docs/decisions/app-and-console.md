@@ -1016,12 +1016,14 @@ machine. `__tests__/offlineRemembered.test.ts`,
 
 **What this does not fix, named so it is not mistaken for done.** A device that
 has *never* loaded the console online still cannot start offline, and should not
-— there is nothing to remember. The cache is still populated only by reads, so
-what is available on a train is what somebody happened to open; pinning a folder
-for offline is a separate decision. And on the web none of this survives a cold
-*tab*, because there is no service worker to serve the bundle — the app has to
-load before any of it runs. The desktop shell's mirror is a different origin
-again, with its own storage, so it sees none of this.
+— there is nothing to remember. This paragraph used to go on: "the cache is
+still populated only by reads, so what is available on a train is what somebody
+happened to open". The mirror replaced that on every device that has one — every
+note of every context the person can reach, not the ones they opened (see "Every
+note on the device: the mirror" below); only a browser with IndexedDB blocked is
+still limited to what it read, and is told so. On the web none of this survived
+a cold *tab* until the service worker below. The desktop shell's mirror is a different origin again, with its
+own storage, so it sees none of this.
 ### On the web the app has to be able to *start* offline, which is a service worker
 
 The two sections above put the customer's notes on the device and made them
@@ -1274,12 +1276,204 @@ What a simplification costs, and what fails:
 
 **What this does not do.** It is the server half. The mirror itself — walking
 the manifest, fetching what changed, dropping what is no longer visible,
-reconciling with the queue — is the client's, and none of it exists yet. The
+reconciling with the queue — is the client's, and is the next section. The
 manifest does not say whether a note is encrypted: that is in the note's
 frontmatter, not in a listing, and `readNotes` reports it per note. And a bucket
 of more than about a hundred thousand hidden keys in a row before anything the
 caller can see ends a page with no progress, which is reported as `truncated`
 rather than hidden behind a cursor that could only have been a private path.
+
+### Every note on the device: the mirror
+
+The owner's requirement, verbatim: the app "should work perfectly fine even when
+offline; people should have all their notes downloaded on their device, sync any
+time when connected … and it should be clear when notes are not synced." The
+sections above made what somebody *opened* readable offline, bounded to 200
+records in a five-megabyte store. The mirror is every note of every context the
+person can reach, on the device, reconciled with the bucket whenever there is a
+connection. It is `features/offline/mirror*.ts` and `useMirrorSync.ts`.
+
+**It is still a disposable derivative, and the typing is still not in it.**
+Non-negotiable #3 holds unchanged: deleting the whole mirror loses a download
+and nothing else. Drafts and the queue stay in `cache.ts`/`outbox.ts`, never
+evicted, never bounded — the mirror holds copies of what the bucket said and no
+line of it is somebody's unsent work. That separation is what lets the mirror be
+pruned freely.
+
+#### Storage: files on native, IndexedDB on the web, and what a path may become
+
+`localStorage` caps near five megabytes for the origin and Android's
+`AsyncStorage` defaults to six; a context of a thousand notes fits in neither,
+and a full store throws on the next write — which in `KeyValueStore` is the write
+that queues somebody's typing. So the mirror has storage of its own behind one
+port (`mirrorStoreCore.ts`): one file per note body under the **document**
+directory on native (`expo-file-system`, already `core` in `native-deps.json`, so
+no gate and no `runtimeVersion` bump), and a hand-written IndexedDB wrapper on
+the web (four operations and a probe — a dependency would be a web-only library
+in `apps/mobile` for four calls). The document directory rather than the cache
+directory because the OS empties the cache under pressure, silently, and a
+mirror that vanishes on a train is the failure this exists to remove. IndexedDB
+is **probed with a real write**, like `localStorage` is: every refusal (a private
+window, blocked site data, over quota, an open that never answers) is "no mirror
+on this device", the bounded cache keeps serving what was opened, and the
+console says "This browser is not keeping an offline copy" rather than claiming
+one.
+
+**A bucket key is untrusted input to the phone's filesystem.** Obsidian, an AI
+client, a teammate or the provider's own console can write `../../Library/x.md`,
+and joined onto the document directory that is a write outside the mirror. Every
+segment is therefore encoded (`mirrorPath.ts`) to an alphabet with **no separator
+and no dot** — lowercase letters, digits, `-`, `_XX` — so there is nothing left
+for a filesystem to interpret. The escape is `_` rather than `%` because
+`expo-file-system` addresses files by URI and a URI layer may percent-decode:
+with `%`, whether `%2E%2E%2F` reached the disk as nine characters or as `../`
+would depend on native decode behaviour no test here can see. `_` means nothing
+to a URI, and every name is pinned to survive `decodeURIComponent` unchanged. Uppercase is escaped too, because `Plan.md` and
+`plan.md` are two notes and one file on a case-insensitive filesystem; names past
+200 characters are hashed into a `~`-prefixed form the short form cannot produce.
+Each body record carries its own path and etag, and a read that finds another
+note's record (a hash collision) is a miss.
+
+**The sign-out barrier is inside the store.** A first sync is minutes of reads,
+each followed by a write, and checking the epoch in the caller leaves a gap
+between the check and the write. So every mirror write carries its session's
+epoch and `guardMirror` compares it inside one serial queue that `clearAll` runs
+through too. `forgetLocalCopies` ends the epoch before it enqueues the clear, so
+a sync write is either ahead of the clear (and removed by it) or behind it (and
+refused) — never between.
+
+#### The sync, and the prune rule
+
+Per context, at the clearance `visibilityTierForRole` gives: page `syncManifest`
+until its cursor is `null`; fetch what is new, changed, or listed with no etag
+("the store gave none" is never "unchanged"); `readNotes` in batches of at most
+fifty with two in flight, re-asking what was `deferred`; skip keys ending in `/`.
+Contexts one after another, for the reason `drainAll.ts` drains queues one after
+another — every call is a round trip on the customer's request quota. Fetched
+notes are committed in hundreds, not per batch, because every commit rewrites the
+index. It runs on start once online, on reconnection, on return to the
+foreground and every five minutes in front of somebody; single-flight; from the
+**live** context list only, because a remembered list is a memory and this is the
+thing that prunes; never for an `unknown` tier, which downloads and deletes
+nothing; and every Convex action is wrapped in a timeout, because `action()` has
+none and "online" can be a captive portal.
+
+**Prune only after a complete listing.** A manifest page that says `truncated`,
+a page that failed, a cursor that did not move, a read batch that failed — each
+makes what arrived a floor rather than a list, and a path missing from a floor is
+evidence of nothing. When the listing was complete, every note not in it leaves
+the device, body, ancestor, and the names of folders with nothing left under
+them. **That rule is what closes the gap the read cache had**, where a group grant
+lost on another machine left the notes it covered readable on this one until an
+age bound reached them: every complete sync re-derives, from the server's own
+`canSee`, what this device may hold. A `FILE_NOT_FOUND` from `readNotes` is an
+answer about that path and drops it even from an incomplete run.
+
+#### The ancestor rule
+
+A three-way merge needs the body at the version the draft was typed on
+(`draftBase`, `RestoredDraft.baseEtag`), and `offerMerge` refuses anything else
+(see "The merge is real, and it is refused rather than faked"). The read cache
+kept that ancestor by accident — nothing overwrote a copy nobody reopened — and a
+mirror overwrites every changed note on every sync, so without a rule it would
+destroy exactly the ancestor a queued edit needs, on the reconnection about to
+conflict it. So: **before a body is replaced, it is copied to a `base` slot
+whenever some local work is based on its version.** "Local work" is the queue and
+the drafts on the device *and* what the running console holds but has not written
+down (`mirrorHolds.ts`): the live queue, which the store trails by
+`PERSIST_DEBOUNCE_MS`, and the open editor's etag and draft base — a note can sit
+open and clean for ten minutes while a sync moves the copy on, and the draft
+typed after that is based on the version on screen. The base goes when nothing
+needs it, and always when the note turns out to be ciphertext: an ancestor of an
+encrypted note is plaintext the device was asked to stop holding.
+
+An online open goes through the same writer, which fixes an older loss: the read
+cache overwrote the ancestor whenever a note with a parked write was reopened
+online, so that Merge was refused with "moved on" even before the mirror existed.
+The conflict review asks `ancestorFor(path, draftBase)` rather than for the
+newest copy, which is exactly what an ancestor is not once the bucket has moved.
+
+#### Serving it
+
+Offline, a note and a folder listing come from the mirror — any note, any
+folder, opened before or not; listings are derived from paths, with a folder's
+badge from the last listing that named it, else from a note directly inside it
+(whose `inherited` *is* that folder's rule), else a guess, because the privacy
+rules are not on the device. "Open it once with a connection" is still what a
+context with nothing mirrored says. Online, a read gets 250ms; past that the
+mirror's copy is shown marked as a cached copy and replaced when the bucket
+answers — unless the person has started typing (their draft is based on the
+copy's version, and the hold keeps that version as the ancestor), unless there
+is a queued write or draft to restore (those opens wait, so `restoreFor` runs
+once), and never over a refusal (the editor closes). A save that lands and a
+drained write move the mirror onto the version now in the bucket.
+
+On a device with a mirror the per-note/per-listing read cache is **retired, not
+kept beside it**: two stores answering "what is this note offline" can disagree,
+and the older one is exactly the one a lost grant could leave readable. Its
+copies are adopted into the mirror once (only where the mirror has nothing, so a
+copy that is the ancestor of an edit queued before the upgrade keeps its Merge)
+and removed. A browser without a mirror keeps the bounded cache unchanged.
+
+#### Saying it
+
+`mirrorStatus` per context — `syncing | synced | partial | unavailable | never`,
+with notes, bytes, last sync, remaining and why — and `mirrorLine` words it: "All
+1,204 notes on this device · synced 2 minutes ago", "Downloading 340 of 1,204
+notes…", "Only part of this context is on this device — 12 notes not
+downloaded". It rides in `SyncFacts.mirror`: a quiet segment in the desktop
+strip, the last block of the phone's sync sheet, and "Offline" says every note
+is here exactly when the mirror says so. **A whole mirror is never a warning**,
+and an incomplete one warns only while offline, so a synced phone never grows a
+pill and a context too large to list is not a permanent alarm.
+
+Sign-out clears the whole mirror (verified by re-listing, as the cache is);
+leaving clears that workspace; a membership that ended elsewhere clears it on
+the next live list, through the same hooks as the cache.
+
+#### What a simplification costs, and what fails
+
+- Joining a note path onto the filesystem unencoded writes outside the mirror.
+  "a traversal key stays inside the mirror" (`offlineMirrorStore.test.ts`).
+- Comparing the epoch outside the store's queue lets a sync write land behind a
+  sign-out. "a write queued behind a sign-out is dropped", and — with the
+  engine's own checks also removed — "a sign-out during a sync leaves nothing"
+  (`offlineMirrorSync.test.ts`).
+- Pruning on a truncated or interrupted listing deletes notes that are still
+  there; not pruning on a complete one leaves a lost grant readable. "a
+  truncated manifest prunes nothing", "a manifest that fails part-way prunes
+  nothing", "a note that left the manifest leaves the device".
+- Syncing an `unknown` tier, or filing under the wrong workspace. "an unknown
+  tier touches nothing", "each context's notes are filed under that context".
+- Dropping the ancestor rule, the holds, or asking the online open without
+  them costs the Merge. "the version a queued edit is based on survives the sync
+  that replaces it", "a note that became encrypted keeps no plaintext ancestor",
+  and, through the real console, "a queued edit still gets a real merge after a
+  sync moved the note on" and "an online reopen keeps the ancestor a parked
+  write needs" (`offlineMirrorConsole.test.ts`).
+- Replacing typed text when the slow read lands, or showing the copy over a
+  refusal. "typing into the copy is never replaced…", "a refusal takes the copy
+  away".
+- Clearing the cache but not the mirror on any ending. Each test in
+  `offlineMirrorForget.test.ts`.
+- Toning a whole mirror `warn`. "a complete mirror is quiet even offline", "a
+  synced phone grows no pill" (`offlineMirrorStatus.test.ts`).
+
+**What this does not do, and what needs a device.** Attachments are listed and
+never downloaded, and empty folders are not offline (the manifest lists notes).
+One ancestor is kept per note. A note pruned because it was deleted or became
+invisible takes its ancestor with it; a queued write to it is refused or
+conflicted by the server as before, without a Merge. Two web tabs share one
+database with separate queues, so concurrent syncs can lose one tab's index
+update to the other — repaired by the next sync, since a missing entry is
+re-fetched, not trusted. The index is one JSON document per context, read on
+every offline open and rewritten per commit: fine at thousands of notes, worth
+splitting per entry if contexts reach tens of thousands. A crash between a body
+write and its index commit leaves an unreachable body until the workspace is
+cleared. The document directory is included in device backups, as
+`AsyncStorage` already is. And all of the native half runs in tests against a
+fake `expo-file-system`: `Directory.list()` naming, and write throughput on a real iPhone and
+Android device are unverified until somebody runs a first sync on one.
 
 ### A team link's note survives the console's own cold start, and the login gate
 
