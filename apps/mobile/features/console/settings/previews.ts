@@ -1,4 +1,3 @@
-import type { AppearanceChoice } from "../../design/theme";
 import { receivesMail } from "../ingestion/settings";
 import { privacyViewOf } from "../privacy/map";
 import { visibilityWord } from "../privacy/words";
@@ -46,28 +45,18 @@ import type { SettingsSectionKey } from "./sections";
  *
  * ## Three rows that stay quiet for a reason worth writing down
  *
- * `devices` and `premium` have real answers — the machines holding a capture
- * grant, and whether this context is paying — and both live in a Convex
- * subscription inside their own panel rather than on `ConsoleData`. Hoisting
- * either would add a query to every console load to decorate one row, which
- * is a trade worth making on purpose and not as a side effect of this change.
+ * `premium` has a real answer — whether this context is paying — and it lives
+ * in a Convex subscription inside its own panel rather than on `ConsoleData`.
+ * Hoisting it would add a query to every console load to decorate one row,
+ * which is a trade worth making on purpose and not as a side effect of this
+ * change. (`devices` was the other one, and its row is gone: the machines are
+ * a card at the foot of Profile now.)
  * `meetings` has nothing persisted to report by design, which
- * `MeetingsPanel`'s own header argues; `account` has no state worth a claim.
+ * `MeetingsPanel`'s own header argues.
  */
 export function settingsPreview(
   key: SettingsSectionKey,
   data: ConsoleData,
-  /**
-   * The viewer's appearance setting, or `null` where the caller has none to
-   * offer — `OverviewPanel`, which draws no Appearance row.
-   *
-   * The whole object rather than the `choice`, and that is the guard rather
-   * than a convenience: `choice` is `"system"` before the device has answered
-   * on a native cold start, so a caller handing over only that reads "System"
-   * to somebody on Dark and then flips. Taking `ready` alongside it makes
-   * dropping it a type error instead of a thing to remember.
-   */
-  appearance: { choice: AppearanceChoice; ready: boolean } | null,
 ): string | null {
   switch (key) {
     case "apps":
@@ -84,12 +73,6 @@ export function settingsPreview(
       // "None" on every load is a badge people learn to ignore.
       const pending = data.invitations?.length ?? 0;
       return pending === 0 ? null : `${pending} pending`;
-    }
-
-    case "appearance": {
-      if (appearance === null || !appearance.ready) return null;
-      const { choice } = appearance;
-      return choice === "system" ? "System" : choice === "dark" ? "Dark" : "Light";
     }
 
     case "email": {
@@ -184,8 +167,6 @@ export function settingsPreview(
     */
     case "overview":
     case "premium":
-    case "devices":
-    case "account":
     case "meetings":
     case "advanced":
       return null;

@@ -126,6 +126,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The response file is created by the author, never by the first submission
 - A form that does not parse is inert, never half-working
 - Forms need conditional writes, and say so when they cannot have them
+- The response table scrolls sideways, and never truncates an answer
 - What is deliberately not built
 
 ## [Search and the derived index](./search.md)
@@ -199,6 +200,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The note is a measured column, and the demo note stopped faking one
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
+- A folder row says what differs, so `0-inbox` gets no count
 
 ## [Meetings](./meetings.md)
 
@@ -335,6 +337,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The open note is an editor a plugin can write into, while its work is running
 - A press that does nothing is a bug, even when nothing is broken
 - A check that reads React state from inside `onEvent` is not a check
+- A plugin's `fetch` goes through the grant, and the CSP still denies the frame
+- A plugin's suggestions cross the `WebView` bridge, and the guest asks nothing until told there is somebody to ask
+- A plugin row answers "is it on"; everything else is one press away
+- The section is hidden, the machinery is not
 
 ## [Testing and guards](./testing.md)
 

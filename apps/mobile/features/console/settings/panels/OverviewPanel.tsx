@@ -97,7 +97,7 @@ export function OverviewPanel({
       </Text>
       <View style={styles.card}>
         {FACTS.map((key, index) => {
-          const value = settingsPreview(key, data, null);
+          const value = settingsPreview(key, data);
           return (
             <View key={key}>
               {index === 0 ? null : <View style={styles.divider} />}

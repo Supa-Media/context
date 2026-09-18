@@ -1600,3 +1600,66 @@ runtime has not loaded, and `pluginsAccess.test.ts` caught exactly that.
 `pluginRowSummary.test.ts` holds the decision, `pluginsPanel.test.ts` holds that
 every sentence still reaches a reader through the press, and six sabotages
 confirm both.
+
+## The section is hidden, the machinery is not
+
+Owner's call, 2026-09-18, with Sayo, and it reverses nothing above. Everything
+in this file still holds; what changed is who sees the screen it describes.
+
+The Plugins section comes off the settings list. **Nothing else goes.** The
+gateway still scans `.obsidian/`, `catalog.js` still declares the five
+built-ins, the control plane still stores their switches, the sandbox host is
+still mounted at console scope, every grant already given still holds, and
+every plugin running in a context today goes on running in it. That sentence is
+the whole difference between a deprecation and a deletion, and it is the
+condition the call was made under rather than a courtesy: a change that hides a
+screen and turns something off is not the change that was agreed.
+
+**Why.** Sandboxing is the part that is not finished. Obsidian's model is
+somebody else's code on their own laptop against their own vault; ours is
+somebody else's code in our cloud against a bucket we hold the key to, and the
+distance between those is the whole of `apps/mcp/src/plugins/` and still not
+enough. Beside that, the audience the product is being pointed at does not have
+an Obsidian vault to bring: *"focus on people who don't really know what
+Obsidian is"*. A settings row is an invitation, and this one invites the thing
+we are least ready for, to the people least likely to want it.
+
+**Why not delete it.** An extension point is most of why Obsidian is what it
+is, and the argument for having one here — *"we build the scaffolding and the
+plugins we default-on are built against it"* — is unchanged and long-term.
+Deleting the section means rebuilding it later, and rebuilding is where the
+decisions in this file get quietly re-litigated and lost. So the row stays in
+`SETTINGS_SECTIONS` carrying `experimental: true`, the panel stays, the
+`?settings=plugins` URL stays a name we have, and coming back is flipping a
+flag rather than writing a feature twice.
+
+**Two ways back, and the second is not a nicety.**
+`EXPO_PUBLIC_EXPERIMENTAL_PLUGINS=1` at export time is the switch for the
+product — off in every shipping build until sandboxing is solved, in the
+`EXPO_PUBLIC_*` shape `communications/flags.ts` already uses for a gate that
+waits on something other than engineering. `pluginsInUse` is the switch for one
+person: hiding a section takes its controls with it, and the controls here are
+the only place a context can turn a built-in off, read what a vault plugin was
+allowed to do, or remove one. A context that has a managed install, a built-in
+moved off its shipped default, or a vault plugin the scan found keeps the
+screen. A context with nothing but defaults never learns it existed.
+
+The three signals are asymmetric on purpose and each means *somebody chose
+this*. `enabled` alone is not one of them: all five built-ins ship on, so a
+check on it is true for every context alive and would hide the row from nobody.
+Every unfinished or failed read — `idle`, `loading`, `failed`, `withheld` —
+reads as "not in use", because the default of a deprecation is hidden and a
+bucket having a bad minute must not put a retired screen back in front of
+everybody.
+
+**What a simplification costs.** Deleting the section instead is the rebuild,
+and the decisions in this file are what gets lost in it. Dropping `pluginsInUse`
+and hiding the row from everybody takes working controls away from people who
+are using them, which is the one thing this was not allowed to do. Reading
+`enabled` instead of `enabled !== defaultEnabled` hides nothing at all. Letting
+a failed read show the row puts it back for everyone, one outage at a time.
+Known and accepted: the five built-ins' off switches go with the section for
+anybody who has not already used one — the owner's call, not a side effect, and
+a home of their own for those switches is a separate change this does not block.
+`pluginsExperiment.test.ts` holds all of it, `settingsOverlayRender.test.ts`
+holds the wire at the rendered list, and four sabotages confirm both.

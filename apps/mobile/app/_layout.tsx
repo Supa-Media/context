@@ -11,7 +11,7 @@ import { ShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
-import { AppearanceProvider, useAppearanceChoice, useColors, useScheme } from "../features/design/theme";
+import { useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
 
@@ -53,7 +53,6 @@ holdSplash();
 export default function RootLayout() {
   return (
     <Observability>
-      <AppearanceProvider>
         <KeyboardProvider>
           <SafeAreaProvider>
           {/*
@@ -70,7 +69,6 @@ export default function RootLayout() {
             </SupaConvexProvider>
           </SafeAreaProvider>
         </KeyboardProvider>
-      </AppearanceProvider>
     </Observability>
   );
 }
@@ -99,24 +97,16 @@ function AppGround() {
   */
   const { isAuthenticated, isLoading } = useConvexAuth();
   /*
-    The remembered appearance choice, read a second time here — `readStarted`
-    in theme.tsx makes that a no-op past the first call, not a second device
-    read. What this call site needs that `AppearanceProvider` above does not
-    expose downward is `ready`: on a native cold start `AsyncStorage` has not
-    answered yet, and painting before it does risks exactly the flash this
-    feature exists to avoid (dark, `resolveScheme`'s fallback, then a flip to a
-    stored "light"). Holding the launch image on `ready` — the same lever
-    `isLoading` already pulls for the auth session — means the frame nobody
-    should see never gets painted at all rather than being corrected after the
-    fact. On web this changes nothing observable: `ready` is already `true` by
-    the time this component exists (`peekStoredSchemeSync` answers
-    synchronously, before any render), and `releaseSplash` is inert there
-    regardless — see `splash.ts`.
+    Only the session is worth waiting for. The other lever here used to be the
+    remembered appearance: a stored Light arriving one render late painted
+    dark first and then flipped, so the launch image was held until the device
+    had answered. Nothing is stored any more — the app follows the device, and
+    `useColorScheme` answers on the first render — so that wait had nothing
+    left to wait for.
   */
-  const { ready: appearanceReady } = useAppearanceChoice();
   useEffect(() => {
-    if (!isLoading && appearanceReady) releaseSplash();
-  }, [isLoading, appearanceReady]);
+    if (!isLoading) releaseSplash();
+  }, [isLoading]);
 
   // An expired or remotely-revoked session has no sign-out button to run its
   // cleanup. Clear vendor identity as soon as Convex resolves that state, so a
