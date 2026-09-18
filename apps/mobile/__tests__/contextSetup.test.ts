@@ -33,21 +33,59 @@ import {
 
 const connected = (scaffoldReason?: string) => ({ status: "connected", scaffoldReason });
 
+/** A root listing that has been read and holds nothing. */
+const emptyRoot = { entries: [] as unknown[] };
+
 describe("offering to set an empty context up", () => {
   test("a verified empty bucket is the case this exists for", () => {
-    expect(contextSetupFor({ role: "owner", storage: connected("empty") })).toEqual({
-      kind: "empty",
+    expect(
+      contextSetupFor({ role: "owner", storage: connected("empty"), root: emptyRoot }),
+    ).toEqual({ kind: "empty" });
+  });
+
+  test("a bucket with anything in it is never empty, whatever the binding remembers", () => {
+    /*
+      THE BUG THIS CARD SHIPPED WITH, AND THE REASON THE GATE IS NOT ONE FIELD.
+
+      `scaffoldReason` is written by exactly one thing: `verifyStorageBinding`.
+      It is what the verifier saw **when it last looked**, and nothing that
+      writes notes updates it — not the gateway, not `write_note`, not email
+      ingestion, not the editor in this console. A context created empty,
+      verified, and then filled by a connected AI client still has `empty` on
+      its binding for ever.
+
+      So the card drew "This context is empty" over a workspace with folders
+      and notes in it, offering to scaffold. The listing in front of the person
+      is the live fact; the binding is a memory of one. Read both, and the live
+      one decides.
+    */
+    const full = { entries: [{ path: "1-projects" }] };
+    expect(contextSetupFor({ role: "owner", storage: connected("empty"), root: full })).toEqual({
+      kind: "none",
     });
+    expect(
+      contextSetupFor({ role: "owner", storage: connected("partial"), root: full }),
+    ).toEqual({ kind: "none" });
+  });
+
+  test("and nothing is offered until the listing has actually been read", () => {
+    // `undefined` is "not loaded yet", which is not "empty" — the same
+    // distinction the `scaffoldReason` rule below turns on. A card that
+    // appears in the gap before the root listing lands is a card that flashes
+    // "this context is empty" at somebody whose context is not.
+    expect(
+      contextSetupFor({ role: "owner", storage: connected("empty"), root: undefined }),
+    ).toEqual({ kind: "none" });
   });
 
   test("a half-written layout is offered as finishing, not as starting", () => {
     // Issue #22: a scaffold that stopped halfway left real files behind, every
     // detector then said "this bucket holds a context", and the owner was told
     // nothing had been changed while their bucket sat half-written.
-    expect(contextSetupFor({ role: "owner", storage: connected("partial") })).toEqual({
+    expect(contextSetupFor({ role: "owner", storage: connected("partial"), root: emptyRoot })).toEqual({
       kind: "unfinished",
     });
-    expect(contextSetupFor({ role: "owner", storage: connected("failed") })).toEqual({
+    expect(contextSetupFor({ role: "owner", storage: connected("failed"), root: emptyRoot })).toEqual({
       kind: "unfinished",
     });
   });
@@ -71,6 +109,7 @@ describe("offering to set an empty context up", () => {
       contextSetupFor({
         role: "owner",
         storage: connected("partial"),
+        root: emptyRoot,
         structureTemplate: "custom",
       }),
     ).toEqual({ kind: "none" });
@@ -78,6 +117,7 @@ describe("offering to set an empty context up", () => {
       contextSetupFor({
         role: "owner",
         storage: connected("failed"),
+        root: emptyRoot,
         structureTemplate: "custom",
       }),
     ).toEqual({ kind: "none" });
@@ -88,7 +128,12 @@ describe("offering to set an empty context up", () => {
     // `structureTemplate` here is what a flow recorded on the way past, and
     // `applyStructure` overwrites that column with what is actually applied.
     expect(
-      contextSetupFor({ role: "owner", storage: connected("empty"), structureTemplate: "custom" }),
+      contextSetupFor({
+        role: "owner",
+        storage: connected("empty"),
+        root: emptyRoot,
+        structureTemplate: "custom",
+      }),
     ).toEqual({ kind: "empty" });
   });
 });
@@ -97,15 +142,15 @@ describe("staying quiet", () => {
   test("a bucket that already held a vault is never offered a layout", () => {
     // The most valuable thing this product does for a vault that has been
     // running for years is nothing at all.
-    expect(contextSetupFor({ role: "owner", storage: connected("existing-context") })).toEqual({
-      kind: "none",
-    });
+    expect(
+      contextSetupFor({ role: "owner", storage: connected("existing-context"), root: emptyRoot }),
+    ).toEqual({ kind: "none" });
   });
 
   test("a context already laid out has nothing to offer", () => {
-    expect(contextSetupFor({ role: "owner", storage: connected("created") })).toEqual({
-      kind: "none",
-    });
+    expect(
+      contextSetupFor({ role: "owner", storage: connected("created"), root: emptyRoot }),
+    ).toEqual({ kind: "none" });
   });
 
   test("a bucket nobody has looked inside is not an empty one", () => {
@@ -117,32 +162,43 @@ describe("staying quiet", () => {
       the same value as "ask", which is right in front of a bucket it has just
       watched connect and wrong in a console that may be showing anything.
     */
-    expect(contextSetupFor({ role: "owner", storage: connected(undefined) })).toEqual({
-      kind: "none",
-    });
-    expect(contextSetupFor({ role: "owner", storage: connected("not-attempted") })).toEqual({
-      kind: "none",
-    });
+    expect(
+      contextSetupFor({ role: "owner", storage: connected(undefined), root: emptyRoot }),
+    ).toEqual({ kind: "none" });
+    expect(
+      contextSetupFor({ role: "owner", storage: connected("not-attempted"), root: emptyRoot }),
+    ).toEqual({ kind: "none" });
   });
 
   test("only an owner is asked, because only an owner may answer", () => {
     // `applyStructure` requires `owner`. A card for anybody else is a button
     // that throws.
     for (const role of ["editor", "member", undefined]) {
-      expect(contextSetupFor({ role, storage: connected("empty") })).toEqual({ kind: "none" });
+      expect(contextSetupFor({ role, storage: connected("empty"), root: emptyRoot })).toEqual({
+        kind: "none",
+      });
     }
   });
 
   test("storage that is absent, loading, or unreachable belongs to another notice", () => {
-    expect(contextSetupFor({ role: "owner", storage: null })).toEqual({ kind: "none" });
-    expect(contextSetupFor({ role: "owner", storage: undefined })).toEqual({ kind: "none" });
+    expect(contextSetupFor({ role: "owner", storage: null, root: emptyRoot })).toEqual({
+      kind: "none",
+    });
+    expect(contextSetupFor({ role: "owner", storage: undefined, root: emptyRoot })).toEqual({
+      kind: "none",
+    });
     expect(
-      contextSetupFor({ role: "owner", storage: { status: "error", scaffoldReason: "empty" } }),
+      contextSetupFor({
+        role: "owner",
+        storage: { status: "error", scaffoldReason: "empty" },
+        root: emptyRoot,
+      }),
     ).toEqual({ kind: "none" });
     expect(
       contextSetupFor({
         role: "owner",
         storage: { status: "unverified", scaffoldReason: "empty" },
+        root: emptyRoot,
       }),
     ).toEqual({ kind: "none" });
   });
