@@ -305,3 +305,69 @@ panel is still travelling lands where the button was, resolves normally, and
 does nothing at all. Presses inside an animating overlay use `locator.tap()`,
 which is the same real touch under an actionability check that waits for the
 element to stop moving.
+
+### An unauthenticated probe is not a health check for an authenticated endpoint
+
+`gateway-health.yml` (#659) watches the gateway every fifteen minutes with three
+probes, and #659 states plainly why all three are unauthenticated: *"needs no
+secret to do it"*. That was the right trade for getting a monitor up at all —
+production had none, and the first report of an outage was a person failing to
+connect. What it bought is narrower than the word "health" suggests, and on
+2026-09-18 that narrowness was demonstrated twice in one night.
+
+**Instance one, the outage.** #653 deployed at 00:51 UTC and left
+`controlPlane.ts` restating a capabilities validator that `v.object` made exact,
+so `/gateway/binding` answered `ReturnsValidationError` to every call and every
+AI client on every context was told `storage_unavailable` — *"This context has
+no reachable storage. Reconnect it from the dashboard."* The `Gateway Health`
+run at 02:38 UTC, an hour and three quarters into that, passed all three probes.
+It was not wrong: the two metadata documents were fine and `POST /mcp` did
+answer a well-formed 401 challenge. The break is past the auth boundary, and
+nothing without a credential can reach it. See #661.
+
+**Instance two, found while diagnosing the first and still live.** `enforceOrigin`
+(#610) runs *above* the auth path, so its refusals are invisible for the opposite
+reason. Measured against the shipped worker with production's own vars
+(`PUBLIC_ORIGIN=https://mcp.context.lc`, `ALLOWED_ORIGINS=https://context.lc`):
+
+| request | answer |
+| --- | --- |
+| no `Origin` — what `health-check-gateway.mjs` sends | `401` challenge |
+| `Origin: https://claude.ai` | `403 {"code":-32000,"message":"origin not allowed"}` |
+| `Origin: https://context.lc` | `401` challenge |
+
+The probe passes `headers: undefined` (`scripts/health-check-gateway.mjs`), so it
+reads a healthy 401 whether or not every browser-based client on the internet is
+being refused. An allowlist that is wrong — a console origin that moves, a
+first-party client nobody listed — would be a total outage for those clients and
+a green board throughout.
+
+**So the blind spot is not "post-auth".** It is everything keyed on what the
+probe does not carry: a credential on one side of the auth boundary, and request
+headers on the other. Both were reported to a person as "the server is broken"
+while the monitor said otherwise, which is the specific harm — a green check that
+is read as *clients can connect* sends the next hour into the wrong hypothesis.
+It sent this one into the wrong hypothesis, against a security control, and the
+fix that was nearly shipped would have widened `ALLOWED_ORIGINS` permanently to
+work around a validator mismatch.
+
+**The decision, which is about reading the monitor rather than changing it:** a
+green `Gateway Health` run means the gateway is serving and its discovery
+documents are well-formed. It is never evidence that a client can connect, and
+must not be cited as such in an incident. The probes stay unauthenticated by
+default — a long-lived grant in CI is a credential in a public repository's
+workflow, and #659's no-secret property is worth more than it looks.
+
+Two ways to close it, neither chosen here because both are the owner's call:
+
+- **An authenticated canary.** A dedicated workspace and a scoped token in
+  Actions secrets, probing one real `tools/call`. Catches everything, and costs
+  exactly the property #659 was built around.
+- **An origin probe.** Send `Origin: https://claude.ai` and assert the answer the
+  allowlist implies. No secret, no new credential, and it catches the second axis
+  only. Cheap enough that its absence is a choice.
+
+Reversing this means an incident that reads a 401 as health. The
+table above is reproducible in one node script against `src/index.js`; if a
+future `enforceOrigin` stops refusing an unlisted origin, the second row goes
+`401` and the control is gone with no test and no probe saying so.
