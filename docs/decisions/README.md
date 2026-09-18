@@ -173,6 +173,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A launch is not a screen, and an empty list is not an empty account
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A cold start with no network is the case the offline layer was built for
+- A reconnection empties every queue, not the one on screen
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
 - A folder's placeholder is not a row

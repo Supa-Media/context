@@ -981,6 +981,83 @@ for offline is a separate decision. And on the web none of this survives a cold
 *tab*, because there is no service worker to serve the bundle — the app has to
 load before any of it runs. The desktop shell's mirror is a different origin
 again, with its own storage, so it sees none of this.
+### A reconnection empties every queue, not the one on screen
+
+The queue has always been per context — one outbox record per workspace, keyed
+by workspace id, and `waitingOnDevice` already walked all of them for the
+sign-out warning. Only one of them was ever *drained*. `useOfflineNotes` is
+instantiated for the context the console is showing, hydrates that outbox, and
+empties it when reachability comes back; nothing hydrated the others.
+
+The shape of the bug: edit a note in your own context, switch to a shared one
+and edit there, go through a tunnel, come back. The context on screen sends its
+writes. The other sits unsent until somebody happens to navigate into it. The
+status strip said "3 notes waiting to sync", which was true, and the app had no
+way to act on it — and the button beside that count at sign-out is the one that
+throws the queue away. Nothing was lost, and "your edit will go when you
+reconnect" was true of one context and not of the rest.
+
+`drainOtherContexts` is one sequential pass over every queue **except** the open
+one, mounted once by `useLiveConsoleData` as `useBackgroundDrain`.
+
+**The exclusion is the interesting half, and it is not a hole.** The console
+holds a *live* queue for the context it is showing, and the record on disk
+trails it by up to `PERSIST_DEBOUNCE_MS`. Two drains against one queue — one
+from the live copy, one from a stale record — would re-send entries the other
+had settled and write back a queue missing whatever was typed in between. So the
+open one stays the foreground drain's, on the same reconnection, by the path it
+always used. It is the same split `waitingOnDevice(store, exceptQueueIn)`
+already makes, at the same boundary and for the same reason. `null` — no context
+open, which a cold start really is — means every queue is the pass's.
+
+**Which queues it takes is read off the store's keys, never off the context
+list.** A queue is somebody's typing; the list of contexts the console can
+currently see is a different question that can arrive late, short, or not at
+all, and driving the drain from it would leave unsent work in a context whose
+row had not loaded. A queue for a context the person has genuinely lost is not a
+problem either: its writes are refused by the server and parked by the rules
+that already exist, which is visible, rather than dropped, which is not.
+
+**The workspace became an argument to the write, and that is the cross-tenant
+property.** `useFileBrowser`'s sender closes over the open context. A background
+pass that reused it would have written every context's queued edits into
+whichever context happened to be on screen — somebody else's note, under
+somebody else's privacy rules, by a code path nobody pressed. So there is now
+one `queuedWriteSender` in `features/console/files/queuedWrite.ts` that takes a
+`workspaceId`, and both drains bind it: the foreground one to the open context,
+this one to the workspace each queue is *filed under*. One definition, because
+two would be two places for a `force` flag to appear or an `expectedEtag` to be
+dropped "to get things through", which is last-write-wins with extra steps and
+would read like a bug fix.
+
+**Nothing about a queue's rules changed.** Every write this pass makes is
+`drainOutbox`'s: the same `expectedEtag`, the same conflict parked rather than
+retried, the same bounded attempts, the same allowlist of transient codes. This
+module decides *which queues* and in *what order*; `sync.ts` decides everything
+that happens to one. It is sequential across contexts for the reason
+`drainOutbox` is sequential within one — each entry is a round trip against the
+customer's bucket, on their request quota.
+
+Two smaller decisions, each a way it could go wrong:
+
+- **It passes no `onWritten`.** That callback exists to move the *open* editor
+  onto the etag the bucket now holds, and by construction none of these queues
+  is the open context's. Calling it would hand the console an etag for a note it
+  is not showing.
+- **The epoch is checked again before every write-back, not once at the top.** A
+  pass over four contexts is far more time than one drain, and
+  `forgetLocalCopies` bumps the epoch before it removes anything — so a
+  write-back after a sign-out would re-persist the entries somebody was warned
+  about and pressed "discard" on, one context at a time, onto the machine the
+  next person signs in on.
+
+What a simplification costs: dropping the exclusion puts two drains on one
+queue; binding the sender to the open context writes one context's edits into
+another; dropping the second epoch check undoes a sign-out.
+`__tests__/offlineDrainAll.test.ts` fails on each, and the middle one fails on
+two tests rather than one — the cross-tenant assertion *and* the exclusion,
+which sees it in the calls it was handed even though the queues taken were
+right.
 
 ### A team link's note survives the console's own cold start, and the login gate
 
