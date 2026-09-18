@@ -1,8 +1,8 @@
 import { getOutbox, putOutbox } from "./cache";
 import { parseKey } from "./keys";
 import type { KeyValueStore } from "./memory";
-import { counts, type Outbox, type PendingWrite } from "./outbox";
-import { drainOutbox, type WriteOutcome } from "./sync";
+import { counts, isEmpty, type Outbox, type PendingOp, type PendingWrite } from "./outbox";
+import { drainOutbox, type OpOutcome, type OpSent, type WriteOutcome } from "./sync";
 
 /**
  * Emptying the queues of the contexts nobody is looking at.
@@ -79,6 +79,14 @@ export interface DrainAllDeps {
    * the queue is filed under and never the one being looked at.
    */
   write: (workspaceId: string, write: PendingWrite) => Promise<WriteOutcome>;
+  /**
+   * Sends one queued rename, move, archive, delete or folder — bound, like
+   * `write`, to the workspace the queue is filed under and never to the one
+   * on screen. Optional: without it every op is left exactly where it was.
+   */
+  op?: (workspaceId: string, op: PendingOp) => Promise<OpOutcome>;
+  /** An op that landed, so the device's copy can follow it. */
+  onOpDone?: (workspaceId: string, done: OpSent) => void;
   now: () => number;
   /**
    * Whether this mount's session still owns the device.
@@ -148,10 +156,13 @@ export async function drainOtherContexts(
     } catch {
       continue;
     }
-    if (outbox.writes.length === 0) continue;
+    if (isEmpty(outbox)) continue;
 
+    const sendOp = deps.op;
     const { outbox: next, report } = await drainOutbox(outbox, {
       write: (write) => deps.write(workspaceId, write),
+      ...(sendOp === undefined ? {} : { op: (op: PendingOp) => sendOp(workspaceId, op) }),
+      onOpDone: (done) => deps.onOpDone?.(workspaceId, done),
       now: deps.now,
       /*
         No `onWritten`. Its job is to move the **open** editor onto the etag the
@@ -186,7 +197,7 @@ export async function drainOtherContexts(
     const settled = counts(next);
     reports.push({
       workspaceId,
-      sent: report.sent.length,
+      sent: report.sent.length + report.ops.done.length,
       conflicted: settled.conflicted,
       rejected: settled.rejected,
       stoppedEarly: report.stoppedEarly,

@@ -3,7 +3,8 @@ import { drainOtherContexts, type BackgroundDrainReport, type DrainAllDeps } fro
 import { currentEpoch } from "./epoch";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
-import { moveMirroredBody } from "./mirror";
+import { forgetMirroredNote, moveMirroredBody } from "./mirror";
+import type { PendingOp } from "./outbox";
 import { neededEtags } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 
@@ -40,6 +41,8 @@ export function useBackgroundDrain(options: {
   /** The context the console is showing, whose live queue it drains itself. */
   openWorkspaceId: string | null;
   write: DrainAllDeps["write"];
+  /** Sends one queued op, in the workspace its queue is filed under. */
+  op?: DrainAllDeps["op"];
   /** For a caller that wants to say something about what a pass did. */
   onDrained?: (reports: BackgroundDrainReport[]) => void;
 }): void {
@@ -62,6 +65,8 @@ export function useBackgroundDrain(options: {
   */
   const writeRef = useRef(options.write);
   writeRef.current = options.write;
+  const opRef = useRef(options.op);
+  opRef.current = options.op;
   /*
     The open context goes through a ref too, and that is a behavioural decision
     rather than a tidy-up.
@@ -95,6 +100,22 @@ export function useBackgroundDrain(options: {
 
     void drainOtherContexts(store, openRef.current, {
       write: (workspaceId, write) => writeRef.current(workspaceId, write),
+      // No sender means the ops stay exactly where they are: never a drop,
+      // and never an attempt charged against them.
+      ...(opRef.current === undefined
+        ? {}
+        : { op: (workspaceId: string, op: PendingOp) => opRef.current!(workspaceId, op) }),
+      onOpDone: (workspaceId, done) => {
+        // The mirror of a context nobody is looking at: a renamed or removed
+        // note leaves its old name. The next sync files the rest.
+        if (!mine() || done.kind === "folder") return;
+        const epoch = epochRef.current;
+        void (async () => {
+          const mirror = await openMirrorStore();
+          if (mirror === null || !mine()) return;
+          await forgetMirroredNote(mirror, epoch, workspaceId, done.path);
+        })().catch(() => {});
+      },
       now: () => Date.now(),
       mine,
       onSent: (workspaceId, body) => {
