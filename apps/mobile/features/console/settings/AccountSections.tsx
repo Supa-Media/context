@@ -115,11 +115,67 @@ export function AccountSection({
     );
   }
 
-  if (section === "profile") {
+  if (section === "invitations") {
+    const invitations = data.invitations ?? [];
     return (
       <View>
         <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
-          {settingsSectionLabel("profile")}
+          {settingsSectionLabel("invitations")}
+        </Text>
+        <Text variant="paneSub" style={styles.sub}>
+          Places you have been asked to join. Accepting one adds it to everything this
+          address reaches — the same connection, with the access you were granted there.
+        </Text>
+        <Card>
+          {invitations.length === 0 ? (
+            <Row>
+              <Grow>
+                <Text variant="rowSub">
+                  {data.loading ? "Loading…" : "Nothing pending."}
+                </Text>
+              </Grow>
+            </Row>
+          ) : null}
+          {invitations.map((invitation, index) => (
+            <Row key={invitation.token} divided={index > 0}>
+              <Grow>
+                <Text variant="rowTitle">{atName(invitation.slug)}</Text>
+              </Grow>
+              {/*
+                Answering is deliberately a navigation rather than a button
+                that accepts in place: `nav.ts` routes an invitation through
+                `inviteHref(token)`, which is the surface that states what is
+                being joined and by whom before anything is accepted.
+              */}
+              <Button
+                label="Open"
+                accessibilityLabel={`Open the invitation to ${atName(invitation.slug)}`}
+                disabled={onOpenInvitation === undefined}
+                onPress={
+                  onOpenInvitation === undefined
+                    ? undefined
+                    : () => onOpenInvitation(invitation.token)
+                }
+                testID={`settings-invitation-${invitation.slug}`}
+              />
+            </Row>
+          ))}
+        </Card>
+      </View>
+    );
+  }
+
+  /*
+    Profile is the fall-through rather than another `if`, and that is a claim
+    about the list as much as about this function: after Devices, Appearance
+    and "Sign out & delete" folded into it, the account scope is AI apps, a
+    conditional Invitations, and the screen about you. An unknown account key
+    landing here lands on the person's own screen, which is the safe answer.
+  */
+  return (
+    <View>
+      <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
+        {settingsSectionLabel("profile")}
         </Text>
         <Text variant="paneSub" style={styles.sub}>
           {owned
@@ -188,104 +244,44 @@ export function AccountSection({
         <View style={styles.spaced}>
           <MachinesCard />
         </View>
-      </View>
-    );
-  }
+        {/*
+          The two ways out, at the foot of the screen about the person they
+          belong to.
 
-  if (section === "invitations") {
-    const invitations = data.invitations ?? [];
-    return (
-      <View>
-        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
-          {settingsSectionLabel("invitations")}
-        </Text>
-        <Text variant="paneSub" style={styles.sub}>
-          Places you have been asked to join. Accepting one adds it to everything this
-          address reaches — the same connection, with the access you were granted there.
-        </Text>
-        <Card>
-          {invitations.length === 0 ? (
-            <Row>
-              <Grow>
-                <Text variant="rowSub">
-                  {data.loading ? "Loading…" : "Nothing pending."}
-                </Text>
-              </Grow>
-            </Row>
-          ) : null}
-          {invitations.map((invitation, index) => (
-            <Row key={invitation.token} divided={index > 0}>
-              <Grow>
-                <Text variant="rowTitle">{atName(invitation.slug)}</Text>
-              </Grow>
-              {/*
-                Answering is deliberately a navigation rather than a button
-                that accepts in place: `nav.ts` routes an invitation through
-                `inviteHref(token)`, which is the surface that states what is
-                being joined and by whom before anything is accepted.
-              */}
-              <Button
-                label="Open"
-                accessibilityLabel={`Open the invitation to ${atName(invitation.slug)}`}
-                disabled={onOpenInvitation === undefined}
-                onPress={
-                  onOpenInvitation === undefined
-                    ? undefined
-                    : () => onOpenInvitation(invitation.token)
-                }
-                testID={`settings-invitation-${invitation.slug}`}
-              />
-            </Row>
-          ))}
+          They were a section of their own — "Sign out & delete" — which is a
+          row in the index for a pair of buttons somebody presses once or
+          never, and it put the control that ends a *session* on the only
+          screen that can end an *account*. Here they are under the identity
+          they act on, in the order of how often they are wanted, and the row
+          that used to hold them is gone from a list being cut to seven.
+        */}
+        <Card style={styles.spaced}>
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">Sign out</Text>
+              <Text variant="rowSub" style={styles.rowSub}>
+                Ends this session on this device. Everything stays exactly as it is, and
+                the AI apps you connected keep working — they hold their own grants.
+              </Text>
+            </Grow>
+            <Button
+              label="Sign out"
+              disabled={onSignOut === undefined}
+              onPress={onSignOut}
+              testID="settings-sign-out"
+            />
+          </Row>
         </Card>
+        {/*
+          The way all the way out. Absent in the demo, where there is no
+          account to delete.
+        */}
+        {data.deleteAccount ? (
+          <View style={styles.spaced}>
+            <DeleteAccountCard deleteAccount={data.deleteAccount} />
+          </View>
+        ) : null}
       </View>
-    );
-  }
-
-  return (
-    <View>
-      <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
-        {settingsSectionLabel("account")}
-      </Text>
-      <Text variant="paneSub" style={styles.sub}>
-        Both ask twice, and neither touches your notes.
-      </Text>
-      {/*
-        Signing out sits above deletion, and it is here rather than only in the
-        rail because "Danger zone" was the wrong name for a screen holding one
-        button: somebody who wants to end a session searches for "sign out",
-        and a search that lands them on a delete-only screen has aimed them at
-        the wrong control. Two buttons, in the order of how often they are
-        wanted, is safer than one button people arrive at by mistake.
-      */}
-      <Card style={styles.spaced}>
-        <Row>
-          <Grow>
-            <Text variant="rowTitle">Sign out</Text>
-            <Text variant="rowSub" style={styles.rowSub}>
-              Ends this session on this device. Everything stays exactly as it is, and
-              the AI apps you connected keep working — they hold their own grants.
-            </Text>
-          </Grow>
-          <Button
-            label="Sign out"
-            disabled={onSignOut === undefined}
-            onPress={onSignOut}
-            testID="settings-sign-out"
-          />
-        </Row>
-      </Card>
-      {/*
-        The way all the way out, moved here from the Connections pane. It was
-        beside "add a client", which is the opposite intention wearing the same
-        card. Absent in the demo, where there is no account to delete.
-      */}
-      {data.deleteAccount ? (
-        <View style={styles.spaced}>
-          <DeleteAccountCard deleteAccount={data.deleteAccount} />
-        </View>
-      ) : null}
-    </View>
   );
 }
 

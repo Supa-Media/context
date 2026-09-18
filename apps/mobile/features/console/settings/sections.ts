@@ -102,7 +102,7 @@ export const SETTINGS_SECTIONS = [
       all: it returns a section that cannot answer.
     */
     keywords:
-      "name handle username email address capture mail me identity mac computer laptop machine device devices desktop revoke dark mode light theme night appearance display colour color scheme",
+      "name handle username email address capture mail me identity mac computer laptop machine device devices desktop revoke dark mode light theme night appearance display colour color scheme sign out log out logout delete close account remove erase permanently brain",
     label: "Profile",
     scope: "account",
     group: "Your account",
@@ -118,37 +118,6 @@ export const SETTINGS_SECTIONS = [
     scope: "account",
     group: "Your account",
     icon: "mailOpen",
-    personalOnly: false,
-  },
-  {
-    key: "account",
-    /*
-      "sign out" is back in this haystack, and it was right to take it out
-      before. Every word has to match and `sign` appears in exactly one
-      section, so while this screen's only control deleted an account, typing
-      "sign out" landed somebody who wanted to end a session on the one screen
-      that could end their account instead. The screen now carries the sign-out
-      button itself, so the words name what is actually there.
-
-      Still no "leave" or "quit": leaving a *workspace* is a different,
-      non-destructive action, and it is People's, not this one's.
-
-      "brain" is in the haystack and "workspace" deliberately is not — and
-      that survives the word's retirement rather than contradicting it. A
-      *personal* workspace is deleted from this screen: it is one per person
-      and it goes with the account, the sentence `deletionBlockedReason` gives
-      for refusing it anywhere else. Somebody who types "delete my brain" has
-      to land here, and they will go on typing it for years after the copy
-      stopped saying it — a search haystack matches what people say, not what
-      the product calls things. A *shared* workspace is deleted on its own, in
-      Advanced, and a haystack that answered for both would send somebody who
-      wanted one workspace gone to the screen that closes their account.
-    */
-    keywords: "sign out log out logout delete close account remove erase permanently brain",
-    label: "Sign out & delete",
-    scope: "account",
-    group: "Your account",
-    icon: "signOut",
     personalOnly: false,
   },
   {
