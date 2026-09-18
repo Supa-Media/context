@@ -205,6 +205,38 @@ export function runStoreFactoryChecks(check) {
       }).store?.capabilities?.serverSideCopy === false
   );
   check(
+    "an s3 binding enables server-side copy from the boolean the control plane stores",
+    // `"same-store"` is the probe's vocabulary and the row holds a boolean
+    // (`storageBindings.capabilities.serverSideCopy`). Reading only the string
+    // is how the capability was lost: probed since #374, and until the schema
+    // carried it every binding on every provider read back `undefined`.
+    attempt({
+      ...S3_BINDING,
+      capabilities: {
+        conditionalWrite: true,
+        conditionalCreate: true,
+        conditionalDelete: true,
+        serverSideCopy: true,
+      },
+    }).store?.capabilities?.serverSideCopy === "same-store"
+  );
+  check(
+    "a binding written before the capability fields existed moves nothing",
+    // The production fault `sweepUnprobedCapabilities` repairs. A row from
+    // before 2026-09-12 carries `conditionalWrite` and nothing else, and an
+    // absent field is not a `false` this gateway may distinguish — so it fails
+    // closed and `moveSafetyRefusal` refuses every move, against an R2 bucket
+    // that has supported conditional delete the whole time.
+    (() => {
+      const legacy = attempt({ ...S3_BINDING, capabilities: { conditionalWrite: true } }).store;
+      return (
+        legacy?.capabilities?.conditionalDelete === false &&
+        legacy?.capabilities?.conditionalCreate === false &&
+        legacy?.capabilities?.serverSideCopy === false
+      );
+    })()
+  );
+  check(
     "a binding with no probed answer at all is treated as not conflict-safe",
     ["capabilitiesMissing", "capabilitiesEmpty", "capabilitiesNotAnObject"].every((shape) => {
       const binding =

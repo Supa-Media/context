@@ -196,6 +196,38 @@ crons.interval(
  * fifteen minutes, so a pass that is still running is never overtaken by a
  * second one.
  */
+/**
+ * Re-probe a storage binding that predates a capability field.
+ *
+ * **The third job here that starts work rather than deleting it**, and the
+ * second that reaches outside this database, so it owes both paragraphs.
+ *
+ * It holds no decision. `sweepUnprobedCapabilities` finds rows whose
+ * `capabilities` is missing a field this deployment knows how to probe, and
+ * `verifyStorageBinding` re-asks everything that could have changed since —
+ * whether the binding still exists, whether its credential opens, what the
+ * bucket actually enforces — at the moment it runs. This decides only *when
+ * to look*, and each row stops matching as soon as it has been looked at.
+ *
+ * It does touch a customer's bucket: the probe writes and deletes objects
+ * under `.context/`, never note surface, and cleans up after itself. It is the
+ * same probe a reconnect runs and it carries no `structure`, so it cannot
+ * scaffold. That is the honest cost, and it buys back a capability the
+ * customer is paying for and cannot otherwise get: a binding verified before
+ * 2026-09-12 carries no `conditionalDelete`, the gateway fails closed on an
+ * absent field, and every move in that workspace refuses against an R2 bucket
+ * that supports all of it.
+ *
+ * Hourly, matching the other repairs, and self-terminating — once every row
+ * carries every field this costs one scan an hour and queues nothing.
+ */
+crons.interval(
+  "re-probe unprobed storage capabilities",
+  { hours: 1 },
+  internal.functions.storage.sweepUnprobedCapabilities,
+  {},
+);
+
 crons.interval(
   "sync due Google accounts",
   { minutes: 5 },

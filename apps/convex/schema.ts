@@ -813,11 +813,22 @@ const schema = defineSchema({
      * Probed at connect time, not assumed. R2 and AWS S3 support conditional
      * writes; B2 and Wasabi do not reliably. We degrade honestly rather than
      * silently dropping conflict detection.
+     *
+     * **Every field but `conditionalWrite` is optional because it was added
+     * after bindings existed, and absent does not mean `false` — it means
+     * nobody has asked yet.** The gateway cannot tell those apart and must
+     * fail closed (`store/factory.js`), so an absent field disables the
+     * feature it describes: bindings verified before 2026-09-12 carried no
+     * `conditionalDelete` and every move on them refused, on R2 included,
+     * until `sweepUnprobedCapabilities` re-probed them. Adding a capability
+     * here is therefore adding a backfill: the sweep's `UNPROBED` predicate
+     * is what makes a new field reach the rows that already exist.
      */
     capabilities: v.object({
       conditionalWrite: v.boolean(),
       conditionalCreate: v.optional(v.boolean()),
       conditionalDelete: v.optional(v.boolean()),
+      serverSideCopy: v.optional(v.boolean()),
     }),
     status: v.union(
       v.literal("unverified"),

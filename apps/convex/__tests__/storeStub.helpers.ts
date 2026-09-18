@@ -359,6 +359,38 @@ export function memoryS3(
       if (createOnly && !options.ignoreIfMatch && objects.has(key)) {
         return new Response("", { status: 412 });
       }
+      // A PUT carrying `x-amz-copy-source` copies server-side and never reads
+      // the request body — treating it as an ordinary write would have stored
+      // an empty object under the destination and called it a copy.
+      const copySource = headers.get("x-amz-copy-source");
+      if (copySource) {
+        const sourceKey = decodeURIComponent(copySource)
+          .replace(/^\/+/, "")
+          .split("/")
+          .slice(1)
+          .join("/");
+        const source = objects.get(sourceKey);
+        if (!source) {
+          return errorResponse(404, "NoSuchKey", "The specified key does not exist");
+        }
+        const sourceExpected = headers
+          .get("x-amz-copy-source-if-match")
+          ?.replace(/^"(.*)"$/, "$1");
+        if (
+          sourceExpected &&
+          !options.ignoreIfMatch &&
+          source.etag !== sourceExpected
+        ) {
+          return new Response("", { status: 412 });
+        }
+        const copyEtag = `m${++counter}`;
+        objects.set(key, stored(source.bytes, copyEtag));
+        return new Response(
+          `<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult>` +
+            `<ETag>&quot;${copyEtag}&quot;</ETag></CopyObjectResult>`,
+          { status: 200, headers: { "content-type": "application/xml" } },
+        );
+      }
       if (
         expected &&
         !options.ignoreIfMatch &&
@@ -376,6 +408,24 @@ export function memoryS3(
     }
 
     if (method === "DELETE") {
+      // `S3Store.delete` sends `If-Match` and reads 412 as a refusal, and R2
+      // and AWS S3 both honour it. This stub used to drop the header on the
+      // floor, so every probe run against it recorded `conditionalDelete:
+      // false` — the honest backend was never simulated, and the capability
+      // that gates every move was untested in the direction that works.
+      const deleteHeaders = new Headers(
+        (init.headers as Record<string, string>) ?? {},
+      );
+      const deleteExpected = deleteHeaders
+        .get("if-match")
+        ?.replace(/^"(.*)"$/, "$1");
+      if (
+        deleteExpected &&
+        !options.ignoreIfMatch &&
+        objects.get(key)?.etag !== deleteExpected
+      ) {
+        return new Response("", { status: 412 });
+      }
       objects.delete(key);
       // 204 is a null-body status; a body here is a `Response` constructor
       // error in some runtimes, not an empty response.

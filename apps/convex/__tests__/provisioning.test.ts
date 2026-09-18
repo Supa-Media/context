@@ -189,7 +189,13 @@ describe("the capability recorded is the capability observed", () => {
     expect((await binding(t, owner, workspaceId))?.capabilities).toEqual({
       conditionalWrite: true,
       conditionalCreate: true,
-      conditionalDelete: false,
+      // Both of these read `false` until the stub learned to honour `If-Match`
+      // on DELETE and to serve `x-amz-copy-source`, which is what an honest S3
+      // backend does. Recording them is the whole point: the gateway gates
+      // every move on `conditionalDelete`, and a binding that never carried it
+      // refused every move against a bucket that supports it.
+      conditionalDelete: true,
+      serverSideCopy: true,
     });
   });
 
@@ -274,6 +280,7 @@ describe("a failure is actionable and never claims success", () => {
       conditionalWrite: false,
       conditionalCreate: false,
       conditionalDelete: false,
+      serverSideCopy: false,
     });
     // Actionable: it names the bucket and what to check, not "Server Error".
     expect(row?.lastError).toContain(FAKE_STORAGE.bucket);

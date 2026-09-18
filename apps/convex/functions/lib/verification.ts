@@ -22,6 +22,7 @@ export interface ProbeResult {
     conditionalWrite: boolean;
     conditionalCreate?: boolean;
     conditionalDelete?: boolean;
+    serverSideCopy?: "same-store" | false;
   };
   conditionalWrite: {
     declared: boolean;
@@ -46,6 +47,15 @@ export interface VerificationSummary {
     conditionalWrite: boolean;
     conditionalCreate: boolean;
     conditionalDelete: boolean;
+    /**
+     * Flattened to a boolean on the way into the row.
+     *
+     * `probeStore` reports `"same-store" | false` because a future adapter
+     * could copy *between* stores and the gateway would have to know which.
+     * Nothing persists that distinction yet, and a string in the schema that
+     * only ever holds one value is a migration waiting to be written twice.
+     */
+    serverSideCopy: boolean;
   };
   /** Actionable failure text. Absent when `ok`. */
   error?: string;
@@ -94,6 +104,7 @@ export function summarizeProbe(
     conditionalWrite: probe.capabilities?.conditionalWrite === true,
     conditionalCreate: probe.capabilities?.conditionalCreate === true,
     conditionalDelete: probe.capabilities?.conditionalDelete === true,
+    serverSideCopy: probe.capabilities?.serverSideCopy === "same-store",
   };
 
   if (!probe.reachable) {
