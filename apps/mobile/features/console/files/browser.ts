@@ -39,6 +39,7 @@ import type { NoteScope } from "./scope";
 import type { ToastSpec } from "../../design/components/Toast";
 import type { FileError, FolderListing, SettableVisibility } from "./types";
 import type { SyncFacts } from "../../offline/copy";
+import type { PendingMarks } from "./pendingMarks";
 import type { ConflictReview } from "./useConflictReview";
 import type { AppliedPluginNoteWrite } from "../plugins/runtime";
 
@@ -350,6 +351,13 @@ export interface FileBrowser {
    * nothing for it — which is the right answer for a picture of the product.
    */
   sync?: SyncFacts;
+  /**
+   * Which notes in this context have an edit that has not reached the bucket,
+   * for the lists to mark and the phone's sync sheet to name. Read-only — see
+   * `pendingMarks.ts`. Optional for the reason `sync` is: the demo console has
+   * no queue, and absent marks nothing.
+   */
+  pending?: PendingMarks;
 
   /** The last thing that went wrong, or a confirmation of what just happened. */
   notice: string | null;

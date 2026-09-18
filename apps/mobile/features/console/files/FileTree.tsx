@@ -5,7 +5,9 @@ import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
+import type { SyncMark } from "./pendingMarks";
 import { useRowInteractions } from "./rowInteractions";
+import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -84,6 +86,7 @@ export function FileTree({
   onMenu,
   drag,
   dropTarget = null,
+  pendingStateFor,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -102,6 +105,11 @@ export function FileTree({
   drag?: TreeDragHandlers;
   /** The row under a drag, washed to say the drop would land there. */
   dropTarget?: string | null;
+  /**
+   * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
+   * Absent on a console with no offline layer, which marks nothing.
+   */
+  pendingStateFor?: (path: string) => SyncMark | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -129,6 +137,7 @@ export function FileTree({
             onMenu={onMenu}
             drag={drag}
             isDropTarget={dropTarget === row.path}
+            sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
           />
         );
       })}
@@ -163,6 +172,7 @@ function FileRow({
   onMenu,
   drag,
   isDropTarget,
+  sync,
 }: {
   row: TreeRow;
   /**
@@ -178,6 +188,8 @@ function FileRow({
   onMenu?: (row: TreeRow, anchor: { x: number; y: number }) => void;
   drag?: TreeDragHandlers;
   isDropTarget: boolean;
+  /** This note's edit is not in the bucket yet. `null` for one that is. */
+  sync: SyncMark | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -220,7 +232,7 @@ function FileRow({
       */}
       {row.selected ? <View style={styles.selectedBar} aria-hidden /> : null}
       <PressRow
-        accessibilityLabel={describeRow(row)}
+        accessibilityLabel={withSyncMark(describeRow(row), sync)}
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
@@ -254,10 +266,18 @@ function FileRow({
         <Text
           variant="tree"
           numberOfLines={1}
-          style={row.selected ? styles.nodeSelectedLabel : undefined}
+          style={[styles.label, row.selected && styles.nodeSelectedLabel]}
         >
           {row.label}
         </Text>
+        {/*
+          After the name and inside the row, so it reads as a fact about this
+          note rather than as one more trailing marker. The visibility word is
+          outside the pressable because pressing it changes something; this
+          changes nothing, and pressing it should open the note like the rest
+          of the row. See `SyncMarkDot` for the shape.
+        */}
+        {sync === null ? null : <SyncMarkDot mark={sync} />}
       </PressRow>
 
       <VisibilityControl
@@ -452,6 +472,8 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The name you are reading is the emphasised one: weight, not hue. */
   nodeSelectedLabel: { color: colors.text, fontWeight: "500" },
   chevron: { width: 10, alignItems: "center", justifyContent: "center" },
+  /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
+  label: { flexShrink: 1, minWidth: 0 },
 
   /**
    * The trailing metadata's box.

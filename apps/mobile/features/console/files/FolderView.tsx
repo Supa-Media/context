@@ -91,7 +91,9 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor, noteColumnWidth } from "../../app/frame";
 import { baseName, displayName, withoutSortPrefix } from "./paths";
+import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
+import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { listedEntries } from "./tree";
 import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
@@ -122,6 +124,7 @@ export function FolderView({
   foot,
   onSelect,
   menu,
+  pendingStateFor,
 }: {
   entry: FileEntry;
   /** The folder's own listing, or `undefined` while it loads. */
@@ -153,6 +156,11 @@ export function FolderView({
   onSelect: (path: string) => void;
   /** Right-click. Absent where there is nothing to offer — see `FolderMenu`. */
   menu?: FolderMenu;
+  /**
+   * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
+   * Absent on a console with no offline layer, which marks nothing.
+   */
+  pendingStateFor?: (path: string) => SyncMark | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -301,7 +309,13 @@ export function FolderView({
                     hover fill full-bleed, which a margin would have notched.
                   */}
                   {compact && index > 0 ? <View style={styles.rowRule} /> : null}
-                  <FolderRow row={row} onSelect={onSelect} menu={menu} card={compact} />
+                  <FolderRow
+                    row={row}
+                    onSelect={onSelect}
+                    menu={menu}
+                    card={compact}
+                    sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
+                  />
                 </Fragment>
               ))}
             </View>
@@ -345,12 +359,15 @@ function FolderRow({
   onSelect,
   menu,
   card = false,
+  sync = null,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
   menu?: FolderMenu;
   /** Drawn inside the phone's grouped card — see the listing. */
   card?: boolean;
+  /** This note's edit is not in the bucket yet. `null` for one that is. */
+  sync?: SyncMark | null;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -374,7 +391,7 @@ function FolderRow({
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
-      accessibilityLabel={row.kind === "folder" ? `${label}, folder` : label}
+      accessibilityLabel={withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync)}
       testID="folder-row"
     >
       {/*
@@ -423,6 +440,16 @@ function FolderRow({
         end of every row would be competing with the file name. One rule, two
         marks, and the two are never on screen together.
       */}
+      {/*
+        The sync mark leads the trailing marks, before the exception pip.
+
+        **It is not an exception mark, and it does not dilute that slot's one
+        claim** (see `pip` below): it is a different shape — a ring, or a ringed
+        disc — saying a different thing, and it is transient where the pip is a
+        standing fact. It leads because it is the one of the two a person may
+        have to act on.
+      */}
+      {sync === null ? null : <SyncMarkDot mark={sync} />}
       {row.exception ? (
         <View
           style={[
