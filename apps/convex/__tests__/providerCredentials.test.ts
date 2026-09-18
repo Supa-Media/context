@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { api, internal } from "../_generated/api";
 import schema from "../schema";
+import type { Id } from "../_generated/dataModel";
 import {
   addMember,
   asUser,
@@ -8,9 +9,12 @@ import {
   createUser,
   createWorkspace,
   errorCode,
+  gatewayPost,
+  responseFingerprint,
   setupTest,
 } from "./fixtures.helpers";
-import { decryptSecret, requireKeyset } from "../functions/lib/crypto";
+import type { TestConvex } from "./fixtures.helpers";
+import { decryptSecret, hashToken, requireKeyset } from "../functions/lib/crypto";
 
 /**
  * A PROVIDER KEY THAT NEVER APPEARS ANYWHERE BUT THE ONE PLACE IT MUST.
@@ -121,6 +125,83 @@ async function connectedWorkspace(t: ReturnType<typeof setupTest>) {
   return { ownerId, workspaceId };
 }
 
+/* -------------------------------------------------------------------------- */
+/* The gateway's two proofs, seeded                                           */
+/* -------------------------------------------------------------------------- */
+
+/** A token long enough to be a real one, and obviously not one. */
+function token(label: string): string {
+  return `cat_${label}_${"0".repeat(Math.max(0, 34 - label.length))}`;
+}
+
+const CLIENT_ID = "mcp_client_agent";
+
+/**
+ * A live grant, inserted directly.
+ *
+ * The OAuth flow itself is `controlPlane.test.ts`'s subject; what matters here
+ * is what a *live* token can and cannot open, so the grant is seeded and the
+ * route is driven for real.
+ */
+async function seedLiveGrant(
+  t: TestConvex,
+  options: {
+    workspaceId: Id<"workspaces">;
+    userId: Id<"users">;
+    accessToken: string;
+    clientId?: string;
+    scopes?: string[];
+  },
+): Promise<Id<"oauthGrants">> {
+  const clientId = options.clientId ?? CLIENT_ID;
+  await t.run(async (ctx) => {
+    const existing = await ctx.db
+      .query("oauthClients")
+      .withIndex("by_clientId", (q) => q.eq("clientId", clientId))
+      .unique();
+    if (existing !== null) return;
+    await ctx.db.insert("oauthClients", {
+      clientId,
+      clientName: `Client ${clientId}`,
+      redirectUris: ["https://client.example/callback"],
+      hashedClientSecret: null,
+      tokenEndpointAuthMethod: "none",
+      grantTypes: ["authorization_code", "refresh_token"],
+      responseTypes: ["code"],
+      scope: "context:read context:write",
+      applicationType: "web",
+      createdAt: Date.now(),
+    });
+  });
+
+  return await t.run(async (ctx) =>
+    ctx.db.insert("oauthGrants", {
+      workspaceId: options.workspaceId,
+      userId: options.userId,
+      clientId,
+      scopes: options.scopes ?? ["context:read", "context:write"],
+      hashedRefreshToken: await hashToken(`${options.accessToken}-refresh`),
+      hashedAccessToken: await hashToken(options.accessToken),
+      accessTokenExpiresAt: Date.now() + 3_600_000,
+      status: "active",
+      createdAt: Date.now(),
+    }),
+  );
+}
+
+/** One `/gateway/provider` call, exactly as the gateway makes it. */
+async function openViaGateway(
+  t: TestConvex,
+  body: Record<string, unknown>,
+  options: { secret?: string | null } = {},
+): Promise<Response> {
+  return await gatewayPost(t, "/gateway/provider", body, options);
+}
+
+async function credentialOf(response: Response): Promise<unknown> {
+  return (JSON.parse(await response.text()) as { credential?: unknown }).credential;
+}
+
 describe("what is stored", () => {
   test("what is stored is an envelope and a hash, never the key", async () => {
     const t = setupTest();
@@ -190,24 +271,43 @@ describe("what comes back out", () => {
 
   test("the gateway's own route is the one place the key appears", async () => {
     const t = setupTest();
-    const { workspaceId } = await connectedWorkspace(t);
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
 
-    const opened = await t.action(internal.functions.providers.openProviderCredential, {
-      workspaceId,
+    const opened = await t.action(internal.functions.providers.openProviderForGateway, {
+      hashedAccessToken: await hashToken(accessToken),
+      expectedWorkspaceId: null,
       provider: "anthropic",
     });
 
     expect(opened?.apiKey).toBe(SENTINEL);
   });
 
-  test("one workspace cannot open another's credential", async () => {
+  test("a token for one workspace cannot open another's credential", async () => {
     const t = setupTest();
-    await connectedWorkspace(t);
-    const otherId = await createUser(t, "other@example.com");
-    const otherWorkspace = await createWorkspace(t, otherId, "supa");
+    const { workspaceId } = await connectedWorkspace(t);
 
-    const opened = await t.action(internal.functions.providers.openProviderCredential, {
+    /*
+      A second customer, fully connected, with a live token of their own. The
+      attack is the one `openStorageBinding`'s header names: a gateway holding
+      a valid token naming somebody else's workspace. `expectedWorkspaceId`
+      selects *within* the token's own set, so an id outside it finds nothing —
+      and the AAD on the envelope is the second lock behind that.
+    */
+    const otherId = await createUser(t, "other@example.invalid");
+    const otherWorkspace = await createWorkspace(t, otherId, "supa");
+    const otherToken = token("other");
+    await seedLiveGrant(t, {
       workspaceId: otherWorkspace,
+      userId: otherId,
+      accessToken: otherToken,
+      clientId: "mcp_client_other",
+    });
+
+    const opened = await t.action(internal.functions.providers.openProviderForGateway, {
+      hashedAccessToken: await hashToken(otherToken),
+      expectedWorkspaceId: workspaceId,
       provider: "anthropic",
     });
 
@@ -414,10 +514,348 @@ describe("who may change it", () => {
     const rows = await t.run(async (ctx) => await ctx.db.query("providerCredentials").collect());
     expect(rows).toHaveLength(1);
 
-    const opened = await t.action(internal.functions.providers.openProviderCredential, {
-      workspaceId,
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+    const opened = await t.action(internal.functions.providers.openProviderForGateway, {
+      hashedAccessToken: await hashToken(accessToken),
+      expectedWorkspaceId: null,
       provider: "anthropic",
     });
     expect(opened?.apiKey).toBe("a-second-key-entirely-different-from-the-first-one");
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* /gateway/provider — the fourth door, and why there is one at all           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ROUTE THAT HANDS THE GATEWAY A MODEL KEY, AND EVERYTHING IT REFUSES.
+ *
+ * ## Why a route rather than a field on `/gateway/binding`
+ *
+ * `/gateway/binding` grew `searchIndex`, `encryptionKey` and `rotation` as
+ * *siblings* precisely to avoid a new entry in `CREDENTIAL_HTTP_ROUTES`, and
+ * that reasoning is written into `http.ts`. It does not carry here, for one
+ * reason: #661 was a **returns validator** accident. `v.object` is exact, a
+ * field drifted, and the error serialized the object it had just refused —
+ * with `secretAccessKey` inside it. Folding a model key into that same
+ * validator makes one error path able to spill a storage secret *and* a model
+ * key, where today it can spill one.
+ *
+ * So the model key gets a validator of its own, two flat fields wide, with
+ * nothing nested in it to drift. That is a smaller blast radius than the
+ * sibling, bought with a door — and the door is the same door: the same
+ * factory, the same gateway secret, the same access token, the same
+ * `expectedWorkspaceId`-is-compared-never-looked-up rule, and `null` for
+ * everything that is not a hit.
+ *
+ * ## Why no scope beyond a live grant
+ *
+ * A token that can open this can already open the workspace's *storage*
+ * credential through `/gateway/binding` — the whole bucket, read and write.
+ * A model key that bills the owner's Anthropic account is strictly less than
+ * that, so requiring more here would be theatre. What bounds it is what bounds
+ * the binding: the grant is live, revocable, and named in the audit trail.
+ *
+ * ## Sabotage record
+ *
+ * Applied, suite run, named test observed failing, reverted.
+ *
+ *  7. The membership selection replaced by the caller's argument taken on
+ *     trust — `const covered = { workspaceId: args.expectedWorkspaceId ??
+ *     session.workspaceId }` — which is the "compromised gateway names the
+ *     workspace" attack `openStorageBinding`'s header describes.
+ *     → **3 fail**: `a token for one workspace cannot open another's
+ *     credential`, `/gateway/provider > a token cannot name a workspace
+ *     outside its own set`, and `structure.test.ts`'s `expectedWorkspaceId is
+ *     never used as a lookup key`. One tenant's live token really does open
+ *     another tenant's provider key under it.
+ *
+ *     **The first draft of this entry described a different, narrower edit** —
+ *     `credentialRow` keyed on `args.expectedWorkspaceId` rather than on
+ *     `covered.workspaceId` — and claimed these behavioural tests would catch
+ *     it. They do not. Only the structural one fails, because the membership
+ *     compare runs first and `find` guarantees the two values are equal, so
+ *     that edit is behaviour-preserving *today*. Which is exactly the case the
+ *     mechanical rule exists for: it fails on the shape, before some later
+ *     reorder makes the shape matter. Both results are kept, because the
+ *     surprising one is the more useful.
+ *  8. The unknown-provider check deleted, so `credentialRow` is reached with an
+ *     arbitrary string.
+ *     → **2 fail**: `an unknown provider is answered exactly like an unknown
+ *     token` and `no refusal this route can give carries the key`. Neither
+ *     fails because a key escaped. The second fails because the request stops
+ *     producing a response at all — Convex refuses `credentialRow`'s argument
+ *     validator and the error escapes instead of the route answering — and
+ *     that is the point. The refusal has to be ours, in the handler, where it
+ *     is one uniform `null`. A validator refusing out of band is both a
+ *     different answer a caller can count (so, an oracle for the provider set)
+ *     and an error path that names the value it rejected, which is #661's
+ *     shape with a different value in it.
+ *  9. The route returning `{ credential, workspaceId: expected.value }` — the
+ *     field a debugging session adds and forgets.
+ *     → **4 fail**: `a hit names the provider and the key, and nothing else`,
+ *     and the three fingerprint comparisons — `a token cannot name a workspace
+ *     outside its own set`, `a malformed request is answered exactly like an
+ *     unknown token`, and `an omitted expectedWorkspaceId means the grant's own
+ *     context`. The fingerprints are the ones that matter: a field that echoes
+ *     the request makes two refusals distinguishable, which is how a uniform
+ *     `null` quietly stops being uniform.
+ */
+describe("/gateway/provider", () => {
+  test("the gateway secret is necessary", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    const response = await openViaGateway(
+      t,
+      { accessToken, expectedWorkspaceId: null, provider: "anthropic" },
+      { secret: null },
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.text()).not.toContain(SENTINEL);
+  });
+
+  test("the gateway secret is never sufficient", async () => {
+    const t = setupTest();
+    await connectedWorkspace(t);
+
+    const response = await openViaGateway(t, {
+      accessToken: "not-a-token",
+      expectedWorkspaceId: null,
+      provider: "anthropic",
+    });
+
+    expect(response.status).toBe(200);
+    expect(await credentialOf(response)).toBeNull();
+  });
+
+  test("a hit names the provider and the key, and nothing else", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    const response = await openViaGateway(t, {
+      accessToken,
+      expectedWorkspaceId: null,
+      provider: "anthropic",
+    });
+
+    /*
+      `toEqual` on the whole body rather than on one field. The point of this
+      route's shape is that there is nothing else in it — a workspace id, a
+      fingerprint or a grant id added here for debugging is a fact about a
+      customer travelling beside a credential, and #661 is what happens when
+      something travels beside a credential unnoticed.
+    */
+    expect(JSON.parse(await response.text())).toEqual({
+      credential: { provider: "anthropic", apiKey: SENTINEL },
+    });
+  });
+
+  test("a token cannot name a workspace outside its own set", async () => {
+    const t = setupTest();
+    const { workspaceId } = await connectedWorkspace(t);
+
+    const otherId = await createUser(t, "other@example.invalid");
+    const otherWorkspace = await createWorkspace(t, otherId, "supa");
+    const otherToken = token("other");
+    await seedLiveGrant(t, {
+      workspaceId: otherWorkspace,
+      userId: otherId,
+      accessToken: otherToken,
+      clientId: "mcp_client_other",
+    });
+
+    const response = await openViaGateway(t, {
+      accessToken: otherToken,
+      expectedWorkspaceId: workspaceId,
+      provider: "anthropic",
+    });
+
+    const unknownToken = await openViaGateway(t, {
+      accessToken: "not-a-token",
+      expectedWorkspaceId: null,
+      provider: "anthropic",
+    });
+    expect(await responseFingerprint(response)).toBe(
+      await responseFingerprint(unknownToken),
+    );
+  });
+
+  test("a member of the workspace opens it, because membership is the rule", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const mateId = await createUser(t, "mate@example.invalid");
+    await addMember(t, workspaceId, mateId, "member");
+
+    const mateToken = token("mate");
+    await seedLiveGrant(t, {
+      workspaceId,
+      userId: mateId,
+      accessToken: mateToken,
+      clientId: "mcp_client_mate",
+    });
+
+    /*
+      Recorded rather than asserted quietly: a *member* of a shared context can
+      spend its owner's model account. That is the same answer `/gateway/binding`
+      gives — a member's token opens the storage credential too — and changing it
+      here without changing it there would mean a member who can rewrite every
+      note but not ask a question about one.
+    */
+    const response = await openViaGateway(t, {
+      accessToken: mateToken,
+      expectedWorkspaceId: workspaceId,
+      provider: "anthropic",
+    });
+
+    expect(await credentialOf(response)).toEqual({
+      provider: "anthropic",
+      apiKey: SENTINEL,
+    });
+  });
+
+  test("a revoked grant opens nothing", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    const grantId = await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    await t.run(async (ctx) => await ctx.db.patch(grantId, { status: "revoked" }));
+
+    const response = await openViaGateway(t, {
+      accessToken,
+      expectedWorkspaceId: null,
+      provider: "anthropic",
+    });
+
+    expect(await credentialOf(response)).toBeNull();
+  });
+
+  test("an unconnected provider is answered exactly like an unknown token", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    const unconnected = await openViaGateway(t, {
+      accessToken,
+      expectedWorkspaceId: null,
+      provider: "openai",
+    });
+    const unknownToken = await openViaGateway(t, {
+      accessToken: "not-a-token",
+      expectedWorkspaceId: null,
+      provider: "openai",
+    });
+
+    expect(await responseFingerprint(unconnected)).toBe(
+      await responseFingerprint(unknownToken),
+    );
+  });
+
+  test("an unknown provider is answered exactly like an unknown token", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    for (const provider of ["ollama", "", "anthropic ", "../anthropic"]) {
+      const response = await openViaGateway(t, {
+        accessToken,
+        expectedWorkspaceId: null,
+        provider,
+      });
+      expect(response.status, `provider ${JSON.stringify(provider)}`).toBe(200);
+      expect(await credentialOf(response), `provider ${JSON.stringify(provider)}`).toBeNull();
+    }
+  });
+
+  test("a malformed request is answered exactly like an unknown token", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    const baseline = await responseFingerprint(
+      await openViaGateway(t, {
+        accessToken: "not-a-token",
+        expectedWorkspaceId: null,
+        provider: "anthropic",
+      }),
+    );
+
+    const malformed: Array<Record<string, unknown>> = [
+      {},
+      { accessToken },
+      { accessToken, expectedWorkspaceId: 7, provider: "anthropic" },
+      { accessToken, expectedWorkspaceId: "", provider: "anthropic" },
+      { accessToken, expectedWorkspaceId: null, provider: 7 },
+      { accessToken: 7, expectedWorkspaceId: null, provider: "anthropic" },
+      { accessToken: "", expectedWorkspaceId: null, provider: "anthropic" },
+    ];
+    for (const body of malformed) {
+      const response = await openViaGateway(t, body);
+      expect(await responseFingerprint(response), JSON.stringify(body)).toBe(baseline);
+    }
+  });
+
+  /**
+   * An absent `expectedWorkspaceId` is not malformed — it is the request the
+   * gateway makes when a tool call named no context.
+   *
+   * Drafting this suite I had it in the malformed list, and the run said
+   * otherwise: `nullableStringField` reads absent and explicit `null`
+   * identically, and `/gateway/binding` has meant "the grant's own context" by
+   * both since it was written. Two routes that spend the same two proofs must
+   * not disagree about what an omitted field means, so the test now pins the
+   * agreement rather than asserting my first guess at it.
+   */
+  test("an omitted expectedWorkspaceId means the grant's own context, exactly as the binding route reads it", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    const omitted = await openViaGateway(t, { accessToken, provider: "anthropic" });
+    const explicit = await openViaGateway(t, {
+      accessToken,
+      expectedWorkspaceId: null,
+      provider: "anthropic",
+    });
+
+    expect(await responseFingerprint(omitted)).toBe(
+      await responseFingerprint(explicit),
+    );
+    expect(JSON.parse(await (await openViaGateway(t, { accessToken, provider: "anthropic" })).text())).toEqual({
+      credential: { provider: "anthropic", apiKey: SENTINEL },
+    });
+  });
+
+  test("no refusal this route can give carries the key", async () => {
+    const t = setupTest();
+    const { ownerId, workspaceId } = await connectedWorkspace(t);
+    const accessToken = token("owner");
+    await seedLiveGrant(t, { workspaceId, userId: ownerId, accessToken });
+
+    const refusals: Array<[Record<string, unknown>, { secret?: string | null }]> = [
+      [{ accessToken: "not-a-token", expectedWorkspaceId: null, provider: "anthropic" }, {}],
+      [{ accessToken, expectedWorkspaceId: null, provider: "ollama" }, {}],
+      [{ accessToken, expectedWorkspaceId: null, provider: "openai" }, {}],
+      [{}, {}],
+      [{ accessToken, expectedWorkspaceId: null, provider: "anthropic" }, { secret: null }],
+      [{ accessToken, expectedWorkspaceId: null, provider: "anthropic" }, { secret: "wrong" }],
+    ];
+
+    for (const [body, options] of refusals) {
+      const text = await (await openViaGateway(t, body, options)).text();
+      expect(text, JSON.stringify(body)).not.toContain(SENTINEL);
+    }
   });
 });

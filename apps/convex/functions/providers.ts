@@ -1,7 +1,7 @@
 import { getAuthUserId } from "@convex-dev/auth/server";
 import { ConvexError, v } from "convex/values";
 import { action, internalAction, internalMutation, internalQuery, mutation, query } from "../_generated/server";
-import { api, internal } from "../_generated/api";
+import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { decryptSecret, encryptSecret, hashToken, requireKeyset } from "./lib/crypto";
@@ -27,8 +27,8 @@ import { requireWorkspaceAccess, requireWorkspaceRole } from "./lib/workspaceAut
  * error names what it rejected. A live R2 secret and a D1 token went into the
  * production logs, and no happy-path test could have seen it.
  *
- * So the shapes here are deliberately small and flat. `openProviderCredential`
- * returns three fields and no nested object, because the drift that broke #661
+ * So the shapes here are deliberately small and flat. `openProviderForGateway`
+ * returns two fields and no nested object, because the drift that broke #661
  * happened inside a nested one. Every refusal below is written to name the
  * *provider* and never the key, and `providerCredentials.test.ts` drives each
  * of those paths and searches the thrown value, its message, its stack and its
@@ -300,9 +300,10 @@ export const disconnectProvider = mutation({
 });
 
 /**
- * The one route that answers with a key, and the gateway is its only caller.
+ * The one function that answers with a key, and `/gateway/provider` is its
+ * only caller.
  *
- * ## Why this shape is three flat fields
+ * ## Why this shape is two flat fields
  *
  * #661 broke on a *nested* validator: `capabilities` drifted, `v.object`
  * refused the answer, and the error serialized the credential beside it. There
@@ -310,16 +311,60 @@ export const disconnectProvider = mutation({
  * worth printing — which is as close to "a validation error cannot leak this"
  * as a returns validator gets.
  *
- * ## Why the workspace is re-read rather than trusted
+ * It is also why the model key did not become a fifth sibling on
+ * `/gateway/binding`, which is otherwise exactly where a new gateway-facing
+ * credential goes (`searchIndex`, `encryptionKey` and `rotation` all did, to
+ * avoid a new entry in `CREDENTIAL_HTTP_ROUTES`). Folding it in would put a
+ * model key inside the same returns validator as `secretAccessKey`, so one
+ * drift could spill both. A door with a two-field validator behind it is a
+ * smaller blast radius than a sibling on a nine-field one, and the door spends
+ * the identical two proofs.
  *
- * The caller names a workspace; this reads the row *through* that id and
- * answers `null` when there is no row under it. An id that names another
- * tenant's workspace therefore finds nothing rather than finding their
- * credential — `one workspace cannot open another's credential` is the test,
- * and the AAD on the envelope is the second lock behind it.
+ * ## The two proofs, and where each is spent
+ *
+ * The gateway secret got the caller through `gatewayRoute` in `http.ts`. This
+ * is where the *user's* proof is spent, and it is spent exactly as
+ * `controlPlane.openStorageBinding` spends it: the presented token's hash
+ * resolves to a live grant, the set of contexts that grant's person is a member
+ * of *right now* comes back with it, and `expectedWorkspaceId` **selects within
+ * that set and never outside it**.
+ *
+ * What goes downstream is `covered.workspaceId`, read off the resolved row.
+ * There is no `ctx.db.get(args.expectedWorkspaceId)` and no index lookup keyed
+ * by it, because an id used as a lookup key needs no membership at all —
+ * `structure.test.ts` enforces that mechanically, and
+ * `a token for one workspace cannot open another's credential` is the
+ * behavioural half.
+ *
+ * ## No scope beyond a live grant, deliberately
+ *
+ * A token that opens this can already open the same workspace's *storage*
+ * credential through `/gateway/binding` — the whole bucket, read and write. A
+ * model key that bills the owner's own provider account is strictly less than
+ * that, so a extra scope check here would be theatre rather than a bound. What
+ * bounds it is what bounds the binding: the grant is live, it is revocable, and
+ * the connection is named in the audit trail.
+ *
+ * ## Everything that is not a hit is `null`
+ *
+ * An unknown token, an expired one, a revoked one, a workspace outside the
+ * set, a provider this build does not know, a provider nobody connected, and a
+ * decrypt that fails are one answer. The caller must not be able to tell "not
+ * yours" from "not connected" from "does not exist".
  */
-export const openProviderCredential = internalAction({
-  args: { workspaceId: v.id("workspaces"), provider: providerValidator },
+export const openProviderForGateway = internalAction({
+  args: {
+    hashedAccessToken: v.string(),
+    expectedWorkspaceId: v.union(v.string(), v.null()),
+    /*
+      A plain string, not `providerValidator`, and that is load-bearing. An
+      argument validator refuses out of band — Convex throws before the handler
+      runs and the route answers differently from every other refusal, which is
+      an enumeration oracle for the provider set. Checked below instead, where
+      the answer is the same `null` as everything else.
+    */
+    provider: v.string(),
+  },
   returns: v.union(
     v.null(),
     v.object({
@@ -331,24 +376,53 @@ export const openProviderCredential = internalAction({
     ctx,
     args,
   ): Promise<{ provider: string; apiKey: string } | null> => {
+    if (!(PROVIDERS as readonly string[]).includes(args.provider)) return null;
+    const provider = args.provider as Provider;
+
+    const session: {
+      workspaceId: Id<"workspaces">;
+      workspaces: Array<{ workspaceId: Id<"workspaces"> }>;
+    } | null = await ctx.runQuery(
+      internal.functions.controlPlane.resolveGrantByAccessToken,
+      { hashedAccessToken: args.hashedAccessToken },
+    );
+    if (session === null) return null;
+
+    const covered =
+      args.expectedWorkspaceId === null
+        ? session.workspaces.find((w) => w.workspaceId === session.workspaceId)
+        : session.workspaces.find((w) => w.workspaceId === args.expectedWorkspaceId);
+    if (covered === undefined) return null;
+
     const row = await ctx.runQuery(internal.functions.providers.credentialRow, {
-      workspaceId: args.workspaceId,
-      provider: args.provider,
+      workspaceId: covered.workspaceId,
+      provider,
     });
     if (row === null) return null;
 
-    /*
-      Opened under the row's own workspace, never the caller's argument. They
-      are the same value on every real call; writing it this way means the AAD
-      is derived from the thing that was stored rather than from the thing that
-      was asked for, so a future caller that passes an id it should not have
-      gets a decryption failure instead of a credential.
-    */
-    const apiKey = await decryptSecret(row.encryptedApiKey, requireKeyset(), {
-      workspaceId: row.workspaceId,
-    });
-
-    return { provider: row.provider, apiKey };
+    try {
+      /*
+        Opened under the row's own workspace, never the caller's argument. They
+        are the same value on every real call; writing it this way means the AAD
+        is derived from the thing that was stored rather than from the thing that
+        was asked for, so a future caller that passes an id it should not have
+        gets a decryption failure instead of a credential.
+      */
+      const apiKey = await decryptSecret(row.encryptedApiKey, requireKeyset(), {
+        workspaceId: row.workspaceId,
+      });
+      return { provider: row.provider, apiKey };
+    } catch {
+      /*
+        A missing keyset, a retired key generation, an envelope from another
+        deployment. The operator sees it in this deployment's own logs; the
+        gateway sees "not connected", because an error here would distinguish
+        "connected but unopenable" from "not connected" for anyone holding the
+        gateway secret and one valid token — and, worse, would be an error path
+        with the ciphertext in scope, which is the #661 shape.
+      */
+      return null;
+    }
   },
 });
 

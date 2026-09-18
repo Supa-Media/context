@@ -271,6 +271,49 @@
  * never cached.** See `session.js` for why.
  *
  * ----------------------------------------------------------------------------
+ * 2c. POST /gateway/provider — fetch a workspace's model account
+ * ----------------------------------------------------------------------------
+ * request:
+ *   { "accessToken":         "<the same bearer token, verbatim>",
+ *     "expectedWorkspaceId": "<id the gateway believes this is>" | null,
+ *     "provider":            "anthropic" | "openai" }
+ *
+ * response 200:
+ *   { "credential": { "provider": "anthropic", "apiKey": "<the key>" } }
+ *   { "credential": null }
+ *
+ * The customer connects their own Anthropic or OpenAI account and the agent
+ * spends it — their bill, no markup, nothing a cancellation of ours could
+ * strand. So this response carries a credential, and every rule route 2 states
+ * applies here word for word: the gateway secret first, an independent
+ * resolution of `accessToken` to a live grant second, the workspace derived
+ * from *that grant*, and `expectedWorkspaceId` selecting only within the set
+ * that grant covers. There must be no code path in which it selects a row.
+ *
+ * **Everything that is not a hit is `{ "credential": null }`** — an unknown
+ * token, an expired or revoked grant, a workspace outside the set, a provider
+ * this build does not know, a provider nobody connected, and a decrypt that
+ * failed. A caller must not be able to tell those apart; in particular the
+ * provider set must not be enumerable by asking.
+ *
+ * **Two flat fields, and nothing beside them.** No workspace id, no
+ * fingerprint, no grant id. That is not tidiness: #661 was a `v.object` whose
+ * shape drifted, and the validation error serialized everything the object
+ * carried — including a live storage secret — into the production logs. A
+ * response shape with nothing in it but the credential is one that cannot
+ * spill a second thing.
+ *
+ * It is a route rather than another sibling on route 2 for the same reason.
+ * `searchIndex`, `encryptionKey` and `rotation` all became siblings there to
+ * avoid opening a new door; a model key folded in would share a returns
+ * validator with `secretAccessKey`, so one drift could spill both. It also
+ * means the key is opened only by the request that is about to spend it, not
+ * on every ordinary MCP call.
+ *
+ * **This response contains a decrypted secret. It is fetched per request and
+ * never cached.**
+ *
+ * ----------------------------------------------------------------------------
  * 3. POST /gateway/clients/register — RFC 7591 dynamic client registration
  * ----------------------------------------------------------------------------
  * request:
@@ -713,6 +756,44 @@ export function createControlPlane(env, options = {}) {
         encryptionKey: parsed.encryptionKey ?? null,
         rotation: parsed.rotation ?? null,
       };
+    },
+
+    /**
+     * Fetch the model account for the workspace **the user's token names**.
+     *
+     * A route of its own rather than a fifth sibling on `/gateway/binding`, and
+     * `apps/convex/http.ts`'s own header for `/gateway/provider` carries the
+     * argument: folding a model key into `openStorageBinding`'s return would
+     * put it inside the same `v.object` as `secretAccessKey`, where #661 showed
+     * that one drifted field serializes everything beside it into a log. Two
+     * flat fields behind their own door is the smaller blast radius, and the
+     * door spends the identical two proofs this file's contract already
+     * describes — the gateway secret, and the user's access token, with
+     * `expectedWorkspaceId` selecting inside the token's own set and never
+     * outside it.
+     *
+     * It also means the key is opened only by the request about to spend it,
+     * rather than decrypted on every `list_notes` in the product.
+     *
+     * `credential` keeps `required`'s null-vs-missing discipline: an explicit
+     * `null` is "nothing connected, or nothing you may reach", and a *missing*
+     * key is a control plane answering some other contract, which must not be
+     * read as "no credential" — for the reason `required` gives.
+     *
+     * @param {string} accessToken the bearer token exactly as presented
+     * @param {string|null} expectedWorkspaceId the gateway's own conclusion
+     * @param {string} provider "anthropic" or "openai"; the closed set is the
+     *   control plane's, and an unknown one comes back `null` rather than as a
+     *   distinguishable error
+     * @returns {Promise<{provider: string, apiKey: string}|null>}
+     */
+    async getProviderCredential(accessToken, expectedWorkspaceId, provider) {
+      const parsed = await post("/gateway/provider", {
+        accessToken,
+        expectedWorkspaceId,
+        provider,
+      });
+      return required(parsed, "credential");
     },
 
     async registerClient(registration) {

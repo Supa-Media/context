@@ -33,6 +33,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
 - A move between two contexts is three calls, not one function holding two keys
+- The model key is a fourth credential route, not a fifth sibling on the binding
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 

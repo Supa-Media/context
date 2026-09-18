@@ -52,6 +52,14 @@ export function createControlPlaneStub(options = {}) {
   /** workspaceId → binding descriptor (without workspaceId; added on the way out). */
   const bindings = new Map();
   /**
+   * `${workspaceId}:${provider}` → the model API key that workspace connected.
+   *
+   * Flat and keyed by both, modelling `providerCredentials`' own
+   * `by_workspace_provider` index — so a lookup that forgets the workspace half
+   * reaches the wrong tenant's key here exactly as it would there.
+   */
+  const providerCredentials = new Map();
+  /**
    * workspaceId → the rotation in progress, or `null` — mutated by
    * `startEncryptionRotation`/`completeEncryptionRotation` on `/gateway/binding`,
    * modelling `startWorkspaceKeyRotation`/`completeWorkspaceKeyRotation` on the
@@ -319,6 +327,36 @@ export function createControlPlaneStub(options = {}) {
         return ok(envelope(served));
       }
 
+      case "/gateway/provider": {
+        /*
+          The same two proofs the binding route spends, in the same order, with
+          the same refusal. Written out rather than sharing a helper with
+          `/gateway/binding` on purpose: these are two doors on the real control
+          plane, and a stub that collapses them into one would pass a gateway
+          that had quietly started sending the wrong shape to one of them.
+        */
+        const grant = await grantForAccessToken(body.accessToken);
+        if (!grant) return ok({ credential: null });
+        const covered = coveredContexts(grant);
+        const named =
+          body.expectedWorkspaceId === null || body.expectedWorkspaceId === undefined
+            ? covered.find((entry) => entry.workspaceId === grant.workspaceId)
+            : covered.find((entry) => entry.workspaceId === body.expectedWorkspaceId);
+        if (!named) return ok({ credential: null });
+
+        // The closed set lives on the control plane, and an unknown provider is
+        // the same `null` as an unknown token — never a different status a
+        // caller could count to enumerate it.
+        if (body.provider !== "anthropic" && body.provider !== "openai") {
+          return ok({ credential: null });
+        }
+        const apiKey = providerCredentials.get(`${named.workspaceId}:${body.provider}`);
+        if (apiKey === undefined) return ok({ credential: null });
+        // Two flat fields and nothing beside them — no workspace id, no
+        // fingerprint, no grant. See the route's own header in `http.ts`.
+        return ok({ credential: { provider: body.provider, apiKey } });
+      }
+
       case "/gateway/clients/register": {
         // `calls` above already recorded what was forwarded; a test reads the
         // registrant key off that. This flag models the one answer the real
@@ -529,6 +567,11 @@ export function createControlPlaneStub(options = {}) {
     codes.set(code, { expiresAt: Date.now() + 600_000, ...record });
   }
 
+  /** Connect a model account to one workspace, as the console's action does. */
+  function connectProvider(workspaceId, provider, apiKey) {
+    providerCredentials.set(`${workspaceId}:${provider}`, apiKey);
+  }
+
   return {
     origin,
     secret,
@@ -538,6 +581,8 @@ export function createControlPlaneStub(options = {}) {
     addGrant,
     revoke,
     issueCode,
+    connectProvider,
+    providerCredentials,
     grants,
     clients,
     codes,

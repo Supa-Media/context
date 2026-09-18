@@ -1237,3 +1237,71 @@ move could touch still moves, whole", "a note edited between the copy and the
 delete keeps the newer text", "on storage that ignores a conditional delete, the edit is still kept",
 and the endpoint enumeration that makes a fourth public function in that module
 impossible to add without an isolation test.
+
+## The model key is a fourth credential route, not a fifth sibling on the binding
+
+The agent spends the customer's own Anthropic or OpenAI account, so the control
+plane holds an API key per workspace (`providerCredentials`, encrypted with the
+workspace as AAD, exactly like a storage secret). The gateway has to have it in
+plaintext for the length of one request, which makes it the fourth thing
+`CREDENTIAL_HTTP_ROUTES` enumerates: `/gateway/provider`.
+
+**Every previous gateway-facing credential deliberately avoided being a route.**
+`searchIndex`, `encryptionKey` and `rotation` are all *siblings* on
+`/gateway/binding`'s response, and `apps/convex/http.ts` says why in as many
+words: a second route handing out a credential would be another entry in that
+set, "which that comment says is a conversation". This is the conversation, and
+it comes out the other way — for a reason that is about #661 rather than about
+taste.
+
+#661 was a **returns validator** accident. `storageBindings.capabilities` gained
+a fourth key while two routes in `controlPlane.ts` restated the capability shape
+inline; `v.object` is exact, so `openStorageBinding`'s own `returns` refused the
+object it had just built, and `ReturnsValidationError` named what it rejected.
+`s3BindingValidator` carries `secretAccessKey`, so a live R2 secret and a D1
+token went into the production logs. Everything folded into that one validator
+shares that fate: one drift anywhere in the shape serializes everything in the
+shape. Adding a model key to it would make a single future accident spill a
+storage secret *and* a credential issued by somebody else's console — which,
+unlike ours, **we cannot rotate**.
+
+So the model key gets a validator of its own: two flat fields, `provider` and
+`apiKey`, with nothing nested in it to drift. That is a strictly smaller blast
+radius than the sibling, bought with a door — and the door is the same door.
+`/gateway/provider` is built by the same `gatewayRoute` factory, spends the same
+gateway secret, resolves the same access token to a live grant independently,
+applies the same rule that `expectedWorkspaceId` **selects within the grant's own
+set and is never a lookup key**, and answers `{"credential": null}` for
+everything that is not a hit — an unknown token, an expired or revoked grant, a
+workspace outside the set, a provider this build does not know, a provider
+nobody connected, and a decrypt that failed.
+
+Two smaller things fall out of it, both worth keeping:
+
+- **The key is opened only by the request about to spend it.** An ordinary MCP
+  call fetches `/gateway/binding`; a model key riding that payload would be
+  decrypted on every `list_notes` in the product.
+- **No scope beyond a live grant**, and that is not an omission. A token that can
+  open this can already open the same workspace's *storage* credential through
+  `/gateway/binding` — the whole bucket, read and write. A model key that bills
+  the owner's own provider account is strictly less than that, so a further check
+  here would be theatre rather than a bound. What bounds it is what bounds the
+  binding: the grant is live, it is revocable, and the connection is in the audit
+  trail. A *member* of a shared context can therefore spend its owner's model
+  account, the same way a member can already rewrite every note in it.
+
+**What a "simplification" of this would cost.** Folding the credential back into
+`/gateway/binding` puts a key we cannot rotate inside the validator that has
+already leaked one we could. Letting the route's argument validator refuse an
+unknown provider makes the refusal a *different* answer from every other one,
+which is an oracle for the provider set — so the closed set is checked in the
+handler, where the refusal is the same `null`. Letting anything ride beside the
+credential in the response — a workspace id, a fingerprint, a grant id — makes
+two refusals distinguishable and puts a fact about a customer next to a secret.
+`apps/convex/__tests__/providerCredentials.test.ts` fails, in particular "a hit
+names the provider and the key, and nothing else", "an unknown provider is
+answered exactly like an unknown token" and "a token for one workspace cannot
+open another's credential"; `apps/mcp/test/providerCredential.test.mjs` fails
+"a token cannot reach another tenant's model account" and "a refusal is a 200
+with a null, never a status the caller can count"; and
+`apps/convex/__tests__/structure.test.ts` fails on the enumeration itself.

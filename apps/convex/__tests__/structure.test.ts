@@ -614,6 +614,24 @@ const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
   "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
+  // THE FOURTH, AND THE ONLY ONE ADDED RATHER THAN AVOIDED.
+  //
+  // `searchIndex`, `encryptionKey` and `rotation` all became *siblings* on
+  // `/gateway/binding` specifically so this set would stay at three, and that
+  // remains the default answer for a new gateway-facing credential. The model
+  // key is the exception, for a reason that is about #661 rather than about
+  // convenience: `openStorageBinding`'s returns validator already carries
+  // `secretAccessKey`, and `v.object` is exact, so any drift in that shape
+  // serializes everything in it into a log. Folding a customer's provider key
+  // in would make one accident spill two credentials.
+  //
+  // What makes the door cost little: it is built by the same `gatewayRoute`
+  // factory, spends the same two proofs, applies the same
+  // compared-never-looked-up rule to `expectedWorkspaceId`, and answers `null`
+  // for everything that is not a hit — all of which the tests below enforce on
+  // it exactly as they do on the other three. What it does not share is the
+  // validator, which is the entire point: two flat fields, nothing nested.
+  "http.gatewayProvider",
 ]);
 
 /**
@@ -1302,19 +1320,37 @@ describe("no public function can reach a storage secret", () => {
         // ROTATE AFTER A LEAK.
         //
         // Opens the customer's own Anthropic or OpenAI key so the gateway can
-        // spend it on one request. An internalAction, and the gateway is its
-        // only caller — the two public exports in that module do not reach the
-        // decrypt at all: `connectProvider` encrypts, and `listProviders`
-        // builds its answer field by field and never reads `encryptedApiKey`.
+        // spend it on one request. An internalAction, and `/gateway/provider`
+        // is its only caller — the two public exports in that module do not
+        // reach the decrypt at all: `connectProvider` encrypts, and
+        // `listProviders` builds its answer field by field and never reads
+        // `encryptedApiKey`.
         //
-        // What bounds it: the returns validator is three flat fields with
+        // It spends the same two proofs `openStorageBinding` spends, in the
+        // same order and with the same rule: the token's hash resolves to a
+        // live grant, `expectedWorkspaceId` selects *within* that grant's own
+        // set, and what goes to the decrypt is the id read off the resolved
+        // row. The `expectedWorkspaceId is never used as a lookup key` test
+        // below covers this module too, because it reads every module.
+        //
+        // What bounds it further: the returns validator is two flat fields with
         // nothing nested to drift, which is deliberate. #661 broke on a
         // *nested* validator — `capabilities` gained a key, `v.object` refused
         // the object `openStorageBinding` had just built, and the error named
         // what it rejected, so a live R2 secret went into the production logs
         // beside it. A key issued by somebody else's console cannot be rotated
         // by us at all, so the shape here is kept too small to drift.
-        "functions.providers.openProviderCredential",
+        "functions.providers.openProviderForGateway",
+        // THE FOURTH INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/provider`.
+        //
+        // Requires the gateway secret AND the user's access token, and the
+        // workspace comes from the grant, never from the caller — the same two
+        // proofs `http.gatewayBinding` spends. Read the `CREDENTIAL_HTTP_ROUTES`
+        // comment for why it is a door rather than a fifth sibling on the
+        // binding route: folding a model key into `openStorageBinding`'s return
+        // would put it inside the same validator as `secretAccessKey`, so one
+        // drift could spill both.
+        "http.gatewayProvider",
       ].sort(),
     );
   });
