@@ -84,9 +84,18 @@ describe("the fixture console's voice page", () => {
       context: page.context,
     });
 
-    expect(audience.line).toBe(
+    /*
+      Asserted before the sentence, because `audience` is `null` for every
+      refusal this function can answer with — no engine, no note, read-only.
+      Reading `.line` straight off it was a `tsc --noEmit` error, and the
+      failure it would have hidden is the interesting one: a fixture that
+      stopped offering dictation at all would then fail on a type error at
+      runtime rather than on the claim this file is about.
+    */
+    expect(audience).not.toBeNull();
+    expect(audience?.line).toBe(
       `Anyone you have shared ${tree.defaultSelection} with can read it.`,
     );
-    expect(audience.line).not.toContain("Only you");
+    expect(audience?.line).not.toContain("Only you");
   });
 });

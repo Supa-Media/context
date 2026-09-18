@@ -889,6 +889,98 @@ only thing this product treats as real), `Cached copy` with the copy's age, and
 the three answers. Pictures of both palettes are in `docs/design/conflict/`,
 written by `__tests__/conflictShots.render.ts`.
 
+### A cold start with no network is the case the offline layer was built for
+
+Everything in the section above — the cache, the drafts, the queue, the
+three-way merge — was reachable only while the app was *already running* with
+the context list *already loaded*. Both of those come from `listMyWorkspaces`,
+which is a Convex subscription, so with no network neither ever arrives:
+`(app)/_layout` sat on `resolveProtectedRoute`'s `wait` for as long as the app
+was open, and had it got past that, `visibilityTierForRole` answered `unknown`,
+which makes `useOfflineNotes` set its scope to `null` and refuse to serve a
+single cached byte. Deliberately, and for a good reason — an offline cache
+cannot re-check authorization, so a copy is filed under the clearance that read
+it and a session that does not know its clearance must not read one.
+
+The consequence was that the feature worked for a phone going into a pocket and
+not for a phone coming out of one. A relaunch — an OS reclaiming a backgrounded
+app, a restart, a browser tab opened fresh — is an app that will not start, on a
+device holding a complete offline copy of the notes somebody wanted to read.
+
+**So the context list is written down as it lands, and read back when it has
+not.** `features/offline/cache.ts` holds one `context` record per workspace and
+`useRememberedContexts` decides whether it may be served.
+
+**Three conditions, all of them required.** The live list has not landed (not
+"is slow" — `undefined`); the device says it is offline; and something was
+remembered. The first is why there is no merging and no preferring the fresher
+of two: one of them is a fact and the other is a memory, so the moment the
+server answers, the server wins. The second is why this is not a stale rail
+flickering ahead of a real one — online, a list that has not arrived is a list
+that is about to, and waiting for it is what the console already does. The third
+is the security property, and it is the whole of it: sign-out calls
+`forgetLocalCopies`, which clears this namespace along with the note bodies, so
+**the presence of a remembered row is the evidence that a session got far enough
+to have one**. A signed-out device remembers nothing, offers nothing, and waits
+exactly as it did before.
+
+**Remembering a role cannot widen a clearance, and that is a fact about the
+control plane rather than care taken in the console.** The clearance a cached
+copy is served under is `private` for `owner` and `team` for everybody else
+(`scopeForRole`, mirrored by `visibilityTierForRole`), and the owner role cannot
+be taken away: `setMemberRole` refuses with `CANNOT_CHANGE_OWNER_ROLE`,
+`removeMember` with `CANNOT_REMOVE_OWNER`, `leaveWorkspace` with
+`OWNER_CANNOT_LEAVE`, and ownership transfer is not built. A remembered role can
+therefore be *out of date* — a promotion from `member` to `editor` is not seen
+until the next successful load, and both of those read at `team` anyway — but
+never *wider* than the one the server would give, which is the only direction
+that discloses anything. That premise is pinned where it lives, in the control
+plane, by `apps/convex/__tests__/ownerRoleIsPermanent.test.ts`: build ownership
+transfer and that test goes red, which is the moment to make this remember
+`team` for a context whose ownership can move.
+
+**A remembered row never outlives the reach it describes.** It is taken by
+`keysForWorkspace` when somebody presses Leave and by `keysForDepartedContexts`
+on the first load that sees a context gone — the endings this device never
+witnesses, which is where a row left behind would name a context on the rail of
+somebody who was removed from it. Making that true needed one distinction the
+folder had been conflating: `sweep` and the departed purge both spelled "never
+somebody's typing" as "has no clearance", which was the same set only while
+every unscoped kind *was* typing. `isOwnTyping` is that idea by itself, spelled
+as a record over `Kind` so a kind added later has to declare which side it is
+on, and taken by default rather than exempt by accident.
+
+**The row holds identifiers and labels and nothing else** — the same class of
+thing `lastPlace` already keeps. No note text, no etag, no draft, no credential.
+It ages out on the same thirty-day bound as a cached note, because a device that
+has not reached the server in a month should not still name somebody's contexts;
+it is deliberately *not* subject to the count bound, because evicting a few
+hundred bytes to make room for a note body would cost the boot the rest of the
+feature now depends on, invisibly.
+
+**The gate renders without claiming the session is authenticated.**
+`resolveProtectedRoute` answers `render`, and `isAuthenticated` stays false —
+so `(app)/_layout` now reads its subscriptions off `auth.isAuthenticated` rather
+than off `decision.action === "render"`. Those were the same value until this
+landed and are now different questions: a subscription opened on an unconfirmed
+identity is refused by `requireAuth` anyway, and the layout should not be asking.
+
+What a simplification of any of it costs: dropping the offline condition puts a
+memory where a round trip was going to answer; dropping the "server always wins"
+ordering makes a rename take a reconnection to appear; dropping the sign-out
+clear draws one person's contexts for the next person to sign in on that
+machine. `__tests__/offlineRemembered.test.ts`,
+`__tests__/offlineRememberedHook.test.ts` and the protected-route tests in
+`__tests__/authRedirect.test.ts` each fail on their own rule.
+
+**What this does not fix, named so it is not mistaken for done.** A device that
+has *never* loaded the console online still cannot start offline, and should not
+— there is nothing to remember. The cache is still populated only by reads, so
+what is available on a train is what somebody happened to open; pinning a folder
+for offline is a separate decision. And on the web none of this survives a cold
+*tab*, because there is no service worker to serve the bundle — the app has to
+load before any of it runs. The desktop shell's mirror is a different origin
+again, with its own storage, so it sees none of this.
 ### A reconnection empties every queue, not the one on screen
 
 The queue has always been per context — one outbox record per workspace, keyed
@@ -2350,6 +2442,64 @@ real draft clean (`saveTimeout.test.ts`). One guard is recorded in
 `autosaveEditor.test.ts` as *not* covered rather than quietly claimed:
 `performSave` cancelling the timer it supersedes is redundant with the
 fire-time `autosaves` check, and nothing can distinguish the two.
+
+### Reassurance is a chip in the top bar; a decision is a button over the note
+
+Autosave removed the *reason* for the Save button and left the button. The
+report, from somebody writing a note:
+
+> whenever I type in the note, this big ugly save button appears, any way where
+> it can not appear there and just show in the top right where it shows "R2
+> managed" that its saving or failed to save or something
+
+Both halves are right. `dirty` is the state every keystroke produces, so
+"Discard changes" and "Save" appeared across the foot of the document on the
+first character and stayed until the write landed — two controls over somebody's
+own text, for a write that was already scheduled. Neither was load-bearing: ⌘S
+and the autosave timer make the same conditional write, and Discard in `dirty`
+could only ever reach back to the last autosave, which is what undo is for. And
+the surface that *could* have said it quietly was saying it in the bottom-right
+corner, in 11pt grey, between a word count and a bucket name.
+
+**So the two jobs were split by whether a person has to do something.**
+
+- **Nothing owed** — typing, saving, saved, a cached body, a queued draft
+  draining on its own — is `saveChip` (`status.ts`), drawn in the top bar
+  beside the storage pill and nowhere else. Same words, same tones, same
+  details as the strip segment it replaces: "Saving soon", "Saving…", "Saved",
+  "Cached copy", "Queued", "Not saved", "Conflict".
+- **A decision owed** — a save that failed, a conflict, a queued draft
+  somebody may want to let go — keeps `NoteEditor`'s row, with the full
+  sentence beside the buttons at *every* density. Those messages are
+  paragraphs ("Still waiting on your bucket, so we stopped waiting…") and a
+  two-word chip cannot hold one. `editor.ts` has always said the manual route
+  must stay reachable exactly where autosave refuses, and it is.
+
+**The claim moved rather than multiplied**, which is the same rule that took
+the disabled Save pill off the row and then took the durability sentence off
+the pointer layout: one claim, one surface. The strip keeps what is
+*measured* — the note's key, the word count, the index, how writes are checked,
+the bucket — and gives up the one fact in it that changed while you typed. The
+phone is untouched apart from losing the buttons: it has no top bar chip and no
+status bar, so the sentence at the foot of the document is still its only save
+claim, and Save is still `check` on its toolbar.
+
+**Why the top-right and not somewhere calmer.** It is where the bucket chip
+already is, and the two answer one question between them: where the note lives,
+and whether it is there yet. It leads that group because it is the only chip in
+the bar whose text changes while somebody types, and in a row aligned to the
+trailing edge the leading item can grow without shifting its neighbours.
+
+**What a reversal costs, and the tests that fail.** Putting the Save row back
+in `dirty` fails "typing puts nothing over the note"
+(`offlineEditorRender.test.ts`), which mounts a mid-sentence draft at 1440 and
+asserts that neither button is on screen; putting the segment back in the strip
+fails "the strip does not carry it" (`status.test.ts`), which is what stops the
+console saying "Saved" at both corners at once; dropping the row in `error` or
+`conflict` fails "a failed save keeps its Save, and a conflict keeps its
+Overwrite", and dropping the sentence with it fails "a failed save explains
+itself at a pointer width" — the case that keeps the reason for a failed save
+reachable now that the strip no longer carries it as a tooltip.
 
 ### The breadcrumb is the whole path, and its head is a real way up
 
