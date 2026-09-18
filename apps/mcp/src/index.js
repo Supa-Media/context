@@ -3101,7 +3101,7 @@ function baseToolDefinitions() {
     {
       name: "archive_note",
       description:
-        "Retract a note from its canonical location into this context's own 4-archive, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has a 4-archive; elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
+        "Retract a note from its canonical location into this context's own archive folder, date-stamped and recoverable — there is no delete, and this is the safe way to pull something out of circulation. Links to it are rewritten to point into the archive, so nothing that referenced it breaks. Only on contexts whose layout has an archive folder (`4-archive`, `5-archive`, `archive`); elsewhere it refuses and move_note follows the owner's conventions instead. Team archives remain team-visible; personal archives safely tighten to private. Pass expected_etag for team cleanup.",
       inputSchema: {
         type: "object",
         properties: {
@@ -7219,24 +7219,85 @@ function yamlString(value) {
  * not exist in object storage until something is in it, so listing `4-archive/`
  * answers "has anything been archived yet", which is a different question and
  * gets a new context's first session wrong. `folder_defaults` is where the
- * scaffold declares the layout the person actually chose, so a rule naming
- * `4-archive` means they have one and a custom layout without it means they do
+ * scaffold declares the layout the person actually chose, so a rule naming an
+ * archive means they have one and a custom layout without one means they do
  * not — and every context created before this decision has that rule, which is
  * what keeps their sessions where they have always been.
+ *
+ * **Which folder counts is `archiveRoot`, not the literal `4-archive`**, and
+ * widening it moves this fallback for one population: a context declaring an
+ * archive under another number — today, anything built from the `company`
+ * preset — filed its sessions into `0-inbox/sessions` and now files them
+ * beside its archive. That is the behaviour this function always described,
+ * reaching contexts it had been failing to recognise; sessions already written
+ * stay where they are and are still read, and an owner who stated a
+ * destination in `index.md` was never affected either way.
  */
 /**
- * Whether this context's manifest declares a `4-archive` — the question both
- * `save_context`'s fallback and `archive_note` hang on, answered in one place
- * so the two tools cannot drift into disagreeing about the same bucket.
+ * A root folder this product recognises as an archive: `archive`, or a PARA-ish
+ * `<number>-archive`.
+ *
+ * It was the literal `4-archive` and that was a layout assumption wearing the
+ * clothes of a constant. The product itself ships two: the PARA scaffold's
+ * `4-archive` and the `company` workspace preset's `5-archive` — which is the
+ * *default* for a shared context — so every workspace created from the default
+ * preset had a folder plainly named the archive, sitting in its own root
+ * listing, that `archive_note` refused to use and `save_context` declined to
+ * see. A customer archived into it by hand and was told the context had no
+ * archive.
+ *
+ * Deliberately a shape and not a list. A list would be the same assumption with
+ * one more entry, and the next preset would reintroduce the bug; `9-archive`,
+ * `archive` and `2-Archive` are all the owner unmistakably naming the thing.
+ * What it will still not do is guess: `retired`, `old` and `cold-storage` are
+ * words for the same idea that this cannot read off a folder name, and inventing
+ * a destination in somebody's bucket is what the original refusal was right
+ * about.
  */
-function manifestHasArchive(rules) {
-  return (rules || []).some(
-    (rule) => rule.prefix === "4-archive" || rule.prefix.startsWith("4-archive/")
-  );
+const ARCHIVE_FOLDER_PATTERN = /^(?:\d+-)?archive$/i;
+
+/**
+ * Every archive root this context declares, deduplicated and ordered.
+ *
+ * A rule may name the folder (`4-archive`) or something inside it
+ * (`4-archive/chat-history`); both say the folder exists, so the root segment
+ * is what is matched. More than one is not hypothetical — a PARA context whose
+ * owner adds `5-archive`, or the reverse — which is why "already archived"
+ * asks about all of them and not only the one we would write to.
+ */
+function archiveRoots(rules) {
+  const roots = new Set();
+  for (const rule of rules || []) {
+    const root = String(rule?.prefix ?? "").split("/")[0];
+    if (ARCHIVE_FOLDER_PATTERN.test(root)) roots.add(root);
+  }
+  return [...roots].sort();
+}
+
+/**
+ * The one this context archives into, or `null` when it has none.
+ *
+ * **`4-archive` wins whenever it is declared at all**, so no context that
+ * already had one can have its archive moved by this change — a PARA workspace
+ * that later gains a `5-archive` keeps filing where its history already is.
+ * Everything else takes the first in sorted order, which is a rule about the
+ * set rather than about the order somebody's manifest happens to be in: an
+ * owner reordering `privacy.md` must not silently repoint archiving.
+ */
+function archiveRoot(rules) {
+  const roots = archiveRoots(rules);
+  if (roots.length === 0) return null;
+  return roots.includes("4-archive") ? "4-archive" : roots[0];
+}
+
+/** Whether a path is inside one of this context's archives. */
+function insideArchive(path, roots) {
+  return roots.some((root) => path === root || path.startsWith(`${root}/`));
 }
 
 function defaultSessionFolder(rules) {
-  return manifestHasArchive(rules) ? "4-archive/chat-history" : "0-inbox/sessions";
+  const root = archiveRoot(rules);
+  return root ? `${root}/chat-history` : "0-inbox/sessions";
 }
 
 async function uniqueSessionPath(store, platform, at, folder) {
@@ -8552,24 +8613,35 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   const path = normalizePath(pathArg);
   if (!path) return toolError("invalid path");
   if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  // The destination is `4-archive/`, and that folder is the owner's to have or
-  // not have. On a context whose manifest declares one — every PARA scaffold —
-  // this works exactly as it always did. On a custom layout it used to invent
-  // the folder, which is the same layout assumption `save_context` and the
-  // connect instructions were purged of: an agent "tidying up" would create a
+  // The destination is this context's own archive, and that folder is the
+  // owner's to have or not have. On a context whose manifest declares one —
+  // every PARA scaffold, and every layout naming it `<n>-archive` — this works
+  // as it always did. On a layout with no archive at all it used to invent
+  // `4-archive`, which is the same assumption `save_context` and the connect
+  // instructions were purged of: an agent "tidying up" would create a
   // top-level folder the owner deliberately did not choose, in a bucket they
   // also see in Obsidian. Refusing is honest and loses nothing: `move_note`
   // reaches whatever folder this context actually uses for inactive material,
   // and the front page says which that is.
-  if (!manifestHasArchive(rules)) {
+  //
+  // What was *not* honest was refusing a context that had one under another
+  // number. `5-archive` is the `company` preset's, and the preset is the
+  // default for a shared context, so the most common shared workspace we
+  // create was told it had no archive while looking at its own.
+  const roots = archiveRoots(rules);
+  const root = archiveRoot(rules);
+  if (!root) {
     return toolError(
-      "this context has no 4-archive folder — its layout is its owner's, and archiving must " +
+      "this context has no archive folder — its layout is its owner's, and archiving must " +
         "not invent one. Use move_note to the folder this context keeps inactive material in " +
-        "(orient and the front page state its conventions), or ask the owner to add a " +
-        "4-archive rule to privacy.md."
+        "(orient and the front page state its conventions), or ask the owner to add an " +
+        "archive rule to privacy.md (`archive` or `4-archive`, for example)."
     );
   }
-  if (path.startsWith("4-archive/")) return toolText("already archived");
+  // Every archive it has, not the one we would write to: a note already sitting
+  // in `5-archive/` must not be moved into `4-archive/` because the resolver
+  // preferred the latter.
+  if (insideArchive(path, roots)) return toolText("already archived");
   const obj = await getWithLegacyFallback(store, path);
   if (!obj) return toolError("not found");
   if (scope !== "private" && !expectedEtag) {
@@ -8581,7 +8653,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     );
   }
   const stamp = timestampSlug();
-  const dest = `4-archive/${stamp}/${path}`;
+  const dest = `${root}/${stamp}/${path}`;
   const destinationVisibility = scope === "private" ? "private" : "team";
   if (scope !== "private" && visibilityOf(dest, rules) !== "team") {
     return writePermissionError("archive destination");
@@ -8600,7 +8672,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   /*
     Archiving is a move, so its links follow it. Retiring a note is not the same
     as deleting one — the note is still there, still readable, and a link that
-    now points into `4-archive/` is telling the truth about where the thing went.
+    now points into the archive is telling the truth about where the thing went.
     The alternative is a bucket where every archive silently breaks every link
     into it, which is how people learn not to archive.
   */
@@ -9028,9 +9100,16 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
       sourceVisibility,
       destinationFolderVisibility
     );
+    // Both ends inside the *same* archive. Two different archive roots is a
+    // move between folders that may have different visibility, which is exactly
+    // what the slow path is for.
+    const batchArchiveRoots = archiveRoots(rules);
+    const sharedArchiveRoot = batchArchiveRoots.find(
+      (root) =>
+        move.source.startsWith(`${root}/`) && move.destination.startsWith(`${root}/`)
+    );
     const fastArchiveCandidate =
-      move.source.startsWith("4-archive/") &&
-      move.destination.startsWith("4-archive/") &&
+      sharedArchiveRoot !== undefined &&
       !hasOverride(overrides, move.source) &&
       sourceVisibility === destinationFolderVisibility;
     const destinationObject = await getWithLegacyFallback(store, move.destination);

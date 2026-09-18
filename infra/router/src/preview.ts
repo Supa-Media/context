@@ -440,10 +440,13 @@ const PRODUCT_MANDATED_PATHS = new Set([
   "privacy.md",
   "todo.md",
   // Where `save_context` files a session. `defaultSessionFolder` in the gateway
-  // picks `4-archive/chat-history` when the manifest declares a `4-archive`
-  // rule and `0-inbox/sessions` otherwise, so a workspace whose owner has run the
-  // hook once has one of them — two guesses per handle on names nobody chose.
+  // picks `<archive>/chat-history` when the manifest declares an archive folder
+  // and `0-inbox/sessions` otherwise, so a workspace whose owner has run the
+  // hook once has one of them — a guess per handle on names nobody chose.
+  // One entry per archive root THIS PRODUCT ships: the PARA scaffold's and the
+  // presets'. An archive a customer named is theirs and is not on this list.
   "4-archive/chat-history",
+  "5-archive/chat-history",
   "0-inbox/sessions",
   // Capture folders the gateway derives from a capture's `source`.
   // `writeInboxCapture` files an `external_id` capture under

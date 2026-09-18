@@ -447,8 +447,8 @@ export async function runOrientationChecks(check) {
     });
     const refusalText = archiveRefusal?.result?.content?.[0]?.text || "";
     check(
-      "archive_note refuses rather than inventing a 4-archive on a custom layout",
-      archiveRefusal?.result?.isError === true && refusalText.includes("no 4-archive")
+      "archive_note refuses rather than inventing an archive on a custom layout",
+      archiveRefusal?.result?.isError === true && refusalText.includes("no archive folder")
     );
     check(
       "the refusal points at move_note and the owner's own conventions",
@@ -459,6 +459,73 @@ export async function runOrientationChecks(check) {
       ![...bucket.objects.keys()].some((key) => key.startsWith("4-archive/")) &&
         bucket.objects.has("2-areas/handbook.md")
     );
+
+    // -- archive_note on a layout whose archive is not `4-archive`
+    //
+    // The refusal above was right about a layout with no archive and wrong
+    // about this one, which is the `company` preset — the DEFAULT for a shared
+    // context. Its archive is `5-archive`, it is declared in the manifest and
+    // visible in the owner's own root listing, and `archive_note` refused it
+    // for ten days while `move_note` into the same folder worked fine.
+    bucket.seed(
+      "privacy.md",
+      PRIVACY_MANIFEST.replace("  3-resources: team\n", "  3-resources: team\n  5-archive: team\n")
+    );
+    const { body: archivedFive } = await rpc(env, OWNER_TOKEN, "tools/call", {
+      name: "archive_note",
+      arguments: { path: "2-areas/handbook.md" },
+    });
+    const fiveKey = [...bucket.objects.keys()].find((key) =>
+      key.endsWith("/2-areas/handbook.md")
+    );
+    check(
+      "archive_note files into the archive this layout actually has",
+      archivedFive?.result?.isError !== true &&
+        fiveKey?.startsWith("5-archive/") &&
+        !bucket.objects.has("2-areas/handbook.md")
+    );
+    check(
+      "and it did not invent a 4-archive beside it",
+      ![...bucket.objects.keys()].some((key) => key.startsWith("4-archive/"))
+    );
+    // Idempotency across roots: the note is now in `5-archive`, and asking
+    // again must not move it anywhere — least of all into a `4-archive` the
+    // resolver would have preferred had one been declared.
+    const { body: already } = await rpc(env, OWNER_TOKEN, "tools/call", {
+      name: "archive_note",
+      arguments: { path: fiveKey },
+    });
+    check(
+      "a note already in this context's archive is left alone",
+      (already?.result?.content?.[0]?.text || "").includes("already archived") &&
+        bucket.objects.has(fiveKey)
+    );
+
+    // Two archives, and the note is in the one the resolver does NOT prefer.
+    // This is the case a single-archive fixture cannot reach: with `4-archive`
+    // declared too, asking about only the write destination would call this
+    // note unarchived and move it out of `5-archive` into `4-archive` — a
+    // second archive hop for a note that was already put away. Measured: with
+    // "already archived" narrowed to the write root, the suite stayed green
+    // until this check existed.
+    bucket.seed(
+      "privacy.md",
+      PRIVACY_MANIFEST.replace(
+        "  3-resources: team\n",
+        "  3-resources: team\n  4-archive: team\n  5-archive: team\n"
+      )
+    );
+    const { body: alreadyAcrossRoots } = await rpc(env, OWNER_TOKEN, "tools/call", {
+      name: "archive_note",
+      arguments: { path: fiveKey },
+    });
+    check(
+      "a note in a second archive is not re-archived into the preferred one",
+      (alreadyAcrossRoots?.result?.content?.[0]?.text || "").includes("already archived") &&
+        bucket.objects.has(fiveKey) &&
+        ![...bucket.objects.keys()].some((key) => key.startsWith("4-archive/"))
+    );
+    bucket.seed("privacy.md", PRIVACY_MANIFEST);
 
     // -- the connect-time sketch, and the handshake it must never endanger
     const connect = async (token) => {
