@@ -4626,3 +4626,97 @@ a trim leaking into `crumb.path` asks somebody's bucket for a folder that is not
 there. `fileTabs.test.ts`, "a sort number is dropped, and the collision test
 sees the same name" — `1-plan.md` and `plan.md` both draw `plan`, so a collision
 test on the untrimmed name would leave two identical tabs.
+
+## The workspaces come back as a row at the foot of the tree, not as a column
+
+The owner, looking at the console:
+
+> Right now, it's not super visible — all the workspaces that someone's in,
+> you got to click on it and drop down… I just want to explore some different
+> UX/UI designs for that, because we want people to be able to switch more
+> quickly.
+
+The switcher menu is two presses, and the worse half of that is not the count:
+it is **invisible at rest**. Nothing on the screen says a second workspace
+exists, so nothing reminds anybody that it does. An account with four contexts
+looked exactly like an account with one.
+
+Five directions were drawn to scale and the owner picked one: **the context you
+are in, spelled out, and the ones you were in last beside it, along the foot of
+the file tree**. `features/console/foot.ts` is the rule and
+`ContextFootRow.tsx` is the drawing.
+
+### Why this one, and what the other four cost
+
+- **A dock of full-width rows** at the foot of the same panel. Same zero cost in
+  width, reads at a glance, and runs out at five or six workspaces — at which
+  point it is a scrolling list inside a panel that already has one.
+- **A pinned pill strip at the top of the panel** — the phone's `ContextStrip`
+  on a second surface, which is the cheapest thing to build and the worst thing
+  to use: 260 points fits about two pills, so the third workspace is behind a
+  horizontal scroll, and a scroll gesture on a pointer is the most expensive way
+  to reach something that was supposed to be one click away.
+- **A 52pt icon gutter**, Slack's answer. It works, it scales to a dozen, and it
+  is a column — which is the thing "The rail folds into the switcher, and the
+  column it occupied goes to the note" spent 216 points buying back. 52 is less
+  than 216 and it is the same trade in the same direction.
+- **Tabs in the title bar**. Fastest to read, and it borrows a meaning it does
+  not have: a tab is an open document you can close, a workspace is neither, and
+  the title bar already draws note tabs two inches away.
+
+### What the row costs, and where it is paid
+
+**The panel is resizable, so the row is a function of its width.** The owner's
+second and third instructions are the specification:
+
+> when people extend it, we should be able to accommodate more space and maybe
+> even show some of the workspace name if we have enough space
+
+> if someone only has two workspaces and they're able to comfortably fit on that
+> bottom panel without it being too crowded, then why not?
+
+So `footPlan` takes the measured width and the real names and decides between
+two shapes: **named pills** when every name on the row is whole, **marks** when
+they are not. Nothing is ellipsised, which is `ContextStrip`'s rule — "two
+contexts that look identical, on the one control whose entire job is telling
+them apart" — with one stated exception: in the marks shape the *current*
+context's label may shrink, because it is the third copy of that name on the
+screen (the breadcrumb and the title bar's chip are the other two) and
+budgeting it whole made the entire row disappear at the 200pt floor.
+
+**Three recents, whatever the width.** Extra width buys names, not a fourth
+workspace. A row that grew towards a dozen marks is the rail coming back at the
+bottom of the panel, and everything beyond the third is behind the chevron —
+which is `SwitcherMenu` itself, mounted with `trigger="chevron"` rather than
+reimplemented, so the claim offer, "New workspace" and Leave keep their single
+set of conditions.
+
+**The title bar's chip stays.** It is redundant on Browse and it is not
+redundant anywhere else: the explorer column is only rendered while browsing, so
+demoting the chip to a label would leave Map, Connections, Search and Settings
+with no switcher, no Settings row and no sign-out at a pointer density. Removing
+it is a separate change that has to give those panes somewhere else to put it.
+
+**No ⌘1–⌘9.** The obvious keyboard half of this row is already spent:
+`keymap.ts` gives those nine chords to the note tabs, and `keymap.test.ts`
+allows a command exactly one chord. Inventing ⌃1–9 for workspaces would be a
+second digit row meaning a second thing, which is how a keyboard layout stops
+being learnable. Left undone rather than done badly.
+
+**What a simplification costs.** Dropping the width measurement and always
+drawing marks is the tempting one, and it takes the owner's actual request back
+out: the two-workspace account that fits comfortably is exactly the case the
+names were asked for. Dropping the shape rule the other way — always names,
+ellipsised to fit — is the defect `ContextStrip` already argued.
+
+**The tests that fail if it is reversed.** `contextFootRow.test.ts`: "no row
+where there is nowhere to go" (one workspace draws no band), "most recently
+visited first, and never alphabetical", "the pinned context is held last", "three
+at most, whatever the width" (asserted as the literal 3, because a test that
+reads `RECENT_SLOTS` agrees with whatever `RECENT_SLOTS` becomes), "two short
+workspaces are named at the resting width", "dragging the panel open buys the
+names", "the floor still holds all three, however long the current name", "what
+is planned fits the room it was planned for, at every width" — the sweep, which
+is the one that catches a character-width estimate drifting narrow — and "every
+workspace has a name a screen reader can read", which is the rule that killed an
+icon-only rail once already.

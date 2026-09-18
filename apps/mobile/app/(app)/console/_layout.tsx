@@ -63,6 +63,7 @@ import { needsDecision } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
 import { ContextStrip, CurrentContextPill } from "../../../features/console/ContextStrip";
+import { ContextFootRow } from "../../../features/console/ContextFootRow";
 import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
@@ -470,6 +471,52 @@ export default function ConsoleLayout() {
    * offering a third would be a press that always fails. `scope.ts` states it.
    */
 
+  /*
+    One set of handlers, two triggers.
+
+    The title bar's chip opens this menu and so does the chevron at the end of
+    `ContextFootRow`, and they have to open the *same* list: every row in it is
+    conditional on something — the claim offer, "New workspace", Leave on a
+    context you do not own — and a second element built at the other call site is
+    how one of those conditions quietly goes missing from one of them. See
+    `SwitcherMenu`'s `trigger` prop.
+  */
+  const switcherProps = {
+    data,
+    label: insideContext ? contextLabel : "Your context",
+    tone: insideContext ? (current?.status ?? "warn") : "neutral",
+    onOpenContext: (slug: string) => {
+      const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
+      if (!sameRoute(next, route)) router.replace(hrefFor(next));
+    },
+    onOpenMeetings: data.demo ? undefined : () => router.push(MEETINGS_ROUTE),
+    onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+    onNewWorkspace: data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE),
+    onOpenSettings: () => {
+      router.setParams({
+        settings:
+          route.kind === "context" ? DEFAULT_SETTINGS_SECTION : DEFAULT_ACCOUNT_SETTINGS_SECTION,
+      });
+    },
+    /*
+      Leave, on the context you are standing in and only where the server would
+      allow it: `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so a
+      row offered on your own workspace would be a press whose only outcome is
+      an error. Fire-and-watch, exactly as the rail's row was — the membership
+      row deleting is what takes the context out of the list, through the
+      subscription — and then land on `/console` so nobody is left standing in a
+      context they just left.
+    */
+    onLeaveContext:
+      current === null || current.role === "owner" || data.leaveContext === undefined
+        ? undefined
+        : () => {
+            void data.leaveContext?.(current.id);
+            router.replace("/console");
+          },
+    onSignOut: requestSignOut,
+  } as const;
+
   return (
     <ConsoleDataProvider value={data}>
       {data.pluginRuntime?.host}
@@ -498,47 +545,7 @@ export default function ConsoleLayout() {
           workspace and Meetings all leave the console, so Back has to be the
           way home.
         */
-        switcher={
-          <SwitcherMenu
-            data={data}
-            label={insideContext ? contextLabel : "Your context"}
-            tone={insideContext ? (current?.status ?? "warn") : "neutral"}
-            onOpenContext={(slug: string) => {
-              const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
-              if (!sameRoute(next, route)) router.replace(hrefFor(next));
-            }}
-            onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
-            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
-            onNewWorkspace={data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)}
-            onOpenSettings={() => {
-              router.setParams({
-                settings:
-                  route.kind === "context"
-                    ? DEFAULT_SETTINGS_SECTION
-                    : DEFAULT_ACCOUNT_SETTINGS_SECTION,
-              });
-            }}
-            /*
-              Leave, on the context you are standing in and only where the
-              server would allow it: `leaveWorkspace` refuses an owner
-              (`OWNER_CANNOT_LEAVE`), so a row offered on your own workspace
-              would be a press whose only outcome is an error. Fire-and-watch,
-              exactly as the rail's row was — the membership row deleting is
-              what takes the context out of the list, through the
-              subscription — and then land on `/console` so nobody is left
-              standing in a context they just left.
-            */
-            onLeaveContext={
-              current === null || current.role === "owner" || data.leaveContext === undefined
-                ? undefined
-                : () => {
-                    void data.leaveContext?.(current.id);
-                    router.replace("/console");
-                  }
-            }
-            onSignOut={requestSignOut}
-          />
-        }
+        switcher={<SwitcherMenu {...switcherProps} />}
         /*
           No `switcherLabel`.
 
@@ -775,6 +782,31 @@ export default function ConsoleLayout() {
                 tabs.pin(path);
               }}
               onOverlayChange={setTreeOverlay}
+              /*
+                The workspaces, at the foot of the column. `foot.ts` decides what
+                fits in the width the panel has been dragged to; this supplies
+                the three things it cannot reach on its own — the list, the
+                recently-visited log and the router.
+
+                `phone` is not a condition here. A phone has no file tree at all
+                (`features/app/frame.ts`), so this slot has no supplier at that
+                density and `NavBand`'s strip goes on being its answer.
+              */
+              workspaces={
+                <ContextFootRow
+                  contexts={data.contexts}
+                  currentSlug={current?.slug ?? null}
+                  recent={places}
+                  /*
+                    Resolved at press time, never when the row rendered — the log
+                    moves on every navigation. Same rule, same reason and the
+                    same call as the phone's strip: a switch lands on the note
+                    you had open in that context rather than at its root.
+                  */
+                  onOpen={(slug) => router.replace(contextHrefFrom(slug))}
+                  menu={<SwitcherMenu {...switcherProps} trigger="chevron" />}
+                />
+              }
             />
           ) : undefined
         }
