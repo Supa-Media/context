@@ -8,6 +8,7 @@ import {
   loginHref,
   resolveAuthRoute,
   resolveProtectedRoute,
+  resolveRootRoute,
   safeNextRoute,
 } from "../features/auth/redirect";
 
@@ -71,6 +72,42 @@ describe("protected routes", () => {
       action: "redirect",
       href: LOGIN_ROUTE,
     });
+  });
+});
+
+/**
+ * `/` on a phone, which is where every native launch lands. The remembered
+ * session above was unreachable from a cold start because this gate sat in
+ * front of it with a bare `wait`: offline `isLoading` never ends, so `/`
+ * rendered `null` forever and the phone showed a blank ground, however many
+ * times it was relaunched.
+ */
+describe("the root route on a phone", () => {
+  test("sends a remembered session to the console while the server has not answered", () => {
+    expect(resolveRootRoute(loading, false, true)).toEqual({
+      action: "redirect",
+      href: CONSOLE_ROUTE,
+    });
+  });
+
+  test("a device that remembers nothing waits, as it always did", () => {
+    expect(resolveRootRoute(loading, false, false)).toEqual({ action: "wait" });
+    expect(resolveRootRoute(loading, false)).toEqual({ action: "wait" });
+  });
+
+  test("it never overrides a server answer", () => {
+    expect(resolveRootRoute(signedOut, false, true)).toEqual({
+      action: "redirect",
+      href: LOGIN_ROUTE,
+    });
+    expect(resolveRootRoute(signedIn, false, true)).toEqual({
+      action: "redirect",
+      href: CONSOLE_ROUTE,
+    });
+  });
+
+  test("the web keeps its landing page either way", () => {
+    expect(resolveRootRoute(loading, true, true)).toEqual({ action: "render" });
   });
 });
 
