@@ -11,6 +11,7 @@ import { ShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
+import { keepAppShellOffline } from "../features/offline/appShell";
 import { useColors, useScheme } from "../features/design/theme";
 import { useConvexAuth } from "convex/react";
 import { useEffect } from "react";
@@ -49,6 +50,19 @@ ensureFontsLoaded();
   until the *session* is, which is a round trip later.
 */
 holdSplash();
+
+/*
+  And the app shell, which is neither of the above: it is for the *next* load
+  rather than this one.
+
+  At module scope beside them because it costs nothing here — `appShell.web.ts`
+  waits for `load` before it registers anything, precisely so it does not take
+  network from the bundle or the first round trip on the load somebody is
+  actually waiting on. Native is a no-op. See `features/offline/appShell.web.ts`
+  for why a browser needs a service worker before any of `features/offline` can
+  run at all.
+*/
+keepAppShellOffline();
 
 export default function RootLayout() {
   return (

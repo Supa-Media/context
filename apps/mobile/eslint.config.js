@@ -231,4 +231,29 @@ module.exports = [
       },
     },
   },
+  {
+    /*
+      The console's own app-shell worker, which is a worker for the same
+      reasons and shipped from a different place: `public/` is copied to the
+      output root by `expo export`, and a worker may only claim a scope at or
+      below the directory it is served from — `/sw.js` is what lets it answer a
+      navigation at all.
+
+      Kept as its own block rather than merged with the one above, on the same
+      principle that one gives for not merging with the page: these two workers
+      have different scopes and different jobs, and a rule added for one should
+      have to be added for the other deliberately.
+    */
+    files: ["public/sw.js"],
+    languageOptions: {
+      globals: {
+        self: "readonly",
+        caches: "readonly",
+        clients: "readonly",
+        fetch: "readonly",
+        Response: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
 ];

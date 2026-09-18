@@ -148,3 +148,62 @@ describe("the shell being checked is the shell being served", () => {
     expect(existsSync(join(mobileRoot, "app", "+html.tsx"))).toBe(false);
   });
 });
+
+/**
+ * WHAT `public/` SHIPS, AND THE FACT THAT IT SHIPS AT ALL.
+ *
+ * `expo export --platform web` copies this directory to the output root, which
+ * is how `/sw.js` and `/manifest.webmanifest` come to exist at the origin. That
+ * is a fact about the build rather than about any file here, and nothing in the
+ * repository asserted it — so a file could be added under a name that never
+ * reaches a browser, or removed, and every test would stay green while the app
+ * quietly stopped working offline.
+ *
+ * The service worker's scope is the strongest reason this matters:
+ * `navigator.serviceWorker.register("/sw.js", { scope: "/" })` is refused
+ * outright unless the script is served from the root. A worker one directory
+ * down cannot control a navigation, which is the entire feature.
+ *
+ * Verified against a real export while this was written — `/tmp` output listing
+ * `sw.js`, `manifest.webmanifest`, `icon.png` and `index.html` at the root —
+ * and pinned here so the next person does not have to run one to find out.
+ */
+describe("the files the origin serves from `public/`", () => {
+  test.each(["sw.js", "manifest.webmanifest", "icon.png"])("%s is there to be served", (name) => {
+    expect(existsSync(join(mobileRoot, "public", name))).toBe(true);
+  });
+
+  test("the shell links the manifest exactly once", () => {
+    // Once, for the reason the placeholder tests above give: this head is a
+    // template Expo edits by plain string replacement.
+    expect(shell.split('<link rel="manifest"')).toHaveLength(2);
+  });
+
+  test("the manifest is JSON, and says what an installed window opens into", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(mobileRoot, "public", "manifest.webmanifest"), "utf8"),
+    ) as { start_url: string; scope: string; display: string; icons: { src: string }[] };
+
+    // `/console` and not `/`: on web the root is the landing page, and somebody
+    // who installed this has an account. `scope` stays `/` so a link into any
+    // route still opens in the installed window rather than bouncing to a tab.
+    expect(manifest.start_url).toBe("/console");
+    expect(manifest.scope).toBe("/");
+    expect(manifest.display).toBe("standalone");
+  });
+
+  test("every icon the manifest names is a file that will be served", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(mobileRoot, "public", "manifest.webmanifest"), "utf8"),
+    ) as { icons: { src: string }[] };
+
+    // A manifest naming an icon that does not exist is the failure mode here:
+    // the install prompt simply never appears, with nothing in the console and
+    // no test to catch it.
+    expect(manifest.icons.length).toBeGreaterThan(0);
+    for (const icon of manifest.icons) {
+      expect(icon.src.startsWith("/")).toBe(true);
+      expect(existsSync(join(mobileRoot, "public", icon.src.slice(1)))).toBe(true);
+    }
+  });
+});
