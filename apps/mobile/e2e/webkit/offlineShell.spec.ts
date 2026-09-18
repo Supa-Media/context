@@ -71,6 +71,40 @@ import { expect, test } from "@playwright/test";
   with the sandbox" when it is really "the browser is a build behind."
 */
 
+/**
+ * This one case runs in Chromium and not in WebKit, and the reason is measured.
+ *
+ * The first CI run against WebKit got **further than expected and failed in a
+ * different place than feared.** The worry was that WebKit would refuse to
+ * register a service worker on `http://127.0.0.1`; it did not. Registration
+ * worked, the worker took control, `serveUnderTheWorker` completed, and 85
+ * cases in this suite passed alongside it. What failed was the next line:
+ *
+ *     Error: page.reload: WebKit encountered an internal error
+ *       - waiting for navigation until "load"
+ *
+ * — a reload issued while `context.setOffline(true)` is in force. That is
+ * Playwright's offline emulation in its WebKit driver, not this app: nothing
+ * in `sw.js` is reached, because the navigation never starts.
+ *
+ * So the engine that can be taken offline reliably is the one this case uses.
+ * The trade is stated rather than hidden: **this check no longer runs in the
+ * engine iOS Safari ships**, which is the one platform difference a service
+ * worker is most likely to have. What it still buys is the thing no fake can —
+ * a real `CacheStorage`, a real `Response`, and a navigation with the network
+ * genuinely gone — which is exactly the class #690 escaped into.
+ *
+ * `docs/decisions/testing.md` already draws this line for the rest of the
+ * suite ("WebKit in CI proves the JavaScript engine, not the OS gesture
+ * recogniser"): what a green run proves, and what it does not. Re-check this
+ * when Playwright's WebKit offline support changes; the skip is one line and
+ * the case is engine-agnostic.
+ */
+test.skip(
+  ({ browserName }) => browserName === "webkit",
+  "Playwright's WebKit driver errors on a reload taken while offline — see the header",
+);
+
 /** The cache `sw.js` owns. Spelled here so a rename has to be deliberate. */
 const CACHE = "context-app-shell-v1";
 

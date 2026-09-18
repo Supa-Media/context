@@ -501,6 +501,32 @@ jobs:
           CI: "true"
         run: pnpm test:e2e:webkit
 
+      # ── THE OFFLINE CHECK, IN THE ENGINE THAT CAN BE TAKEN OFFLINE ──────
+      #
+      # `offlineShell.spec.ts` is the only thing in this repository that loads
+      # the app in a real browser with the network genuinely gone — the class
+      # of defect #690 escaped into, where a hand-written `CacheStorage` fake
+      # could not model `Response.url` and a private note path ended up in a
+      # cache that sign-out does not clear.
+      #
+      # It skips itself on WebKit, and the reason is measured rather than
+      # assumed: WebKit registers and controls the worker fine (85 cases passed
+      # beside it), but a reload taken while `setOffline(true)` is in force
+      # fails inside Playwright's WebKit driver — "WebKit encountered an
+      # internal error", before the navigation starts. The spec's own header
+      # carries the detail and says to re-check it when that support changes.
+      #
+      # So it runs here, in Chromium, as its own step. A step rather than
+      # folding the chromium project into the line above, because that project
+      # exists to validate *the tests* against the whole suite and would double
+      # every case's runtime for one file's worth of coverage.
+      - name: The app opens with the network off (Chromium)
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm test:e2e:offline
+
       # Playwright's own HTML report — screenshots, traces, and the exact
       # assertion that failed — rather than the raw `test-results/` directory,
       # which is one PNG per failure with no way to see which case it was

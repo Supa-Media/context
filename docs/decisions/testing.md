@@ -339,6 +339,18 @@ served remembers nobody. Its own rule is narrow on purpose: assert only what a
 real engine can disagree with the fake about. Network-first ordering stays in
 the sandbox, because that is control flow Node reproduces exactly.
 
+**It runs in Chromium, not WebKit, and that is measured rather than assumed.**
+The first CI run got further than expected: WebKit registered the worker on
+`http://127.0.0.1`, took control, and passed 85 cases beside it. What failed
+was a reload taken while `setOffline(true)` was in force — `page.reload: WebKit
+encountered an internal error`, before the navigation starts, inside
+Playwright's WebKit driver rather than anywhere in `sw.js`. So the case skips
+itself there with that reason written on it, and `ci.yml` runs it as its own
+Chromium step. The cost is stated rather than hidden: this check does not run
+in the engine iOS Safari ships, which is the platform a service worker is most
+likely to differ on. Re-check when Playwright's WebKit offline support changes
+— the skip is one line and the case is engine-agnostic.
+
 Three things this cost, recorded so the next person does not pay them again:
 
 - **It drives the built export, not `public/`.** A sabotage of the source
