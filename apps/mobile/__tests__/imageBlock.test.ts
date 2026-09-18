@@ -189,28 +189,46 @@ describe("dropping an image", () => {
 });
 
 describe("where a pasted image lands", () => {
-  test("an empty line takes it directly", () => {
+  test("an empty line takes it, and the caret goes below it", () => {
     const state = stateFor("words\n\n", 7);
-    expect(applied(state, planInsert(state, "abc.png", null))).toBe("words\n\n![[abc.png]]");
+    const next = state.update(planInsert(state, "paste-abc.png", null)).state;
+    expect(next.doc.toString()).toBe("words\n\n![[paste-abc.png]]\n");
+    // The caret is NOT on the image's line: the reveal rule would otherwise
+    // give the markup back, and a paste would show a link instead of a picture.
+    expect(next.doc.lineAt(next.selection.main.head).number).toBe(4);
   });
 
-  test("a line with text on it gets a new line under it", () => {
+  test("a line with text on it gets the image under it, and the caret under that", () => {
     const state = stateFor("words", 3);
-    expect(applied(state, planInsert(state, "abc.png", null))).toBe("words\n![[abc.png]]");
+    const next = state.update(planInsert(state, "paste-abc.png", null)).state;
+    expect(next.doc.toString()).toBe("words\n![[paste-abc.png]]\n");
+    expect(next.doc.lineAt(next.selection.main.head).number).toBe(3);
   });
 
-  test("the caret lands after the embed, so a second paste is not on top of the first", () => {
+  test("the row draws immediately, which is the point of where the caret went", () => {
     const state = stateFor("words", 5);
-    const next = state.update(planInsert(state, "abc.png", null)).state;
-    expect(next.selection.main.head).toBe(next.doc.length);
-    expect(applied(next, planInsert(next, "def.png", null))).toBe(
-      "words\n![[abc.png]]\n![[def.png]]",
+    const next = state.update(planInsert(state, "paste-abc.png", null)).state;
+    const rows = imageRows(next, (range) =>
+      selectionTouches(range, [
+        { from: next.selection.main.from, to: next.selection.main.to },
+      ]),
     );
+    expect(rows.length).toBe(1);
+    expect(rows[0].line.images[0].target).toBe("paste-abc.png");
+  });
+
+  test("a second paste lands under the first, not beside it", () => {
+    const state = stateFor("words", 5);
+    const once = state.update(planInsert(state, "paste-abc.png", null)).state;
+    const twice = once.update(planInsert(once, "paste-def.png", null)).state;
+    expect(twice.doc.toString()).toBe("words\n![[paste-abc.png]]\n![[paste-def.png]]\n");
   });
 
   test("a width is written when the host asked for one", () => {
     const state = stateFor("", 0);
-    expect(applied(state, planInsert(state, "abc.png", 480))).toBe("![[abc.png|480]]");
+    expect(
+      state.update(planInsert(state, "paste-abc.png", 480)).state.doc.toString(),
+    ).toBe("![[paste-abc.png|480]]\n");
   });
 });
 
