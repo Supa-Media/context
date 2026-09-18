@@ -79,6 +79,16 @@ export interface SettingsSectionSpec {
   icon: IconName;
   /** Absent on a shared workspace, which has no ingestion alias of its own. */
   personalOnly?: boolean;
+  /**
+   * Deprecated in the console: absent unless the caller says otherwise.
+   *
+   * Different from `personalOnly`, which is a fact about the context. This is
+   * a decision about the product, and it is spelled as a flag on the row
+   * rather than as a `filter` in one caller so that the catalogue — the file
+   * anybody reads to find out what settings exist — says which rows are on
+   * their way out. `plugins/experiment.ts` holds the argument.
+   */
+  experimental?: boolean;
 }
 
 export const SETTINGS_SECTIONS = [
@@ -355,6 +365,11 @@ export const SETTINGS_SECTIONS = [
       which is exactly what this group is about. It sits after Search because
       the two answer questions in the same order a person asks them: what is in
       my notes, and then what else is touching them.
+
+      `experimental` since 2026-09-18, which is why that paragraph is still
+      here rather than deleted with the row: the section is off the list for
+      anybody not already using plugins, and the machinery under it is
+      untouched. `plugins/experiment.ts` says who still sees it and why.
     */
     key: "plugins",
     keywords: "obsidian plugin plugins vault dataview templater excalidraw community addon extension compatible",
@@ -363,6 +378,7 @@ export const SETTINGS_SECTIONS = [
     group: "Your notes",
     icon: "plugin",
     personalOnly: false,
+    experimental: true,
   },
   {
     key: "advanced",
@@ -391,6 +407,24 @@ export const SETTINGS_SECTIONS = [
 
 export type SettingsSectionKey = (typeof SETTINGS_SECTIONS)[number]["key"];
 
+/**
+ * Is this row deprecated in the console?
+ *
+ * A function rather than a bare `section.experimental`, because the catalogue
+ * is `as const` and only the row that carries the flag has the property —
+ * narrowing it at each reader is how the one place that asks and the one place
+ * that tests it drift apart. Spelling `experimental: false` on the other
+ * nineteen rows, the way `personalOnly` is spelled, was the alternative: it
+ * would read uniformly and it would put a line about a deprecation on every
+ * setting this product has, which is the wrong thing for the file anybody
+ * opens to find out what settings exist.
+ */
+export function isExperimentalSection(
+  section: (typeof SETTINGS_SECTIONS)[number] | SettingsSectionSpec,
+): boolean {
+  return "experimental" in section && section.experimental === true;
+}
+
 /** The section a URL with no `?settings=` value, or an unknown one, opens. */
 export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
 
@@ -412,11 +446,23 @@ export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
  * saying why it cannot do that here, and a section removed takes its
  * explanation with it. `personalOnly` is the switch for a section that would
  * be nothing but a refused control; nothing sets it yet.
+ *
+ * `shown` is the other axis, and it belongs to the caller rather than to this
+ * file on purpose: whether Plugins is on the list depends on what that context
+ * has installed and on how the app was built, neither of which a pure
+ * catalogue can see. A key left out of `shown` stays hidden, so an
+ * `experimental` row is absent until somebody wires it on — the fail-closed
+ * direction, and the one a half-finished deprecation should land on.
  */
 export function settingsSectionsFor(
   kind: "personal" | "shared" | null | undefined,
+  shown: Partial<Record<SettingsSectionKey, boolean>> = {},
 ): readonly SettingsSectionSpec[] {
   return SETTINGS_SECTIONS.filter((section) => {
+    // Deprecated in the console, and absent before anything else is asked: a
+    // section nobody may see is not made visible by the kind of context it is
+    // in. See `plugins/experiment.ts`.
+    if (isExperimentalSection(section) && shown[section.key] !== true) return false;
     // Account sections belong to the person, not to whichever context they
     // happen to have open, so a context's kind never removes one.
     if (section.scope === "account") return true;

@@ -18,6 +18,7 @@ import {
   settingsSectionsFor,
   type SettingsSectionKey,
 } from "./sections";
+import { showPluginsSection } from "../plugins/experiment";
 
 /**
  * Settings, drawn over the context somebody is already looking at.
@@ -79,8 +80,16 @@ export function SettingsOverlay({
   const compact = useWindowDimensions().width < layout.narrowBreakpoint;
   const [listing, setListing] = useState(false);
   const [query, setQuery] = useState("");
+  /*
+    Plugins is deprecated in the console and absent unless this context is
+    already using them, or the build turned the experiment on — the two
+    reasons `showPluginsSection` holds together. Computed here rather than in
+    `settingsSectionsFor` because it is a fact about `data`, and the catalogue
+    is a pure list that has never seen a console.
+  */
   const sections = settingsSectionsFor(
     current?.kind === "personal" || current?.kind === "shared" ? current.kind : null,
+    { plugins: showPluginsSection(data) },
   );
 
   /*

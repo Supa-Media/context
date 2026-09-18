@@ -245,8 +245,18 @@ test("the plugins search box is not squeezed by its filters on a phone", async (
   await tap(page, ACCOUNT_MENU);
   await page.getByTestId(ACCOUNT_SETTINGS).tap();
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
-  // Settings opens on a section; the list is one press back, and Plugins is
-  // on it — the same two steps `a phone opens settings on a section` walks.
+  /*
+    Settings opens on a section; the list is one press back, and Plugins is on
+    it — the same two steps `a phone opens settings on a section` walks.
+
+    Plugins is deprecated in the console (`plugins/experiment.ts`) and off the
+    list for a context that has never touched one. The fixture is the demo
+    console, which has five vault plugins and a built-in switched off, so the
+    row is here for the reason a real user's would be — `pluginsInUse`, not the
+    experiment flag, which this build deliberately leaves unset. If this line
+    ever fails to find the row, check the fixture's plugin views before
+    changing the selector.
+  */
   await page.getByTestId("settings-overlay-back").tap();
   await page.getByTestId("settings-section-plugins").tap();
 

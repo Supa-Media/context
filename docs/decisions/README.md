@@ -334,6 +334,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The open note is an editor a plugin can write into, while its work is running
 - A press that does nothing is a bug, even when nothing is broken
 - A check that reads React state from inside `onEvent` is not a check
+- A plugin's `fetch` goes through the grant, and the CSP still denies the frame
+- A plugin's suggestions cross the `WebView` bridge, and the guest asks nothing until told there is somebody to ask
+- A plugin row answers "is it on"; everything else is one press away
+- The section is hidden, the machinery is not
 
 ## [Testing and guards](./testing.md)
 
