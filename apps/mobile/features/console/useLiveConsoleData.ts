@@ -37,7 +37,7 @@ import {
   lastUsedLabel,
 } from "./format";
 import { ownPersonalContext, viewerIdentity } from "./identity";
-import { formatNotesTotal, totalNotes } from "./noteTotals";
+import { formatNotesTotal, notesTotalLabel, totalNotes } from "./noteTotals";
 import {
   forgetContextCopies,
   forgetDepartedContexts,
@@ -959,7 +959,21 @@ export function useLiveConsoleData(): ConsoleData {
       : [
           ...(notes === null
             ? []
-            : [{ value: formatNotesTotal(notes), label: "notes across all" }]),
+            : [
+                {
+                  value: formatNotesTotal(notes),
+                  /*
+                    Dated by its stalest walk, because the number is a
+                    measurement rather than a live reading: `noteCount` is
+                    written only by verification, so a context filled in
+                    afterwards through the gateway contributes what it held
+                    then, for ever. The caption is where that goes — see
+                    `noteTotals.ts` — and an undated total keeps the wording it
+                    has always had.
+                  */
+                  label: notesTotalLabel(notes, Date.now()),
+                },
+              ]),
           { value: formatCount(contexts.length), label: "in your context" },
           { value: formatCount(activeGrants.length), label: "AI clients connected" },
         ],

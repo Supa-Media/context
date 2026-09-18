@@ -212,6 +212,34 @@ describe("the signed-in console states no fact it cannot answer", () => {
   });
 
   /**
+   * AND THE TILE SAYS WHEN IT WAS COUNTED, WHICH IS NOT NOW.
+   *
+   * `noteCount` is written by the walk `verifyStorageBinding` runs and by
+   * nothing else — not the gateway, not `write_note`, not email ingestion, not
+   * this console's editor. A context verified while empty and filled in
+   * afterwards by a connected AI client reports the number it held *then*, for
+   * ever, and the tile printed it as a live figure.
+   *
+   * This is the wiring half of `noteTotals.test.ts`: the date has to survive
+   * the binding subscription, the sum, and the label, and a break anywhere on
+   * that path reads as "undated", which is the value that means "say nothing"
+   * — a silent failure, which is why it is asserted here and not only there.
+   */
+  test("and the tile dates the number rather than implying it is current", () => {
+    const { data } = renderSettings(
+      withBinding({
+        ...CONNECTED_BINDING,
+        noteCount: 342,
+        noteCountTruncated: false,
+        noteCountedAt: Date.now() - 3 * 24 * 60 * 60 * 1000,
+      }),
+    );
+
+    expect(data.stats[0]?.value).toBe("342");
+    expect(data.stats[0]?.label).toMatch(/counted 3 days ago/i);
+  });
+
+  /**
    * A walk that hit its page budget is a floor. Printed as a total it is #25
    * again — a precise-looking number that is not the truth about somebody's
    * bucket — so the `+` is the whole point of the assertion.
