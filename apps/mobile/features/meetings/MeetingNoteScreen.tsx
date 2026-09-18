@@ -17,6 +17,7 @@ import { notesOnlyOnDevice, pendingSteps } from "./record";
 import type { MeetingRecord } from "./record";
 import { MEETINGS_ROUTE } from "./route";
 import { useMeetingsSnapshot } from "./useMeetings";
+import { endedAudioLine, transcriptIncompleteLine } from "./keptAudio";
 
 /**
  * The meeting after it has ended: finalizing, then the note.
@@ -227,6 +228,15 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
       </View>
 
       <Summary record={record} />
+      {/*
+        The Summary's own "still waiting" sentence covers a meeting whose note is
+        being held for its audio. A meeting that is already a note, or has
+        failed, has a Summary about something else — so what is still on the
+        phone is said beside it rather than not at all.
+      */}
+      {record.session.state !== "finalizing" ? (
+        <KeptAudioNote record={record} />
+      ) : null}
 
       {/*
         THE NOTES THIS SCREEN USED TO SHOW AND NOT TAKE.
@@ -388,6 +398,22 @@ export function noteEditorHref(record: MeetingRecord): string | null {
   return noteHref(slug, path);
 }
 
+/** Audio of this meeting still on the phone, for a meeting past `finalizing`. */
+function KeptAudioNote({ record }: { record: MeetingRecord }) {
+  const snapshot = useMeetingsSnapshot();
+  const line = endedAudioLine(
+    snapshot.audio[record.session.id],
+    snapshot.offline,
+    record.session.state,
+  );
+  if (line === null) return null;
+  return (
+    <Text variant="rowSub" testID="meeting-audio-kept">
+      {line}
+    </Text>
+  );
+}
+
 /** The generated note, or the honest absence of one. */
 function Summary({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
@@ -438,11 +464,12 @@ function Summary({ record }: { record: MeetingRecord }) {
           somebody about a network problem they do not have is the same defect
           as telling them nothing, one sentence further on.
         */}
-        {snapshot.transcribing === session.id
+        {endedAudioLine(snapshot.audio[session.id], snapshot.offline, session.state) ??
+        (snapshot.transcribing === session.id
           ? "Still turning the last of the audio into words. The note is written once they are in."
           : record.acked.finalized
             ? "Your context is writing this up. It will appear here."
-            : "Waiting to reach your context. Your notes are safe on this device until it does."}
+            : "Waiting to reach your context. Your notes are safe on this device until it does.")}
       </Text>
     </View>
   );
@@ -457,15 +484,30 @@ function Summary({ record }: { record: MeetingRecord }) {
  */
 function Transcript({ record }: { record: MeetingRecord }) {
   const styles = useThemedStyles(makeStyles);
+  const snapshot = useMeetingsSnapshot();
   const segments = record.session.transcript;
+  /*
+    Audio of this meeting still on the phone means this transcript is not the
+    whole meeting yet, and it says so above the words rather than letting a
+    short transcript pass for a short meeting. "A typed session" below would be
+    false outright while there is audio waiting.
+  */
+  const incomplete = transcriptIncompleteLine(snapshot.audio[record.session.id]);
 
   return (
     <View style={styles.section} testID="meeting-transcript">
       <Text variant="railHead">Transcript</Text>
-      {segments.length === 0 ? (
-        <Text variant="rowSub">
-          Nothing was transcribed for this meeting — it was a typed session.
+      {incomplete === null ? null : (
+        <Text variant="rowSub" testID="meeting-transcript-incomplete">
+          {incomplete}
         </Text>
+      )}
+      {segments.length === 0 ? (
+        incomplete === null ? (
+          <Text variant="rowSub">
+            Nothing was transcribed for this meeting — it was a typed session.
+          </Text>
+        ) : null
       ) : (
         segments.map((segment) => (
           <Text key={segment.id} style={styles.segment}>

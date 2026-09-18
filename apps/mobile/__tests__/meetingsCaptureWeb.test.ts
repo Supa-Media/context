@@ -954,6 +954,38 @@ describe("the send is off the device's critical path", () => {
   });
 
   /**
+   * Offline, a browser has nowhere to keep audio (the phone does — see
+   * `spool.ts`), so it does not dispatch a chunk into an action that will not
+   * answer, and it says what is true once rather than every twenty seconds:
+   * this stretch is not being transcribed, the notes are fine, and the phone
+   * keeps audio offline. Not "running behind", which blamed the transcriber.
+   */
+  test("offline, a browser says once that it is not keeping the audio, and sends nothing", async () => {
+    const { recorder, transcriber, errors } = harness();
+    await recorder.start();
+    const had = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(navigator), "onLine");
+    Object.defineProperty(navigator, "onLine", { configurable: true, get: () => false });
+    try {
+      await advance(SEGMENT_MS * 4);
+      expect(transcriber.chunks).toHaveLength(0);
+      const said = errors.map((error) => error.message);
+      expect(said.filter((message) => /offline/i.test(message))).toHaveLength(1);
+      expect(said.every((message) => CAPTURE_MESSAGES.includes(message))).toBe(true);
+      expect(said.join(" ")).toMatch(/typed notes are still saved/);
+      expect(said.join(" ")).not.toMatch(/running behind/);
+      expect(recorder.state).toBe("recording");
+    } finally {
+      delete (navigator as { onLine?: boolean }).onLine;
+      if (had !== undefined) Object.defineProperty(Object.getPrototypeOf(navigator), "onLine", had);
+    }
+    // Back online, the next chunk goes as it always did.
+    await advance(SEGMENT_MS);
+    expect(transcriber.chunks).toHaveLength(1);
+    void recorder.stop();
+    await advance(0);
+  });
+
+  /**
    * A chunk that will not close costs its own audio and nothing else — the
    * next twenty seconds are recorded rather than lost with it, and the wall
    * clock keeps the time that passed.

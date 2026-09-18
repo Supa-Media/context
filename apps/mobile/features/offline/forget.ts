@@ -8,9 +8,34 @@ import { endSession } from "./epoch";
 import { keysForDepartedContexts, keysForWorkspace, ownedKeys } from "./keys";
 import { forgetPlace, placeKeys } from "../console/lastPlace";
 import { forgetAllMeetings } from "../meetings/local";
+import { forgetSpooledAudio, spooledAudioCounts } from "../meetings/capture";
 import { meetingKeys } from "../meetings/keys";
 import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
+import { openMirrorStore } from "./mirrorStore";
+import { forgetMirrorStatus } from "./mirrorStatus";
+import type { MirrorStore } from "./mirrorStoreCore";
+
+/**
+ * The mirror's half of each clear, and its own verification.
+ *
+ * The mirror is note text on the device like the cache is — more of it, since
+ * it is every note rather than the ones somebody opened — so every ending that
+ * clears the cache clears the mirror too, by the same rule and verified the
+ * same way: re-listed afterwards, never trusted. `roots()` rejects when it
+ * cannot list, for the reason `keys()` does, and a rejection lands in the
+ * caller's `catch` as `unmeasured`. `null` — no mirror on this device — has
+ * nothing to clear and nothing to verify.
+ */
+async function mirrorLeft(
+  mirror: MirrorStore | null,
+  clear: (mirror: MirrorStore) => Promise<void>,
+  remaining: (roots: Awaited<ReturnType<MirrorStore["roots"]>>) => number,
+): Promise<number> {
+  if (mirror === null) return 0;
+  await clear(mirror);
+  return remaining(await mirror.roots());
+}
 
 /**
  * The hygiene layer, wired to the platform's store.
@@ -221,6 +246,18 @@ export async function forgetLocalCopies(): Promise<ForgetResult> {
 }
 
 async function clearEverything(): Promise<ForgetResult> {
+  /*
+    The meeting audio kept on this device to be transcribed later
+    (`meetings/capture/spool.ts`), first. It is not in the key store — it is
+    files, in the app's documents directory — which is exactly why it is named
+    here rather than assumed: a clear that walked the store and reported
+    `cleared` would say nothing about minutes of somebody's meeting still on the
+    phone. First, because it needs no store, so a store that throws cannot stand
+    between a sign-out and it. The epoch was ended before this was called, so a
+    recorder or a drain still running writes nothing back behind it, and what it
+    answers is a re-count, not a hope.
+  */
+  const audio = forgetSpooledAudio();
   try {
     const store = openStore();
     await forgetEverything(store);
@@ -252,11 +289,25 @@ async function clearEverything(): Promise<ForgetResult> {
       like the page above, rather than trusted to `ownedKeys`.
     */
     await forgetAllMeetings(store);
-    if (!store.durable) return { verdict: "unmeasured" };
-    const keys = await store.keys();
+    /*
+      And the mirror — every note body on the device, not only the opened ones.
+      Through the store's own queue, which the epoch bumped above already
+      guards: a sync write still in flight is either before the clear in that
+      queue (and removed by it) or after it (and refused), never in between.
+    */
+    forgetMirrorStatus();
+    const mirrorRoots = await mirrorLeft(
+      await openMirrorStore(),
+      (mirror) => mirror.clearAll(),
+      (roots) => roots.length,
+    );
+    // What cannot be re-counted without a durable store is the key-value half;
+    // the audio spool and the mirror are measured on their own either way.
+    if (!store.durable && mirrorRoots === 0 && audio.left === 0) return { verdict: "unmeasured" };
+    const keys = store.durable ? await store.keys() : [];
     const left = [...ownedKeys(keys), ...placeKeys(keys), ...meetingKeys(keys)];
-    if (left.length > 0) {
-      warnLeftBehind("sign-out", left.length);
+    if (left.length + mirrorRoots + audio.left > 0) {
+      warnLeftBehind("sign-out", left.length + mirrorRoots + audio.left);
       return { verdict: "left-behind" };
     }
     return { verdict: "cleared" };
@@ -309,14 +360,22 @@ async function clearContext(workspaceId: string): Promise<ForgetResult> {
   try {
     const store = openStore();
     await forgetWorkspace(store, workspaceId);
-    if (!store.durable) return { verdict: "unmeasured" };
+    forgetMirrorStatus(workspaceId);
+    const mirrorRoots = await mirrorLeft(
+      await openMirrorStore(),
+      (mirror) => mirror.forgetWorkspace(workspaceId),
+      (roots) => roots.filter((root) => root.workspaceId === workspaceId).length,
+    );
+    if (!store.durable && mirrorRoots === 0) return { verdict: "unmeasured" };
     // The same set the clear took, through the same function. A verification
     // with its own idea of which keys belong to this context is a verification
     // that reports `cleared` over records nothing looked at — which is the
     // failure this module's "never silently" stance exists to prevent.
-    const left = keysForWorkspace(await store.keys(), workspaceId);
-    if (left.length > 0) {
-      warnLeftBehind("leave", left.length);
+    const left =
+      (store.durable ? keysForWorkspace(await store.keys(), workspaceId).length : 0) +
+      mirrorRoots;
+    if (left > 0) {
+      warnLeftBehind("leave", left);
       return { verdict: "left-behind" };
     }
     return { verdict: "cleared" };
@@ -387,19 +446,52 @@ async function clearDeparted(known: readonly string[]): Promise<ForgetResult> {
   try {
     const store = openStore();
     await forgetDeparted(store, known);
-    if (!store.durable) return { verdict: "unmeasured" };
+    const live = new Set(known);
+    const departed = (roots: Awaited<ReturnType<MirrorStore["roots"]>>) =>
+      roots.filter((root) => !live.has(root.workspaceId));
+    const mirrorRoots = await mirrorLeft(
+      await openMirrorStore(),
+      async (mirror) => {
+        for (const root of departed(await mirror.roots())) {
+          forgetMirrorStatus(root.workspaceId);
+          await mirror.forgetWorkspace(root.workspaceId);
+        }
+      },
+      (roots) => departed(roots).length,
+    );
+    if (!store.durable && mirrorRoots === 0) return { verdict: "unmeasured" };
     // Re-listed through the same selector that took them, for the reason
     // `clearContext` gives: a verification with its own idea of which keys were
     // in scope reports `cleared` over records nothing looked at.
-    const left = keysForDepartedContexts(await store.keys(), known);
-    if (left.length > 0) {
-      warnLeftBehind("departed contexts", left.length);
+    const left =
+      (store.durable ? keysForDepartedContexts(await store.keys(), known).length : 0) +
+      mirrorRoots;
+    if (left > 0) {
+      warnLeftBehind("departed contexts", left);
       return { verdict: "left-behind" };
     }
     return { verdict: "cleared" };
   } catch {
     warnStoreUnusable("departed contexts");
     return { verdict: "unmeasured" };
+  }
+}
+
+/**
+ * How many meetings have audio on this phone that has not been transcribed.
+ *
+ * Counted for the sign-out question, because `forgetLocalCopies` wipes the
+ * spool and nothing else would ever say so. Every meeting in every context —
+ * the spool is device-wide and so is the wipe — and every kept chunk,
+ * including ones the drain has set aside: they are the person's audio and they
+ * go with the rest. A spool that cannot be read answers zero, the same floor
+ * `unsentOnDevice` takes; it is synchronous, so there is no deadline to add.
+ */
+export function unsentMeetingAudio(): number {
+  try {
+    return Object.values(spooledAudioCounts()).filter((counts) => counts.kept > 0).length;
+  } catch {
+    return 0;
   }
 }
 

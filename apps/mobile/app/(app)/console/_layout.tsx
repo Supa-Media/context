@@ -61,6 +61,7 @@ import {
 } from "../../../features/console/files/rowCommand";
 import { RecentSheet } from "../../../features/console/files/RecentSheet";
 import { saveChip, statusSegments } from "../../../features/console/files/status";
+import { withMirrorSegment } from "../../../features/offline/mirrorCopy";
 import { SyncPill, SyncSheet } from "../../../features/console/files/SyncSheet";
 import { NO_PENDING } from "../../../features/console/files/pendingMarks";
 import { closeIntent, isTabDirty } from "../../../features/console/files/tabs";
@@ -1691,7 +1692,13 @@ function Status({ data }: { data: ConsoleData }) {
     toggle inside it. Two copies of that chrome is a second rule under the
     first and the leading segment indented twice.
   */
-  return <StatusBar segments={segments} style={styles.statusBar} testID="console-status" />;
+  /*
+    How much of this context is on the device, from the offline mirror — at
+    the front beside "Offline" when part of it is missing and the device is
+    offline, and quietly at the end of the leading group otherwise.
+  */
+  const withMirror = withMirrorSegment(segments, data.files.sync, Date.now());
+  return <StatusBar segments={withMirror} style={styles.statusBar} testID="console-status" />;
 }
 
 export { Avatar };

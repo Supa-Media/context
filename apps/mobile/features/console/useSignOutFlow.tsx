@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useRouter } from "expo-router";
 import { useAuthActions } from "@convex-dev/auth/react";
 import { Confirm } from "./files/Dialogs";
-import { forgetLocalCopies, unsentOnDevice } from "../offline/forget";
+import { forgetLocalCopies, unsentMeetingAudio, unsentOnDevice } from "../offline/forget";
 import { signOutWarning } from "../offline/copy";
 import type { ConsoleData } from "./types";
 import { resetObservabilityUser } from "../observability/client";
@@ -66,11 +66,14 @@ export function useSignOutFlow(data: ConsoleData): {
         live?.ready === true ? selectedContextId : null,
       );
       const here = live?.counts ?? NO_QUEUE;
-      const warning = signOutWarning({
-        pending: here.pending + elsewhere.pending,
-        conflicted: here.conflicted + elsewhere.conflicted,
-        rejected: here.rejected + elsewhere.rejected,
-      });
+      const warning = signOutWarning(
+        {
+          pending: here.pending + elsewhere.pending,
+          conflicted: here.conflicted + elsewhere.conflicted,
+          rejected: here.rejected + elsewhere.rejected,
+        },
+        unsentMeetingAudio(),
+      );
       if (warning === null) {
         signOutNow();
         return;
@@ -84,8 +87,8 @@ export function useSignOutFlow(data: ConsoleData): {
     dialog:
       discarding === null ? null : (
         <Confirm
-          title="Sign out with edits still waiting?"
-          body={`${discarding} Nothing else is lost — your bucket is untouched.`}
+          title="Sign out with work still on this device?"
+          body={`${discarding} Your bucket is untouched.`}
           confirmLabel="Sign out and discard"
           onCancel={() => setDiscarding(null)}
           onConfirm={() => {

@@ -89,6 +89,17 @@ export interface DrainAllDeps {
    * warned about and chose to discard. `epoch.ts` carries the argument.
    */
   mine: () => boolean;
+  /**
+   * A write this pass made landed: `text` is in the bucket at `etag`, in the
+   * context the queue is filed under. For the device's copy of that note to
+   * move onto it — the mirror's `moveMirroredBody` — so an edit made offline
+   * does not read back as the version it replaced until the next sync.
+   *
+   * With the workspace as an argument for the same reason `write` has one, and
+   * never used for the open editor: that is what `onWritten` is for, and this
+   * pass has none.
+   */
+  onSent?: (workspaceId: string, body: { path: string; text: string; etag: string }) => void;
 }
 
 /**
@@ -163,6 +174,13 @@ export async function drainOtherContexts(
       // sent will be attempted again and refused as conflicts or settled as
       // no-ops. Both are visible; silently dropping them would not be.
       continue;
+    }
+
+    for (const sent of report.sent) {
+      const entry = outbox.writes.find((write) => write.path === sent.path);
+      if (entry !== undefined) {
+        deps.onSent?.(workspaceId, { path: sent.path, text: entry.text, etag: sent.etag });
+      }
     }
 
     const settled = counts(next);

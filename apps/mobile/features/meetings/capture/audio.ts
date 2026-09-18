@@ -7,10 +7,20 @@ import {
 } from "expo-audio";
 import type { AudioMode, AudioRecorder, RecordingStatus } from "expo-audio";
 import { Directory, File, Paths } from "expo-file-system";
+import { currentEpoch } from "../../offline/epoch";
 import type { TranscriptSegment } from "../protocol";
 import type { CaptureOptions, MeetingRecorder, RecorderError, RecorderState } from "./index";
 import { MAX_INFLIGHT_CHUNKS, SEGMENT_MS, chunkIdFor } from "./segments";
 import { resolveTranscriber } from "./transcriber";
+import { captureOffline } from "./connectivity";
+import {
+  audioSpool,
+  claimChunk,
+  releaseChunk,
+  spoolChanged,
+  type SpoolSource,
+  type SpooledChunk,
+} from "./spool";
 import { meterLevel, publishRecorderLevel } from "./level";
 import {
   PCM_BIT_DEPTH,
@@ -94,9 +104,9 @@ import {
  * transcript is a list of `TranscriptSegment`s with stable client-generated ids
  * precisely so a phone that lost signal mid-meeting can re-send, so capture
  * rotates on a fixed wall clock (`SEGMENT_MS`): every rotation closes a
- * complete, self-contained audio file, reads it, **deletes it**, and hands the
- * bytes to the transcriber with an `offsetMs` that is the sum of the durations
- * before it rather than a clock reading at send time.
+ * complete, self-contained audio file, keeps it in the spool (point 5), and
+ * hands it to the transcriber with an `offsetMs` that is the sum of the
+ * durations before it rather than a clock reading at send time.
  *
  * **The send is not in that chain.** A rotation closes the file and reopens the
  * microphone at once; the bytes go out separately and the segments arrive
@@ -138,16 +148,30 @@ import {
  * more truthful answer to that question than a timestamp ever was.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * 5. THE AUDIO NEVER LEAVES THIS FILE.
+ * 5. THE AUDIO NEVER LEAVES capture/, AND IT IS KEPT UNTIL IT HAS BEEN HEARD.
  * ────────────────────────────────────────────────────────────────────────────
  *
  * `MeetingRecorder` has no method that hands audio out, and this implementation
- * adds none: the uri and the base64 live in a closure for the length of one
- * request, and the file on disk is deleted *before* that request is even made.
- * There is no module-level buffer, nothing exported that holds bytes, and
- * nothing above `capture/` that could ask. That is what makes "audio is
- * transient and is never written to the bucket" a property of the code rather
- * than a promise in a document.
+ * adds none. Nothing exported above `capture/` holds bytes or can ask for them.
+ *
+ * **What changed (2026-09-18): a chunk is kept on the device until the
+ * transcriber has answered for it.** This paragraph used to say the file was
+ * deleted *before* the request that carried it, which made "audio is
+ * transient" a property of the code — and made every chunk sent without signal
+ * a hole in the transcript for good, with the backlog past
+ * `MAX_INFLIGHT_CHUNKS` dropped on the floor. The owner's call reversed it:
+ * offline audio is spooled, never dropped. Every chunk is now written into the
+ * spool (`spool.ts`, under the app's documents directory) *before* it is sent,
+ * sent only when there is a connection and room, and deleted only once its
+ * words have been handed to the meeting. What is not sent now is sent later by
+ * `spoolDrain.ts`, through the same `transcribeChunk`, with the same chunk id.
+ * `docs/decisions/meetings.md`, "Audio nobody has transcribed yet is kept on
+ * the device", records the reversal and what it costs.
+ *
+ * If the spool cannot take a chunk — a full disk — the old path is still here
+ * and is the fallback: send it once from memory, and a failure is a gap with a
+ * sentence. That is the one case left in which audio is not kept, and it is a
+ * device that has no room to keep it.
  *
  * Two paths were leaving files behind, and both are closed. A device that threw
  * out of `stop()` used to take its half-written file with it — `uri` was never
@@ -402,7 +426,16 @@ const MAX_SLICE_MS = SEGMENT_MS * 1.5;
  * backlog rule are identical — and a second copy of those is how the two
  * platforms would drift.
  */
-type Payload = File | { base64: string; mimeType: string };
+type Payload =
+  | File
+  | { base64: string; mimeType: string }
+  /**
+   * A chunk already in the spool. It owns no file the device knows about — the
+   * spool does — and the send confirms it only once its words are delivered.
+   * `base64` is carried when the bytes are already in memory, so a slice that
+   * was just written is not read straight back off the disk.
+   */
+  | { spooled: SpooledChunk; base64: string | null };
 
 const MIC_DENIED =
   "Context needs microphone access to hear this meeting. This one is a typed session; your notes still land in your bucket.";
@@ -429,6 +462,17 @@ const NO_SESSION_ID =
 
 const CHUNK_FAILED =
   "A few seconds of audio could not be transcribed. Capture is still running.";
+
+/**
+ * A send failed and its chunk is still in the spool.
+ *
+ * Its own sentence rather than `CHUNK_FAILED`, because the two are different
+ * facts: that one is a gap in the transcript, and this one is a delay. Telling
+ * somebody audio was lost when it is sitting on their phone waiting to be sent
+ * is the crying-wolf half of honesty, and it teaches them to stop reading chips.
+ */
+const CHUNK_KEPT =
+  "A few seconds of audio could not be transcribed yet. They are saved on this phone and will be sent again.";
 
 const SEND_BACKLOG =
   "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
@@ -475,6 +519,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   INTERRUPTED,
   NO_TRANSCRIBER,
   CHUNK_FAILED,
+  CHUNK_KEPT,
   SEND_BACKLOG,
   NO_SPEECH,
   NO_SESSION_ID,
@@ -563,6 +608,20 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
 
   /** Identity of this capture session. Read once, at `start`, and never again. */
   let sessionKey = "";
+  /**
+   * The meeting whose words a send may hand to the listeners.
+   *
+   * Set **synchronously** at the top of `start()`, before its first await, and
+   * that timing is the point: the controller detaches the last meeting's
+   * listener and calls `start()` in the same synchronous stretch, so no send can
+   * settle between the two. A send for any other meeting — the last one's, still
+   * in flight when the next began — leaves its chunk in the spool, where the
+   * drain delivers it by the meeting id it names. Before the spool, those words
+   * were folded into nobody.
+   */
+  let owner = "";
+  /** The session this recording belongs to. Every spool write carries it. */
+  let epoch = 0;
   let chunkIndex = 0;
   /** Milliseconds of captured audio before the chunk currently open. */
   let chunkStartOffsetMs = 0;
@@ -859,14 +918,13 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
    * eighteen seconds on disk sends eighteen and the other two go next time,
    * with every timestamp still landing where the sound did.
    *
-   * ## Nothing is dropped when the sends are backed up
+   * ## Nothing is dropped when the sends are backed up, or when there are none
    *
-   * `closeChunk` discards a chunk it cannot send, because the file it holds is
-   * about to be deleted and there is nowhere to keep it. **The file is the
-   * buffer here**, so the answer is simply not to advance: the bytes stay on
-   * disk and the next tick takes them. That is the one place this path is
-   * strictly better than the one it replaces, and it is why a backed-up
-   * connection costs latency rather than audio.
+   * Every slice goes into the spool before anything else is decided, so a tick
+   * with no connection, or three sends already out, still cuts its twenty
+   * seconds and keeps them. Only a spool that refuses the write brings back the
+   * older rule — **the file is the buffer**: do not advance, and let the next
+   * tick take the bytes.
    *
    * @param ceilingMs The most audio one slice may carry. See `MAX_SLICE_MS`.
    * @returns Whether a slice was sent, so a drain can loop until it is not.
@@ -905,9 +963,6 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     const available = alignToFrame(size - pcmRead, pcmFormat);
     if (available <= 0) return false;
 
-    // Backed up: leave the audio where it is. See the header.
-    if (inFlight.size >= MAX_INFLIGHT_CHUNKS) return false;
-
     const take = Math.min(available, pcmBytesForMs(ceilingMs, pcmFormat));
     if (take <= 0) return false;
 
@@ -915,34 +970,81 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     if (pcm === null) return false;
 
     /*
-      The offset moves before the send, exactly as `closeChunk`'s does and for
-      the same reason: these bytes have been taken, and a send that fails must
-      not make the rest of the meeting's timestamps early. A failed slice is a
-      gap in the transcript, never a shift in it.
+      INTO THE SPOOL FIRST, WHATEVER HAPPENS NEXT.
+
+      A slice that is kept can be cut whether or not it can be sent: offline,
+      or with the sends backed up, it simply waits on the device. Only when the
+      spool refuses it — a full disk — does the old rule come back: the file is
+      the buffer, so leave the bytes where they are rather than cut audio there
+      is nowhere to put.
     */
     const offsetMs = chunkStartOffsetMs;
     const durationMs = pcmDurationMs(pcm.length, pcmFormat);
+    const wav = wavFile(pcm, pcmFormat);
+    const kept = keep(
+      { meetingId: sessionKey, index: chunkIndex, offsetMs, durationMs },
+      { kind: "bytes", bytes: wav, mimeType: WAV_MIME },
+    );
+    if (kept === null && !canSendNow()) return false;
+
+    /*
+      The offset moves before the send, exactly as `closeChunk`'s does and for
+      the same reason: these bytes have been taken, and a send that fails must
+      not make the rest of the meeting's timestamps early. A failed slice that
+      was kept is a delay; one that could not be kept is a gap — never a shift.
+    */
     chunkStartOffsetMs += durationMs;
     pcmRead += pcm.length;
     chunkStartedAtMs = Date.now();
 
-    dispatch(
-      { base64: encodeBase64(wavFile(pcm, pcmFormat)), mimeType: WAV_MIME },
-      chunkIdFor(sessionKey, chunkIndex),
-      offsetMs,
-      durationMs,
-    );
+    const chunkId = chunkIdFor(sessionKey, chunkIndex);
     chunkIndex += 1;
+    if (kept === null) {
+      dispatch({ base64: encodeBase64(wav), mimeType: WAV_MIME }, chunkId, offsetMs, durationMs);
+      return true;
+    }
+    if (canSendNow()) {
+      dispatch({ spooled: kept, base64: encodeBase64(wav) }, chunkId, offsetMs, durationMs);
+    }
     return true;
+  }
+
+  /**
+   * Whether a chunk may go out now, or should wait in the spool.
+   *
+   * Offline is `connectivity.ts`'s answer, pushed in from the reachability
+   * hook. The bound is `MAX_INFLIGHT_CHUNKS`, which is about *network
+   * concurrency* and nothing else now: a chunk past it is not dropped, it is
+   * kept, and the drain sends it when the recorder is not already three deep.
+   */
+  function canSendNow(): boolean {
+    return !captureOffline() && inFlight.size < MAX_INFLIGHT_CHUNKS;
+  }
+
+  /** Put a chunk in the spool, or answer `null` if this build or disk cannot. */
+  function keep(
+    placement: { meetingId: string; index: number; offsetMs: number; durationMs: number },
+    source: SpoolSource,
+  ): SpooledChunk | null {
+    const spool = audioSpool();
+    if (spool === null) return null;
+    try {
+      return spool.keep(placement, source, epoch);
+    } catch {
+      return null;
+    }
   }
 
   /**
    * Every slice still on disk, for the end of a meeting.
    *
-   * `sliceOnce` deliberately refuses while the sends are backed up, so a single
-   * call at `stop()` could leave the last minute of a meeting in a file that is
-   * about to be deleted. This waits the backlog out rather than dropping it:
-   * the audio exists, the person is waiting on exactly this, and `stop()`'s own
+   * With the spool working, `sliceOnce` never refuses for want of a send, so
+   * this cuts the rest of the recording into the spool and returns — and the
+   * chunks that did not go out now go through the drain. The wait below is for
+   * the case the spool could not take a slice: then `sliceOnce` refuses while
+   * the sends are backed up, and a single call at `stop()` could leave the last
+   * minute of a meeting in a file that is about to be deleted. So it waits the
+   * backlog out rather than dropping it: the audio exists, and `stop()`'s own
    * comment already accepts that the wait costs a spinner rather than a
    * microphone.
    */
@@ -1153,8 +1255,32 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       return;
     }
 
+    /*
+      KEPT, THEN SENT IF IT CAN BE.
+
+      The finished recording is moved into the spool, where it stays until its
+      words are delivered. Offline, or with `MAX_INFLIGHT_CHUNKS` already out,
+      that is all that happens now: it waits, and the drain sends it. This is
+      where a chunk used to be *dropped* — "a backlog is dropped rather than
+      kept" — and the reversal is the point of the spool.
+    */
+    const kept = keep(
+      { meetingId: sessionKey, index: chunkIndex, offsetMs, durationMs },
+      { kind: "file", uri: file.uri, mimeType: CHUNK_MIME },
+    );
+    if (kept !== null) {
+      const chunkId = chunkIdFor(sessionKey, chunkIndex);
+      chunkIndex += 1;
+      if (canSendNow()) dispatch({ spooled: kept, base64: null }, chunkId, offsetMs, durationMs);
+      return;
+    }
+
+    /*
+      The spool would not take it — a full disk. What is left is the rule that
+      predates the spool, because there is nowhere to keep the file: send it
+      once if there is room, and drop it with a sentence if there is not.
+    */
     if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
-      // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
       discard(file.uri);
       report({ recoverable: true, message: SEND_BACKLOG });
       return;
@@ -1185,14 +1311,33 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       from `releaseDevice` and nothing for `send` to delete.
     */
     const owned = "uri" in audio ? audio.uri : null;
+    const spooled = "spooled" in audio ? audio.spooled : null;
+    /*
+      A spooled chunk the drain already holds is the drain's to send. It cannot
+      happen from the ticks — a chunk is dispatched in the same breath it is
+      kept — but it is the one guard between two senders and one budget.
+    */
+    if (spooled !== null && !claimChunk(spooled)) return;
     if (owned !== null) inFlightUris.add(owned);
     const run = send(audio, chunkId, offsetMs, durationMs)
       .catch(() => {
-        report({ recoverable: true, message: CHUNK_FAILED });
+        /*
+          A spooled chunk is still on the device, so this is a delay rather
+          than a loss — and offline it is not even news: the screen already
+          says the recording is being kept. Only a chunk that was never kept is
+          a gap, and only that one gets the sentence that says so.
+        */
+        if (spooled === null) report({ recoverable: true, message: CHUNK_FAILED });
+        else if (!captureOffline()) report({ recoverable: true, message: CHUNK_KEPT });
       })
       .finally(() => {
         inFlight.delete(run);
         if (owned !== null) inFlightUris.delete(owned);
+        if (spooled !== null) {
+          releaseChunk(spooled);
+          // Confirmed or not, the drain may now want to look again.
+          spoolChanged();
+        }
       });
     inFlight.add(run);
   }
@@ -1208,12 +1353,18 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     offsetMs: number,
     durationMs: number,
   ): Promise<void> {
+    if ("spooled" in audio) {
+      await sendSpooled(audio.spooled, audio.base64);
+      return;
+    }
     let audioBase64 = "";
     if ("uri" in audio) {
       try {
         audioBase64 = await audio.base64();
       } finally {
         /*
+          THE FALLBACK ONLY: a chunk the spool could not take (point 5).
+
           The file dies here — before the request that carries its contents, not
           after it. Its bytes are already in a local that goes out of scope with
           this call, so nothing is lost by deleting early, and a crash, a kill or
@@ -1247,6 +1398,44 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
       return;
     }
     for (const segment of segments) emit(segment);
+  }
+
+  /**
+   * One kept chunk, out and back. Its file is deleted only after its words
+   * have been handed to somebody listening for its meeting.
+   *
+   * "Somebody listening for its meeting" is the load-bearing condition, and it
+   * is two checks. The controller stops listening once a meeting has ended and
+   * its wait is over, and it starts listening for the *next* meeting before
+   * this recorder learns its id — so a send that outlived its meeting would
+   * otherwise emit into nothing, or into a meeting whose guard refuses foreign
+   * words, and then delete the only copy of them. Such a chunk is left in the
+   * spool instead, and `spoolDrain.ts` delivers it by the id it carries.
+   */
+  async function sendSpooled(chunk: SpooledChunk, inMemory: string | null): Promise<void> {
+    const spool = audioSpool();
+    if (spool === null) return;
+    const audioBase64 = inMemory ?? (await spool.read(chunk));
+    if (audioBase64.length === 0) return;
+
+    const transcriber = resolveTranscriber();
+    if (transcriber === null) return;
+
+    const { segments, refusedSegments } = await transcriber.transcribe({
+      audioBase64,
+      mimeType: chunk.mimeType,
+      chunkId: chunk.chunkId,
+      offsetMs: chunk.offsetMs,
+      durationMs: chunk.durationMs,
+    });
+    if (chunk.meetingId !== owner || segmentListeners.size === 0) return;
+    if (segments.length === 0 && refusedSegments > 0) {
+      spool.confirm(chunk);
+      report({ recoverable: true, message: NO_SPEECH });
+      return;
+    }
+    for (const segment of segments) emit(segment);
+    spool.confirm(chunk);
   }
 
   /**
@@ -1373,6 +1562,9 @@ function expoAudioRecorder(platform: "ios" | "android"): MeetingRecorder {
     async start(options?: CaptureOptions) {
       if (state === "recording") return;
       const meetingId = requireSessionId(options);
+      // Before the first await. See `owner`.
+      owner = meetingId;
+      epoch = currentEpoch();
       if (!(await ensurePermission())) throw new Error(MIC_DENIED);
       sessionWarning = null;
       const backgroundEnabled = await configureAudioSession(platform);

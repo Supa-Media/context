@@ -175,6 +175,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A cold start with no network is the case the offline layer was built for
 - A reconnection empties every queue, not the one on screen
 - The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
+- Every note on the device: the mirror
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
@@ -223,6 +224,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Pressing Record is the same yes, and the blocklist sees less of it
 - A microphone is never opened for a meeting nothing will transcribe
 - A chunk of audio is a whole file, and every recorder cuts on the same clock
+- The device is never waiting on the network, and a backlog is dropped rather than kept (amended: kept)
+- Audio nobody has transcribed yet is kept on the device
 - A client-supplied id is bounded where it enters, not where it lands
 - The folder is a setting; the question is not
 - The recorder is one interface with two implementations, and nothing above it knows which

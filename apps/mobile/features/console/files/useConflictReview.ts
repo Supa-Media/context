@@ -4,7 +4,6 @@ import {
   type MergeRefusal,
 } from "../../offline/resolution";
 import type { Merge3Result } from "../../offline/merge";
-import type { Cached } from "../../offline/cache";
 import type { EditorState } from "./editor";
 import type { OpenNote } from "./types";
 
@@ -87,7 +86,14 @@ export function useConflictReview(input: {
   editor: EditorState;
   /** Reads the note from the bucket. Must **not** be the caching read. */
   fetchNote: (path: string) => Promise<OpenNote>;
-  cachedNote: (path: string) => Promise<Cached<OpenNote> | null>;
+  /**
+   * The device's copy to merge against, given the version the draft was typed
+   * on. Asked with the base rather than for "the cached note" because a mirror
+   * that has synced since holds the bucket's newer body as its current copy and
+   * keeps the ancestor beside it (`mirroredAncestor`) — the newest copy is
+   * exactly what an ancestor is not.
+   */
+  ancestor: (path: string, draftBase: string | null) => Promise<{ text: string; etag: string } | null>;
   online: boolean;
   conditionalWrite?: boolean;
 }): ConflictReview | null {
@@ -96,14 +102,14 @@ export function useConflictReview(input: {
 
   /*
     Through refs, for the reason every callback in `useFileBrowser` reads the
-    offline layer through one: `cachedNote` comes off an object that is rebuilt
+    offline layer through one: `ancestor` comes off an object that is rebuilt
     on every keystroke, and an effect that depended on it would re-read the
     bucket on every character typed into a conflicted note.
   */
   const fetchRef = useRef(input.fetchNote);
   fetchRef.current = input.fetchNote;
-  const cachedRef = useRef(input.cachedNote);
-  cachedRef.current = input.cachedNote;
+  const cachedRef = useRef(input.ancestor);
+  cachedRef.current = input.ancestor;
   const draftBaseRef = useRef(editor.draftBase);
   draftBaseRef.current = editor.draftBase;
 
@@ -130,9 +136,9 @@ export function useConflictReview(input: {
     void (async () => {
       // The ancestor first, and always — it is read off the device, so it
       // costs nothing and it is the half that works with no connection.
-      const cached = await cachedRef.current(path).catch(() => null);
-      const ancestor =
-        cached === null ? null : { text: cached.value.text, etag: cached.value.etag };
+      const ancestor = await cachedRef
+        .current(path, draftBaseRef.current ?? null)
+        .catch(() => null);
       if (cancelled) return;
 
       if (!online) {

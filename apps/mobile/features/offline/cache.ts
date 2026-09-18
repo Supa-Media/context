@@ -501,6 +501,47 @@ export async function waitingOnDevice(
   return total;
 }
 
+/* ---------------------------- the mirror's handover ---------------------- */
+
+/**
+ * Every note copy this cache holds, grouped by where it is filed.
+ *
+ * For one caller: `useOfflineNotes`, handing these to the mirror
+ * (`adoptCachedNotes`) on a device that has one, before `retireCopies` takes
+ * them. A record that does not parse is skipped — it was never servable.
+ */
+export async function cachedNoteCopies(
+  store: KeyValueStore,
+): Promise<{ scope: CacheScope; workspaceId: string; copies: Cached<OpenNote>[] }[]> {
+  const groups = new Map<string, { scope: CacheScope; workspaceId: string; copies: Cached<OpenNote>[] }>();
+  for (const key of await store.keys()) {
+    const parsed = parseKey(key);
+    if (parsed?.kind !== "note" || parsed.scope === null) continue;
+    const record = decode<OpenNote>(await store.get(key));
+    if (record === null || typeof record.value?.text !== "string") continue;
+    const id = `${parsed.scope}\u001f${parsed.workspaceId}`;
+    let group = groups.get(id);
+    if (group === undefined) {
+      group = { scope: parsed.scope, workspaceId: parsed.workspaceId, copies: [] };
+      groups.set(id, group);
+    }
+    group.copies.push(record);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * Remove every note and listing copy — the part of this cache the mirror
+ * replaces. Never a draft, never the queue, never a remembered context row:
+ * `isOwnTyping` and the kind check keep this to the two scoped kinds.
+ */
+export async function retireCopies(store: KeyValueStore): Promise<void> {
+  for (const key of await store.keys()) {
+    const kind = parseKey(key)?.kind;
+    if (kind === "note" || kind === "listing") await store.remove(key);
+  }
+}
+
 /* ------------------------------ housekeeping ---------------------------- */
 
 /**

@@ -73,6 +73,8 @@ import {
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
+import { holdAncestors, releaseAncestors } from "../../offline/mirrorHolds";
+import { useMirrorStatus } from "../../offline/mirrorStatus";
 import { restoreFor } from "../../offline/restore";
 import { type WriteOutcome } from "../../offline/sync";
 import { queuedWriteSender } from "./queuedWrite";
@@ -117,6 +119,14 @@ export function draftIsKept(durable: boolean): string {
  * that nobody sits in front of a dead toolbar wondering.
  */
 export const OPERATION_TIMEOUT_MS = 45_000;
+
+/**
+ * How long an online open waits for the bucket before showing the mirror's
+ * copy. See `openNote`: long enough that an ordinary connection answers first
+ * and nothing flickers, short enough that a slow one does not leave somebody
+ * looking at a spinner over a note that is already on their device.
+ */
+export const INSTANT_OPEN_MS = 250;
 
 /**
  * What to say when we stopped waiting.
@@ -476,6 +486,28 @@ export function useFileBrowser(options: {
   */
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
+  /** How much of this context is on the device — for `sync.mirror`. */
+  const mirrorStatus = useMirrorStatus(workspaceId);
+
+  /*
+    The open note's version, held for the mirror's ancestor rule.
+
+    A note can sit open and clean for ten minutes while a sync moves the
+    device's copy on underneath it; the moment somebody then types, the draft
+    is based on the version the editor opened, and a merge will need exactly
+    that body. Neither the queue nor a draft names it yet, so the editor holds
+    it itself (`mirrorHolds.ts`) — the etag it is showing, and the base of the
+    draft it is holding, which differ once a conflict is open.
+  */
+  const editorHold = useRef(`editor:${Math.random().toString(36).slice(2)}`).current;
+  useEffect(() => {
+    holdAncestors(
+      editorHold,
+      workspaceId,
+      editor.path === null ? {} : { [editor.path]: [editor.etag, editor.draftBase] },
+    );
+  }, [editor.draftBase, editor.etag, editor.path, editorHold, workspaceId]);
+  useEffect(() => () => releaseAncestors(editorHold), [editorHold]);
 
   /**
    * Read a note **without** remembering it.
@@ -587,7 +619,7 @@ export function useFileBrowser(options: {
   const conflict = useConflictReview({
     editor,
     fetchNote,
-    cachedNote: offline.cachedNote,
+    ancestor: offline.ancestorFor,
     // `unknown` is treated as online: the read is what finds out, and refusing
     // to try would leave a cold load stuck on "cannot be read" forever.
     online: offline.reachability !== "offline",
@@ -932,10 +964,74 @@ export function useFileBrowser(options: {
             notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
         } else {
+          const reading = readNote({ workspaceId, path });
+          /*
+            Online, the mirror answers first when the bucket is slow.
+
+            A note that is on the device should open like a note in Apple
+            Notes, not after a round trip to somebody's bucket on a train's
+            wifi. So the read is given `INSTANT_OPEN_MS` — long enough that an
+            ordinary connection answers inside it and nothing flickers — and
+            past that the mirror's copy is put in the editor, marked
+            `fromCache` (the save chip says "Cached copy" until the bucket
+            answers), and the read carries on behind it.
+
+            Three things keep that honest, each a rule this file already had:
+
+             - **Not when there is work to restore.** A queued write or a draft
+               is restored against the note it was typed on (`restoreFor`),
+               once; showing a copy first would mean restoring twice against
+               two versions. Those opens wait for the bucket, as they always
+               did.
+             - **A refusal still wins.** The copy was shown while there was no
+               answer; when the answer is a refusal, the editor closes and says
+               so — the same outcome `isServerRefusal` gives an open that never
+               showed anything. A transport failure keeps the copy, as the
+               fallback below always has.
+             - **Typing is never replaced.** The bucket's version replaces the
+               copy only while the editor is still clean on this note. If
+               somebody started typing, their draft is based on the copy's
+               version, a save is checked against it, and the mirror holds that
+               version as the merge's ancestor (`mirrorHolds.ts`) — so a copy
+               that turned out stale becomes an ordinary conflict with a real
+               Merge, never an overwrite.
+          */
+          const quick = await raceTimeout(reading, {
+            ms: INSTANT_OPEN_MS,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          });
+          let early: OpenNote | null = null;
+          if (quick.kind === "timeout" && openRun.current === mine) {
+            const copy = await offline.instantCopy(path);
+            const waiting =
+              offline.pendingFor(path) !== undefined || (await offline.savedDraft(path)) !== null;
+            if (copy !== null && !waiting && openRun.current === mine) {
+              early = copy.value;
+              dispatch({ type: "opened", note: copy.value, fromCache: true });
+              settleOpening(path);
+            }
+          }
           try {
-            note = await readNote({ workspaceId, path });
+            note = quick.kind === "value" ? quick.value : await reading;
             offline.rememberNote(note);
+            if (early !== null) {
+              if (openRun.current !== mine) return;
+              const shown = editorRef.current;
+              if (shown.path === path && shown.status === "clean") {
+                dispatch({ type: "reloaded", note });
+              }
+              return;
+            }
           } catch (error) {
+            if (early !== null) {
+              if (openRun.current !== mine) return;
+              if (isServerRefusal(error)) {
+                dispatch({ type: "closed" });
+                setNotice(toFileError(error).message);
+              }
+              return;
+            }
             const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
             if (cached === null) {
               // Superseded: do not put a *different* request's failure into
@@ -2799,6 +2895,7 @@ export function useFileBrowser(options: {
         stuckPaths: offline.outbox.writes
           .filter((write) => write.state !== "pending")
           .map((write) => write.path),
+        ...(mirrorStatus === undefined ? {} : { mirror: mirrorStatus }),
       },
       pending,
       notice,
@@ -2890,6 +2987,7 @@ export function useFileBrowser(options: {
       contextMoves,
       resumeContextMove,
       notice,
+      mirrorStatus,
       offline.counts,
       offline.durable,
       offline.outbox,

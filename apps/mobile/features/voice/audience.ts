@@ -70,6 +70,8 @@ export function reasonFor(failure: DictationFailure, unavailable: string): strin
       return "No microphone is attached, so there is nothing to listen with.";
     case "unreachable":
       return "The words cannot be made right now. Dictation stops rather than look live while producing nothing.";
+    case "offline":
+      return "Dictation in this browser needs a connection, and you're offline. Your computer's own dictation works offline — on a Mac press the dictation key or Fn twice, on Windows press Windows+H — and types straight into the note.";
     case "unsupported":
       return unavailable;
   }

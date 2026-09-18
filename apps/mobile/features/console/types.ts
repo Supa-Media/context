@@ -1,3 +1,4 @@
+import type { MirrorStatus } from "../offline/mirrorStatus";
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { ContextPluginsView } from "./plugins/contextPlugins";
@@ -306,6 +307,12 @@ export interface ConsoleStat {
 export interface ConsoleData {
   /** True for the read-only demo on the landing page. */
   demo: boolean;
+  /**
+   * How much of each context is on this device, by workspace id — the offline
+   * mirror's own account of itself (`features/offline/mirrorStatus.ts`). Absent
+   * on a console with no mirror behind it: the landing page's demo.
+   */
+  mirrors?: ReadonlyMap<string, MirrorStatus>;
   /**
    * The signed-in person — never the viewed context. The avatar, and the
    * account block at the foot of the rail, render this and nothing else; only
