@@ -290,3 +290,46 @@ read, and the server still applies the caller's note visibility before
 returning a byte. Edit and Delete controls use `updateSubmission` and
 `retractSubmission`; the server remains the authority on ownership and editor
 rights.
+
+## The response table scrolls sideways, and never truncates an answer
+
+Decided with the owner, 2026-09-18, from a screenshot of the feature-request
+form and two of Notion's tables. The table was `width: 100%` inside a card the
+width of the reading measure, with seven columns, and the browser's only move
+was to shrink every one of them until the whole thing fit: a handle broken
+across two lines mid-word, an ISO timestamp taking four, one response 190px
+tall. Every column was equally unreadable in service of showing all of them at
+once.
+
+So the table takes the width its columns need (`max-content`, `min-width: 100%`)
+and the box around it scrolls — which is what Notion does, and is what was asked
+for. The consequences worth writing down:
+
+- **Nothing is pinned.** The owner's second screenshot has Notion's first
+  column scrolled away entirely, which is the whole mechanism: one axis, no
+  sticky column, no shadow to maintain.
+- **A column *about* a response never wraps; a column *of* one always does.**
+  `@seyi`, a timestamp and a row of buttons are single tokens and wrapping one
+  buys nothing at the cost of every row's height. An answer wraps inside a
+  column capped at `min(24em, 72vw)`.
+- **The cap is viewport-aware so the scroll is discoverable.** At `24em` flat
+  the answer column fills a phone exactly, the next column begins at the card's
+  edge, and a table with four more columns looks identical to one with none —
+  the scrollbar that would say otherwise is a transient overlay on a touch
+  device. Under the viewport, the next column always peeks.
+- **An answer is never truncated**, which is where this departs from Notion
+  deliberately. Notion clips a cell and gives you the row to open; this table
+  has no row to open, and a feature request cut at 40 characters in the list of
+  feature requests is the list not working. Reversing this to an ellipsis would
+  need somewhere for the rest of the answer to go first.
+- **Server text is capped too.** A declined vote replaces the voters with the
+  gateway's message and a declined delete replaces a button's label, both inside
+  columns that do not wrap. Measured in Chromium at 390pt against a 340px card:
+  capped, a refusal takes the table to 1214px whether the message is 38
+  characters or 150; uncapped, 1340px and 2751px — that is, however long the
+  sentence happens to be.
+
+The tests are in `apps/mobile/__tests__/formBlock.test.ts` under "the response
+table is read across, not crushed". jsdom does not lay out, so they hold the
+DOM classes and the declarations that produce the layout; the layout itself was
+read off renders in Chromium at 390pt and 760pt.
