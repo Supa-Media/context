@@ -74,9 +74,9 @@ interface Fixture {
  * exercised here is the real one.
  */
 async function fixture(
-  options: MemoryS3Options & { conditionalWrite?: boolean } = {},
+  options: MemoryS3Options & { conditionalWrite?: boolean; conditionalCreate?: boolean } = {},
 ): Promise<Fixture> {
-  const { conditionalWrite = true, ...bucketOptions } = options;
+  const { conditionalWrite = true, conditionalCreate = true, ...bucketOptions } = options;
   const t = setupTest();
   const owner = await createUser(t, "owner@example.invalid");
   const editor = await createUser(t, "editor@example.invalid");
@@ -114,7 +114,7 @@ async function fixture(
       encryptedSecretAccessKey,
       capabilities: {
         conditionalWrite,
-        conditionalCreate: true,
+        conditionalCreate,
         conditionalDelete: true,
       },
       status: "connected" as const,
@@ -2222,6 +2222,120 @@ describe("a team-scoped caller cannot read, list, or infer a private note", () =
 });
 
 /* -------------------------------------------------------------------------- */
+/*                         what the offline mirror is fed                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `syncManifest` and `readNotes` through the real actions, the real
+ * `S3Store` and the real authorization. `offlineSync.test.ts` proves the
+ * operations against a bucket; this proves the tier the action hands them is
+ * the caller's, and that the answers are the same ones `listFiles` and
+ * `readNote` give.
+ */
+describe("the offline mirror sees exactly what its reader may", () => {
+  test("an owner's manifest and a member's differ by exactly the private half", async () => {
+    const f = await fixture();
+    await share(f);
+    const owner = await asUser(f.t, f.owner).action(api.functions.files.syncManifest, {
+      workspaceId: f.workspaceId,
+    });
+    const member = await asUser(f.t, f.reader).action(api.functions.files.syncManifest, {
+      workspaceId: f.workspaceId,
+    });
+
+    expect(owner.entries.map((entry) => entry.path).sort()).toEqual(
+      ["1-projects/README.md", "1-projects/shared.md", "2-areas/README.md", "2-areas/private-note.md", "index.md", PRIVACY_KEY].sort(),
+    );
+    expect(member.entries.map((entry) => entry.path)).toEqual([
+      "1-projects/README.md",
+      "1-projects/shared.md",
+    ]);
+    expect(member).toMatchObject({ kind: "manifest", cursor: null, truncated: false });
+
+    // Not the path, not the etag, not the size — nothing that says it exists.
+    const hidden = owner.entries.find((entry) => entry.path === "2-areas/private-note.md")!;
+    const rendered = JSON.stringify(member);
+    expect(rendered).not.toContain("private-note");
+    expect(rendered).not.toContain(`"${hidden.etag}"`);
+    expect(rendered).not.toContain(PRIVACY_KEY);
+  });
+
+  test("a manifest's etag is the one readNote returns, so a sync can skip what it already has", async () => {
+    const f = await fixture();
+    await share(f);
+    const as = asUser(f.t, f.reader);
+    const manifest = await as.action(api.functions.files.syncManifest, { workspaceId: f.workspaceId });
+    for (const entry of manifest.entries) {
+      const read = await as.action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: entry.path,
+      });
+      expect(entry.etag).toBe(read.etag);
+    }
+  });
+
+  test("a batch answers each path as readNote would, and a hidden note as a missing one", async () => {
+    const f = await fixture();
+    await share(f);
+    const as = asUser(f.t, f.reader);
+    const batch = await as.action(api.functions.files.readNotes, {
+      workspaceId: f.workspaceId,
+      paths: ["1-projects/shared.md", "2-areas/private-note.md", "2-areas/no-such-note.md"],
+    });
+
+    expect(batch.results[0]).toEqual({
+      path: "1-projects/shared.md",
+      outcome: "read",
+      note: await as.action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/shared.md",
+      }),
+    });
+    const { path: _hiddenPath, ...hidden } = batch.results[1]!;
+    const { path: _absentPath, ...absent } = batch.results[2]!;
+    expect(hidden).toEqual(absent);
+    expect(hidden).toMatchObject({ outcome: "error", code: "FILE_NOT_FOUND" });
+
+    // And word for word what readNote throws for the same path.
+    const single = await captureError(() =>
+      as.action(api.functions.files.readNote, {
+        workspaceId: f.workspaceId,
+        path: "2-areas/private-note.md",
+      }),
+    );
+    expect(hidden).toMatchObject({
+      code: errorCode(single),
+      message: (single as { data: { message: string } }).data.message,
+    });
+    expect(JSON.stringify(batch)).not.toContain(SECRET_BODY_MARKER);
+  });
+
+  test("the owner's batch reads the note the member's was refused", async () => {
+    const f = await fixture();
+    await share(f);
+    const batch = await asUser(f.t, f.owner).action(api.functions.files.readNotes, {
+      workspaceId: f.workspaceId,
+      paths: ["2-areas/private-note.md"],
+    });
+    expect(batch.results[0]).toMatchObject({ outcome: "read" });
+    expect(JSON.stringify(batch)).toContain(SECRET_BODY_MARKER);
+  });
+
+  test("an oversized batch is refused with a code the client can act on, before the bucket is asked", async () => {
+    const f = await fixture();
+    const before = f.backend.requests.length;
+    const error = await captureError(() =>
+      asUser(f.t, f.reader).action(api.functions.files.readNotes, {
+        workspaceId: f.workspaceId,
+        paths: Array.from({ length: 51 }, (_, index) => `1-projects/n${index}.md`),
+      }),
+    );
+    expect(errorCode(error)).toBe("BATCH_TOO_LARGE");
+    expect(f.backend.requests.length).toBe(before);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /*                    the audit trail is inside that boundary                 */
 /* -------------------------------------------------------------------------- */
 
@@ -2444,6 +2558,16 @@ describe("a stranger cannot reach another workspace's files", () => {
         as.action(api.functions.files.listManagedPlugins, { workspaceId }),
       (workspaceId) =>
         as.action(api.functions.files.readNote, { workspaceId, path: "1-projects/shared.md" }),
+      // The offline mirror's two reads. A manifest that answered an empty list
+      // for another tenant's context, instead of this refusal, would be an
+      // oracle of a different shape: "empty" for a real context and "not
+      // found" for an invented one.
+      (workspaceId) => as.action(api.functions.files.syncManifest, { workspaceId }),
+      (workspaceId) =>
+        as.action(api.functions.files.readNotes, {
+          workspaceId,
+          paths: ["1-projects/shared.md"],
+        }),
       (workspaceId) =>
         as.action(api.functions.files.writeNote, {
           workspaceId,
@@ -2726,7 +2850,52 @@ describe("a stranger cannot reach another workspace's files", () => {
 /*                                  conflicts                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Stand in for somebody creating `key` in the round trip between `writeNote`'s
+ * existence read and its put: the first GET of it finds nothing, and by the
+ * time the PUT arrives their note is there.
+ */
+function raceCreate(f: Fixture, key: string, theirs: string): void {
+  let raced = false;
+  vi.stubGlobal("fetch", async (input: URL | RequestInfo, init?: RequestInit) => {
+    const response = await f.backend.fetchImpl(input, init);
+    const url = new URL(typeof input === "string" ? input : String(input));
+    if (!raced && (init?.method ?? "GET") === "GET" && url.pathname.endsWith(`/${key}`)) {
+      raced = true;
+      f.backend.seed(key, theirs);
+    }
+    return response;
+  });
+}
+
 describe("a stale save is a conflict, never a silent overwrite", () => {
+  test("a create that lost a race to somebody else's is a conflict, and theirs survives", async () => {
+    const f = await fixture();
+    raceCreate(f, "1-projects/new.md", "# Theirs\n");
+    const error = await captureError(() =>
+      asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+        workspaceId: f.workspaceId,
+        path: "1-projects/new.md",
+        text: "# Mine\n",
+      }),
+    );
+    expect(errorCode(error)).toBe("CONFLICT");
+    expect((error as { data: { currentEtag?: string } }).data.currentEtag).toBe(
+      f.backend.objects.get("1-projects/new.md")!.etag,
+    );
+    expect(f.backend.snapshot()["1-projects/new.md"]).toBe("# Theirs\n");
+  });
+
+  test("a create on a bucket that never proved create-only writes says it was a read-compare", async () => {
+    const f = await fixture({ conditionalCreate: false });
+    const written = await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/new.md",
+      text: "# Mine\n",
+    });
+    expect(written.conflictCheck).toBe("read-compare");
+  });
+
   test("the conflict reaches the client with the current etag", async () => {
     const f = await fixture();
     const as = asUser(f.t, f.owner);

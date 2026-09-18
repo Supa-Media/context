@@ -96,6 +96,11 @@ export interface ScaffoldStore {
     delimiter?: string;
     cursor?: string;
     limit?: number;
+    /**
+     * Resume after this key. Honoured by `S3Store`; ignored by Dropbox, whose
+     * listing has no such position — `syncManifest` checks rather than trusts.
+     */
+    startAfter?: string;
   }): Promise<{
     objects: { key: string }[];
     delimitedPrefixes?: string[];

@@ -264,6 +264,8 @@ export type FileErrorCode =
   | "PRIVACY_MANIFEST_USABLE"
   | "PRIVACY_MANIFEST_BUSY"
   | "CONTENT_TOO_LARGE"
+  /** `readFiles` was asked for more paths than one call may name. */
+  | "BATCH_TOO_LARGE"
   | "FOLDER_TOO_LARGE"
   | "STORAGE_UNSAFE"
   | "PLUGIN_TOO_LARGE"
@@ -775,6 +777,175 @@ function compareEntries(a: FileEntry, b: FileEntry): number {
 }
 
 /* -------------------------------------------------------------------------- */
+/*                              the sync manifest                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Manifest entries one call may return. Around 220 bytes of JSON each, so a
+ * page stays near two megabytes — well inside what an action may return — and
+ * a context of a few thousand notes arrives in one round trip.
+ */
+export const MANIFEST_PAGE_ENTRIES = 10_000;
+
+/**
+ * One object the caller may see, as the offline mirror needs it.
+ *
+ * The visibility fields are `describeFile`'s, so a tree drawn from the mirror
+ * marks exactly the rows a live listing would. `etag` is the store's own,
+ * taken from the listing — the same value `readFile` would return — and is
+ * absent only where the store listed an object without one, which means
+ * "read it to learn its version", never "unchanged".
+ */
+export interface ManifestEntry {
+  path: string;
+  etag?: string;
+  size?: number;
+  updatedAt?: number;
+  visibility: Visibility;
+  inherited: Visibility;
+  exception: boolean;
+  readOnly: boolean;
+}
+
+export interface SyncManifest {
+  /** In the store's key order. */
+  entries: ManifestEntry[];
+  /**
+   * Call again with this to get what follows; `null` when nothing does.
+   *
+   * It is always the path of the last entry this page returned — never the
+   * store's continuation token. See `syncManifest`.
+   */
+  cursor: string | null;
+  /**
+   * The walk stopped and cannot continue, so the pages so far are a floor, not
+   * a total. A mirror must not read a missing path as deleted while this is
+   * true. Implies `cursor === null`.
+   */
+  truncated: boolean;
+  /** `privacy.md` is missing or unparseable. Same meaning as a listing's. */
+  manifestUsable: boolean;
+}
+
+/** S3 lists in UTF-8 byte order, which is not JavaScript's string order. */
+const KEY_BYTES = new TextEncoder();
+function compareKeys(a: string, b: string): number {
+  const x = KEY_BYTES.encode(a);
+  const y = KEY_BYTES.encode(b);
+  const shared = Math.min(x.length, y.length);
+  for (let index = 0; index < shared; index += 1) {
+    if (x[index] !== y[index]) return x[index]! - y[index]!;
+  }
+  return x.length - y.length;
+}
+
+/**
+ * Every object in the bucket this caller may see, with its version — what the
+ * offline mirror is built from.
+ *
+ * **One filter, and it is `canSee`.** The same call `listFolder` and
+ * `readFile` make, with the same clearance, so there is no second privacy path
+ * to drift: a `team` reader never receives a private note's path, etag or
+ * size, `privacy.md` reaches only `private` scope, and Context's plumbing
+ * (`.context/`, `.history/`, `.audit/`, `.obsidian/`) reaches nobody.
+ *
+ * **No note is read.** The etag is the listing's — S3's `ETag`, Dropbox's
+ * `rev` — which is the value a read returns, so a sync can tell which notes
+ * changed from one walk and fetch only those.
+ *
+ * ## Why the cursor is a path the caller was given
+ *
+ * A bucket can hold more than one response's worth, so this pages. The
+ * obvious cursor is the store's continuation token, and it is a leak: on S3 it
+ * is base64 of the last *backend* key of the page, and at `team` scope that key
+ * is routinely a private note. So the cursor is the last path this page
+ * returned — something the caller already holds — and resuming asks the store
+ * for what comes after it (`startAfter`, ListObjectsV2's `start-after`).
+ *
+ * That only means something on a store that lists in key order and honours the
+ * position, and not every store does: Dropbox's recursive `list_folder` does
+ * neither. So both are checked rather than assumed. A listing seen out of
+ * order gets no cursor, and a resumed walk that comes back with a key at or
+ * before the cursor stops — in both cases `truncated`, because handing back
+ * the start of the bucket under a cursor that promised the rest would loop the
+ * client forever. A page that can make no progress (a run of more hidden keys
+ * than the page budget) ends the same way, for the same reason.
+ */
+export async function syncManifest(
+  store: FileStore,
+  options: { clearance: Clearance; cursor?: string; pageEntries?: number },
+): Promise<SyncManifest> {
+  const after = options.cursor === undefined ? undefined : requirePath(options.cursor);
+  const pageEntries = options.pageEntries ?? MANIFEST_PAGE_ENTRIES;
+  const state = await loadPrivacyState(store);
+  const manifestUsable = state.text !== null && !state.invalid;
+  const short = (): SyncManifest => ({ entries: [], cursor: null, truncated: true, manifestUsable });
+
+  const entries: ManifestEntry[] = [];
+  const seenKeys = new Set<string>();
+  const seenCursors = new Set<string>();
+  let ordered = true;
+  let previous: string | undefined;
+  let token: string | undefined;
+
+  /** Stop here, with a cursor only where one can be honoured and moves on. */
+  const stop = (): SyncManifest => {
+    if (!ordered || entries.length === 0) {
+      return { ...short(), entries };
+    }
+    return { entries, cursor: entries[entries.length - 1]!.path, truncated: false, manifestUsable };
+  };
+
+  for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+    const listing = await store.list({
+      prefix: "",
+      limit: 1000,
+      ...(token !== undefined ? { cursor: token } : after !== undefined ? { startAfter: after } : {}),
+    });
+
+    for (const object of listing.objects ?? []) {
+      const key = object.key;
+      // The store went back to the start rather than resuming. Nothing it says
+      // from here is "the rest", and `entries` may be a replay.
+      if (after !== undefined && compareKeys(key, after) <= 0) return short();
+      if (previous !== undefined && compareKeys(key, previous) <= 0) ordered = false;
+      previous = key;
+      if (seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      if (!canSee(key, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) continue;
+
+      const meta = object as { size?: number; uploaded?: Date | string | number; etag?: string };
+      const described = describeFile(key, state.rules, state.overrides);
+      entries.push({
+        path: key,
+        ...(typeof meta.etag === "string" && meta.etag !== "" ? { etag: meta.etag } : {}),
+        ...(typeof meta.size === "number" ? { size: meta.size } : {}),
+        ...(meta.uploaded === undefined ? {} : { updatedAt: new Date(meta.uploaded).getTime() }),
+        visibility: described.visibility,
+        inherited: described.inherited,
+        exception: described.exception,
+        readOnly: described.readOnly,
+      });
+      if (entries.length >= pageEntries) return stop();
+    }
+
+    if (!listing.truncated) {
+      return { entries, cursor: null, truncated: false, manifestUsable };
+    }
+    // Truncated with nowhere to go, or a cursor seen before: the store cannot
+    // finish this walk. See `listFolder` and `keysUnder` for the shapes.
+    if (!listing.cursor || seenCursors.has(listing.cursor)) {
+      return { ...short(), entries };
+    }
+    seenCursors.add(listing.cursor);
+    token = listing.cursor;
+  }
+  // The page budget ran out mid-bucket. Resumable from the last path returned
+  // where there is one; otherwise this call learned nothing it can hand on.
+  return stop();
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                   reading                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -807,8 +978,21 @@ export async function readFile(
   options: { path: string; clearance: Clearance },
 ): Promise<FileContents> {
   const path = requirePath(options.path);
-  const state = await loadPrivacyState(store);
-  if (!canSee(path, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) throw notFound();
+  return await readVisibleFile(store, await loadPrivacyState(store), path, options.clearance);
+}
+
+/**
+ * The body of `readFile`, against a manifest already loaded — so `readFiles`
+ * reads a batch through exactly this, and a single read and a batched one
+ * cannot come to disagree about who may see a note.
+ */
+async function readVisibleFile(
+  store: FileStore,
+  state: PrivacyState,
+  path: string,
+  clearance: Clearance,
+): Promise<FileContents> {
+  if (!canSee(path, clearance.scope, state.rules, state.overrides, clearance.names)) throw notFound();
 
   const object = await store.get(path);
   if (object === null) throw notFound();
@@ -831,6 +1015,89 @@ export async function readFile(
     readOnly: described.readOnly || encrypted,
     encrypted,
   };
+}
+
+/** Paths one `readFiles` call may name. */
+export const READ_BATCH_PATHS = 50;
+/**
+ * Note bytes one `readFiles` call may return: two of the largest note the
+ * console will write. Past it the rest are deferred rather than read, so a
+ * batch of big notes cannot make a response nothing can carry.
+ */
+export const READ_BATCH_BYTES = 2 * MAX_NOTE_BYTES;
+
+/**
+ * One path's answer in a batch.
+ *
+ * `read` carries exactly what `readFile` returns. `error` carries a refusal's
+ * code and message — `FILE_NOT_FOUND` for a note that is missing *and* for one
+ * the caller may not see, identically, because both came from `readFile`'s own
+ * `notFound()`. `deferred` means the byte budget was spent before this path was
+ * looked at: ask again, nothing is implied about the path.
+ */
+export type BatchRead =
+  | { path: string; outcome: "read"; note: FileContents }
+  | { path: string; outcome: "error"; code: FileErrorCode; message: string }
+  | { path: string; outcome: "deferred" };
+
+/**
+ * Read several notes at once, for the offline mirror to fill itself.
+ *
+ * Every path goes through `readVisibleFile`, the body of `readFile`, against
+ * one load of `privacy.md` — so the batch is N single reads sharing a manifest,
+ * not a second privacy path. A refusal is per path and does not fail the batch:
+ * one note deleted since the manifest was taken must not stop the other
+ * forty-nine arriving.
+ *
+ * `path` on each answer echoes what was asked, so a caller can match answers
+ * to requests even for a path that did not normalise. Answers come back in
+ * request order.
+ *
+ * The budget is spent only by notes that were read, which only a visible note
+ * is, and once it is spent nothing further is looked at. So whether a path is
+ * `deferred` turns on the sizes of notes the caller can read and never on
+ * whether a hidden one exists. The first note always reads, whatever its size,
+ * so every batch makes progress.
+ */
+export async function readFiles(
+  store: FileStore,
+  options: { paths: readonly string[]; clearance: Clearance },
+): Promise<BatchRead[]> {
+  if (options.paths.length > READ_BATCH_PATHS) {
+    throw new FileOpError(
+      "BATCH_TOO_LARGE",
+      `Read at most ${READ_BATCH_PATHS} notes at a time.`,
+    );
+  }
+  if (options.paths.length === 0) return [];
+
+  const state = await loadPrivacyState(store);
+  const results: BatchRead[] = [];
+  let bytes = 0;
+  let spent = false;
+  for (const requested of options.paths) {
+    if (spent) {
+      results.push({ path: requested, outcome: "deferred" });
+      continue;
+    }
+    try {
+      const note = await readVisibleFile(store, state, requirePath(requested), options.clearance);
+      const size = byteLength(note.text);
+      if (bytes > 0 && bytes + size > READ_BATCH_BYTES) {
+        spent = true;
+        results.push({ path: requested, outcome: "deferred" });
+        continue;
+      }
+      bytes += size;
+      results.push({ path: requested, outcome: "read", note });
+    } catch (error) {
+      // A refusal is this path's answer. Anything else is the bucket failing,
+      // which is the whole batch's problem and goes up as one.
+      if (!(error instanceof FileOpError)) throw error;
+      results.push({ path: requested, outcome: "error", code: error.code, message: error.message });
+    }
+  }
+  return results;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -962,7 +1229,10 @@ export async function importVaultFiles(
  * elsewhere" and offer to reload — never a silent overwrite.
  *
  * Omitting `expectedEtag` means "this is new": if the key already exists that
- * is also a conflict, not an overwrite. There is no way to say "clobber
+ * is also a conflict, not an overwrite — and where the bucket can enforce it
+ * (`conditionalCreate`), the put itself is `onlyIf: { absent: true }`, so that
+ * holds even for a file created between the check and the write. That is the
+ * create mode an offline-queued new note uses. There is no way to say "clobber
  * whatever is there", by design.
  */
 export async function writeFile(
@@ -1100,17 +1370,44 @@ export async function writeFile(
   // they own — see docs/decisions/storage-and-credentials.md. With it off, this
   // overwrite is final, and the console says so before it runs.
   const conditional = store.capabilities?.conditionalWrite === true && existing !== null;
+  /*
+   * A CREATE IS CONDITIONAL TOO, WHERE THE BUCKET HAS PROVEN IT CAN BE.
+   *
+   * The read above found nothing, and until this was added the put that
+   * followed was unconditional — so a note created at the same path in the
+   * round trip between them (an Obsidian sync, an AI client, a second device
+   * draining its own offline queue) was overwritten with no error. Offline
+   * made that window hours wide: a "new note" typed on a train is sent when
+   * the train comes out of the tunnel, and whatever landed at that path in
+   * between is exactly what it would have clobbered.
+   *
+   * `onlyIf: { absent: true }` is `If-None-Match: *`, which is a different
+   * feature from `If-Match` and is probed separately, as `conditionalCreate`.
+   * A bucket that honours one need not honour the other, so this asks for the
+   * capability it is about to rely on and not its neighbour. Where it is not
+   * proven the read above is the check, its one-round-trip race is what the
+   * `read-compare` in the result reports, and nothing is sent that the bucket
+   * might accept and ignore — `importVaultFiles` gives the same reasoning.
+   */
+  const conditionalCreate =
+    existing === null && store.capabilities?.conditionalCreate === true;
   const put = conditional
     ? await store.put(path, options.text, { onlyIf: { etagMatches: existing!.etag } })
-    : await store.put(path, options.text);
+    : conditionalCreate
+      ? await store.put(path, options.text, { onlyIf: { absent: true } })
+      : await store.put(path, options.text);
 
   if (put === null) {
     // The backend rejected the precondition: somebody wrote between our read
-    // and our put. Exactly the case conditional writes exist for.
+    // and our put. Exactly the case conditional writes exist for — and for a
+    // create it is the same `CONFLICT` a create onto an existing file gets
+    // above, with the etag of what is there now.
     const current = await store.get(path);
     throw new FileOpError(
       "CONFLICT",
-      "That file changed somewhere else while you were editing it.",
+      existing === null
+        ? "A file already exists at that path. Reload to see it."
+        : "That file changed somewhere else while you were editing it.",
       current?.etag,
     );
   }
@@ -1118,7 +1415,7 @@ export async function writeFile(
   return {
     path,
     etag: put.etag,
-    conflictCheck: conditional ? "conditional" : "read-compare",
+    conflictCheck: conditional || conditionalCreate ? "conditional" : "read-compare",
   };
 }
 

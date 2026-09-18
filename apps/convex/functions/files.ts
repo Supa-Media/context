@@ -196,6 +196,11 @@ import {
   movePath,
   restoreTrashedPath,
   readFile,
+  readFiles,
+  READ_BATCH_PATHS,
+  type FileContents,
+  type SyncManifest,
+  syncManifest as syncManifestOp,
   maintainSearchIndex,
   notePathIndex,
   projectSearchIndex,
@@ -597,6 +602,53 @@ const fileValidator = v.object({
 });
 
 /**
+ * One object in the offline mirror's manifest. See `ManifestEntry` in
+ * `lib/fileOps.ts`: the visibility fields are a listing's, `etag` is the
+ * store's own from the listing and is absent only where the store gave none.
+ */
+const manifestEntryValidator = v.object({
+  path: v.string(),
+  etag: v.optional(v.string()),
+  size: v.optional(v.number()),
+  updatedAt: v.optional(v.number()),
+  visibility: visibilityReadValidator,
+  inherited: visibilityReadValidator,
+  exception: v.boolean(),
+  readOnly: v.boolean(),
+});
+
+const manifestValidator = v.object({
+  kind: v.literal("manifest"),
+  entries: v.array(manifestEntryValidator),
+  /** Pass back to get what follows. Always a path this caller was given. */
+  cursor: v.union(v.string(), v.null()),
+  /** The walk could not finish: the pages so far are a floor, not a total. */
+  truncated: v.boolean(),
+  manifestUsable: v.boolean(),
+});
+
+/**
+ * A batch read. Each note is `fileValidator` itself — the very shape
+ * `readNote` returns — and a refusal is the code and message `readNote` would
+ * have thrown, so a hidden note and a missing one are the same row.
+ */
+const notesValidator = v.object({
+  kind: v.literal("notes"),
+  results: v.array(
+    v.union(
+      v.object({ path: v.string(), outcome: v.literal("read"), note: fileValidator }),
+      v.object({
+        path: v.string(),
+        outcome: v.literal("error"),
+        code: v.string(),
+        message: v.string(),
+      }),
+      v.object({ path: v.string(), outcome: v.literal("deferred") }),
+    ),
+  ),
+});
+
+/**
  * What a form block's response files did on this write.
  *
  * Two lists of paths and reasons — never a body, never an etag of somebody
@@ -938,6 +990,8 @@ const formResultValidator = v.object({
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
+  manifestValidator,
+  notesValidator,
   writtenValidator,
   movedValidator,
   deletedValidator,
@@ -973,6 +1027,10 @@ const operationResultValidator = v.union(
 const operationValidator = v.union(
   v.object({ kind: v.literal("list"), path: v.string() }),
   v.object({ kind: v.literal("read"), path: v.string() }),
+  /** The offline mirror's manifest, one page of it. See `syncManifest`. */
+  v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()) }),
+  /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
+  v.object({ kind: v.literal("readMany"), paths: v.array(v.string()) }),
   v.object({
     kind: v.literal("search"),
     query: v.string(),
@@ -1245,6 +1303,8 @@ const operationValidator = v.union(
 type FileOperation =
   | { kind: "list"; path: string }
   | { kind: "read"; path: string }
+  | { kind: "manifest"; cursor?: string }
+  | { kind: "readMany"; paths: string[] }
   | {
       kind: "search";
       query: string;
@@ -1439,6 +1499,15 @@ type OperationResult =
       /** Stored encrypted; `text` is the ciphertext and the note is not editable here. */
       encrypted: boolean;
     }
+  | ({ kind: "manifest" } & SyncManifest)
+  | {
+      kind: "notes";
+      results: Array<
+        | { path: string; outcome: "read"; note: { kind: "file" } & FileContents }
+        | { path: string; outcome: "error"; code: string; message: string }
+        | { path: string; outcome: "deferred" }
+      >;
+    }
   | {
       kind: "written";
       path: string;
@@ -1617,9 +1686,10 @@ export function scopeForRole(role: WorkspaceRole): Scope {
  * grant is the `minimum === "member"` branch below.
  *
  * **The `minimum` is what makes this safe, and it is worth being explicit about
- * why.** Every caller states the least role its operation needs, and the five
- * that ask for `member` are exactly the five reads: `listFiles`, `readNote`,
- * `searchContext`, `notePaths`, and the per-context leg of `searchContexts`.
+ * why.** Every caller states the least role its operation needs, and the ones
+ * that ask for `member` are exactly the reads: `listFiles`, `readNote`,
+ * `syncManifest`, `readNotes`, `searchContext`, `folderPaths`, `notePaths`,
+ * and the per-context leg of `searchContexts`.
  * Everything that changes a byte asks for `editor` or `owner` and therefore
  * goes to `requireWorkspaceRole`, which knows nothing about the pin and throws
  * `WORKSPACE_NOT_FOUND` for somebody with no row — so a pinned reader is
@@ -3338,6 +3408,24 @@ export async function executeOperation(
         const file = await readFile(store, { path: operation.path, clearance });
         return { kind: "file", ...file };
       }
+      case "manifest": {
+        const manifest = await syncManifestOp(store, {
+          clearance,
+          ...(operation.cursor === undefined ? {} : { cursor: operation.cursor }),
+        });
+        return { kind: "manifest", ...manifest };
+      }
+      case "readMany": {
+        const results = await readFiles(store, { paths: operation.paths, clearance });
+        return {
+          kind: "notes",
+          results: results.map((result) =>
+            result.outcome === "read"
+              ? { ...result, note: { kind: "file" as const, ...result.note } }
+              : result,
+          ),
+        };
+      }
       case "clearVault": {
         const cleared = await clearVaultBatch(store, operation.countOnly);
         return { kind: "vaultCleared", ...cleared };
@@ -3930,6 +4018,83 @@ export const readNote = action({
       operation: { kind: "read", path: args.path },
     });
     return result as Extract<OperationResult, { kind: "file" }>;
+  },
+});
+
+/**
+ * One page of everything this caller may see in a context, with versions —
+ * what the offline mirror is built and reconciled from. Any member may call
+ * it, and gets exactly what `listFiles` and `readNote` would show them: the
+ * same clearance, through the same `canSee`. No note is read to produce it.
+ *
+ * Pass `cursor` back to continue; `cursor: null` means the walk is done, and
+ * `truncated: true` means it could not finish, so a path missing from the
+ * pages is not evidence the note was deleted. See `syncManifest` in
+ * `lib/fileOps.ts`, and "The offline mirror is fed by a privacy-filtered
+ * manifest" in `docs/decisions/app-and-console.md`.
+ */
+export const syncManifest = action({
+  args: { workspaceId: v.id("workspaces"), cursor: v.optional(v.string()) },
+  returns: manifestValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "manifest" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "manifest",
+        ...(args.cursor === undefined ? {} : { cursor: args.cursor }),
+      },
+    });
+    return result as Extract<OperationResult, { kind: "manifest" }>;
+  },
+});
+
+/**
+ * Several notes' markdown at once, for the offline mirror to fill itself. Any
+ * member may read what their scope can see — per path, exactly as `readNote`
+ * decides it, and a refused path does not fail the batch.
+ *
+ * At most `READ_BATCH_PATHS` paths; past `READ_BATCH_BYTES` of note text the
+ * remaining paths come back `deferred`, to be asked for again.
+ */
+export const readNotes = action({
+  args: { workspaceId: v.id("workspaces"), paths: v.array(v.string()) },
+  returns: notesValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "notes" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    // Refused before the barrier rather than inside it, so a request that can
+    // never succeed does not open the bucket's credential to find that out.
+    // `readFiles` refuses it again, for any other caller.
+    if (args.paths.length > READ_BATCH_PATHS) {
+      throw toConvexError(
+        new FileOpError("BATCH_TOO_LARGE", `Read at most ${READ_BATCH_PATHS} notes at a time.`),
+      );
+    }
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readMany", paths: args.paths },
+    });
+    return result as Extract<OperationResult, { kind: "notes" }>;
   },
 });
 

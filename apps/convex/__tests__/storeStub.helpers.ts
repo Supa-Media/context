@@ -136,6 +136,13 @@ export function memoryStore(
      * substitute from the hazard it replaces.
      */
     ignoreIfMatchOnDelete?: boolean;
+    /**
+     * Accept `startAfter` on `list` and ignore it, the way `DropboxStore`
+     * does — its `list_folder` has no such position. A walk that trusted the
+     * store to have resumed would hand back the start of the bucket again,
+     * under a cursor that promised the rest of it.
+     */
+    ignoreStartAfter?: boolean;
   } = {},
 ): MemoryStore {
   const objects = new Map<string, StoredValue>();
@@ -214,7 +221,8 @@ export function memoryStore(
       return { etag };
     },
     async list(listOptions) {
-      return listPage(objects, listOptions ?? {});
+      const { startAfter, ...rest } = listOptions ?? {};
+      return listPage(objects, options.ignoreStartAfter === true ? rest : { ...rest, startAfter });
     },
   };
 }
@@ -227,7 +235,15 @@ function listPage(
     delimiter,
     cursor,
     limit,
-  }: { prefix?: string; delimiter?: string; cursor?: string; limit?: number },
+    startAfter,
+  }: {
+    prefix?: string;
+    delimiter?: string;
+    cursor?: string;
+    limit?: number;
+    /** ListObjectsV2's `start-after`: superseded by a continuation token. */
+    startAfter?: string;
+  },
 ) {
   const contents: string[] = [];
   const prefixes = new Set<string>();
@@ -250,8 +266,9 @@ function listPage(
     ...[...prefixes].map((name) => ({ name, kind: "prefix" as const })),
   ].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 
-  const start = cursor
-    ? entries.findIndex((entry) => entry.name > cursor)
+  const resumeAfter = cursor ?? startAfter;
+  const start = resumeAfter
+    ? entries.findIndex((entry) => entry.name > resumeAfter)
     : 0;
   const from = start < 0 ? entries.length : start;
   const max = limit && limit > 0 ? limit : 1000;
@@ -381,6 +398,7 @@ export function memoryS3(
         prefix: url.searchParams.get("prefix") ?? "",
         delimiter: url.searchParams.get("delimiter") ?? undefined,
         cursor: url.searchParams.get("continuation-token") ?? undefined,
+        startAfter: url.searchParams.get("start-after") ?? undefined,
         limit: Number(url.searchParams.get("max-keys")) || undefined,
       });
       return new Response(listXml(page), {
