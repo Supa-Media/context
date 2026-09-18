@@ -46,11 +46,12 @@ import type { SettingsSectionKey } from "./sections";
  *
  * ## Three rows that stay quiet for a reason worth writing down
  *
- * `devices` and `premium` have real answers — the machines holding a capture
- * grant, and whether this context is paying — and both live in a Convex
- * subscription inside their own panel rather than on `ConsoleData`. Hoisting
- * either would add a query to every console load to decorate one row, which
- * is a trade worth making on purpose and not as a side effect of this change.
+ * `premium` has a real answer — whether this context is paying — and it lives
+ * in a Convex subscription inside its own panel rather than on `ConsoleData`.
+ * Hoisting it would add a query to every console load to decorate one row,
+ * which is a trade worth making on purpose and not as a side effect of this
+ * change. (`devices` was the other one, and its row is gone: the machines are
+ * a card at the foot of Profile now.)
  * `meetings` has nothing persisted to report by design, which
  * `MeetingsPanel`'s own header argues; `account` has no state worth a claim.
  */
@@ -184,7 +185,6 @@ export function settingsPreview(
     */
     case "overview":
     case "premium":
-    case "devices":
     case "account":
     case "meetings":
     case "advanced":

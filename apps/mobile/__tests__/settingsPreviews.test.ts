@@ -217,10 +217,9 @@ describe("a half-visible mechanism never claims the whole", () => {
     expect(settingsPreview("email", { ...base, googleConnections: [] }, null)).toBeNull();
   });
 
-  test("meetings and devices keep quiet, because nothing here knows", () => {
+  test("meetings keeps quiet, because nothing here knows", () => {
     const base = demoData();
     expect(settingsPreview("meetings", base, null)).toBeNull();
-    expect(settingsPreview("devices", base, null)).toBeNull();
   });
 });
 

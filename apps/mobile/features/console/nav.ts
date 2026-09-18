@@ -410,6 +410,14 @@ export function settingsHref(slug: string, section?: SettingsSectionKey): string
  */
 const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
   sources: "email",
+  /*
+    `devices` was a section and is now a card at the foot of Profile. A link
+    somebody kept — or a redirect from an older build — still names it, and
+    falling back to the default would answer "the machine you came to revoke
+    is nowhere". Same one-line treatment as `sources`, for the same reason: it
+    must never appear in `SETTINGS_SECTIONS`, the list, or search results.
+  */
+  devices: "profile",
 };
 
 export function settingsFromQuery(
