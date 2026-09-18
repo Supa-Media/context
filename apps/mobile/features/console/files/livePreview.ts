@@ -2452,6 +2452,19 @@ export const livePreviewStyles = `
   line-height: 1.7;
   color: var(--lp-muted);
 }
+/*
+  A dictated phrase the engine has not settled on yet.
+
+  Grey and italic because that is what "heard, not written" has to look like:
+  the reader has to be able to tell at a glance which words are in their file
+  and which are the machine still thinking. It is a widget, so it is not in
+  the document and cannot be selected, copied or saved — see dictate.ts.
+*/
+.cm-dictation-interim {
+  color: var(--lp-muted);
+  font-style: italic;
+  white-space: pre-wrap;
+}
 .cm-lp-strong { font-weight: 650; color: var(--lp-heading); }
 .cm-lp-em { font-style: italic; }
 .cm-lp-strike { text-decoration: line-through; opacity: 0.7; }
