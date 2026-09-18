@@ -4626,3 +4626,42 @@ a trim leaking into `crumb.path` asks somebody's bucket for a folder that is not
 there. `fileTabs.test.ts`, "a sort number is dropped, and the collision test
 sees the same name" — `1-plan.md` and `plan.md` both draw `plan`, so a collision
 test on the untrimmed name would leave two identical tabs.
+
+## A folder row says what differs, so `0-inbox` gets no count
+
+**Decided 2026-09-18 by the owner, closing a gap the design canvas opened.**
+
+`Phone-Browse.dc.html` draws a folder listing with a `3` beside `0-inbox`, in
+accent, in the slot where the row's other marks go. It was recorded as an
+outstanding difference between the app and the canvas, twice, and escalated as
+"the app has no cheap source for the number". That framing was the mistake: the
+question was never where to get it.
+
+The owner's answer is that **that is not what the inbox there means**. It is a
+folder you file out of, not a queue with a depth, and a number beside it turns
+"you have not filed today" into an unread badge — a count that demands to be
+driven to zero, on a surface whose entire job is to be a calm list of folders.
+Nothing else in the listing counts, and the one folder that gets a number would
+be the loudest thing on the screen.
+
+**And it would be a number in the wrong slot.** The trailing position on a
+folder row is where `FolderRow` draws the exception mark — the pip that says
+*this row's visibility differs from its folder's*. The tree's rule, stated in
+that file, is that a listing marks **only exceptions**: a `team` on every row of
+a team folder is the default drawn once per file, which buries the one row that
+differs from it. A count is not an exception about anything; it would be the
+first mark in that slot that is not making the listing's one claim, and the pip
+beside it would lose the meaning it has by being the only thing there.
+
+**What a "simplification" of this would cost.** The tempting one is the reverse:
+draw the count because the canvas draws it, and source it from the listing that
+is already loaded — which is genuinely cheap, and is why this stayed open as a
+data question rather than being closed as a design one. The cost is a badge
+nobody asked for on the first screen of the phone, and a trailing slot that says
+two unrelated things.
+
+**The test that fails if it is reversed.** There is none, and that is
+deliberate: this is a decision not to draw something, and a guard against
+drawing it would be a test asserting the absence of a feature nobody has.
+`FolderView.tsx`'s own comment on the exception mark is what a future reader
+hits first, and it now says the slot is for exceptions and names this.
