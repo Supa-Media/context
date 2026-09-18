@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { beforeEach, describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -2053,5 +2053,85 @@ describe("the recording bar knows when you are already there", () => {
     await act(async () => {
       await meetings.end();
     });
+  });
+});
+
+describe("audio kept on the phone is said, on every surface that shows the meeting", () => {
+  /*
+    The words are `keptAudio.ts`'s and tested there; what is checked here is
+    that each surface actually draws them from the real controller's snapshot
+    — a sentence nobody renders is not a sentence the person reads.
+  */
+  const { memorySpool, setAudioSpool } =
+    require("../features/meetings/capture/spool") as typeof import("../features/meetings/capture/spool");
+  const { setCaptureOffline } =
+    require("../features/meetings/capture/connectivity") as typeof import("../features/meetings/capture/connectivity");
+
+  function keepFor(spool: ReturnType<typeof memorySpool>, meetingId: string, count: number): void {
+    for (let index = 0; index < count; index += 1) {
+      spool.keep(
+        { meetingId, index, offsetMs: index * 20_000, durationMs: 20_000 },
+        { kind: "bytes", bytes: Uint8Array.from([index]), mimeType: "audio/wav" },
+        0,
+      );
+    }
+  }
+
+  async function offlineWithAudio(count: number): Promise<{ id: string; spool: ReturnType<typeof memorySpool> }> {
+    const spool = memorySpool();
+    setAudioSpool(spool);
+    setCaptureOffline(true);
+    await configure();
+    let id = "";
+    await act(async () => {
+      meetings.setOffline(true);
+      id = await meetings.start({ title: "Underground" });
+      keepFor(spool, id, count);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    });
+    return { id, spool };
+  }
+
+  afterEach(() => {
+    setAudioSpool(null);
+    setCaptureOffline(false);
+    act(() => meetings.setOffline(false));
+  });
+
+  test("the live screen says the recording is saved on this phone, and how much is waiting", async () => {
+    const { id } = await offlineWithAudio(3);
+    const mounted = mount(createElement(LiveMeetingScreen, { meetingId: id }));
+    const chip = field(mounted.container, "meeting-audio-kept");
+    expect(chip.textContent).toBe(
+      "Offline — recording is saved on this phone and will be transcribed when you're back online · 3 pieces waiting",
+    );
+    mounted.unmount();
+  });
+
+  test("the bar says it in two words, and in full to a screen reader", async () => {
+    await offlineWithAudio(2);
+    mockPathname = "/somewhere-else";
+    const mounted = mount(createElement(RecordingBar));
+    expect(field(mounted.container, "recording-bar-kept").textContent).toBe("On phone · 2");
+    expect(
+      field(mounted.container, "recording-bar-open").getAttribute("aria-label"),
+    ).toContain("recording is saved on this phone");
+    mounted.unmount();
+    mockPathname = "/";
+  });
+
+  test("an ended meeting says its note is waiting for the audio, and the transcript that it is incomplete", async () => {
+    const { id } = await offlineWithAudio(2);
+    await act(async () => {
+      await meetings.end();
+    });
+    const mounted = mount(createElement(MeetingNoteScreen, { meetingId: id }));
+    expect(field(mounted.container, "meeting-summary").textContent).toContain(
+      "2 pieces of this recording are saved on this phone and will be transcribed when you're back online",
+    );
+    // The record was not finalized while the audio waits.
+    const record = meetings.getSnapshot().records.find((r) => r.session.id === id)!;
+    expect(record.session.state).toBe("finalizing");
+    mounted.unmount();
   });
 });
