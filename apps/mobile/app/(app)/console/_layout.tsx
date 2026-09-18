@@ -60,7 +60,9 @@ import {
   intentForRowCommand,
 } from "../../../features/console/files/rowCommand";
 import { RecentSheet } from "../../../features/console/files/RecentSheet";
-import { statusSegments } from "../../../features/console/files/status";
+import { saveChip, statusSegments } from "../../../features/console/files/status";
+import { SyncPill, SyncSheet } from "../../../features/console/files/SyncSheet";
+import { NO_PENDING } from "../../../features/console/files/pendingMarks";
 import { closeIntent, isTabDirty } from "../../../features/console/files/tabs";
 import { needsDecision } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
@@ -206,6 +208,13 @@ export default function ConsoleLayout() {
     opens is a ref waiting to be written.
   */
   const [recentOpen, setRecentOpen] = useState(false);
+  /*
+    The phone's sync sheet, behind the pill in its header. A phone has no
+    status strip, so this is where "which notes?" is answered there — see
+    `SyncSheet.tsx`.
+  */
+  const [syncOpen, setSyncOpen] = useState(false);
+  const closeSync = useCallback(() => setSyncOpen(false), []);
   /*
     The toolbar's `+` raises the explorer's own dialog. Held here rather than
     inside `Explorer` because the toolbar is a sibling of the explorer, not a
@@ -833,6 +842,25 @@ export default function ConsoleLayout() {
         }
         onSearch={insideContext ? () => setPaletteOpen(true) : undefined}
         /*
+          The phone's half of the status strip — Offline, the queue, and the
+          open note's own `Queued` / `Cached copy` — as a pill in the header
+          that opens a sheet naming the notes. `SyncPill` renders nothing when
+          there is nothing to say, which is almost always.
+
+          `browsing`, as the Recent sheet is: the sheet's rows open notes, and
+          Browse is where a note is opened. `AppFrame` refuses the slot at a
+          pointer density on its own, where the strip and `SaveChip` say it.
+        */
+        syncSlot={
+          phone && browsing ? (
+            <SyncPill
+              sync={data.files.sync}
+              save={saveChip({ editor: data.files.editor, now: Date.now() })}
+              onPress={() => setSyncOpen(true)}
+            />
+          ) : undefined
+        }
+        /*
           A phone's top row, and the one thing left pinned in it.
 
           The account never scrolls away — it is the only sign-out control in
@@ -955,7 +983,9 @@ export default function ConsoleLayout() {
           onCloseTab={closeTab}
           onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
-          paletteOpen={paletteOpen || treeOverlay || recentOpen || openSettingsSection !== null}
+          paletteOpen={
+            paletteOpen || treeOverlay || recentOpen || syncOpen || openSettingsSection !== null
+          }
         />
         {/*
           The contexts, built here and drawn inside whatever scroller the
@@ -1121,11 +1151,32 @@ export default function ConsoleLayout() {
           <RecentSheet
             paths={recentPaths(history)}
             currentPath={data.files.selectedPath}
+            pendingStateFor={data.files.pending?.stateFor}
             onOpen={(path) => {
               data.files.select(path);
               setRecentOpen(false);
             }}
             onDismiss={() => setRecentOpen(false)}
+          />
+        ) : null}
+
+        {/*
+          The phone's sync sheet. `select` for the reason the Recent sheet
+          above uses it — and opening a note is the whole answer the sheet
+          offers: a waiting write is checked by looking at it, and a parked one
+          is restored as a conflict the moment its note opens (`open` in
+          `useFileBrowser`), which is where its three answers are.
+        */}
+        {syncOpen && phone && browsing ? (
+          <SyncSheet
+            sync={data.files.sync}
+            save={saveChip({ editor: data.files.editor, now: Date.now() })}
+            pending={data.files.pending ?? NO_PENDING}
+            onOpen={(path) => {
+              data.files.select(path);
+              setSyncOpen(false);
+            }}
+            onDismiss={closeSync}
           />
         ) : null}
 

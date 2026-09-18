@@ -401,6 +401,25 @@ export interface AppFrameProps {
    * `ConsoleRail.AccountBlock`.
    */
   accountSlot?: ReactNode;
+  /**
+   * **Compact only.** Whether the notes are in the bucket, on a phone.
+   *
+   * A phone has no status strip (`regionsFor` answers `statusBar: false` at
+   * compact), and the strip is where a pointer layout says Offline, "3 notes
+   * waiting to sync" and "1 note needs you". Without a surface of its own on a
+   * phone, none of that was said anywhere a phone could see — so this is that
+   * surface: its own floating object in the top row, ahead of the trailing
+   * capsule and pushed to the trailing side with it.
+   *
+   * Its own slot rather than a child of `topTrailing`, because the capsule is
+   * a row of 44pt icon targets that meet (`topTrailCompact`'s `gap: 0`) and
+   * this is words. It renders nothing at a pointer density whatever is passed,
+   * for the reason `tabs` is refused at compact: the strip says it there, and a
+   * contract that lived only in the caller is one a caller can break. What goes
+   * in it — and that it is absent when there is nothing to say — is the
+   * caller's; see `features/console/files/SyncSheet.tsx`.
+   */
+  syncSlot?: ReactNode;
   /** Opens the palette. Renders the search field on web, a button on touch. */
   onSearch?: () => void;
   /**
@@ -425,6 +444,7 @@ export function AppFrame({
   tabs,
   topTrailing,
   accountSlot,
+  syncSlot,
   onSearch,
   explorer,
   status,
@@ -867,8 +887,23 @@ export function AppFrame({
             actions. One group, one push to the trailing edge, and the centre
             of the bar is free for what belongs there.
           */}
+          {/*
+            The phone's sync pill, leading the trailing side.
+
+            It takes the row's one auto margin when it is drawn, and the capsule
+            gives its up: two auto margins in one row split the free space
+            between them, which would float this in the middle of the glass —
+            the mistake the search comment below records once already.
+          */}
+          {compact && syncSlot != null ? <View style={styles.syncLead}>{syncSlot}</View> : null}
           {topTrailing == null && !(onSearch && !compact) ? null : (
-            <View style={[styles.topTrail, compact && styles.topTrailCompact]}>
+            <View
+              style={[
+                styles.topTrail,
+                compact && styles.topTrailCompact,
+                compact && syncSlot != null && styles.topTrailAfterSync,
+              ]}
+            >
               {onSearch && !compact ? <SearchTrigger onPress={onSearch} /> : null}
               {topTrailing}
             </View>
@@ -1847,6 +1882,19 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * because the strip is what scrolls.
    */
   accountLead: { flexGrow: 0, flexShrink: 0 },
+  /**
+   * The sync pill's box. `flexShrink: 1` and `minWidth: 0` so on a narrow
+   * phone it is the pill's words that ellipsise, never the account mark or the
+   * capsule's targets.
+   */
+  syncLead: {
+    marginLeft: "auto",
+    flexShrink: 1,
+    minWidth: 0,
+    flexDirection: "row",
+    justifyContent: "flex-end",
+  },
+  topTrailAfterSync: { marginLeft: 0, flexShrink: 0 },
   topTrail: {
     marginLeft: "auto",
     flexDirection: "row",
