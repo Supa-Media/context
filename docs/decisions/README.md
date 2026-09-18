@@ -199,6 +199,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The note is a measured column, and the demo note stopped faking one
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
+- A folder row says what differs, so `0-inbox` gets no count
 
 ## [Meetings](./meetings.md)
 
