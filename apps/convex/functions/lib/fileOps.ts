@@ -993,6 +993,34 @@ export async function writeFile(
   const existing = await store.get(path);
 
   /*
+   * AND A CREATE ASKS A SECOND QUESTION: DOES THE FOLDER ADMIT A NOTE FROM
+   * THIS TIER?
+   *
+   * `canSee` above is the read direction, and its comment is right about it.
+   * It is not sufficient for a CREATE, because it honours an exact override —
+   * and **an override can outlive the note it was written for.** `trashPath`
+   * deliberately leaves one behind: `restoreTrashedPath` re-checks `canSee` at
+   * the original path, so the exception has to survive for a restored note to
+   * come back at the visibility it had. (`deletePath` is permanent and clears
+   * it; the two differ on purpose.)
+   *
+   * In the window between, the manifest names a path with no object at it. A
+   * team caller writing there passed `canSee` on the dead note's exception and
+   * created a note **inside a folder the owner keeps private** — the thing
+   * `scope_info` advertises as outside their write surface.
+   *
+   * The gateway's `write_note` has always asked this, and its answer is the
+   * one ported here: not "can this caller see this path" but "what does the
+   * FOLDER say", which `visibilityOf` answers without consulting overrides.
+   * `notFound()` rather than a permission error, to match the refusal above:
+   * a distinct message here would make the folder's default an oracle.
+   */
+  if (existing === null && options.clearance.scope !== "private") {
+    const inherited = visibilityOf(path, state.rules);
+    if (inherited !== "team" && !options.clearance.names.has(inherited)) throw notFound();
+  }
+
+  /*
    * AN ENCRYPTED NOTE IS NOT OVERWRITTEN WITH PLAINTEXT THROUGH THIS DOOR —
    * AND A DIFFERENT RECIPIENT SET DOES NOT GET THROUGH IT EITHER.
    *
