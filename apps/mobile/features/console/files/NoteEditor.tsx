@@ -1085,6 +1085,16 @@ export function NoteEditor({
           page={{ ...voice.page, writable: voice.page.writable && editable }}
           controls={() => controls.current}
           compact={compact}
+          /*
+            A phone's bottom row carries a microphone of its own — the seventh
+            key — so this one stands down while that row is on the glass, and
+            `barUp` is what says it is not: the accessory bar hides the frame's
+            toolbar (see the `setAccessoryOpen` effect above), which is the same
+            condition read from the side that causes it rather than from the
+            height the frame publishes. Two microphones 24pt apart is the defect
+            this closes; see `VoiceButton` for which of them stays and why.
+          */
+          barMicrophone={compact && !barUp}
           onRecordMeeting={voice.onRecordMeeting}
         />
       )}

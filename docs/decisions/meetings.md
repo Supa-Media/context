@@ -1801,6 +1801,45 @@ this belongs to has its own guard —
 [app-and-console](./app-and-console.md), *a route with no way in is a route
 nobody has*.
 
+**And the seventh key is the phone's only microphone, because a second one grew
+beside it.** Dictation shipped as a floating control at the bottom-right of the
+note region (`features/voice/VoiceButton.tsx`), and on a 390pt screen it landed
+24pt above this key: the same `mic` glyph twice, raising two different sheets —
+one asking *dictate or record*, one asking *where does this meeting go*. The
+owner's whole report was four words: *"why are there 2 microphones?"*
+
+The floating one yields, and it yields to the key rather than the other way
+round because that direction was already decided above: this key is the phone's
+only way into meeting capture, and the only route to a **finished** meeting
+hangs off the sheet it raises — a route that exists because somebody recorded a
+meeting on their phone and could not find it again. Keeping a floating button
+by deleting the key would re-open that hole to close a smaller one.
+
+`VoiceButton` already held the rule and applied it to one case only — *"there is
+a single microphone on this machine and the meeting has it"*, which is why it
+draws nothing while a recording runs. A control on the glass that opens a
+microphone is the same case with nothing running, so the yield now covers both.
+What it does not cover is a microphone that is already **open**: the live
+capsule is the only way to stop a run and take back what it typed, and the
+failure card is a sentence owed to whoever opened one. Both are drawn whatever
+the toolbar is doing.
+
+**Dictation is not lost on a phone by this, it is offered later and better
+placed.** The frame hides its toolbar while the keyboard accessory bar is up
+(`AppFrame`'s `toolbarHidden`), so the floating microphone returns at exactly
+the moment there is a caret for words to land at. On a native build there is no
+browser engine to open at all, and the sheet has always said so in as many words
+— *"Your keyboard already has a microphone key, and it types straight into the
+note"* (`engine.ts`) — so what this yields on iOS and Android is a button whose
+only live row was the meeting the key beside it already raised.
+
+The checks are `a phone with a note open draws one microphone, on the bottom
+row`, `the keyboard takes the bottom row away, so the microphone comes back`,
+and `a pointer layout has no bottom row, so the floating one is it` — driven
+through the real editor in
+`apps/mobile/__tests__/oneMicrophone.test.ts`, because the condition has two
+halves and no unit test of either component can see them together.
+
 ### The phone has a meter, and it always did
 
 **The claim that was never checked.** `capture/level.ts` argued that a level

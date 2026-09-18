@@ -474,3 +474,66 @@ describe("what else is going on", () => {
     expect(findByTestId("voice-capsule")).toBeNull();
   });
 });
+
+describe("when something else on the glass already carries the microphone", () => {
+  /*
+    The complaint, in four words: "why are there 2 microphones?" A phone with a
+    note open drew this floating control **and** the seventh key on the bottom
+    row, 24pt apart, both wearing `mic`. One machine, one microphone, two
+    buttons for it — and the two did different things, which is worse than
+    either: the key raised the meeting's destination sheet and this one raised a
+    sheet offering a choice between dictation and that same destination sheet.
+
+    `ConsoleBottomBar`'s key is the one that stays. That is not a fresh
+    preference: `docs/decisions/meetings.md` records that a phone "can reach its
+    meetings from the key it records with", and the only route to a *finished*
+    meeting on the density that records them hangs off the sheet that key
+    raises. Removing it to keep a floating button would reverse a decision that
+    was made because somebody lost a recording.
+
+    So this one stands down while that one is on the glass, and comes back the
+    moment it is not — which is exactly when a phone is being typed into, the
+    keyboard accessory bar having taken the toolbar away. See `NoteEditor` for
+    the wiring and `oneMicrophone.test.ts` for the two states as the product
+    assembles them.
+  */
+  test("the floating microphone is not drawn, and neither is its sheet", () => {
+    const fake = fakeEngine();
+    render(button({ engine: fake.engine, barMicrophone: true }));
+    expect(findByTestId("voice-button")).toBeNull();
+    expect(findByTestId("voice-sheet")).toBeNull();
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("a dictation already running keeps the control that stops it", () => {
+    /*
+      The capsule is not a second microphone — it is the only way to stop the
+      one that is open, and `discard` is the only way to take back what it
+      typed. Standing *that* down because the toolbar came back would strand a
+      live run, which is the failure `useDictation`'s unmount cleanup exists to
+      prevent one layer down.
+    */
+    const fake = fakeEngine();
+    render(button({ engine: fake.engine }));
+    press("voice-button");
+    press("voice-sheet-dictate");
+
+    render(button({ engine: fake.engine, barMicrophone: true }));
+    expect(findByTestId("voice-capsule")).not.toBeNull();
+    expect(findByTestId("voice-stop")).not.toBeNull();
+    expect(fake.calls).toEqual(["open"]);
+  });
+
+  test("a failure still says what happened to the note", () => {
+    // Same argument as the capsule: this is a sentence about a microphone that
+    // was already opened, not an offer to open one.
+    const fake = fakeEngine({ open: (handlers) => handlers.error("denied") });
+    render(button({ engine: fake.engine }));
+    press("voice-button");
+    press("voice-sheet-dictate");
+
+    render(button({ engine: fake.engine, barMicrophone: true }));
+    expect(findByTestId("voice-failure")?.textContent).toContain("as you left it");
+    expect(findByTestId("voice-button")).toBeNull();
+  });
+});

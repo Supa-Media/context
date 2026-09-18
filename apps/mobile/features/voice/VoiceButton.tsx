@@ -34,6 +34,29 @@ import type { DictationEngine } from "./engine";
  * three buttons lying over each other. There is one microphone on this machine;
  * there is one control for it.
  *
+ * ## And it is not drawn at all where something else already carries one
+ *
+ * The rule above was applied to a running meeting and to nothing else, so a
+ * phone with a note open drew this button 24pt above the seventh key of the
+ * bottom row — the same `mic` glyph twice on a 390pt screen, raising two
+ * different sheets. *"Why are there 2 microphones?"*
+ *
+ * The seventh key is the one that stays, and that was not decided here:
+ * `docs/decisions/meetings.md` makes it the phone's only way into meeting
+ * capture, and the only route to a *finished* meeting hangs off the sheet it
+ * raises — a route that exists because somebody recorded a meeting on their
+ * phone and could not find it afterwards. So `barMicrophone` stands this
+ * control down while that key is on the glass, which leaves dictation offered
+ * at exactly the moment it has somewhere to type: the keyboard accessory bar
+ * takes the toolbar away (`AppFrame`'s `toolbarHidden`), and the microphone
+ * comes back with the caret. `NoteEditor` owns the condition; see
+ * `oneMicrophone.test.ts` for both states driven through the real editor.
+ *
+ * **What never stands down is a microphone that is already open.** The live
+ * capsule is the only way to stop a run and the only way to take back what it
+ * typed, and the failure card is a sentence about a microphone that was opened
+ * rather than an offer to open one. Both are drawn whatever the bar is doing.
+ *
  * ## No level meter, on purpose
  *
  * The mock draws bars. This does not, and the reason is the one
@@ -68,6 +91,7 @@ export function VoiceButton({
   controls,
   compact,
   onRecordMeeting,
+  barMicrophone = false,
   bottomInset = 0,
   engine,
   now = Date.now,
@@ -78,6 +102,16 @@ export function VoiceButton({
   compact: boolean;
   /** Hands off to `useMeetingFlow`, which owns the meeting's own consent sheet. */
   onRecordMeeting: () => void;
+  /**
+   * Whether another control on this glass already opens the microphone.
+   *
+   * True on a phone whenever the frame's bottom toolbar is showing, because its
+   * seventh key is that control. False by default, which is the right answer
+   * for every pointer density — there is no bottom bar at any of them
+   * (`regionsFor`) — and for the fixtures, which mount this pane with no frame
+   * around it at all.
+   */
+  barMicrophone?: boolean;
   /**
    * The safe area under this edge, as `RecordingBar` takes it and for the same
    * reason: `useSafeAreaInsets` throws outside a `SafeAreaProvider`, and this
@@ -198,6 +232,20 @@ export function VoiceButton({
     );
   }
 
+  /*
+    The bottom row's seventh key is the microphone on this screen, so this one
+    is not drawn — and with nothing left to say, neither is the dock it floats
+    in. `failed` is the exception and is the reason this is not a bare yield at
+    the top: a sentence about a microphone that was already opened is owed to
+    whoever opened it, wherever the toolbar happens to be.
+
+    An open sheet holds it on screen too. Raising a `Modal` can take the caret
+    out of the editor, which puts the toolbar back — and a sheet that vanished
+    under the thumb that opened it would be this button answering a press by
+    disappearing.
+  */
+  if (barMicrophone && !asking && state.name !== "failed") return null;
+
   return (
     <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
       {state.name === "failed" ? (
@@ -208,17 +256,19 @@ export function VoiceButton({
         </View>
       ) : null}
 
-      <Pressable
-        onPress={ask}
-        role="button"
-        accessibilityLabel="Voice capture"
-        aria-haspopup="menu"
-        aria-expanded={asking}
-        testID="voice-button"
-        style={({ pressed }) => [styles.fab, (pressed || asking) && styles.fabActive]}
-      >
-        <Icon name="mic" size={23} color={asking ? colors.ink : colors.accent} />
-      </Pressable>
+      {barMicrophone ? null : (
+        <Pressable
+          onPress={ask}
+          role="button"
+          accessibilityLabel="Voice capture"
+          aria-haspopup="menu"
+          aria-expanded={asking}
+          testID="voice-button"
+          style={({ pressed }) => [styles.fab, (pressed || asking) && styles.fabActive]}
+        >
+          <Icon name="mic" size={23} color={asking ? colors.ink : colors.accent} />
+        </Pressable>
+      )}
 
       {asking ? (
         <VoiceSheet
