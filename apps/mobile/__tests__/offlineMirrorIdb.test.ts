@@ -1,5 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
 import { idbKeyValue, openMirrorDatabase } from "../features/offline/mirrorStore.web";
+import { currentEpoch } from "../features/offline/epoch";
+import { NOTHING_NEEDED, putMirroredNotes } from "../features/offline/mirror";
+import { searchMirror } from "../features/offline/mirrorSearch";
+import { kvMirrorStore } from "../features/offline/mirrorStoreCore";
 
 /**
  * The IndexedDB wrapper, against a fake small enough to trust.
@@ -111,5 +115,42 @@ describe("the IndexedDB wrapper", () => {
       },
     } as unknown as IDBFactory;
     expect(await openMirrorDatabase(throwing)).toBeNull();
+  });
+});
+
+/*
+  The web's offline search is the same code over this wrapper: the mirror's
+  port is one interface, so a search that works over the `Map` in the other
+  suites works here — this pins that it does, end to end, over IndexedDB's
+  events rather than a `Map`'s synchronous answers.
+*/
+describe("searching the copy in IndexedDB", () => {
+  test("a note written through the wrapper is found by the device search", async () => {
+    const { factory } = fakeFactory();
+    const db = await openMirrorDatabase(factory);
+    const store = kvMirrorStore(idbKeyValue(db!), "indexeddb");
+    await putMirroredNotes(
+      store,
+      currentEpoch(),
+      "team",
+      "ws_web",
+      [
+        {
+          path: "1-projects/garden.md",
+          text: "# Garden\n\nPlant the tomatoes in May.",
+          etag: "e1",
+          visibility: "team",
+          inherited: "team",
+          exception: false,
+          readOnly: false,
+        },
+      ],
+      NOTHING_NEEDED,
+      Date.now(),
+    );
+    const answer = await searchMirror(store, "team", "ws_web", "tomatoes");
+    expect(answer.hits).toEqual([
+      { path: "1-projects/garden.md", title: "Garden", snippets: ["Plant the tomatoes in May."] },
+    ]);
   });
 });
