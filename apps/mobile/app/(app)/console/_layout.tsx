@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { checkoutOutcomeFrom } from "@context/shared";
 import { SettingsOverlay } from "../../../features/console/settings/SettingsOverlay";
@@ -66,6 +66,7 @@ import { ContextStrip, CurrentContextPill } from "../../../features/console/Cont
 import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
+import { VoiceHostProvider, type VoiceHost } from "../../../features/voice/VoiceHost";
 import {
   currentContextPress,
   hrefFor,
@@ -458,6 +459,34 @@ export default function ConsoleLayout() {
   });
 
   /**
+   * What the microphone over the note needs, which is only what this layout
+   * already knows.
+   *
+   * `context` is the whole `ConsoleContext` rather than its slug: the dictation
+   * sheet has to say who can read the open note before the microphone opens,
+   * and that is a question about `kind` and `role` — see
+   * `features/voice/audience.ts` for why an unrecognised `kind` is never
+   * answered "only you".
+   *
+   * `writable` is the entry's own answer, not the membership's. `privacy.md`
+   * and an encrypted envelope are read-only inside a context you own outright,
+   * and `NoteEditor` narrows this again with its own `editable` — reading mode
+   * and a conflict both close the note to typing without changing either of
+   * these.
+   */
+  const voiceHost = useMemo<VoiceHost>(
+    () => ({
+      page: {
+        context: insideContext ? current : null,
+        notePath: selectedEntry?.kind === "file" ? selectedEntry.path : null,
+        writable: selectedEntry !== null && !selectedEntry.readOnly,
+      },
+      onRecordMeeting: startMeetingFlow,
+    }),
+    [insideContext, current, selectedEntry, startMeetingFlow],
+  );
+
+  /**
    * Where the control is and where a press takes it.
    *
    * Computed unconditionally so the two never disagree about which entry they
@@ -472,6 +501,7 @@ export default function ConsoleLayout() {
 
   return (
     <ConsoleDataProvider value={data}>
+      <VoiceHostProvider value={voiceHost}>
       {data.pluginRuntime?.host}
       {/*
         Beside the host and at console scope for the same reason: a plugin can
@@ -1162,6 +1192,7 @@ export default function ConsoleLayout() {
         */}
         {meetingSheet}
       </AppFrame>
+      </VoiceHostProvider>
     </ConsoleDataProvider>
   );
 }

@@ -979,10 +979,18 @@ describe("the stylesheet outranks CodeMirror's own", () => {
    * not resolve the cascade well enough to assert it any other way and a
    * screenshot is not a test.
    *
-   * `.cm-lp-*` is exempt: those classes are this repository's own, are shared
-   * verbatim with the web half, and CodeMirror has no rule for any of them.
+   * Classes this repository invented are exempt, and the exemption is a rule
+   * rather than a list: they are shared verbatim with the web half, and
+   * CodeMirror has no rule for any of them, so there is no cascade to lose.
+   * What the test is actually about is *CodeMirror's own* class names —
+   * `.cm-scroller`, `.cm-content`, `.cm-cursor` — every one of which it themes
+   * itself and every one of which must therefore be out-specified.
+   *
+   * Keep `OURS` to prefixes this repository defines. A name CodeMirror also
+   * uses does not become safe by being added here.
    */
   test("every CodeMirror selector it sets is qualified by the host element", () => {
+    const OURS = [".cm-lp-", ".cm-dictation-"];
     const withoutComments = guestStyles().replace(/\/\*[\s\S]*?\*\//g, "");
     const unqualified = withoutComments
       .split("}")
@@ -990,7 +998,7 @@ describe("the stylesheet outranks CodeMirror's own", () => {
       .flatMap((head) => head.split(","))
       .map((selector) => selector.trim())
       .filter((selector) => selector.includes(".cm-"))
-      .filter((selector) => !selector.includes(".cm-lp-"))
+      .filter((selector) => !OURS.some((prefix) => selector.includes(prefix)))
       .filter((selector) => !selector.startsWith("#root "));
     expect(unqualified).toEqual([]);
   });

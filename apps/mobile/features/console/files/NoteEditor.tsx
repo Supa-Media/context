@@ -28,6 +28,8 @@ import type {
   FormVote,
 } from "./formBlock";
 import { NoteAccessory } from "./NoteAccessory";
+import { VoiceButton } from "../../voice/VoiceButton";
+import { useVoiceHost } from "../../voice/VoiceHost";
 import type { Visibility } from "./types";
 
 /**
@@ -311,6 +313,7 @@ export function NoteEditor({
   const frame = useFrame();
   const padding = useSurfacePadding();
   const barUp = accessoryUp({ compact, editable, focused });
+  const voice = useVoiceHost();
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
@@ -999,6 +1002,28 @@ export function NoteEditor({
         rather than one of two.
       */}
       {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
+
+      {/*
+        The microphone, anchored to the region for the same reason the bar
+        above it is: inside the scroller it would ride the document.
+
+        Mounted here rather than in the console layout because this is the one
+        component that holds the live `EditorControls` — the same handle the
+        accessory bar takes, and taken the same way, as a getter that answers
+        `null` between notes. Everything it needs that the editor does not know
+        (which context, whose note, how to start a meeting) arrives through
+        `useVoiceHost`, which is `null` on the demo console and the fixtures so
+        they draw nothing. `drawing` is excluded: an Excalidraw canvas has no
+        caret to dictate into.
+      */}
+      {voice === null || drawing ? null : (
+        <VoiceButton
+          page={{ ...voice.page, writable: voice.page.writable && editable }}
+          controls={() => controls.current}
+          compact={compact}
+          onRecordMeeting={voice.onRecordMeeting}
+        />
+      )}
     </View>
   );
 }
