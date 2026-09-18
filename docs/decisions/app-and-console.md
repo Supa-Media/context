@@ -2273,6 +2273,64 @@ real draft clean (`saveTimeout.test.ts`). One guard is recorded in
 `performSave` cancelling the timer it supersedes is redundant with the
 fire-time `autosaves` check, and nothing can distinguish the two.
 
+### Reassurance is a chip in the top bar; a decision is a button over the note
+
+Autosave removed the *reason* for the Save button and left the button. The
+report, from somebody writing a note:
+
+> whenever I type in the note, this big ugly save button appears, any way where
+> it can not appear there and just show in the top right where it shows "R2
+> managed" that its saving or failed to save or something
+
+Both halves are right. `dirty` is the state every keystroke produces, so
+"Discard changes" and "Save" appeared across the foot of the document on the
+first character and stayed until the write landed — two controls over somebody's
+own text, for a write that was already scheduled. Neither was load-bearing: ⌘S
+and the autosave timer make the same conditional write, and Discard in `dirty`
+could only ever reach back to the last autosave, which is what undo is for. And
+the surface that *could* have said it quietly was saying it in the bottom-right
+corner, in 11pt grey, between a word count and a bucket name.
+
+**So the two jobs were split by whether a person has to do something.**
+
+- **Nothing owed** — typing, saving, saved, a cached body, a queued draft
+  draining on its own — is `saveChip` (`status.ts`), drawn in the top bar
+  beside the storage pill and nowhere else. Same words, same tones, same
+  details as the strip segment it replaces: "Saving soon", "Saving…", "Saved",
+  "Cached copy", "Queued", "Not saved", "Conflict".
+- **A decision owed** — a save that failed, a conflict, a queued draft
+  somebody may want to let go — keeps `NoteEditor`'s row, with the full
+  sentence beside the buttons at *every* density. Those messages are
+  paragraphs ("Still waiting on your bucket, so we stopped waiting…") and a
+  two-word chip cannot hold one. `editor.ts` has always said the manual route
+  must stay reachable exactly where autosave refuses, and it is.
+
+**The claim moved rather than multiplied**, which is the same rule that took
+the disabled Save pill off the row and then took the durability sentence off
+the pointer layout: one claim, one surface. The strip keeps what is
+*measured* — the note's key, the word count, the index, how writes are checked,
+the bucket — and gives up the one fact in it that changed while you typed. The
+phone is untouched apart from losing the buttons: it has no top bar chip and no
+status bar, so the sentence at the foot of the document is still its only save
+claim, and Save is still `check` on its toolbar.
+
+**Why the top-right and not somewhere calmer.** It is where the bucket chip
+already is, and the two answer one question between them: where the note lives,
+and whether it is there yet. It leads that group because it is the only chip in
+the bar whose text changes while somebody types, and in a row aligned to the
+trailing edge the leading item can grow without shifting its neighbours.
+
+**What a reversal costs, and the tests that fail.** Putting the Save row back
+in `dirty` fails "typing puts nothing over the note"
+(`offlineEditorRender.test.ts`), which mounts a mid-sentence draft at 1440 and
+asserts that neither button is on screen; putting the segment back in the strip
+fails "the strip does not carry it" (`status.test.ts`), which is what stops the
+console saying "Saved" at both corners at once; dropping the row in `error` or
+`conflict` fails "a failed save keeps its Save, and a conflict keeps its
+Overwrite", and dropping the sentence with it fails "a failed save explains
+itself at a pointer width" — the case that keeps the reason for a failed save
+reachable now that the strip no longer carries it as a tooltip.
+
 ### The breadcrumb is the whole path, and its head is a real way up
 
 Two screenshots from a phone, and one report:
