@@ -36,8 +36,9 @@ import {
 import { inviteHref } from "../../../features/auth/redirect";
 import { Confirm } from "../../../features/console/files/Dialogs";
 import { useSignOutFlow } from "../../../features/console/useSignOutFlow";
-import { itemsFromListings } from "../../../features/console/files/palette";
+import { itemsFromListings, itemsFromPaths } from "../../../features/console/files/palette";
 import { useContextSearch } from "../../../features/console/files/useContextSearch";
+import { useDeviceSearch, useMirrorPaths } from "../../../features/offline/useDeviceSearch";
 import { useTabs } from "../../../features/console/files/useTabs";
 import { readFocus, scopeForFocus } from "../../../features/console/keyboardScope";
 import { TabStrip } from "../../../features/console/files/TabStrip";
@@ -422,7 +423,36 @@ export default function ConsoleLayout() {
     bucket to ask, so the palette falls back to filtering listings, which is
     what it did everywhere before this.
   */
-  const search = useContextSearch(insideContext ? data.files.search : null);
+  /*
+    …and the same search over the copy of this context on the device, which
+    answers when the device is offline or the bucket does not — see
+    `useContextSearch` for when, and `mirrorSearch.ts` for what it reads.
+  */
+  const deviceSearch = useDeviceSearch(insideContext ? (current?.id ?? null) : null, current?.role);
+  const reachability = data.files.sync?.reachability ?? "unknown";
+  const mirrorStatus = data.files.sync?.mirror;
+  const device = useMemo(
+    () =>
+      deviceSearch === null
+        ? null
+        : { reachability, status: mirrorStatus, search: deviceSearch },
+    [deviceSearch, reachability, mirrorStatus],
+  );
+  const search = useContextSearch(insideContext ? data.files.search : null, device);
+  /*
+    Quick open by name, offline, over every note the mirror holds rather than
+    only the folders that had been expanded before the signal went.
+  */
+  const mirrorPaths = useMirrorPaths(
+    insideContext ? (current?.id ?? null) : null,
+    current?.role,
+    paletteOpen && reachability === "offline",
+  );
+  const listings = data.files.listings;
+  const paletteItems = useMemo(
+    () => itemsFromPaths(mirrorPaths, itemsFromListings(listings)),
+    [mirrorPaths, listings],
+  );
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
     and this is a third one living outside it. The sheet can only be raised on
@@ -1323,7 +1353,7 @@ export default function ConsoleLayout() {
 
         {paletteOpen ? (
           <Palette
-            items={itemsFromListings(data.files.listings)}
+            items={paletteItems}
             placeholder="Search this context"
             /*
               Reached only when the whole-context search is idle too — under
