@@ -148,6 +148,11 @@ export function runAppShellChecks(check) {
   const consoleSource = withoutComments(consoleRaw);
   const updaterRaw = readFileSync(new URL("../src/main/updater.ts", import.meta.url), "utf8");
   const updaterSource = withoutComments(updaterRaw);
+  // The dialog copy moved to a pure module so `updatePrompt.test.mjs` can call
+  // it; this file still owns "the menu command says one of four things".
+  const promptSource = withoutComments(
+    readFileSync(new URL("../src/core/update/prompt.ts", import.meta.url), "utf8"),
+  );
   const builderRaw = readFileSync(new URL("../electron-builder.yml", import.meta.url), "utf8");
   const builder = withoutYamlComments(builderRaw);
 
@@ -216,7 +221,7 @@ export function runAppShellChecks(check) {
     /let checkForUpdatesFromMenu = \(\) => \{[\s\S]*?showUpdateCheckMessage\(\{ type: "not-started" \}\)[\s\S]*?\};/.test(
       source,
     ) &&
-      /checkForUpdatesFromMenu = \(\) => \{[\s\S]*?const result = updater\.checkNow\(\);[\s\S]*?push\(\);[\s\S]*?showUpdateCheckMessage\(result\.outcome\)[\s\S]*?showNativeNotification\("Checking for updates\.\.\."\)[\s\S]*?result\.outcome\.then\(\(outcome\) => showUpdateCheckMessage\(outcome\)\)/.test(
+      /checkForUpdatesFromMenu = \(\) => \{[\s\S]*?const result = updater\.checkNow\(\);[\s\S]*?push\(\);[\s\S]*?showUpdateCheckMessage\(result\.outcome, installNow\)[\s\S]*?showNativeNotification\("Checking for updates\.\.\."\)[\s\S]*?result\.outcome\.then\(\(outcome\) => showUpdateCheckMessage\(outcome, installNow\)\)/.test(
         source,
       ),
   );
@@ -241,10 +246,10 @@ export function runAppShellChecks(check) {
   );
   check(
     "A FINISHED MANUAL UPDATE CHECK SAYS UP-TO-DATE, READY, UNAVAILABLE OR FAILED",
-    source.includes("Context is up to date.") &&
-      source.includes("Updates are only available in signed packaged builds.") &&
-      source.includes("Update ready.") &&
-      source.includes("Context could not check for updates.") &&
+    promptSource.includes("Context is up to date.") &&
+      promptSource.includes("Updates are only available in signed packaged builds.") &&
+      promptSource.includes("Update ready.") &&
+      promptSource.includes("Context could not check for updates.") &&
       /this\.#updater\.on\("update-not-available", \(\) => \{[\s\S]*?this\.#finishManualCheck\(\{ type: "no-update" \}\);[\s\S]*?\}\);/.test(
         updaterSource,
       ) &&

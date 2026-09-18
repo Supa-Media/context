@@ -17,18 +17,17 @@ import {
   transition,
 } from "../core/update/policy.ts";
 import type { UpdateEvent, UpdateState } from "../core/update/policy.ts";
+import type { ManualUpdateCheckOutcome } from "../core/update/prompt.ts";
 
 /** How often the scheduler is polled. Short, because `shouldCheckForUpdate` decides the rest. */
 const POLL_INTERVAL_MS = 60_000;
 const MANUAL_CHECK_TIMEOUT_MS = 120_000;
 
-export type ManualUpdateCheckOutcome =
-  | { type: "not-started" }
-  | { type: "unarmed" }
-  | { type: "checking" }
-  | { type: "no-update" }
-  | { type: "downloaded"; version: string | null; deferred: boolean }
-  | { type: "error" };
+/**
+ * Defined in `core/update/prompt.ts`, beside the dialog copy that renders it,
+ * and re-exported here because this class is where callers meet it.
+ */
+export type { ManualUpdateCheckOutcome } from "../core/update/prompt.ts";
 
 export type ManualUpdateCheck =
   | { started: false; outcome: ManualUpdateCheckOutcome }

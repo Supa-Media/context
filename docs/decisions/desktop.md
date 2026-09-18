@@ -387,6 +387,25 @@ resets a deferred update to `"idle"` on `capture-ended` passes every other
 check in the file and fails only that one — which is the point of naming it
 rather than folding it into the sweep.
 
+**A dialog that reports a ready install offers the install.** *"Check for
+Updates…"* showed **"Update ready. Version 0.1.44 is ready to install."** over a
+single *OK*; the only way to apply it was a *Restart to update* item in the menu
+bar the dialog never named, and the owner's report was *"nothing else, no way to
+actually install it"*. The ready outcome is now a two-button prompt — *Restart
+Now* (default) and *Later* — and the copy the box renders moved out of
+`main/index.ts` into `core/update/prompt.ts`, a pure function of the outcome, so
+the button set is asserted rather than eyeballed. **The button is a route, never
+a permission**: `mayInstall()` still decides, re-reading `controller.recording`
+at the click, so the deferred-by-a-recording outcome offers no install button at
+all and a meeting started while the box was open refuses the press and says so —
+by notification rather than a second alert when there is no window, because a
+parentless `NSAlert` stops the main process and that branch is only reachable
+while something is recording. **The test that fails if this is reversed**:
+`updatePrompt.test.mjs`'s `"A DOWNLOADED UPDATE OFFERS A BUTTON THAT INSTALLS IT
+— the reported bug"`; restoring the one-button prompt fails it and two others,
+and `"AN UPDATE DEFERRED BY A RECORDING OFFERS NO INSTALL BUTTON"` fails if the
+fix is "simplified" into offering it always.
+
 A third call worth recording even though it was not asked for by name: the
 build job's `permissions` block moves from `contents: read` to `contents:
 write` rather than splitting into a second job, because GitHub Actions grants
