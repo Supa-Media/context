@@ -93,6 +93,24 @@ describe("two scopes in one list", () => {
     }
   });
 
+  test("invitations is a row only while one is waiting", () => {
+    /*
+      Three states, two of them absent and for different reasons: nothing
+      pending, and nothing known yet. `undefined` is the list in flight and is
+      not zero — the distinction `ConsoleData.invitations` and `previews.ts`
+      both keep — but neither is a row, because neither has anything in it.
+    */
+    const keysWhen = (waiting: boolean | undefined) =>
+      settingsSectionsFor("personal", { invitations: waiting }).map((section) => section.key);
+
+    expect(keysWhen(undefined)).not.toContain("invitations");
+    expect(keysWhen(false)).not.toContain("invitations");
+    expect(keysWhen(true)).toContain("invitations");
+    // And with no `shown` at all, which is every caller that does not know:
+    // fail closed, the direction the deprecated rows already land on.
+    expect(settingsSectionsFor("personal").map((s) => s.key)).not.toContain("invitations");
+  });
+
   test("signing out is a control on Profile, not a row of its own", () => {
     /*
       "Sign out & delete" was a row in the index for two buttons somebody
@@ -208,7 +226,6 @@ describe("searching the list", () => {
     ["zoom", "meetings"],
     ["recording", "meetings"],
     ["transcript", "meetings"],
-    ["invite", "invitations"],
     ["claude", "apps"],
     ["revoke", "apps"],
     ["username", "profile"],
@@ -274,6 +291,26 @@ describe("searching the list", () => {
       (section) => section.key,
     );
     expect(hits).toContain(key);
+  });
+
+  test("and 'invite' opens Invitations, but only while one is waiting", () => {
+    // Off the table above because it is the one query whose answer depends on
+    // the person rather than the context: with nothing pending there is no
+    // row, so there is nothing for the box to return either.
+    const waiting = settingsSectionsFor("personal", { invitations: true });
+    expect(matchSettingsSections(waiting, "invite").map((s) => s.key)).toContain(
+      "invitations",
+    );
+    /*
+      With nothing pending the word still has a destination — People, where
+      you invite somebody — and that is the point: the box goes on answering,
+      it just cannot offer a screen whose only content would be "Nothing
+      pending".
+    */
+    const none = settingsSectionsFor("personal", { invitations: false });
+    const hits = matchSettingsSections(none, "invite").map((s) => s.key);
+    expect(hits).not.toContain("invitations");
+    expect(hits).toEqual(["people"]);
   });
 
   /*
