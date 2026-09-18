@@ -326,3 +326,20 @@ export {
   type ChunkTranscriber,
   type TranscribeChunkArgs,
 } from "./transcriber";
+/*
+  The spool, as far as anything above `capture/` may see it: how much is
+  waiting, a drain that hands back *words*, and the two ways a person can make
+  it go away. The spool itself — which can read a chunk's bytes — stays behind
+  this door with `setTranscriber`, for the same reason. `spool.ts` has the rest.
+*/
+export { setCaptureOffline } from "./connectivity";
+export { onSpoolChange as onSpooledAudioChange } from "./spoolShared";
+export {
+  drainSpooledAudio,
+  forgetMeetingAudio,
+  forgetSpooledAudio,
+  spooledAudioCounts,
+  type SpoolDrainDeps,
+  type SpoolDrainReport,
+  type SpooledAudioCounts,
+} from "./spoolDrain";

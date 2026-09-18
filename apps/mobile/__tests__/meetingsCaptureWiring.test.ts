@@ -284,6 +284,23 @@ describe("nothing above capture/ can reach the audio", () => {
   });
 
   /**
+   * The spool can read a kept chunk's bytes back, so it stays behind the same
+   * door. What is on the barrel is counts, a drain that answers with *words*,
+   * and the two forgets — enough to say how much audio is waiting and to send
+   * it, and nothing that could hold it.
+   */
+  test("the barrel hands out the spool's counts and its drain, never the spool", () => {
+    /* eslint-disable-next-line @typescript-eslint/no-require-imports */
+    const barrel = require("../features/meetings/capture") as Record<string, unknown>;
+    for (const name of ["spooledAudioCounts", "drainSpooledAudio", "forgetSpooledAudio", "forgetMeetingAudio"]) {
+      expect(Object.keys(barrel)).toContain(name);
+    }
+    for (const name of ["audioSpool", "setAudioSpool", "memorySpool", "deviceSpool", "claimChunk"]) {
+      expect(Object.keys(barrel)).not.toContain(name);
+    }
+  });
+
+  /**
    * And the deep path is not an alternative route in, which is what makes the
    * line above a boundary rather than a preference. Everything outside
    * `capture/` imports the barrel; a module that reached past it would be one

@@ -19,8 +19,9 @@ import type { TranscribesAt } from "./index";
  * `transcribe` takes a chunk and answers with words. There is no method that
  * returns audio, stores it, or names where it was, which is the same rule
  * `MeetingRecorder` is built on: "audio is transient" is a property of the
- * shapes rather than a promise in a document. The caller deletes the file it
- * read the base64 out of before this is even awaited.
+ * shapes rather than a promise in a document. What the caller does with the
+ * file it read the base64 out of is the recorder's business: on a phone it is
+ * kept in the spool until this answers (`spool.ts`), and nowhere else.
  *
  * ## `speaker` is `null`, always, and it is normalised here
  *
