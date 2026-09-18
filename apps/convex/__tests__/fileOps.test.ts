@@ -1013,6 +1013,39 @@ describe("moving and renaming", () => {
     expect(manifest.rules.find((rule) => rule.prefix === "5-work")?.vis).toBe("team");
     expect(manifest.overrides.get("5-work/pay.md")).toBe("private");
   });
+
+  test("a note that is private only because of its folder does not become readable by moving it into a shared one", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await movePath(store, {
+      from: "2-areas/health.md",
+      to: "1-projects/health.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+  });
+
+  test("a folder that is private only because its parent is keeps its subtree private when it moves into a shared folder", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/clinic/notes.md", "# Notes\n");
+    store.seed("2-areas/clinic/deep/more.md", "# More\n");
+    await movePath(store, {
+      from: "2-areas/clinic",
+      to: "1-projects/clinic",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/clinic/notes.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    // One rule, not one exception per note: the manifest a customer opens has
+    // to stay readable after a folder move.
+    expect(manifest.overrides.has("1-projects/clinic/notes.md")).toBe(false);
+    expect(manifest.rules.find((rule) => rule.prefix === "1-projects/clinic")?.vis).toBe("private");
+  });
 });
 
 describe("copying and duplicating", () => {
