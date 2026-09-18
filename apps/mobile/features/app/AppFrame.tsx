@@ -3,6 +3,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -31,6 +33,7 @@ import {
   floatingGapFor,
   focusToggleFor,
   initialFrame,
+  lightsInBarFor,
   panelsClearedFor,
   regionsFor,
   topBarLeadFor,
@@ -39,7 +42,8 @@ import {
   type Regions,
 } from "./frame";
 import { setBottomChromeHeight } from "./bottomChrome";
-import { useShellTitleBandPx } from "./ShellTitleBandView";
+import { useShellBandAbovePx, useShellLightsLeadPx } from "./ShellTitleBandView";
+import { setTopChromeHoldsLights } from "./topChrome";
 
 /**
  * The application frame.
@@ -455,21 +459,69 @@ export function AppFrame({
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const [state, setState] = useState<FrameState>(initialFrame);
+
+  const density = densityFor(width);
+
   /*
-    What the desktop shell's title band already took out of the window above
-    this frame. Zero everywhere else, including an ordinary browser tab.
+    THE TRAFFIC LIGHTS: WHO HOLDS THEM, AND WHAT THAT COSTS THIS FRAME.
+
+    Inside the desktop shell on macOS the window is frameless with inset
+    traffic lights, and something has to keep the console's own content out
+    from under them. Two candidates, and the frame picks between them here:
+
+     - **This bar**, at a pointer density. It is exactly the height the
+       buttons want (`SHELL_TITLE_BAND_PX` is `layout.topBarHeight`), so it
+       pays a leading inset and the root band stands down — which is the whole
+       of the change: 45pt of blank strip above the console becomes 45pt of
+       note list.
+     - **The root band**, otherwise. At compact this bar is absolute,
+       transparent and lying over a document that scrolls under it, so buttons
+       placed in it would sit on the note; and a console window narrowed past
+       `narrowBreakpoint` is that layout on a Mac. `lightsInBarFor` is the
+       density half of the rule and `shellLightsLeadPx` the platform half.
+
+    `lightsLeadPx` is therefore non-zero only when all of it holds — a Mac,
+    inside the shell, at a density whose bar can carry them — which makes it
+    the honest answer to "is this frame holding them", and what the handshake
+    publishes.
+  */
+  const lightsLeadPx = useShellLightsLeadPx(lightsInBarFor(density));
+  const holdsLights = lightsLeadPx > 0;
+
+  /*
+    What the desktop shell's title band still takes out of the window above
+    this frame. Zero when this frame took the job, and zero everywhere there
+    are no buttons at all, including an ordinary browser tab.
 
     The frame is sized in viewport units rather than `flex: 1` (see
     `design/css.ts` for why the unit has to be `dvh`), so a band drawn above
     it does not shorten it the way a flex parent would — it pushed a full
-    viewport down by 38px instead, and the bottom 38px of the console, which
+    viewport down by the band instead, and the bottom of the console, which
     is where the context switcher and the sync row live, was off the bottom of
     the window with no way to scroll to it.
   */
-  const shellBandPx = useShellTitleBandPx();
-  const [state, setState] = useState<FrameState>(initialFrame);
+  const shellBandPx = useShellBandAbovePx(holdsLights);
 
-  const density = densityFor(width);
+  /*
+    Tell the band mounted *above* this frame to stand down, because this bar
+    is reserving the buttons' corner itself. The mirror of the
+    `setBottomChromeHeight` call below, and `topChrome.ts` is the argument for
+    why both are module stores rather than context.
+
+    **A layout effect rather than `useEffect`**, and this is the one place the
+    difference is visible: the band is an ancestor, so standing it down is a
+    parent re-render driven from a child. React flushes layout effects and the
+    renders they schedule before the browser paints — with `useEffect` the
+    first frame would show band *and* bar, 90pt of chrome, and collapse to 45
+    one paint later. That flash is the whole defect, briefly, on every cold
+    load.
+  */
+  const lightsClaim = useId();
+  useLayoutEffect(() => {
+    setTopChromeHoldsLights(lightsClaim, holdsLights);
+    return () => setTopChromeHoldsLights(lightsClaim, false);
+  }, [lightsClaim, holdsLights]);
   const hasExplorer = explorer != null;
   const regions = regionsFor(density, state, { hasExplorer });
 
@@ -795,7 +847,28 @@ export function AppFrame({
             styles.topBar,
             compact && styles.topBarCompact,
             compact && { paddingTop: insets.top, height: contentInsets.top },
+            /*
+              The bar holds the shell's traffic lights: it starts its own
+              content clear of them and becomes the window's drag handle.
+
+              `paddingLeft` rather than a spacer `View`, because the buttons
+              are drawn by the OS over this bar and not by anything in this
+              tree — there is no element to reserve, only room to leave. And
+              the drag region is the bar rather than a strip inside it so that
+              the top edge of the window is grabbable along its whole width,
+              which is the property `docs/decisions/desktop.md` records the
+              settings overlay keeping ("the window stays draggable by its top
+              edge") and which this bar now owes on the console too.
+
+              Every slot below sets `no-drag` on itself — see `topLead`. What
+              stays draggable is the bar's own background: the gaps between
+              slots, the run between the chip and the tabs, and the air above
+              the tabs, which hang from the foot.
+            */
+            holdsLights && { paddingLeft: lightsLeadPx },
+            holdsLights && styles.topBarDrag,
           ]}
+          testID="app-top-bar"
         >
           {/*
             The phone's top row, in two parts: a pinned account mark and the
@@ -1804,6 +1877,36 @@ function PanelToggle({
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * WHAT A CLICK IN THE TITLE BAR DOES, WHEN THE BAR IS THE WINDOW'S HANDLE.
+ *
+ * On the web `-webkit-app-region` means nothing and these are inert; inside
+ * the desktop shell the bar is `drag`, so the window moves with the pointer —
+ * and a control inside it would move the window instead of activating, which
+ * is the one rule `docs/decisions/desktop.md` warned this change would need
+ * and the reason it was not smuggled into the change that added the band.
+ *
+ * **`no-drag` goes on the frame's own slots, never on the controls a route
+ * passes into them.** A route can put anything in `switcher`, `tabs`,
+ * `topTrailing`, `accountSlot` or `syncSlot`; if the guard lived on those, it
+ * would hold for exactly the controls somebody remembered, and the next chip
+ * added to the trailing group would drag the window with no diff that looks
+ * wrong on its own. On the slot it is structural: whatever is handed in is
+ * inside a region that has already opted out.
+ *
+ * Each slot hugs its content, which is what makes that safe — `topTabs` is
+ * `alignSelf: "flex-end"` and only as tall as the tabs hanging from the bar's
+ * foot, so the air above them stays the bar's, and draggable. What is left to
+ * grab: that air, the gaps between slots, and the run between the chip and
+ * the tabs.
+ *
+ * Asserted through the injected stylesheet in `shellTitleBand.test.ts` —
+ * jsdom drops the declaration from the CSSOM, so `getComputedStyle` cannot
+ * see it, the same way it cannot see `dvh`.
+ */
+const DRAG_REGION = { WebkitAppRegion: "drag" } as unknown as ViewStyle;
+const NO_DRAG_REGION = { WebkitAppRegion: "no-drag" } as unknown as ViewStyle;
+
 const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   frame: {
     backgroundColor: colors.ground,
@@ -1820,6 +1923,17 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     // the rule under it was the same line doing a value's job.
     backgroundColor: colors.chromeSurface,
   },
+  /**
+   * The bar as the window's drag handle, applied only when it is also the
+   * thing holding the traffic lights. See `DRAG_REGION` for what the slots
+   * inside it owe in return, and why they and not their contents carry it.
+   *
+   * Conditional rather than always-on because it is a claim: a bar that is
+   * not reserving the buttons' corner has no business also saying it is the
+   * title bar, and on a phone it would make the note's own top chrome
+   * un-selectable for a shell that is never there.
+   */
+  topBarDrag: DRAG_REGION,
   /**
    * The phone's top edge, which is not a bar.
    *
@@ -1867,7 +1981,13 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderBottomWidth: 0,
     backgroundColor: "transparent",
   },
-  topLead: { flexDirection: "row", alignItems: "center", gap: space.x2, minWidth: 0 },
+  topLead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    minWidth: 0,
+    ...NO_DRAG_REGION,
+  },
   /**
    * The tabs' room in the title bar.
    *
@@ -1885,6 +2005,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     alignSelf: "flex-end",
     alignItems: "flex-end",
     flexDirection: "row",
+    ...NO_DRAG_REGION,
   },
   /**
    * The account mark, pinned at the leading end of a phone's top row.
@@ -1894,7 +2015,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
    * the moment somebody joins a fourth workspace. The strip is what gives way,
    * because the strip is what scrolls.
    */
-  accountLead: { flexGrow: 0, flexShrink: 0 },
+  accountLead: { flexGrow: 0, flexShrink: 0, ...NO_DRAG_REGION },
   /**
    * The sync pill's box. `flexShrink: 1` and `minWidth: 0` so on a narrow
    * phone it is the pill's words that ellipsise, never the account mark or the
@@ -1906,6 +2027,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     justifyContent: "flex-end",
+    ...NO_DRAG_REGION,
   },
   topTrailAfterSync: { marginLeft: 0, flexShrink: 0 },
   topTrail: {
@@ -1913,6 +2035,7 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: space.x2,
+    ...NO_DRAG_REGION,
   },
   /**
    * Obsidian's trailing group: one floating capsule, however many actions.
