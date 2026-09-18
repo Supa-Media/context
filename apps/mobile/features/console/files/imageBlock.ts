@@ -387,16 +387,26 @@ const ALIGN_STYLE: Record<ImageAlign, string> = {
  * would tear down its `<img>` elements and reload the bytes under the reader.
  */
 export class ImageRowWidget extends WidgetType {
+  /*
+    `canEdit`, not `editable`, and the name is load-bearing: `WidgetType`
+    already owns `editable` — an internal getter with no setter, which
+    `WidgetTile.of` reads to decide whether to put `contenteditable="false"` on
+    the widget's DOM. A field of that name is an assignment to it, so the
+    constructor threw `Cannot set property editable of #<WidgetType> which has
+    only a getter` and took the whole note screen down with it. Renaming the
+    field is the fix; answering that getter honestly — a replaced block is not
+    editable DOM — is the behaviour it was quietly about to break.
+  */
   constructor(
     private readonly row: ImageRow,
     private readonly host: ImageHostRef | null,
-    private readonly editable: boolean,
+    private readonly canEdit: boolean,
   ) {
     super();
   }
 
   eq(other: ImageRowWidget): boolean {
-    return other.row.text === this.row.text && other.editable === this.editable;
+    return other.row.text === this.row.text && other.canEdit === this.canEdit;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -408,7 +418,7 @@ export class ImageRowWidget extends WidgetType {
         this.drawImage(view, image.target, image.alt, image.width, index),
       );
     });
-    if (this.editable) wrap.append(this.drawAlignBar(view));
+    if (this.canEdit) wrap.append(this.drawAlignBar(view));
     return wrap;
   }
 
@@ -453,7 +463,7 @@ export class ImageRowWidget extends WidgetType {
         });
     }
 
-    if (this.editable) {
+    if (this.canEdit) {
       figure.append(this.drawHandle(view, index, width));
       figure.append(this.drawGrip(view, index));
     }

@@ -18,11 +18,18 @@
 
 import { describe, expect, test } from "@jest/globals";
 import { EditorState, type TransactionSpec } from "@codemirror/state";
+import { WidgetType } from "@codemirror/view";
 
-import { markdownLanguage, selectionTouches } from "../features/console/files/livePreview";
 import {
+  decorationsFor,
+  markdownLanguage,
+  selectionTouches,
+} from "../features/console/files/livePreview";
+import {
+  ImageRowWidget,
   MIN_IMAGE_WIDTH,
   imageFilesFrom,
+  imageRowDecoration,
   imageRows,
   inCode,
   planAlign,
@@ -303,5 +310,133 @@ describe("what a paste offers, and from which list", () => {
       ),
     ).toEqual([]);
     expect(imageFilesFrom(null)).toEqual([]);
+  });
+});
+
+/**
+ * THE WIDGET ITSELF, BUILT.
+ *
+ * Everything above this line tests a planner: a state in, a transaction out,
+ * and not one `ImageRowWidget` constructed. That gap shipped a note screen that
+ * threw on load — `WidgetType` has an internal getter-only `editable`, and a
+ * field of that name on the subclass is an assignment to it, which in a module
+ * (strict by construction) is a `TypeError` in the constructor, before a single
+ * pixel. The build was green because no test here had ever reached the `new`.
+ *
+ * So these go through `decorationsFor` — the real path the editor takes on
+ * every transaction — rather than around it.
+ */
+describe("the row, built", () => {
+  /** Every getter `WidgetType` defines with no setter: names a subclass cannot own. */
+  function reservedByWidgetType(): string[] {
+    const names: string[] = [];
+    for (
+      let proto: object | null = WidgetType.prototype;
+      proto !== null && proto !== Object.prototype;
+      proto = Object.getPrototypeOf(proto) as object | null
+    ) {
+      for (const [name, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(proto))) {
+        if (descriptor.get !== undefined && descriptor.set === undefined) names.push(name);
+      }
+    }
+    return names;
+  }
+
+  /** The widgets a state actually draws, in document order. */
+  function widgetsOf(state: EditorState): WidgetType[] {
+    const found: WidgetType[] = [];
+    decorationsFor(state).between(0, state.doc.length, (_from, _to, value) => {
+      const widget = (value.spec as { widget?: WidgetType }).widget;
+      if (widget !== undefined) found.push(widget);
+    });
+    return found;
+  }
+
+  const MIXED = "> [!note] Titled\n> body\n\n![[a.png|320]]\n\n- [ ] a task\n";
+
+  test("a note with an image in it can be drawn at all", () => {
+    expect(() => widgetsOf(stateFor(MIXED))).not.toThrow();
+    expect(widgetsOf(stateFor(MIXED)).some((w) => w instanceof ImageRowWidget)).toBe(true);
+  });
+
+  test("a reader who may not write the note gets the row drawn too", () => {
+    const state = EditorState.create({
+      doc: "![[a.png|320]]\n",
+      extensions: [markdownLanguage(), EditorState.readOnly.of(true)],
+    });
+    expect(() => widgetsOf(state)).not.toThrow();
+    expect(widgetsOf(state).some((w) => w instanceof ImageRowWidget)).toBe(true);
+  });
+
+  /*
+    The guard, and it covers every widget this file's preview draws rather than
+    only the image one: `editable` is the name that broke, but `isHidden`,
+    `lineBreaks` and `estimatedHeight` are the same trap, and the next widget
+    added to `decorationsFor` is checked here without anybody remembering to.
+  */
+  test("no widget owns a name WidgetType reserves", () => {
+    const reserved = reservedByWidgetType();
+    expect(reserved).toContain("editable");
+
+    const widgets = widgetsOf(stateFor(MIXED));
+    expect(widgets.length).toBeGreaterThan(1);
+    for (const widget of widgets) {
+      expect(Object.getOwnPropertyNames(widget).filter((n) => reserved.includes(n))).toEqual([]);
+      /*
+        And the constructor's own text, which is the half the property check
+        cannot see. Jest's CommonJS output runs the assignment in sloppy mode,
+        where setting a getter-only inherited property is silently dropped
+        rather than thrown — so the widget that crashed the browser leaves no
+        own property here either, and this test would have stayed green while
+        the note screen was down. Reading the source catches it in either mode.
+      */
+      const source = Function.prototype.toString.call(widget.constructor);
+      for (const name of reserved) {
+        expect(source).not.toMatch(new RegExp(`this\\.${name}\\s*=[^=]`));
+      }
+    }
+  });
+
+  /*
+    The rule itself, so the guard above is anchored to a fact rather than a
+    hunch — and written so it holds in the mode the app ships in rather than
+    the one Jest happens to run. A module is strict by construction, which is
+    why the browser threw where the suite shrugged; `new Function` with the
+    directive is the one way to get that mode back inside a sloppy file.
+  */
+  test("a field named for a WidgetType getter throws where the app runs", () => {
+    const setStrictly = new Function("target", '"use strict"; target.editable = true;') as (
+      target: object,
+    ) => void;
+    const widget = new (class extends WidgetType {
+      toDOM(): HTMLElement {
+        throw new Error("never drawn");
+      }
+    })();
+    expect(() => setStrictly(widget)).toThrow(
+      /Cannot set property editable|only a getter|no setter/,
+    );
+  });
+
+  /*
+    And what the name means to CodeMirror, which is the half a rename alone
+    would not have caught: `WidgetTile.of` reads `widget.editable` and, finding
+    it false, sets `contenteditable="false"` on the row. A widget that answered
+    true would hand the reader an image row they could type into.
+  */
+  test("the drawn row is not editable DOM", () => {
+    // `editable` is `@internal` to CodeMirror, so it is read here the way the
+    // view reads it rather than through the published type.
+    for (const widget of widgetsOf(stateFor(MIXED))) {
+      expect((widget as unknown as { editable: boolean }).editable).toBe(false);
+    }
+  });
+
+  test("a row drawn for a writer is not the same widget as one drawn for a reader", () => {
+    const row = imageRows(stateFor("![[a.png|320]]\n"), () => false)[0];
+    const forWriter = imageRowDecoration(row, null, true).spec.widget as ImageRowWidget;
+    const forReader = imageRowDecoration(row, null, false).spec.widget as ImageRowWidget;
+    expect(forWriter.eq(forWriter)).toBe(true);
+    expect(forWriter.eq(forReader)).toBe(false);
   });
 });
