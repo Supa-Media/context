@@ -103,6 +103,18 @@ interface GatewayInternals {
     rules: PrivacyRule[],
     overrides: ReadonlyMap<string, string>,
   ): string;
+  /**
+   * Where archiving lands, and the set "already archived" is measured against.
+   *
+   * Exposed so `archiveResolution.test.ts` can drive the gateway's own
+   * resolver rather than a restatement of it: the console has a mirror in
+   * `lib/privacy.ts`, and two copies that disagree put one bucket's archive in
+   * two folders depending on which surface the person used.
+   */
+  archiveRoot(rules: PrivacyRule[]): string | null;
+  archiveRoots(rules: PrivacyRule[]): string[];
+  /** Reads `archiveRoot`, so the coupling guard can drive the real thing. */
+  defaultSessionFolder(rules: PrivacyRule[]): string;
 }
 
 let cached: GatewayInternals | null = null;
@@ -180,6 +192,9 @@ export function gatewayInternals(): GatewayInternals {
       overrideFor,
       renderPrivacyRulesBlock,
       replacePrivacyRulesBlock,
+      archiveRoot,
+      archiveRoots,
+      defaultSessionFolder,
     };`,
   );
   cached = factory() as GatewayInternals;

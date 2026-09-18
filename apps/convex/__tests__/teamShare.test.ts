@@ -34,6 +34,7 @@ import {
   scaffoldFiles,
 } from "../functions/lib/scaffold";
 import { isPlumbing } from "../functions/lib/privacy";
+import { gatewayInternals } from "./gatewayFormat.helpers";
 import type { Id } from "../_generated/dataModel";
 import {
   addMember,
@@ -706,16 +707,54 @@ describe("a folder gets a link too", () => {
    * reading the writers and asserting the list covers what they produce. That
    * is what `scaffoldFiles` already gets, and what these did not.
    */
+  /**
+   * **Driven, not parsed.** This read the function's source and pulled the
+   * string literals out of its `return`, which worked only while the answer
+   * *was* a literal. It stopped being one when `defaultSessionFolder` learned
+   * to resolve the archive folder instead of assuming `4-archive`, and a
+   * source-shape regex fails loudly at that change — which is the good
+   * direction, but it was never checking the thing it claimed. Running the
+   * real function over the real manifests does.
+   */
   test("every folder `defaultSessionFolder` can return is in the list", () => {
-    const gateway = readFileSync(
-      new URL("../../mcp/src/index.js", import.meta.url),
+    const { defaultSessionFolder } = gatewayInternals();
+
+    // Every archive root this product ships, one layout each, plus the
+    // no-archive case. Read out of `presets.ts` as text rather than imported,
+    // for the reason the neighbouring preset check gives: `apps/mobile`'s
+    // tsconfig is not installed in every job that runs this suite.
+    const presets = readFileSync(
+      new URL("../../mobile/features/workspace/presets.ts", import.meta.url),
       "utf8",
     );
-    const fn = gateway.match(/function defaultSessionFolder\(rules\) \{\s*return [^;]*;/);
-    expect(fn, "defaultSessionFolder is not the shape this reads").not.toBeNull();
-    const returned = [...fn![0].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    const presetFolders = [...presets.matchAll(/folder:\s*"([^"]+)"/g)].map((m) => m[1]!);
+    const shipped = [...new Set([...PARA_FOLDERS, ...presetFolders])];
+    const archiveRoots = shipped.filter((folder) => /^(?:\d+-)?archive$/i.test(folder));
+    expect(
+      archiveRoots.length,
+      "no archive root found — presets.ts or PARA_FOLDERS changed shape",
+    ).toBeGreaterThanOrEqual(2);
 
-    expect(returned.length).toBeGreaterThan(1);
+    // One root per layout, deliberately: a layout carrying both would resolve
+    // to whichever the resolver prefers and never exercise the other.
+    const layouts = [...archiveRoots.map((root) => [root]), ["Journal", "Clients"]];
+
+    const returned = new Set<string>();
+    for (const folders of layouts) {
+      returned.add(
+        defaultSessionFolder(folders.map((prefix) => ({ prefix, vis: "private" }))),
+      );
+    }
+
+    // Non-vacuity: the archive branch and the fallback both have to be here, or
+    // this passes by only ever exercising one of them.
+    expect(returned.has("0-inbox/sessions")).toBe(true);
+    expect([...returned].some((folder) => folder.endsWith("/chat-history"))).toBe(true);
+    // And the preset default is the case that was broken: `company` ships
+    // `5-archive`, and its sessions went to `0-inbox/sessions` because the
+    // resolver was looking for a `4-archive` that layout never had.
+    expect(returned.has("5-archive/chat-history")).toBe(true);
+
     for (const folder of returned) expect(PRODUCT_MANDATED_PATHS).toContain(folder);
   });
 

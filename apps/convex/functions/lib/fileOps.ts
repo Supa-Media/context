@@ -61,6 +61,9 @@ import {
   renderPrivacyRulesBlock,
   replacePrivacyRulesBlock,
   visibilityOf,
+  archiveRoot,
+  archiveRoots,
+  insideArchive,
 } from "./privacy";
 import { type Clearance } from "./clearance";
 import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
@@ -132,7 +135,10 @@ const MANIFEST_CAS_ATTEMPTS = 5;
 const RECOVER_PREFIX = ".context/recover/";
 const TRASH_ROOT = ".context/trash";
 
-const ARCHIVE_ROOT = "4-archive";
+/**
+ * Retired as a constant: which folder is *the* archive is a question about the
+ * context's own manifest, not a literal. See `archiveRoot` in `lib/privacy.ts`.
+ */
 
 /* -------------------------------------------------------------------------- */
 /*                                   store                                    */
@@ -2355,23 +2361,46 @@ export async function duplicatePath(
 /* -------------------------------------------------------------------------- */
 
 /**
- * Archive: move into `4-archive/<timestamp>/<original path>`.
+ * Archive: move into `<this context's archive>/<timestamp>/<original path>`.
  *
  * This is the destructive-looking action people should reach for, and it is
  * **not destructive** — the file is intact, its original path is preserved
  * inside the archive path, and moving it back restores it exactly. The
  * timestamp segment means archiving the same note twice never collides.
  *
- * Same destination shape the gateway's `archive_note` uses, so a note archived
- * by Claude and a note archived from the console land in the same place.
+ * Same destination shape the gateway's `archive_note` uses, **and now the same
+ * destination**, which it was not. Both were written against a literal
+ * `4-archive`; the gateway refused a context that did not declare one, and
+ * this created it regardless. So on a `company`-preset workspace — a layout
+ * whose archive is `5-archive`, and the default for a shared context — Claude
+ * refused to archive and the console quietly opened a second archive beside
+ * the real one, in a bucket the owner also sees in Obsidian. One resolver
+ * (`archiveRoot`) now answers for both, and this path adopts the gateway's
+ * refusal rather than its own invention: a context with no archive folder is
+ * told so, instead of being given one nobody chose.
  */
 export async function archivePath(
   store: FileStore,
   options: { path: string; clearance: Clearance; now: number },
 ): Promise<MoveResult> {
   const path = requirePath(options.path);
-  if (path === ARCHIVE_ROOT || path.startsWith(`${ARCHIVE_ROOT}/`)) {
+  // Ahead of the destination rather than after it: which folder this context
+  // archives into is a fact about its manifest, so the manifest is read first
+  // and the same state answers the visibility check below.
+  const state = await loadPrivacyState(store);
+  const roots = archiveRoots(state.rules);
+  const archive = archiveRoot(state.rules);
+  // Every archive it has, not the one we would write to: a note already in
+  // `5-archive/` must not be moved into `4-archive/` because the resolver
+  // preferred the latter.
+  if (insideArchive(path, roots)) {
     throw new FileOpError("PATH_INVALID", "That is already in the archive.");
+  }
+  if (archive === null) {
+    throw new FileOpError(
+      "ARCHIVE_UNAVAILABLE",
+      "This context has no archive folder, and archiving will not create one — its layout is yours. Move this to wherever you keep inactive material, or add an archive folder to privacy.md.",
+    );
   }
   // A free destination, because `movePath` refuses to merge onto an existing
   // folder and archiving a child and then its parent inside the same
@@ -2381,27 +2410,26 @@ export async function archivePath(
   // it. Archiving twice in one millisecond is a scripted or concurrent caller,
   // not a person clicking twice.
   const stamp = timestampSlug(options.now);
-  let destination = `${ARCHIVE_ROOT}/${stamp}/${path}`;
+  let destination = `${archive}/${stamp}/${path}`;
   for (let attempt = 2; attempt <= 100; attempt += 1) {
     if (!(await isFolder(store, destination)) && (await store.get(destination)) === null) break;
-    destination = `${ARCHIVE_ROOT}/${stamp}-${attempt}/${path}`;
+    destination = `${archive}/${stamp}-${attempt}/${path}`;
   }
 
   // Archiving is a move, so it inherits the destination rule — and on the
-  // scaffold's defaults `4-archive` is private, which means a team caller
+  // scaffold's defaults the archive is private, which means a team caller
   // cannot archive. That is right: archiving a shared note into a private
   // archive takes it away from everybody else, irreversibly for the person who
   // did it. The gateway's `archive_note` has always refused it.
   //
   // What it must not do is inherit the *message*. "That file does not exist"
   // about a note the caller is looking at explains nothing and points at the
-  // wrong thing. Naming `4-archive` discloses nothing they do not already
-  // hold: whether it is shared is visible in their own root listing.
-  const state = await loadPrivacyState(store);
+  // wrong thing. Naming the folder discloses nothing they do not already hold:
+  // whether it is shared is visible in their own root listing.
   if (options.clearance.scope !== "private" && visibilityOf(destination, state.rules) !== "team") {
     throw new FileOpError(
       "ARCHIVE_UNAVAILABLE",
-      "Archiving needs access to 4-archive, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.",
+      `Archiving needs access to ${archive}, which has not been shared with you. Ask the owner to share it, or move this somewhere you can both see.`,
     );
   }
 
