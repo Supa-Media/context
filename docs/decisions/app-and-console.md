@@ -981,6 +981,91 @@ for offline is a separate decision. And on the web none of this survives a cold
 *tab*, because there is no service worker to serve the bundle — the app has to
 load before any of it runs. The desktop shell's mirror is a different origin
 again, with its own storage, so it sees none of this.
+### On the web the app has to be able to *start* offline, which is a service worker
+
+The two sections above put the customer's notes on the device and made them
+reachable from a cold start. On the web none of that runs. Every line of
+`features/offline` is JavaScript, and a browser does not execute JavaScript
+until it has fetched a document and a 4.5MB bundle over the network — so a tab
+opened on a train showed the browser's own offline page, with a complete copy
+of somebody's notes in `localStorage` on that very origin and nothing running
+to read it.
+
+A service worker is the only thing that can answer a navigation with no
+network. `public/sw.js` is that worker, and `expo export` copies `public/` to
+the output root, which is what puts it at `/sw.js` — a worker may only claim a
+scope at or below the directory it is served from, so the root is not a
+preference here, it is the requirement.
+
+**It is origin-wide, which `drawing-editor/sw.js` argues against by name**, and
+that argument is the reason for the shape rather than a reason not to do it.
+The danger it names is staleness, and staleness is a property of that page
+rather than of workers: `editor.js` and `editor.css` keep their names across
+deploys, so a cache-first worker pins you to whatever you first fetched. The
+console is the opposite — `infra/router` marks `/_expo/` immutable precisely
+because *"the filename changes when the bytes do"*. So:
+
+- **A navigation is network-first.** Online everybody gets the document the
+  server has, which is the one naming the current bundle. A deploy lands on the
+  next online load with no version lag at all.
+- **`/_expo/` and `/assets/` are cache-first.** Their names contain a hash of
+  their bytes, so a cached one cannot be the wrong version of anything.
+
+A stale shell is served only when the alternative is nothing, and it points at
+hashed assets cached beside it.
+
+**Every navigation is stored under one key, and that is a privacy decision
+rather than a tidiness one.** The console is a single-page app, so `/`,
+`/console/@someone` and `/console/@someone?note=1-projects/pay-review.md` are
+all answered by the same document. The obvious worker caches a navigation under
+its own URL — and would therefore build, inside `CacheStorage`, a list of every
+context and every note path somebody had opened, outside everything
+`forgetLocalCopies` clears at sign-out. Under one key the cache holds one
+generic document and some public build output, identical for everyone who loads
+the origin: nothing to leak, and nothing worth clearing.
+
+**What it will not touch** is a closed set, each clause a way this becomes a
+cache of somebody's content rather than of the app: non-`GET`, cross-origin
+(the notes come from Convex on another origin, the fonts from Google), `/api/`
+(same-origin, proxied to the control plane, the one prefix that answers
+per-person), `/drawing-assets/` (that worker's, at a narrower scope), anything
+carrying `Set-Cookie`, anything redirected, anything not `ok`.
+
+**A rejection inside `respondWith` is not a cache miss, it is an origin that
+will not load.** A worker survives the tab and cannot be reloaded out of, so
+every cache operation answers instead of throwing. `caches.open` is the one
+that makes this real: it *rejects* where a browser refuses storage — a Safari
+private window, blocked site data, an enterprise policy — which is exactly the
+population least able to clear anything. Written the obvious way, with
+`await caches.open(CACHE)` at the top of each handler and outside its `try`,
+every one of those people gets a broken origin instead of a normal one. A
+`null` cache means no cache and every caller goes to the network, which is how
+the console behaved before any of this existed.
+
+The manifest beside it is what makes the worker worth having on a laptop: an
+installed window opens into the app rather than into a browser that has to be
+online to show a tab. `start_url` is `/console` and not `/`, because on web the
+root is the landing page and somebody who installed this has an account;
+`scope` stays `/` so a link into any route opens in that window. The icon is
+`purpose: "any"` and deliberately not `maskable` — a maskable icon has to
+reserve a safe zone inside its own artwork, and claiming it for one that does
+not is how an icon ships with its edges cropped.
+
+What a simplification costs: caching per URL writes somebody's note paths into
+a store that survives sign-out; cache-first on a navigation reintroduces the
+stale-shell failure the drawing worker warns about and pins people to an old
+bundle; letting `caches.open` reject takes the origin down for private windows.
+`__tests__/appShellWorker.test.ts` drives the real file in a sandbox and fails
+on each.
+
+**What this does not do.** The desktop shell still mirrors the console to
+`app://console/`, a second origin with its own storage that therefore sees none
+of this — with a service worker on the live origin that mirror is largely
+redundant, and retiring it is a change to [desktop](./desktop.md)'s own argued
+design rather than a detail of this one. There is still no precache manifest,
+so the *first* load must succeed; a person with no network on their first ever
+visit has no account or notes on the device either.
+
 ### A reconnection empties every queue, not the one on screen
 
 The queue has always been per context — one outbox record per workspace, keyed
