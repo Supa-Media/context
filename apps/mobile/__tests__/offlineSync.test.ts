@@ -615,6 +615,18 @@ describe("what the person is told", () => {
     );
   });
 
+  test("signing out with a meeting's audio still on the phone says it is deleted", () => {
+    // The spool is wiped with everything else, and audio cannot be typed again.
+    expect(signOutWarning(zero, 1)).toBe(
+      "1 meeting's audio has not been transcribed yet — signing out deletes it from this phone.",
+    );
+    expect(signOutWarning(zero, 2)).toContain("2 meetings' audio has not been transcribed yet");
+    // Both, when both are waiting: neither sentence may crowd out the other.
+    const both = signOutWarning({ pending: 1, conflicted: 0, rejected: 0 }, 1)!;
+    expect(both).toContain("1 note has edits");
+    expect(both).toContain("1 meeting's audio");
+  });
+
   test("counts are counts, never note text", () => {
     // The same rule that keeps note content out of structured logs.
     const line = queueLine({

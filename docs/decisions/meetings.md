@@ -847,7 +847,13 @@ same `transcribeChunk` with the same chunk id, offset and duration.
   after `endSession()`, and re-counts rather than trusts. Every write carries the
   epoch the recording started under and is checked on both sides of the write,
   so a recorder still running behind a sign-out writes nothing and a write the
-  sign-out overtook is taken back.
+  sign-out overtook is taken back. **And the person is asked first**: the
+  sign-out question counts meetings with audio on the phone
+  (`unsentMeetingAudio`) beside unsent note edits and says *"1 meeting's audio
+  has not been transcribed yet — signing out deletes it from this phone"*;
+  without it, sign-out was a silent way to lose exactly what the spool exists to
+  keep. `asks first, naming the meeting whose audio would be deleted`
+  (`signOutHygiene.test.ts`) fails if the spool is left out of the count.
 - **Written beside, then moved in.** Bytes go to `<name>.part` and are renamed
   when whole; a crash mid-write leaves a `.part` that is never listed or sent.
   A refused write removes its own `.part`.

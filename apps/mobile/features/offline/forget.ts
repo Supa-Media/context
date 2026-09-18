@@ -8,7 +8,7 @@ import { endSession } from "./epoch";
 import { keysForDepartedContexts, keysForWorkspace, ownedKeys } from "./keys";
 import { forgetPlace, placeKeys } from "../console/lastPlace";
 import { forgetAllMeetings } from "../meetings/local";
-import { forgetSpooledAudio } from "../meetings/capture";
+import { forgetSpooledAudio, spooledAudioCounts } from "../meetings/capture";
 import { meetingKeys } from "../meetings/keys";
 import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
@@ -416,6 +416,24 @@ async function clearDeparted(known: readonly string[]): Promise<ForgetResult> {
   } catch {
     warnStoreUnusable("departed contexts");
     return { verdict: "unmeasured" };
+  }
+}
+
+/**
+ * How many meetings have audio on this phone that has not been transcribed.
+ *
+ * Counted for the sign-out question, because `forgetLocalCopies` wipes the
+ * spool and nothing else would ever say so. Every meeting in every context —
+ * the spool is device-wide and so is the wipe — and every kept chunk,
+ * including ones the drain has set aside: they are the person's audio and they
+ * go with the rest. A spool that cannot be read answers zero, the same floor
+ * `unsentOnDevice` takes; it is synchronous, so there is no deadline to add.
+ */
+export function unsentMeetingAudio(): number {
+  try {
+    return Object.values(spooledAudioCounts()).filter((counts) => counts.kept > 0).length;
+  } catch {
+    return 0;
   }
 }
 

@@ -155,10 +155,30 @@ function queuedDetail(facts: SyncFacts): string {
  * line, and the wording is pinned by a test rather than living inside a
  * component nobody renders in CI.
  */
-export function signOutWarning(counts: OutboxCounts): string | null {
+export function signOutWarning(
+  counts: OutboxCounts,
+  /**
+   * Meetings with audio kept on this phone that has not been transcribed yet
+   * (`meetings/capture/spool.ts`). Sign-out wipes the spool with everything
+   * else, and a meeting's audio is the one thing on the device that cannot be
+   * typed again — it was the reason the spool exists at all. Optional so a
+   * caller that has no spool to ask (a test of the notes half) reads as zero.
+   */
+  meetingAudio = 0,
+): string | null {
   const waiting = counts.pending + counts.conflicted + counts.rejected;
-  if (waiting === 0) return null;
-  return `${plural(waiting, "note has", "notes have")} edits that have not reached your bucket. Signing out discards them.`;
+  const parts: string[] = [];
+  if (waiting > 0) {
+    parts.push(
+      `${plural(waiting, "note has", "notes have")} edits that have not reached your bucket. Signing out discards them.`,
+    );
+  }
+  if (meetingAudio > 0) {
+    parts.push(
+      `${meetingAudio} ${meetingAudio === 1 ? "meeting's audio has" : "meetings' audio has"} not been transcribed yet — signing out deletes it from this phone.`,
+    );
+  }
+  return parts.length === 0 ? null : parts.join(" ");
 }
 
 /**
