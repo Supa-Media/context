@@ -1,5 +1,9 @@
 import { describe, expect, test } from "@jest/globals";
-import { formatNotesTotal, totalNotes } from "../features/console/noteTotals";
+import {
+  formatNotesTotal,
+  notesTotalLabel,
+  totalNotes,
+} from "../features/console/noteTotals";
 
 /**
  * The arithmetic behind the console's one number about somebody's own storage.
@@ -89,5 +93,67 @@ describe("formatNotesTotal", () => {
     expect(formatNotesTotal({ notes: 1284, partial: false })).toBe("1,284");
     expect(formatNotesTotal({ notes: 1284, partial: true })).toBe("1,284+");
     expect(formatNotesTotal({ notes: 0, partial: false })).toBe("0");
+  });
+});
+
+/**
+ * WHEN THE NUMBER WAS TRUE, WHICH IS NOT THE SAME AS NOW.
+ *
+ * `noteCount` is written by exactly one thing — the walk `verifyStorageBinding`
+ * runs — and nothing that writes notes updates it: not the gateway, not
+ * `write_note`, not email ingestion, not this console's editor. So every count
+ * in this sum is a measurement taken at a past instant, and the tile printed it
+ * with the confidence of a live figure.
+ *
+ * It is not a floor, either, which is why `+` is the wrong answer: notes are
+ * deleted as well as written, so a stale count can be over as easily as under.
+ * The honest thing is the one Settings → Storage already does with the same
+ * number — say when it was taken.
+ *
+ * The total is dated by its **oldest** contributing walk, because a sum is only
+ * as fresh as its stalest part.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted.
+ *
+ *   the total dated by the newest walk rather than the oldest    1
+ *   the date dropped from the label                              2
+ */
+describe("how old the number is", () => {
+  const now = Date.UTC(2026, 8, 18);
+  const day = 24 * 60 * 60 * 1000;
+
+  test("the total is dated by its stalest walk", () => {
+    const total = totalNotes([
+      { noteCount: 10, noteCountedAt: now - 2 * day },
+      { noteCount: 90, noteCountedAt: now - 40 * day },
+    ]);
+    expect(total?.notes).toBe(100);
+    expect(total?.countedAt).toBe(now - 40 * day);
+  });
+
+  test("the label says when, so the tile stops claiming to be current", () => {
+    const total = totalNotes([{ noteCount: 10, noteCountedAt: now - 3 * day }]);
+    expect(notesTotalLabel(total!, now)).toMatch(/counted 3 days ago/i);
+  });
+
+  test("an undated count claims no date rather than inventing one", () => {
+    // A deployment older than `noteCountedAt` sends the count without it. The
+    // label falls back to what it has always said; it does not guess.
+    const total = totalNotes([{ noteCount: 10 }]);
+    expect(total?.countedAt).toBeUndefined();
+    expect(notesTotalLabel(total!, now)).toBe("notes across all");
+  });
+
+  test("one undated contributor undates the whole total", () => {
+    // The sum cannot be dated more confidently than its least-dated part, for
+    // the reason it cannot be counted more exactly than its least-counted one.
+    const total = totalNotes([
+      { noteCount: 10, noteCountedAt: now - day },
+      { noteCount: 5 },
+    ]);
+    expect(total?.countedAt).toBeUndefined();
+    expect(notesTotalLabel(total!, now)).toBe("notes across all");
   });
 });

@@ -26,6 +26,8 @@
  * permission error.
  */
 
+import { relativeTime } from "../../format";
+
 /** The five states this section can be in. */
 export const PREMIUM_STATES = [
   "free",
@@ -692,12 +694,29 @@ export function formatBytes(bytes: number): string {
  * `null` for a member, who does not get the census at all, and for a context
  * whose notes have never been counted.
  */
-export function usageLine(status: PremiumStatus): string | null {
+export function usageLine(status: PremiumStatus, now = Date.now()): string | null {
   if (status.notes === undefined) return null;
   const counted =
     status.notesTruncated === true ? `${status.notes}+` : `${status.notes}`;
   const notes = `${counted} ${status.notes === 1 && status.notesTruncated !== true ? "note" : "notes"}`;
-  return `${notes} in this context. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
+  /*
+    Dated, because the number is a measurement and not a live reading.
+
+    `notes` comes from the walk `verifyStorageBinding` runs, and nothing that
+    writes notes updates it — not the gateway, not `write_note`, not email
+    ingestion, not this console's editor. Settings → Storage prints this same
+    count as "412 notes — counted 3 weeks ago"; this line printed it bare, two
+    inches away, so a context filled in by a connected AI client after it was
+    verified read "0 notes in this context" with its tree full beside it.
+
+    Absent stays undated rather than guessing: a deployment older than the
+    field sends the count without it.
+  */
+  const when =
+    status.notesCountedAt === undefined
+      ? ""
+      : `, counted ${relativeTime(status.notesCountedAt, now)}`;
+  return `${notes} in this context${when}. The ${formatBytes(status.ceilingBytes)} ceiling is on stored bytes, which are not metered yet.`;
 }
 
 /** When the current period ends, in a sentence, or `null`. */

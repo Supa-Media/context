@@ -901,3 +901,58 @@ rebind clear was written to prevent. `apps/mcp/test/storageLayout.test.mjs`
 (`runStorageLayoutReadChecks`), the observation cases in
 `apps/convex/__tests__/storage.test.ts`, and two checks in
 `apps/mobile/__tests__/storageMigrationEntry.test.ts` fail.
+
+## A verification snapshot is never read as live state
+
+`scaffoldReason`, `scaffolded`, `scaffoldMissing`, `noteCount`,
+`noteCountTruncated` and `noteCountedAt` are all written by exactly one thing:
+the pass `verifyStorageBinding` makes when a binding is connected or
+re-verified. Nothing that puts a note in a bucket touches any of them — not the
+gateway, not `write_note`, not email ingestion, not the console's own editor —
+because none of those opens the binding to record what it did, and a per-write
+counter on the control plane would be a second source of truth for something
+the bucket already knows.
+
+That is the right design and it has one consequence, which has now cost us a
+shipped defect: **every one of these fields is a measurement taken at a past
+instant, and a live claim built on one is a guess.** The first version of the
+console's empty-context card read `scaffoldReason === "empty"` as "this bucket
+is empty" and drew *This context is empty*, with an offer to scaffold, over a
+workspace whose tree was full of the owner's notes. The binding was telling the
+truth about a moment months earlier; the card turned it into the present tense.
+
+The rule, in the two shapes it takes:
+
+**A decision reads the live thing.** Whether a context is empty is answered by
+the listing in front of the person, never by the binding. The binding may still
+be read *to stay quiet* — `existing-context` and `created` are reasons not to
+offer — but it can never be the reason to assert. The pattern generalises:
+snapshots may veto, only live reads may claim.
+
+**A number says when it was taken.** Settings → Storage had this right from the
+start — "412 notes — counted 3 weeks ago" — and the two surfaces that printed
+the same walk bare have been brought into line: the Premium panel's usage line,
+and the console's "notes across all" tile, which is dated by its *oldest*
+contributing walk because a sum is only as fresh as its stalest part. A `+` is
+not a substitute: notes are deleted as well as written, so a stale count can be
+over as easily as under, and a floor would be a second false claim rather than
+a hedge.
+
+Two readers are legitimate and stay: onboarding's `structureStepFor` and the
+Dropbox callback both read the field within seconds of the walk that wrote it,
+standing in front of a bucket they have just watched being verified.
+`applyStructure`'s server-side guards read it too, but they are a pre-filter and
+not the safety boundary — `hasExistingContext` re-lists the bucket, and every
+individual write is preceded by a `get`, so a stale `empty` costs a wasted round
+trip and never a write over somebody's notes.
+
+**What a simplification costs.** Re-deriving "is this context empty" from the
+binding puts the scaffold offer back on live workspaces. Printing any of these
+counts undated re-asserts a figure nobody measured recently — #25's shape, with
+a real number instead of a constant. Dating the notes tile by its newest walk
+rather than its oldest flatters a total whose other half is a year stale.
+`apps/mobile/__tests__/contextSetup.test.ts`,
+`browseSetupPrompt.test.ts` ("a context whose notes arrived after it was
+verified"), `noteTotals.test.ts` ("how old the number is"),
+`liveConsoleFacts.test.ts` ("dates the number rather than implying it is
+current") and the two usage-line checks in `premiumSettings.test.ts` fail.
