@@ -80,9 +80,9 @@ export type BatchRead =
   | { path: string; outcome: "deferred" };
 
 export interface MirrorProgress {
-  /** Notes this run has to fetch. */
+  /** Notes the manifest listed — the denominator of "340 of 1,204". */
   total: number;
-  /** Fetched and written so far. */
+  /** On this device at their current version: already current, or fetched by this run. */
   done: number;
 }
 
@@ -220,7 +220,14 @@ export async function syncContext(
   let stopped = false;
   let sessionEnded = false;
   const batchSize = Math.min(deps.batchSize ?? MIRROR_BATCH, MIRROR_BATCH);
-  deps.onProgress?.(workspaceId, { total: toFetch.length, done: 0 });
+  let listedNotes = 0;
+  for (const path of listed.keys()) if (isNotePath(path)) listedNotes += 1;
+  const current = listedNotes - toFetch.length;
+  const progress = () =>
+    deps.onProgress?.(workspaceId, { total: listedNotes, done: current + run.fetched });
+  // Said only when there is something to download: a sync that finds nothing
+  // changed should not flash "Downloading 1,204 of 1,204" at anybody.
+  if (toFetch.length > 0) progress();
 
   const worker = async (): Promise<void> => {
     while (queue.length > 0 && !stopped && !sessionEnded) {
@@ -279,7 +286,7 @@ export async function syncContext(
         return;
       }
       run.fetched += read.length;
-      deps.onProgress?.(workspaceId, { total: toFetch.length, done: run.fetched });
+      progress();
     }
   };
 
@@ -348,8 +355,9 @@ export async function syncContext(
         remaining += 1;
         continue;
       }
-      const current = entry.etag === undefined ? toFetch.includes(entry.path) : local.etag === entry.etag;
-      if (!current) {
+      const atVersion =
+        entry.etag === undefined ? toFetch.includes(entry.path) : local.etag === entry.etag;
+      if (!atVersion) {
         remaining += 1;
         continue;
       }
@@ -410,6 +418,7 @@ function fieldsOf(
 export async function syncAll(
   deps: MirrorSyncDeps,
   targets: readonly { workspaceId: string; tier: VisibilityTier }[],
+  onRun?: (run: MirrorRun) => Promise<void> | void,
 ): Promise<MirrorRun[]> {
   const runs: MirrorRun[] = [];
   for (const target of targets) {
@@ -418,6 +427,7 @@ export async function syncAll(
     if (run === null) continue;
     runs.push(run);
     if (run.aborted) break;
+    await onRun?.(run);
   }
   return runs;
 }
