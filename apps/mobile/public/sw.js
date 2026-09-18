@@ -249,6 +249,36 @@ async function store(cache, key, response) {
 }
 
 /**
+ * The same document, with no memory of which URL it was fetched from.
+ *
+ * One key is not the whole of the privacy property above. `cache.put` stores a
+ * **response**, and a response carries its own `url` — so the entry under
+ * `SHELL_KEY` reported the address of the navigation that last filled it.
+ * Measured in Chromium rather than reasoned about: after a navigation to
+ * `/console/@someone?note=1-projects/pay-review.md`, `(await
+ * cache.match(SHELL_KEY)).url` was exactly that string.
+ *
+ * One entry, so one path rather than the history this file was written to
+ * prevent — and it is a context slug and a note path, in the cache this file
+ * argues has "nothing in it to leak and nothing worth clearing at sign-out".
+ * That claim is the reason this matters: it is what excuses the cache from
+ * `forgetLocalCopies`, so anything in it outlives a sign-out on a shared
+ * browser.
+ *
+ * Rebuilding the response from its own bytes drops the URL and keeps
+ * everything the shell is for — the body, the status and the headers. The
+ * clone is what is read, so the response handed back to the page is untouched
+ * and still streams normally.
+ */
+async function anonymous(response) {
+  return new Response(await response.clone().blob(), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+/**
  * A navigation: the server's document if it can be had, this device's last
  * good one if it cannot.
  *
@@ -260,7 +290,7 @@ async function shell(request) {
   const cache = await open();
   try {
     const fresh = await fetch(request);
-    if (storable(fresh)) await store(cache, SHELL_KEY, fresh);
+    if (storable(fresh)) await store(cache, SHELL_KEY, await anonymous(fresh));
     return fresh;
   } catch {
     const held = await lookup(cache, SHELL_KEY);
