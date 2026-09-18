@@ -126,6 +126,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The response file is created by the author, never by the first submission
 - A form that does not parse is inert, never half-working
 - Forms need conditional writes, and say so when they cannot have them
+- The response table scrolls sideways, and never truncates an answer
 - What is deliberately not built
 
 ## [Search and the derived index](./search.md)
