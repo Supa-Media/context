@@ -116,7 +116,17 @@ export function useBlendedSearch(options: {
   device?: BlendedDeviceSearch | null;
 }): BlendedSearchView {
   const convex = useConvex();
-  const { query, slugs } = options;
+  const { query } = options;
+  /*
+    The URL's slugs, by value. The route parses them afresh on every render
+    (`searchFromQuery`), and the route now re-renders whenever the console's
+    data or a mirror status ticks — a download in progress ticks often. Keyed
+    on the array's identity, every one of those ticks would re-send the search:
+    a fan-out across several buckets per progress update.
+  */
+  const slugKey = options.slugs.join(",");
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- by value, see above.
+  const slugs = useMemo(() => options.slugs, [slugKey]);
   /*
     Through a ref, so a download's progress ticking the statuses does not
     re-send the query; whether the device is offline is a dependency, so going
@@ -196,8 +206,11 @@ export function useBlendedSearch(options: {
     // git treat the file as binary, so it has no diff and cannot be
     // reviewed. What is wanted is its property — it occurs in neither half,
     // so two different questions cannot join into the same string.
-    () => `${query.trim()}\u0000${[...scope].sort().join(",")}`,
-    [query, scope],
+    // The URL's slugs too: offline the scope comes from them rather than from
+    // `scope`, which is empty there, and a chip changed while the device was
+    // searching must drop that answer exactly as it would the server's.
+    () => `${query.trim()}\u0000${[...scope].sort().join(",")}\u0000${[...slugs].sort().join(",")}`,
+    [query, scope, slugs],
   );
 
   /** One page, raced against a deadline so a lost request cannot hang. */

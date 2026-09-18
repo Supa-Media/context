@@ -71,16 +71,19 @@ function mount(query: string, slugs: string[], local: BlendedDeviceSearch) {
   const seen: { current: BlendedSearchView | null } = { current: null };
   const host = document.createElement("div");
   let root: Root | null = null;
-  function Probe() {
-    seen.current = useBlendedSearch({ query, slugs, device: local });
+  function Probe({ scope }: { scope: string[] }) {
+    seen.current = useBlendedSearch({ query, slugs: scope, device: local });
     return null;
   }
   act(() => {
     root = createRoot(host);
-    root.render(createElement(Probe));
+    root.render(createElement(Probe, { scope: slugs }));
   });
   return {
     view: () => seen.current as BlendedSearchView,
+    /** Re-render as the route does: the same slugs, parsed into a new array. */
+    rerender: (scope: string[]) =>
+      act(() => (root as unknown as Root).render(createElement(Probe, { scope }))),
     unmount: () => act(() => (root as unknown as Root).unmount()),
   };
 }
@@ -119,6 +122,20 @@ describe("the search page with no connection", () => {
     expect(local.search).toHaveBeenCalledTimes(1);
     expect(local.search.mock.calls[0]![0]).toMatchObject({ workspaceId: "ws_team", role: "member" });
     expect(app.view().results.map((row) => row.slug)).toEqual(["team"]);
+    app.unmount();
+  });
+
+  test("a re-render with the same scope, freshly parsed, does not search again", async () => {
+    // The route parses `?in=` into a new array on every render, and it
+    // re-renders whenever a mirror status ticks during a download.
+    const local = device("offline");
+    const app = mount("review", ["team"], local.value);
+    await settle();
+    expect(local.search).toHaveBeenCalledTimes(1);
+    app.rerender(["team"]);
+    app.rerender(["team"]);
+    await settle();
+    expect(local.search).toHaveBeenCalledTimes(1);
     app.unmount();
   });
 

@@ -450,8 +450,8 @@ export default function ConsoleLayout() {
   );
   const listings = data.files.listings;
   const paletteItems = useMemo(
-    () => itemsFromPaths(mirrorPaths, itemsFromListings(listings)),
-    [mirrorPaths, listings],
+    () => (paletteOpen ? itemsFromPaths(mirrorPaths, itemsFromListings(listings)) : []),
+    [paletteOpen, mirrorPaths, listings],
   );
   /*
     A panel is not a preference — `frame.ts` states the rule for its own two,
