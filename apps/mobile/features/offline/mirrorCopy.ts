@@ -167,3 +167,94 @@ export function mirrorSheetSection(sync: SyncFacts | undefined, now: number): Sy
   const line = mirrorLine(sync.mirror, { now, offline: sync.reachability === "offline" });
   return [{ id: "mirror", text: line.text, tone: line.tone, detail: line.detail, paths: [] }];
 }
+
+/* ------------------------------ the device search ------------------------- */
+
+/**
+ * Why a search was answered from this device rather than from the bucket.
+ *
+ *  - `offline` — the device says it has no connection, so the bucket was not
+ *    asked at all: a ten-second wait for an answer that cannot come is the
+ *    defect the device search exists to remove.
+ *  - `unreachable` — the bucket was asked and did not answer in time, or said
+ *    no. The copy on the device is the best answer left, and it is labelled as
+ *    that rather than passed off as the bucket's.
+ */
+export type DeviceSearchReason = "offline" | "unreachable";
+
+/**
+ * How many of a context's notes are here, when the mirror says it is not all
+ * of them — a sentence, or `null` for a whole copy or no claim.
+ */
+export function mirrorShortfall(status: MirrorStatus | undefined): string | null {
+  if (status === undefined) return null;
+  switch (status.state) {
+    case "synced":
+    case "unavailable":
+      return null;
+    case "syncing":
+    case "partial": {
+      const total = status.total;
+      const remaining = status.remaining ?? 0;
+      if (total !== undefined && remaining > 0) {
+        return `Only ${formatCount(Math.max(0, total - remaining))} of ${notes(total)} are on this device yet.`;
+      }
+      return "Only part of this context is on this device yet.";
+    }
+    case "never":
+      return status.notes > 0 ? "Only notes you have opened are on this device yet." : null;
+  }
+}
+
+/**
+ * The line above results that came from the device: that they did, why, and
+ * what that search could not have seen.
+ *
+ * **Every clause is a claim about what was not searched**, which is the rule
+ * the gateway's own answers follow ("every count is a floor when any walk was
+ * cut short"): a list of results from a partial copy that did not say so
+ * would read as the whole answer. Encrypted notes are named by count because
+ * their titles are on screen elsewhere and a person looking for one of them
+ * should learn why it is not here rather than conclude it does not exist.
+ */
+export function deviceSearchNotice(input: {
+  reason: DeviceSearchReason;
+  status: MirrorStatus | undefined;
+  encryptedSkipped: number;
+  /** An index exists for this context on this device. */
+  mirrored: boolean;
+}): string {
+  const parts: string[] = [];
+  if (!input.mirrored) {
+    parts.push(
+      input.reason === "offline"
+        ? "Nothing from this context is on this device yet, so there is nothing to search offline."
+        : "Your bucket did not answer, and nothing from this context is on this device yet to search instead.",
+    );
+    return parts.join(" ");
+  }
+  parts.push(
+    input.reason === "offline"
+      ? "Searched the copy on this device."
+      : "Your bucket did not answer, so this searched the copy on this device.",
+  );
+  const short = mirrorShortfall(input.status);
+  if (short !== null) parts.push(short);
+  if (input.encryptedSkipped > 0) {
+    parts.push(
+      input.encryptedSkipped === 1
+        ? "1 encrypted note was not searched."
+        : `${formatCount(input.encryptedSkipped)} encrypted notes were not searched.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+/**
+ * What an offline search says on a browser that keeps no copy at all — a
+ * private window, or site data turned off (`mirrorStore.web.ts`'s probe). The
+ * same fact `mirrorLine` states for `unavailable`, turned toward the question
+ * that was just asked.
+ */
+export const DEVICE_SEARCH_UNAVAILABLE =
+  "This browser is not keeping an offline copy of your notes, so search needs a connection here.";

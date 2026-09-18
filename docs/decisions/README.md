@@ -155,6 +155,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note is the unit of the index, except when it is bundled mail
 - The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
 - A shed index must say so to the caller it happened to, not only to the operator
+- With no connection, search reads the copy on the device, and says so
 
 ## [The mobile app and the console](./app-and-console.md)
 

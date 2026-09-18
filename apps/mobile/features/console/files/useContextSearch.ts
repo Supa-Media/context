@@ -32,6 +32,35 @@
  *    request lost to a dead uplink leaves "Searching the rest of this
  *    context…" on screen with nothing behind it and no way out but retyping.
  *    A spinner that cannot stop is the one state a person cannot act on.
+ *
+ * ## And it can answer with no connection at all
+ *
+ * The phone holds every note body in its mirror (`features/offline/mirror*`),
+ * so a search with no signal has something to read. `device` is that search
+ * (`features/offline/mirrorSearch.ts`), and the rule for when it answers is
+ * the smallest one that removes the defect:
+ *
+ *  - **Offline, the device answers and the bucket is not asked.** Asking would
+ *    buy exactly the ten-second spinner this exists to remove, for an answer
+ *    that cannot arrive.
+ *  - **Online, the bucket answers, as it always has.** Its index is the whole
+ *    context at the caller's clearance and ranks by what the notes say; the
+ *    device's copy can be behind by a sync, and a search that silently
+ *    preferred it would be the stale answer somebody did not ask for.
+ *  - **Online and the bucket fails or times out, the device answers — and
+ *    says so.** "Unknown" reachability is treated as online, for the reason
+ *    `connectionLine` gives: a claim of offline that flashes on every cold
+ *    start teaches people to ignore it.
+ *
+ * Showing the device's answer first and replacing it with the bucket's was
+ * considered and not done: the two rank differently, so the list would
+ * reorder under a thumb about to press a row — the flicker `landingStep`
+ * exists to prevent, on the one surface where a mis-press opens the wrong note.
+ *
+ * Every answer from the device carries `notice` — that it came from the device,
+ * why, how much of the context is on it, and how many encrypted notes it could
+ * not read — because a list from a partial copy that did not say so reads as
+ * the whole answer.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -39,6 +68,14 @@ import type { SearchAnswer } from "./browser";
 import type { PaletteItem } from "./palette";
 import { parentPath } from "./paths";
 import { raceTimeout } from "../storage/timeout";
+import type { Reachability } from "../../offline/copy";
+import {
+  DEVICE_SEARCH_UNAVAILABLE,
+  deviceSearchNotice,
+  type DeviceSearchReason,
+} from "../../offline/mirrorCopy";
+import type { DeviceSearchAnswer } from "../../offline/mirrorSearch";
+import type { MirrorStatus } from "../../offline/mirrorStatus";
 
 /**
  * Below this, a query is a prefix of a word rather than a word, and the
@@ -84,6 +121,33 @@ export interface ContextSearch {
    * `reducedRecallMessage` turns this into what the palette actually draws.
    */
   reducedRecallNotes: readonly string[];
+  /** Who answered what is on screen — the bucket's index, or the copy on this device. */
+  source: "server" | "device";
+  /**
+   * A sentence for above the list, or `null`. Set for every answer from the
+   * device (see the file comment) and for an offline search on a browser that
+   * keeps no copy; never for the bucket's own answers, which say what they
+   * need through `state` and `reducedRecallNotes`.
+   */
+  notice: string | null;
+  /** The label over the results, where it differs from the palette's default. */
+  heading?: string;
+  /** What an answered search with no rows says, where the palette's default would be wrong. */
+  emptyMessage?: string;
+}
+
+/**
+ * The search over the copy on this device, as the console hands it in.
+ *
+ * `search` answers `null` when there is no mirror on this device at all — a
+ * browser whose IndexedDB is refused — which is a different sentence from a
+ * context with nothing in it yet (`mirrored: false`).
+ */
+export interface DeviceSearch {
+  reachability: Reachability;
+  /** The mirror's own account of this context, for "only 340 of 1,204". */
+  status: MirrorStatus | undefined;
+  search: (query: string) => Promise<DeviceSearchAnswer | null>;
 }
 
 type SearchHit = SearchAnswer["hits"][number];
@@ -163,35 +227,114 @@ export function itemsFromHits(hits: SearchHit[]): PaletteItem[] {
   });
 }
 
+/** What the palette shows for one settled search — set together, so no half of it lags. */
+interface Shown {
+  items: PaletteItem[];
+  state: SearchState;
+  reducedRecallNotes: readonly string[];
+  source: "server" | "device";
+  notice: string | null;
+  heading?: string;
+  emptyMessage?: string;
+}
+
+const IDLE: Shown = {
+  items: [],
+  state: "idle",
+  reducedRecallNotes: [],
+  source: "server",
+  notice: null,
+};
+
+/** An answer from the device, as the palette draws it. */
+export function shownFromDevice(
+  answer: DeviceSearchAnswer | null,
+  reason: DeviceSearchReason,
+  status: MirrorStatus | undefined,
+): Shown {
+  if (answer === null) {
+    // No mirror on this device. Offline that is the whole story and worth a
+    // sentence; online the bucket's failure is, and `failed` already says it.
+    return {
+      ...IDLE,
+      state: "failed",
+      notice: reason === "offline" ? DEVICE_SEARCH_UNAVAILABLE : null,
+    };
+  }
+  return {
+    items: itemsFromHits(answer.hits),
+    state: "ready",
+    reducedRecallNotes: [],
+    source: "device",
+    notice: deviceSearchNotice({
+      reason,
+      status,
+      encryptedSkipped: answer.encryptedSkipped,
+      mirrored: answer.mirrored,
+    }),
+    heading: "On this device",
+    emptyMessage: answer.mirrored
+      ? "Nothing on this device matches that."
+      : "There is nothing from this context on this device to search yet.",
+  };
+}
+
 /**
  * @param search the browser's own `search`, or `null` where there is nothing
  *   to search — an all-contexts route has no single bucket to ask.
+ * @param device the search over this device's copy of the same context, or
+ *   `null` where there is none to offer (no context, or a clearance the
+ *   console could not work out).
  */
 export function useContextSearch(
   search: ((query: string) => Promise<SearchAnswer>) | null,
+  device: DeviceSearch | null = null,
 ): ContextSearch {
   const [query, setQuery] = useState("");
-  const [items, setItems] = useState<PaletteItem[]>([]);
-  const [state, setState] = useState<SearchState>("idle");
-  const [reducedRecallNotes, setReducedRecallNotes] = useState<readonly string[]>([]);
+  const [shown, setShown] = useState<Shown>(IDLE);
 
   /** The query the newest request was for; older answers are ignored. */
   const latest = useRef("");
+
+  /*
+    Read through a ref, so a status that ticks while a download runs does not
+    re-send the query. Whether the device is offline *is* a dependency: going
+    offline with a failed search on screen should answer it from the device.
+  */
+  const deviceRef = useRef(device);
+  deviceRef.current = device;
+  const offline = device !== null && device.reachability === "offline";
 
   useEffect(() => {
     const trimmed = query.trim();
     if (search === null || trimmed.length < MIN_QUERY) {
       latest.current = trimmed;
-      setItems([]);
-      setState("idle");
-      setReducedRecallNotes([]);
+      setShown(IDLE);
       return;
     }
 
-    setState("searching");
+    setShown((current) => ({ ...current, state: "searching" }));
+
+    /** The device's answer, if the person has not typed since. */
+    const fromDevice = async (local: DeviceSearch, reason: DeviceSearchReason) => {
+      let answer: DeviceSearchAnswer | null;
+      try {
+        answer = await local.search(trimmed);
+      } catch {
+        answer = null;
+      }
+      if (latest.current !== trimmed) return;
+      setShown(shownFromDevice(answer, reason, local.status));
+    };
+
     const timer = setTimeout(() => {
       latest.current = trimmed;
       void (async () => {
+        const local = deviceRef.current;
+        if (offline && local !== null) {
+          await fromDevice(local, "offline");
+          return;
+        }
         // Raced rather than awaited, so a request that never settles ends as a
         // stated failure instead of a permanent spinner. A late answer is
         // dropped rather than shown: `raceTimeout` settles once, and the query
@@ -209,7 +352,6 @@ export function useContextSearch(
         if (latest.current !== trimmed) return;
         if (settled.kind === "value") {
           const hits = itemsFromHits(settled.value.hits);
-          setItems(hits);
           // An empty answer from an index that is still catching up is not an
           // answer about somebody's notes. With hits on screen the caveat is
           // not worth a state of its own — the rows are real either way — but
@@ -217,11 +359,23 @@ export function useContextSearch(
           // feature exists to stop making.
           const behind =
             settled.value.indexMissing || (settled.value.indexIncomplete && hits.length === 0);
-          setState(behind ? "indexing" : "ready");
-          // Set beside `state` rather than folded into it: a shed note's miss
-          // does not resolve by waiting, so — unlike `indexing` — this stays
-          // true with real hits on screen exactly as it does over none.
-          setReducedRecallNotes(settled.value.reducedRecallNotes ?? []);
+          setShown({
+            items: hits,
+            state: behind ? "indexing" : "ready",
+            // Set beside `state` rather than folded into it: a shed note's miss
+            // does not resolve by waiting, so — unlike `indexing` — this stays
+            // true with real hits on screen exactly as it does over none.
+            reducedRecallNotes: settled.value.reducedRecallNotes ?? [],
+            source: "server",
+            notice: null,
+          });
+          return;
+        }
+        // The bucket did not answer. Where the device holds a copy, that is
+        // the answer left — labelled as the device's, never as the bucket's.
+        const fallback = deviceRef.current;
+        if (fallback !== null) {
+          await fromDevice(fallback, "unreachable");
           return;
         }
         // A failure and a timeout land in the same place on purpose: both mean
@@ -230,19 +384,14 @@ export function useContextSearch(
         // dialog either — the local filter is still filtering, so the palette
         // went from "better" back to what it was, and a modal over a working
         // list is worse than a line of text.
-        setItems([]);
-        setState("failed");
-        setReducedRecallNotes([]);
+        setShown({ ...IDLE, state: "failed" });
       })();
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [query, search]);
+  }, [query, search, offline]);
 
   const onQuery = useCallback((next: string) => setQuery(next), []);
 
-  return useMemo(
-    () => ({ onQuery, items, state, reducedRecallNotes }),
-    [onQuery, items, state, reducedRecallNotes],
-  );
+  return useMemo(() => ({ onQuery, ...shown }), [onQuery, shown]);
 }

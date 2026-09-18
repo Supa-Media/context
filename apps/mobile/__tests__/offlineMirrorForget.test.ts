@@ -18,6 +18,12 @@ let mockMirror: MirrorStore | null;
 
 jest.mock("../features/offline/store", () => ({ openStore: () => mockOpened }));
 jest.mock("../features/offline/mirrorStore", () => ({ openMirrorStore: async () => mockMirror }));
+// The device search's in-memory copy of the bodies is its own module; each
+// ending must reach it too, and a spy is the only way to see a `Map` cleared.
+const mockForgetSearch = jest.fn();
+jest.mock("../features/offline/mirrorSearch", () => ({
+  forgetMirrorSearch: (...args: unknown[]) => mockForgetSearch(...args),
+}));
 
 /* eslint-disable @typescript-eslint/no-require-imports */
 const { forgetContextCopies, forgetDepartedContexts, forgetLocalCopies } =
@@ -54,6 +60,7 @@ beforeEach(async () => {
   await seed(mockMirror, "w1");
   await seed(mockMirror, "w2");
   warn = jest.spyOn(console, "warn").mockImplementation(() => {});
+  mockForgetSearch.mockClear();
 });
 
 afterEach(() => warn.mockRestore());
@@ -86,6 +93,19 @@ describe("the mirror goes with every ending", () => {
   test("a membership that ended elsewhere takes that context's mirror", async () => {
     expect((await forgetDepartedContexts(["w2"])).verdict).toBe("cleared");
     expect(workspaces(await mockMirror!.roots())).toEqual(["w2"]);
+  });
+
+  test("every ending also drops what the device search holds in memory", async () => {
+    await forgetDepartedContexts(["w2"]);
+    // Once per clearance the departed context was mirrored at; never the live one.
+    expect(mockForgetSearch.mock.calls).toContainEqual(["w1"]);
+    expect(mockForgetSearch.mock.calls).not.toContainEqual(["w2"]);
+    mockForgetSearch.mockClear();
+    await forgetContextCopies("w2");
+    expect(mockForgetSearch.mock.calls).toEqual([["w2"]]);
+    mockForgetSearch.mockClear();
+    await forgetLocalCopies();
+    expect(mockForgetSearch).toHaveBeenCalledWith();
   });
 
   test("an unknown list purges nothing", async () => {
