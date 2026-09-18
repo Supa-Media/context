@@ -15,10 +15,11 @@ import {
 import { densityFor } from "../app/frame";
 import { layout, space } from "../design/tokens";
 import { atName } from "./format";
-import { selectedContext } from "./types";
+import { selectedContext, type ConsoleData } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
 import { entryAt } from "./files/tree";
 import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
+import type { VoicePage } from "../voice/VoiceButton";
 
 /**
  * The real phone console — `BrowsePane` under a `NavBandProvider` — on the
@@ -159,15 +160,7 @@ export function E2EFixtureScreen({
     pressable, which is what the case about the handoff asserts.
   */
   const voiceHost: VoiceHost = {
-    page: (() => {
-      const path = data.files.selectedPath;
-      const entry = path === null ? null : entryAt(data.files.listings, path, data.files.editor);
-      return {
-        context: current,
-        notePath: entry?.kind === "file" ? entry.path : null,
-        writable: entry !== null && !entry.readOnly,
-      };
-    })(),
+    page: fixtureVoicePage(data.files, current),
     onRecordMeeting: () => {},
   };
 
@@ -362,3 +355,34 @@ const styles = StyleSheet.create({
   /** `minWidth: 0`, so a long note cannot push the pane off the screen. */
   main: { flex: 1, minWidth: 0 },
 });
+
+/**
+ * The fixture's `VoicePage`, exported so it can be checked without an editor.
+ *
+ * It is a function rather than four lines inside the component because the
+ * sheet's audience sentence is decided entirely by what this returns, and the
+ * button it feeds only mounts when a live editor is on screen — which jsdom
+ * does not give. Inline, the one field that decides who the sheet names could
+ * only be checked by a browser, and `fixtureVoiceAudience.test.ts` says what
+ * that cost when it went missing.
+ */
+export function fixtureVoicePage(
+  files: ConsoleData["files"],
+  context: VoicePage["context"],
+): VoicePage {
+  const path = files.selectedPath;
+  const entry = path === null ? null : entryAt(files.listings, path, files.editor);
+  return {
+    context,
+    notePath: entry?.kind === "file" ? entry.path : null,
+    writable: entry !== null && !entry.readOnly,
+    /*
+      The note's own visibility, carried the same way the real layout carries
+      it. Leaving it out is not a neutral omission: the sheet answers "who can
+      hear this" from this field, and the fixture's default note is a `team`
+      one, so a fixture that declines to say would have the sheet say the
+      guarded thing about a note the whole demo workspace reads.
+    */
+    noteVisibility: entry?.kind === "file" ? entry.visibility : undefined,
+  };
+}
