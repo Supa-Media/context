@@ -15,6 +15,7 @@ import {
   MEETING_TITLE,
 } from "../features/voice/VoiceSheet";
 import { meetings } from "../features/meetings/controller";
+import { setBottomChromeHeight } from "../features/app/bottomChrome";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -44,6 +45,11 @@ import { meetings } from "../features/meetings/controller";
  *     an error and dismissed.
  *  3. `DICTATION_SENTENCE` emptied out of the sheet.
  *     → `the sheet says what happens to what you say` fails.
+ *  3a. The dock given a fixed `bottom` instead of `floatingStackBottom`.
+ *     → `the dock clears whatever is already floating at this edge` fails.
+ *     This is what WebKit CI caught, and it caught it in `encryption.spec.ts`
+ *     rather than in any test of this feature: a floating control is every
+ *     other control's problem.
  *  4. The `meetingRunning` yield removed.
  *     → `a running meeting takes the corner, and the microphone with it` fails
  *     — two floating controls at one edge, which `RecordingBar` argues at
@@ -86,6 +92,12 @@ function press(id: string): void {
   act(() => {
     node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
+}
+
+/** The dock's distance from the bottom of the region, as laid out. */
+function dockBottom(): number {
+  const dock = findByTestId("voice-button")!.parentElement as HTMLElement;
+  return Number.parseFloat(dock.style.bottom || "0");
 }
 
 function text(): string {
@@ -368,6 +380,28 @@ describe("what else is going on", () => {
     expect(controls.discarded).toBe(0);
     expect(controls.dictated).toEqual(["Three sentences that landed."]);
     expect(fake.calls).toEqual(["open", "abandon"]);
+  });
+
+  test("the dock clears whatever is already floating at this edge", () => {
+    /*
+      The regression WebKit CI found, as an assertion rather than a screenshot.
+
+      This is `position: absolute` at the bottom-right of the note region, so a
+      fixed offset puts it over whatever else is anchored there — a phone's
+      console toolbar, and (before the fix that goes with this) a locked note's
+      own Save button, whose presses it swallowed for the whole of
+      `encryption.spec.ts`. `floatingStackBottom` is the same function
+      `RecordingBar` stacks with, so two floating controls at one edge cannot
+      disagree about where the edge is.
+    */
+    setBottomChromeHeight(0);
+    render(button({ engine: fakeEngine().engine }));
+    const bare = dockBottom();
+
+    act(() => setBottomChromeHeight(66));
+    expect(dockBottom()).toBeGreaterThan(bare + 66 - 1);
+
+    act(() => setBottomChromeHeight(0));
   });
 
   test("a surface that provides no voice host draws no microphone", () => {

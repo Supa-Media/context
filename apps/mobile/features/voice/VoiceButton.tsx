@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
+import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
 import { Button, PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -58,6 +59,7 @@ export function VoiceButton({
   controls,
   compact,
   onRecordMeeting,
+  bottomInset = 0,
   engine,
   now = Date.now,
 }: {
@@ -67,12 +69,27 @@ export function VoiceButton({
   compact: boolean;
   /** Hands off to `useMeetingFlow`, which owns the meeting's own consent sheet. */
   onRecordMeeting: () => void;
+  /**
+   * The safe area under this edge, as `RecordingBar` takes it and for the same
+   * reason: `useSafeAreaInsets` throws outside a `SafeAreaProvider`, and this
+   * component is mounted by `NoteEditor`, which several surfaces render without
+   * one. Zero is right for every browser.
+   */
+  bottomInset?: number;
   /** Injected by tests. */
   engine?: DictationEngine;
   now?: () => number;
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
+  /*
+    Stacked above whatever is already floating at this edge, exactly as
+    `RecordingBar` is and through the same two functions. A phone's console
+    floats its toolbar in 66pt of glass here; a fixed `bottom: 24` puts this
+    over it, and a floating control over somebody else's control is a control
+    that eats their presses. `AppFrame` publishes the height, this reads it.
+  */
+  const bottom = floatingStackBottom(bottomInset, useBottomChromeHeight());
   const [asking, setAsking] = useState(false);
   const dictation = useDictation({ controls, notePath: page.notePath, engine });
   const { state, start, stop, discard, cancel } = dictation;
@@ -138,7 +155,7 @@ export function VoiceButton({
 
   if (live) {
     return (
-      <View style={styles.dock} pointerEvents="box-none">
+      <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
         <View style={styles.capsule} testID="voice-capsule">
           <View style={styles.liveMark}>
             <View style={styles.liveDot} />
@@ -172,7 +189,7 @@ export function VoiceButton({
   }
 
   return (
-    <View style={styles.dock} pointerEvents="box-none">
+    <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
       {state.name === "failed" ? (
         <View style={styles.failure} testID="voice-failure">
           <Text variant="rowSub" style={styles.failureText}>
@@ -246,7 +263,6 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
     dock: {
       position: "absolute",
       right: 24,
-      bottom: 24,
       alignItems: "flex-end",
       gap: 10,
     },
