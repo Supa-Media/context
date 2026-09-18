@@ -18,8 +18,9 @@ import { describeSyncMark, type SyncMark } from "./pendingMarks";
  *
  *  - **waiting to sync** is a ring — an outline with nothing inside it, which
  *    is the state: written down here, not yet there. `warn`.
- *  - **needs you** is a filled disc with a ring round it, the heaviest mark a
- *    row carries, in `crit`. It outranks the ring the way "need you" outranks
+ *  - **needs you** is the same ring with a dot at its centre — a target,
+ *    the heaviest mark a row carries, in `crit`, and a shape neither the
+ *    exception pip (a plain disc) nor the waiting ring has. It outranks the ring the way "need you" outranks
  *    "waiting" everywhere else (`queueLine`).
  *
  * Neither is pressable: the row it sits on already opens the note, and opening
@@ -39,7 +40,9 @@ export function SyncMarkDot({ mark }: { mark: SyncMark }) {
       accessibilityLabel={describeSyncMark(mark)}
       style={[styles.mark, mark === "conflict" ? styles.conflict : styles.queued]}
       testID={`sync-mark-${mark}`}
-    />
+    >
+      {mark === "conflict" ? <View style={styles.core} /> : null}
+    </View>
   );
 }
 
@@ -54,13 +57,16 @@ export function withSyncMark(label: string, mark: SyncMark | null | undefined): 
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   mark: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
     borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
     flexGrow: 0,
     flexShrink: 0,
   },
-  queued: { borderColor: colors.warn, backgroundColor: "transparent" },
-  conflict: { borderColor: colors.critBorder, backgroundColor: colors.crit },
+  queued: { borderColor: colors.warn },
+  conflict: { borderColor: colors.crit },
+  core: { width: 3, height: 3, borderRadius: 2, backgroundColor: colors.crit },
 });

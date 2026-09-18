@@ -889,6 +889,37 @@ only thing this product treats as real), `Cached copy` with the copy's age, and
 the three answers. Pictures of both palettes are in `docs/design/conflict/`,
 written by `__tests__/conflictShots.render.ts`.
 
+**A phone carries the same three states, in a header pill and a sheet.** The
+strip does not exist at compact (`frame.ts`: `statusBar: false`) and
+`SaveChip` was pointer-only, so for a while a phone — the device this layer
+was built for — was told none of it. `SyncPill` sits in the phone's top row
+(`AppFrame`'s compact-only `syncSlot`) and draws `compactSync`, which is
+`syncSegments` — the strip's own connection and queue segments, lifted out of
+`statusSegments` — plus the open note's `saveChip` in its loud states
+(`Queued`, `Cached copy`, `Conflict`, `Not saved`). So it is absent in exactly
+the states the strip is silent in, including while the platform has not said;
+it reads `Offline · 3` offline and the queue's own sentence online; and it is
+`crit` whenever anything behind it is. Tapping it opens `SyncSheet`, which says
+the same sentences and lists **every** waiting and stuck note as a row that
+opens it — opening is how a parked write is answered — and gives a cached
+copy its age, which a phone has no tooltip for. The quiet save states stay off
+the phone's header on purpose: the note's foot sentence says them, and a pill
+on every note is one nobody reads.
+
+**Every list marks the notes that are not in the bucket.** The tree, the
+folder page and the Recent sheet ask `files.pending.stateFor(path)` —
+`pendingMarks`, a read-only selector over the open context's live queue, which
+is the only context any of those lists shows — and draw a `warn` ring for a
+queued write and a `crit` target for a parked or refused one, with "waiting to
+sync" / "needs you" in the row's accessible name. Shape before hue, because the
+folder page's exception pip is already a disc. `__tests__/phoneSync.test.ts`
+pins the rules (and that the pill's facts are the strip's, case for case);
+`__tests__/phoneSyncRender.test.ts` fails if the pill draws when there is
+nothing to say, if the frame gives it a slot at a pointer width, if the sheet
+stops naming or opening notes, or if any of the three lists stops marking.
+Pictures are in `docs/design/offline-status/`, written by
+`__tests__/offlineStatusShots.render.ts`.
+
 ### A cold start with no network is the case the offline layer was built for
 
 Everything in the section above — the cache, the drafts, the queue, the
