@@ -183,8 +183,10 @@ describe("the route table", () => {
     expect(settingsFromQuery("")).toBeNull();
     expect(settingsFromQuery(undefined)).toBeNull();
     expect(settingsFromQuery("not-a-section")).toBeNull();
-    // The nudge's destination is a real section, not just any string.
-    expect(settingsFromQuery("search")).toBe("search");
+    // The search nudge's destination: `search` is an alias now — the index is
+    // a block on Storage — so a link that names it opens the screen holding
+    // the switch rather than failing closed.
+    expect(settingsFromQuery("search")).toBe("storage");
     expect(settingsFromQuery(["integrations", "storage"])).toBe("integrations");
   });
 

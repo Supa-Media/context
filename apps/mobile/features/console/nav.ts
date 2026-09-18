@@ -443,6 +443,11 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
     — a shared link's own screen most of all — and each is a block on one
     screen now.
   */
+  /*
+    `search` is a block on Storage now — an index is a derivative of the files
+    it is built from, so it lives under them.
+  */
+  search: "storage",
   people: "sharing",
   groups: "sharing",
   shares: "sharing",

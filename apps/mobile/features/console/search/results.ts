@@ -349,9 +349,12 @@ export interface UpsellRow {
  * for this" and "you have not asked for this" are different sentences with
  * different next steps, and one of them must never be answered by the other's
  * screen. An owner who has not paid is sent to Premium; an owner who has is
- * sent to the switch.
+ * sent to the switch — which is a block on Storage now rather than a section
+ * called Search, so the target names the screen that holds it. The separation
+ * these two keep is the point and is unchanged; only one of the destinations
+ * was renamed under it.
  */
-export type UpsellTarget = "premium" | "search";
+export type UpsellTarget = "premium" | "storage";
 
 export function upsellTarget(context: SearchableContext): UpsellTarget | null {
   if (!context.owner) return null;
@@ -360,7 +363,7 @@ export function upsellTarget(context: SearchableContext): UpsellTarget | null {
       return "premium";
     case "off":
     case "failed":
-      return "search";
+      return "storage";
     // Nothing to press. A backfill in progress is not sped up by opening its
     // settings, and a context already serving is not in this list at all.
     case "preparing":
@@ -413,7 +416,7 @@ export function upsellAction(context: SearchableContext): string | null {
   switch (upsellTarget(context)) {
     case "premium":
       return "See Premium";
-    case "search":
+    case "storage":
       return "Turn it on";
     case null:
       return null;

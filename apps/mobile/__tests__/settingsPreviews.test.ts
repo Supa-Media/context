@@ -107,11 +107,21 @@ describe("a value is never invented out of an absence", () => {
     ).toBe("1 pending");
   });
 
-  test("a search index that has not answered is not an index that is off", () => {
+  test("the storage row says where the notes are, and nothing about the index", () => {
+    /*
+      Search stopped being a row and became a block on this screen. The row
+      could have grown a second clause about the index; it did not, on purpose
+      — "R2 · notes-bucket" answers the question somebody reading the row is
+      asking, and a row that tries to be the panel answers none of them well.
+    */
     const base = demoData();
-    expect(
-      settingsPreview("search", { ...base, fastSearch: { ...base.fastSearch, status: null } }),
-    ).toBeNull();
+    const withNoIndexAnswer = {
+      ...base,
+      fastSearch: { ...base.fastSearch, status: null },
+    };
+    expect(settingsPreview("storage", withNoIndexAnswer)).toBe(
+      settingsPreview("storage", base),
+    );
   });
 
   test("a member list still loading says nothing", () => {

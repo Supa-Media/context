@@ -143,19 +143,23 @@ describe("a phone reaches the settings, not just a menu", () => {
   test("opens on the section, because that is what was asked for", () => {
     // The regression: `sidebar ?? children` with a sidebar always supplied
     // meant no section content was reachable below 880pt at all.
-    const text = overlay("search").textContent ?? "";
-    expect(text).toContain("Where this context");
-  });
-
-  test("one section at a time — search is not storage", () => {
-    const text = overlay("search").textContent ?? "";
-    expect(text).not.toContain("Your bucket, your credentials");
-  });
-
-  test("and storage is not search", () => {
     const text = overlay("storage").textContent ?? "";
     expect(text).toContain("Your bucket, your credentials");
-    expect(text).not.toContain("Where this context");
+  });
+
+  test("one section at a time — storage is not the people screen", () => {
+    const text = overlay("storage").textContent ?? "";
+    expect(text).not.toContain("Write access is never implied by read");
+  });
+
+  test("and the index is a block on it, not a section of its own", () => {
+    // Search was the row below Storage, asking the same question one level
+    // down. An index is a derivative of the files it is built from.
+    // Mounted alone: `overlay()` appends to the same body, so a second mount
+    // in one test would be asserting against both screens at once.
+    const text = overlay("storage").textContent ?? "";
+    expect(text).toContain("Where this context");
+    expect(text).toContain("Fast search");
   });
 
   test("overview answers which context this is before anything else", () => {
@@ -341,7 +345,6 @@ describe("the list is one press away, and it navigates", () => {
       "Overview",
       "Sharing & Access",
       "Storage",
-      "Search",
       "Advanced",
       "Integrations",
       "Meetings",
@@ -356,12 +359,12 @@ describe("the list is one press away, and it navigates", () => {
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    const row = host.querySelector('[data-testid="settings-section-search"]');
+    const row = host.querySelector('[data-testid="settings-section-storage"]');
     expect(row).not.toBeNull();
     act(() => {
       (row as HTMLElement).click();
     });
-    expect(chosen).toEqual(["search"]);
+    expect(chosen).toEqual(["storage"]);
   });
 
   test("closing asks to close, rather than navigating", () => {
@@ -677,7 +680,6 @@ describe("the Plugins row is off a list that has no plugins behind it", () => {
     const host = list(untouched());
     expect(host.querySelector('[data-testid="settings-section-plugins"]')).toBeNull();
     expect(host.querySelector('[data-testid="settings-section-storage"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="settings-section-search"]')).not.toBeNull();
     expect(host.querySelector('[data-testid="settings-section-advanced"]')).not.toBeNull();
     expect(host.textContent ?? "").not.toContain("Plugins");
   });
