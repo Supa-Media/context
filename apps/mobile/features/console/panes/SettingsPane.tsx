@@ -19,6 +19,7 @@ import { EmailPanel } from "../settings/panels/EmailPanel";
 import { CalendarPanel } from "../settings/panels/CalendarPanel";
 import { ChatsPanel } from "../settings/panels/ChatsPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
+import { ModelPanel } from "../settings/panels/ModelPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
 import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
@@ -458,6 +459,8 @@ export function SettingsPane({
       <ChatsPanel data={data} />
       </>
       ) : null}
+
+      {show("model") ? <ModelPanel data={data} sectioned={section !== undefined} /> : null}
 
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 

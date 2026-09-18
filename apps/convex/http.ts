@@ -396,6 +396,74 @@ export const gatewayBinding = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 2a. POST /gateway/provider — the model account the agent spends            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Open one workspace's own Anthropic or OpenAI key for the gateway.
+ *
+ * ## Why this is a route and not a fifth sibling on `/gateway/binding`
+ *
+ * Every gateway-facing credential added since `binding` became a sibling of it
+ * — `searchIndex`, `encryptionKey`, `rotation` — precisely so that
+ * `CREDENTIAL_HTTP_ROUTES` would not grow, and the comment above says adding to
+ * that set is a conversation. This is the conversation, and it comes out the
+ * other way for one reason.
+ *
+ * #661 was a **returns validator** accident: `v.object` is exact, a field
+ * drifted, the error named the object it had refused, and `s3BindingValidator`
+ * carries `secretAccessKey`. Everything folded into `openStorageBinding`'s
+ * return shares that fate — one drift anywhere in it spills everything in it.
+ * A model key folded in would make that error able to spill a storage secret
+ * *and* somebody's provider account in one line.
+ *
+ * So the model key gets a validator of its own, two flat fields wide, with
+ * nothing nested to drift. That is a smaller blast radius than the sibling,
+ * and it is bought with a door that is the same door: the same `gatewayRoute`
+ * factory, the same gateway secret, the same access token, the same
+ * `expectedWorkspaceId`-is-compared-never-looked-up rule in
+ * `providers.openProviderForGateway`, and `null` for everything that is not a
+ * hit.
+ *
+ * It buys one more thing. An ordinary MCP request spends `/gateway/binding` on
+ * every call; a model key riding that payload would be decrypted on every
+ * `list_notes` in the product. Here it is opened only by the request that is
+ * about to spend it.
+ *
+ * ## What this route decides, which is nothing
+ *
+ * It shapes the body and hands the two proofs on. The provider string is passed
+ * through *unvalidated* on purpose: the closed set lives in `providers.ts`, and
+ * checking it there means an unknown provider is the same `null` as an unknown
+ * token rather than a different status a caller could count.
+ */
+export const gatewayProvider = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = nullableStringField(body, "expectedWorkspaceId");
+  const provider = stringField(body, "provider");
+  // A malformed request is answered exactly like an unknown token, for the
+  // reason `/gateway/binding` gives: a 400 would tell a caller holding the
+  // gateway secret which of its proofs was the bad one.
+  if (accessToken === null || !expected.ok || provider === null) {
+    return json({ credential: null });
+  }
+
+  const credential = await ctx.runAction(
+    internal.functions.providers.openProviderForGateway,
+    {
+      hashedAccessToken: await hashToken(accessToken),
+      expectedWorkspaceId: expected.value,
+      provider,
+    },
+  );
+
+  // `credential` is the whole answer. Nothing rides beside it — not the
+  // workspace it came from, not the fingerprint, not the grant. See the
+  // `a hit names the provider and the key, and nothing else` test.
+  return json({ credential });
+});
+
+/* -------------------------------------------------------------------------- */
 /* 2b. POST /gateway/search-index/progress — the backfill reporting in        */
 /* -------------------------------------------------------------------------- */
 
@@ -1271,6 +1339,7 @@ export const gatewayUsage = gatewayRoute(async (ctx, body) => {
 // put a token in a URL — in a log, in a referrer, in browser history.
 http.route({ path: "/gateway/session", method: "POST", handler: gatewaySession });
 http.route({ path: "/gateway/binding", method: "POST", handler: gatewayBinding });
+http.route({ path: "/gateway/provider", method: "POST", handler: gatewayProvider });
 http.route({
   path: "/gateway/search-index/progress",
   method: "POST",

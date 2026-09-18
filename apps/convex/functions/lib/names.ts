@@ -269,6 +269,10 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // handle was also a mailbox sharing a name with one of our own endpoints.
   // `t` and `.well-known` need no entry: the first is too short for a name and
   // the second has a character this namespace does not allow.
+  // The agent turn runs at `/agent` on the gateway, on exactly the terms
+  // `meetings` below records: claimed as a handle it is a context nobody can
+  // address by name, and `agent@` the company's own domain besides.
+  "agent",
   "granola-webhook",
   "mcp",
   // Meeting ingestion runs at `/meetings/sessions` on the gateway. Claimed as a

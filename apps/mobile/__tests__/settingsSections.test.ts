@@ -53,39 +53,47 @@ describe("which sections a context has", () => {
 describe("the order and the grouping", () => {
   test("the list reads in the order somebody asks the questions", () => {
     /*
-      Seven rows, and the order is the argument: who you are, which context
-      this is, where its notes are kept, what fills them, what records a
-      meeting into them, what it costs, and who else can see it. Storage moved
-      up when Search became a block on it — it is where notes live, not a
-      footnote — and Premium sits above Sharing because it is about the
-      context as a whole.
+      Eight rows, and the order is the argument: who you are, which context
+      this is, where its notes are kept, what fills them, what answers in them,
+      what records a meeting into them, what it costs, and who else can see it.
+      Storage moved up when Search became a block on it — it is where notes
+      live, not a footnote — and Premium sits above Sharing because it is about
+      the context as a whole.
+
+      Model sits between Integrations and Meetings deliberately. Everything in
+      Integrations reads *into* this context; Model is the one row that spends
+      money on the person's own account, so it is next to them and not inside
+      them — and it is above Meetings because a meeting is a thing you open on
+      purpose while a model is configured once.
     */
     const keys: readonly string[] = SETTINGS_SECTIONS.map((section) => section.key);
     const rank = (key: string) => keys.indexOf(key);
     expect(rank("profile")).toBeLessThan(rank("workspace"));
     expect(rank("workspace")).toBeLessThan(rank("storage"));
     expect(rank("storage")).toBeLessThan(rank("integrations"));
-    expect(rank("integrations")).toBeLessThan(rank("meetings"));
+    expect(rank("integrations")).toBeLessThan(rank("model"));
+    expect(rank("model")).toBeLessThan(rank("meetings"));
     expect(rank("meetings")).toBeLessThan(rank("premium"));
     expect(rank("premium")).toBeLessThan(rank("sharing"));
   });
 
-  test("seven rows, and one of them only when it has something to say", () => {
+  test("eight rows, and one of them only when it has something to say", () => {
     // The whole of the change: twenty rows under four headings became seven
-    // under none. `plugins` is deprecated behind `shown` and `invitations`
-    // appears only while an invitation is pending.
+    // under none, and Model made it eight. `plugins` is deprecated behind
+    // `shown` and `invitations` appears only while an invitation is pending.
     expect(settingsSectionsFor("personal").map((section) => section.key)).toEqual([
       "profile",
       "workspace",
       "storage",
       "integrations",
+      "model",
       "meetings",
       "premium",
       "sharing",
     ]);
     expect(
       settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
-    ).toHaveLength(8);
+    ).toHaveLength(9);
   });
 
   test("every section sits under a heading somebody can answer", () => {

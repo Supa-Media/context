@@ -41,6 +41,8 @@ import { runCalendarContributionStoreChecks } from "./calendarContributionStore.
 import { runSearchD1Checks } from "./searchD1.test.mjs";
 import { runSearchProjectionChecks } from "./searchProjection.test.mjs";
 import { runCredentialShapeChecks } from "./credentialShape.test.mjs";
+import { runProviderCredentialChecks } from "./providerCredential.test.mjs";
+import { runAgentChecks } from "./agent.test.mjs";
 import { runEncryptionChecks } from "./encryption.test.mjs";
 import { runEncryptionGatewayChecks } from "./encryptionGateway.test.mjs";
 import { runEncryptionPassphraseChecks } from "./encryptionPassphrase.test.mjs";
@@ -4307,6 +4309,17 @@ runStoreFactoryChecks(check);
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
 await runOrientationChecks(check);
+
+// The model account the agent spends, across the control-plane wire. Its own
+// control plane, for the same reason the tenancy suite has one: it swaps
+// globalThis.fetch and restores it.
+await runProviderCredentialChecks(check);
+
+// The agent turn, end to end: a question in, tool calls through the same
+// dispatcher a client's go through, an answer out. Its own control plane, S3
+// backend and fake model, so — like the tenancy suite — it swaps globalThis.fetch
+// and restores it.
+await runAgentChecks(check);
 
 // A privacy rule that names a group: what the tools do when they meet one.
 // Its own control plane and bucket, like orientation, because the fixture is a

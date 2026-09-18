@@ -324,6 +324,29 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // product on the grant, so this module adds exactly one new decrypt site,
   // not three.
   "functions/calendarConnect.ts",
+  // THE NINTH, AND THE FIRST CREDENTIAL THAT IS NOT OURS TO ROTATE.
+  //
+  // `providers.ts` holds the API key for the model account the agent spends —
+  // the customer's own Anthropic or OpenAI key — and opens it in exactly one
+  // place, `openProviderCredential`, whose only caller is the gateway. Its own
+  // module for the reason the sixth entry gives: one module per thing sealed
+  // to a different lifetime. This one outlives no binding and is bound to no
+  // handshake; it is replaced when somebody pastes a new key and deleted when
+  // they disconnect, and folding it into `storage.ts` would put a credential
+  // with that lifetime behind a module whose every other secret belongs to a
+  // bucket.
+  //
+  // What bounds it: `connectProvider` and `listProviders` are the only public
+  // exports and neither reaches the decrypt — the first encrypts, the second
+  // builds its answer field by field from the row and never touches
+  // `encryptedApiKey`. The refusals are written to name the provider and never
+  // the key, because a credential we did not issue is one we cannot rotate
+  // after a leak, and #661 put a credential we *could* rotate into the
+  // production logs by way of a validation error.
+  //
+  // See `__tests__/providerCredentials.test.ts`, which drives every failing
+  // path and searches the thrown value for the key it was given.
+  "functions/providers.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -523,6 +546,48 @@ const DELIBERATE_KEY_DISCLOSURES = new Set([
 /** The one field those two are exempt from, and nothing else. */
 const DISCLOSED_KEY_FIELD = "material";
 
+/**
+ * THE FUNCTION ALLOWED TO HAND BACK A TOKEN IT JUST MINTED, BY NAME.
+ *
+ * A different question from `DELIBERATE_KEY_DISCLOSURES` above, kept apart
+ * because the answer is different: that one discloses a *stored* key, and this
+ * one returns a credential that did not exist a line earlier and describes
+ * nothing but the caller's own session.
+ *
+ * `mintConsoleGrant` is the console's own OAuth grant. The agent turn runs in
+ * the gateway — that is where the privacy engine and the tools are, and where a
+ * model key is decrypted — and the gateway authenticates with an access token
+ * and nothing else. The console has a Convex session and has never held one, so
+ * something has to issue it. What is issued is an ordinary `oauthGrants` row:
+ * same table, same `resolveGrantByAccessToken`, same `clampScopes` against the
+ * role read in that transaction, same revocation from the connections list,
+ * same audit. Only the plaintext travels back, and only to the person it was
+ * minted for.
+ *
+ * **The precedent it is enumerated against, rather than hidden behind.**
+ * `approveOwnMachineGrant` is already a public action that hands its caller a
+ * freshly minted secret about themselves — an authorization code, live, inside
+ * the URL it returns. It passes this guard for one reason: the field is called
+ * `redirectTo`. That is the rename `PLAINTEXT_CREDENTIAL_FIELDS`' own comment
+ * warns about, arrived at honestly rather than to evade anything, and it is
+ * exactly why this one is listed here instead of having its field renamed to
+ * `token` or `session` to slip past.
+ *
+ * What bounds the disclosure: an hour, no refresh token, one live grant per
+ * person per context (the previous token dies in the transaction that mints the
+ * next), and a caller who must already hold the Convex session — which reaches
+ * the same notes through `files.ts` and can additionally rebind storage and
+ * delete the account. The token is the smaller of the two powers.
+ *
+ * It is an allowlist and not a widening. A second function returning an
+ * `accesstoken` fails, and so does this one growing a `secretaccesskey`, an
+ * `apitoken` or an `encryptedapikey`. See `__tests__/agentGrant.test.ts`.
+ */
+const DELIBERATE_TOKEN_MINTS = new Set(["functions.agentGrant.mintConsoleGrant"]);
+
+/** The one field that one is exempt from, and nothing else. */
+const MINTED_TOKEN_FIELD = "accesstoken";
+
 const PUBLIC_FORBIDDEN_FIELDS = [
   ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, ...SCHEMA_ENCRYPTED_FIELDS]),
 ];
@@ -591,6 +656,24 @@ const CREDENTIAL_HTTP_ROUTES = new Set([
   "http.gatewayBinding",
   "http.gatewayJobsOpen",
   "http.gatewayIngestBinding",
+  // THE FOURTH, AND THE ONLY ONE ADDED RATHER THAN AVOIDED.
+  //
+  // `searchIndex`, `encryptionKey` and `rotation` all became *siblings* on
+  // `/gateway/binding` specifically so this set would stay at three, and that
+  // remains the default answer for a new gateway-facing credential. The model
+  // key is the exception, for a reason that is about #661 rather than about
+  // convenience: `openStorageBinding`'s returns validator already carries
+  // `secretAccessKey`, and `v.object` is exact, so any drift in that shape
+  // serializes everything in it into a log. Folding a customer's provider key
+  // in would make one accident spill two credentials.
+  //
+  // What makes the door cost little: it is built by the same `gatewayRoute`
+  // factory, spends the same two proofs, applies the same
+  // compared-never-looked-up rule to `expectedWorkspaceId`, and answers `null`
+  // for everything that is not a hit — all of which the tests below enforce on
+  // it exactly as they do on the other three. What it does not share is the
+  // validator, which is the entire point: two flat fields, nothing nested.
+  "http.gatewayProvider",
 ]);
 
 /**
@@ -1275,6 +1358,41 @@ describe("no public function can reach a storage secret", () => {
         // here: `googleConnect.mintGoogleAccessToken` and `.revokeGoogleGrant`
         // above already serve every product on the one connection row.
         "functions.calendarConnect.exchangeAndBindCalendar",
+        // THE AGENT'S MODEL ACCOUNT, AND THE ONLY CREDENTIAL HERE WE CANNOT
+        // ROTATE AFTER A LEAK.
+        //
+        // Opens the customer's own Anthropic or OpenAI key so the gateway can
+        // spend it on one request. An internalAction, and `/gateway/provider`
+        // is its only caller — the two public exports in that module do not
+        // reach the decrypt at all: `connectProvider` encrypts, and
+        // `listProviders` builds its answer field by field and never reads
+        // `encryptedApiKey`.
+        //
+        // It spends the same two proofs `openStorageBinding` spends, in the
+        // same order and with the same rule: the token's hash resolves to a
+        // live grant, `expectedWorkspaceId` selects *within* that grant's own
+        // set, and what goes to the decrypt is the id read off the resolved
+        // row. The `expectedWorkspaceId is never used as a lookup key` test
+        // below covers this module too, because it reads every module.
+        //
+        // What bounds it further: the returns validator is two flat fields with
+        // nothing nested to drift, which is deliberate. #661 broke on a
+        // *nested* validator — `capabilities` gained a key, `v.object` refused
+        // the object `openStorageBinding` had just built, and the error named
+        // what it rejected, so a live R2 secret went into the production logs
+        // beside it. A key issued by somebody else's console cannot be rotated
+        // by us at all, so the shape here is kept too small to drift.
+        "functions.providers.openProviderForGateway",
+        // THE FOURTH INTERNET-FACING PATH TO A CREDENTIAL. `/gateway/provider`.
+        //
+        // Requires the gateway secret AND the user's access token, and the
+        // workspace comes from the grant, never from the caller — the same two
+        // proofs `http.gatewayBinding` spends. Read the `CREDENTIAL_HTTP_ROUTES`
+        // comment for why it is a door rather than a fifth sibling on the
+        // binding route: folding a model key into `openStorageBinding`'s return
+        // would put it inside the same validator as `secretAccessKey`, so one
+        // drift could spill both.
+        "http.gatewayProvider",
       ].sort(),
     );
   });
@@ -1483,6 +1601,50 @@ describe("no public function can reach a storage secret", () => {
   });
 
   /**
+   * The minted-token exemption, held to the same three things the key one is:
+   * it names something that exists, it is one entry rather than a category, and
+   * it buys exactly one field.
+   */
+  test("the minted-token exemption is one real function and one field", () => {
+    const live = new Set<string>();
+    for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
+      for (const name of Object.keys(module ?? {})) {
+        live.add(`${referencePath(globKey)}.${name}`);
+      }
+    }
+    expect(DELIBERATE_TOKEN_MINTS.size).toBe(1);
+    for (const node of DELIBERATE_TOKEN_MINTS) {
+      expect(live.has(node), `${node} is exempted but does not exist`).toBe(true);
+    }
+
+    // One field, and it is not the key one: the two exemptions must not start
+    // covering for each other.
+    expect(MINTED_TOKEN_FIELD).not.toBe(DISCLOSED_KEY_FIELD);
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain(MINTED_TOKEN_FIELD);
+
+    /*
+      And the exempted function is still held to every other forbidden field.
+      A `mintConsoleGrant` that grew a `secretaccesskey` would be caught by the
+      guard above; this asserts the source has none of them, so the exemption
+      cannot be read as "this function is out of scope".
+    */
+    for (const node of DELIBERATE_TOKEN_MINTS) {
+      const [, moduleName, exportName] = node.split(".");
+      const module = LIVE_MODULES[`../functions/${moduleName}.ts`] as
+        | Record<string, { exportReturns?: () => string }>
+        | undefined;
+      const returns = module?.[exportName!]?.exportReturns?.().toLowerCase() ?? "";
+      expect(returns.length).toBeGreaterThan(0);
+      for (const field of PUBLIC_FORBIDDEN_FIELDS) {
+        if (field === MINTED_TOKEN_FIELD) continue;
+        expect(returns.includes(`"${field}"`), `${node} also returns ${field}`).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  /**
    * THE GUARD'S OWN SELF-TEST, because a check that only ever runs against
    * source that passes it has not been shown to catch anything. A synthetic
    * public function declaring the disclosed field under a name that is NOT
@@ -1525,6 +1687,9 @@ describe("no public function can reach a storage secret", () => {
             DELIBERATE_KEY_DISCLOSURES.has(node)
           )
             continue;
+          if (field === MINTED_TOKEN_FIELD && DELIBERATE_TOKEN_MINTS.has(node)) {
+            continue;
+          }
           expect(
             returns.includes(`"${field}"`),
             `${globKey}#${name} is public and returns a "${field}" field`,

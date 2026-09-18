@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from "react";
+import type { AgentEngine } from "../agent/engine";
 import type { VoicePage } from "./VoiceButton";
 
 /**
@@ -24,6 +25,16 @@ export interface VoiceHost {
   page: VoicePage;
   /** Opens the meeting's own destination sheet. See `VoiceSheet`. */
   onRecordMeeting: () => void;
+  /**
+   * What answers a question, or absent for a surface with nothing behind it.
+   *
+   * It rides here for the reason everything else on this object does: the
+   * engine needs the workspace id and the MCP endpoint, which the console
+   * layout holds and `NoteEditor` has never seen. Absent on the demo console,
+   * the E2E fixture and the visual fixture, where `VoiceButton` falls back to
+   * the stub that describes the room and answers nothing — see `engine.ts`.
+   */
+  agent?: AgentEngine;
 }
 
 const VoiceHostContext = createContext<VoiceHost | null>(null);

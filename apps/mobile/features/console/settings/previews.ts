@@ -129,8 +129,22 @@ export function settingsPreview(
       to this switch is a compile error rather than a blank row nobody
       notices.
     */
+    /*
+      `model` joins this group for `premium`'s reason exactly: the answer —
+      whether this context has a model account connected — lives in a Convex
+      query inside its own panel rather than on `ConsoleData`, and hoisting it
+      would add a query to every console load to decorate one row. A trade
+      worth making on purpose if the row ever needs it, and not as a side
+      effect of adding the section.
+
+      Written above the group rather than between two of its cases, which is
+      where it was: a comment there reads as a fallthrough to `no-fallthrough`
+      and reddens lint, and CI found that rather than my own run, because I
+      linted the files I had added instead of the ones I had changed.
+    */
     case "workspace":
     case "premium":
+    case "model":
     case "meetings":
       return null;
   }

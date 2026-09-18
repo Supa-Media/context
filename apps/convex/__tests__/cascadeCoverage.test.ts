@@ -274,6 +274,7 @@ describe("every sealed, workspace-scoped table is swept or explained", () => {
       "googleConnectAttempts",
       "googleConnections",
       "managedStorageMigrations",
+      "providerCredentials",
       "storageBindings",
       "workspaceDataKeys",
     ]);

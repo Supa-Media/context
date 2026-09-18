@@ -246,6 +246,7 @@ describe("the gateway secret is necessary", () => {
     for (const path of [
       "/gateway/session",
       "/gateway/binding",
+      "/gateway/provider",
       "/gateway/clients/register",
       "/gateway/clients/get",
       "/gateway/authorize/start",

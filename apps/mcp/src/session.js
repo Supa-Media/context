@@ -248,6 +248,12 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // the username `meetings` would have been the workspace every meeting client
   // in the product appeared to be addressing.
   "meetings",
+  // The agent turn, `POST /agent`. The same defect `meetings` above records,
+  // caught the same way — by a route that answered 404 while the suite was
+  // green — and it lands the same way: whoever claimed the handle `agent` would
+  // have been the workspace every agent turn in the product appeared to be
+  // addressed to, and, because ingestion is on the apex, the mailbox too.
+  "agent",
 ]);
 
 /* --------------------------- session resolution --------------------------- */
