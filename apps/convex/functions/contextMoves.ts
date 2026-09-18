@@ -455,6 +455,41 @@ export const advanceContextMove = internalAction({
           ...(error === undefined ? {} : { error }),
         },
       });
+      /*
+        AND ONE IN THE DESTINATION'S OWN TRAIL, BECAUSE IT IS ITS OWN CONTEXT.
+
+        The mover reaches the destination as an `editor`, which is somebody
+        else's context in every case that matters. Every other write an editor
+        makes there leaves a row — `file.create`, `file.write`, `file.delete` —
+        and this one carried an unbounded number of notes in and left nothing.
+        `listContextMoves` cannot stand in for it either: it is indexed
+        `by_source_updatedAt` and gated on owning the SOURCE, which is right
+        for a progress list and leaves the destination's owner with no record
+        of the move in any place they can read.
+
+        Two deliberate narrowings:
+
+          - **Only when something actually landed.** A move that failed before
+            a byte arrived did not happen here, and a row saying it did would
+            tell this context's readers about an attempt rather than an event.
+          - **The destination path only.** `row.from` names a folder inside a
+            context these readers have nothing to do with. An audit row is a
+            record of what happened HERE, and the source's own trail already
+            carries both halves for the person who owns that side.
+      */
+      const landedObjects = row.movedObjects + movedObjects;
+      if (landedObjects > 0) {
+        await ctx.runMutation(internal.functions.audit.recordEvent, {
+          workspaceId: row.destinationWorkspaceId,
+          actorUserId: row.actorUserId,
+          action: status === "complete" ? "file.moveIn" : "file.moveIn.partial",
+          paths: [row.to],
+          details: {
+            objects: landedObjects,
+            bytes: row.movedBytes + movedBytes,
+          },
+        });
+      }
       return null;
     };
 
