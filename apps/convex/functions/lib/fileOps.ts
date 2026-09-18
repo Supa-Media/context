@@ -2995,6 +2995,7 @@ export async function copyPath(
   await copyPrivacy(
     store,
     pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
+    sourceIsFolder ? { from, to } : null,
   );
 
   return { from, to, paths: pairs.map((pair) => pair.destination) };
@@ -3826,7 +3827,30 @@ async function remapPrivacy(
         rule.prefix === change.folderMove!.from ||
         rule.prefix.startsWith(`${change.folderMove!.from}/`),
     );
-  if (!touchesOverride && !touchesRule) return;
+  /*
+    What each moved note was actually visible as, which is a different question
+    from whether it had an exception — and the difference is the whole of this
+    block.
+
+    A note is usually private because its FOLDER is, with nothing in the
+    manifest naming the note at all. That fact does not travel with it: carry
+    only the exceptions and the inherited case lands on the destination's rule,
+    so dragging a note out of a private folder into a shared one published it,
+    to exactly the people the folder was private from. `movePath`'s own header
+    has always said this must not happen; it said it about the exception, which
+    is the case that was handled.
+
+    The gateway has narrowed a move against its destination since `move_note`
+    was written — `narrowerVisibility(sourceVisibility, visibilityOf(destination))`
+    — and this is that rule on this side of the platform split, computed from
+    the manifest as it was BEFORE the move.
+  */
+  const wasVisibleAs = new Map<string, Visibility>();
+  for (const move of change.moves) {
+    wasVisibleAs.set(move.from, effectiveVisibility(move.from, state.rules, state.overrides));
+  }
+  const mayWiden = change.moves.some((move) => wasVisibleAs.get(move.from) === "private");
+  if (!touchesOverride && !touchesRule && !mayWiden) return;
 
   await mutateManifest(store, (current) => {
     const rules = [...rulesAfterFolderMove(current.rules, change.folderMove)];
@@ -3843,32 +3867,99 @@ async function remapPrivacy(
         ),
       );
     }
+    /*
+      A folder that was private only because its parent was needs ONE rule at
+      the destination, not an exception per note: a 500-note folder would
+      otherwise write 500 lines into a customer's `privacy.md` to say what one
+      line says. `rulesAfterFolderMove` has already carried a rule the folder
+      owned itself, so this fires only where the folder owned none.
+    */
+    if (change.folderMove !== null) {
+      const ownsRule = current.rules.some((rule) => rule.prefix === change.folderMove!.from);
+      const inherited = visibilityOf(change.folderMove.from, current.rules);
+      if (!ownsRule && inherited === "private" && visibilityOf(change.folderMove.to, rules) === "team") {
+        rules.push({ prefix: change.folderMove.to, vis: inherited });
+      }
+    }
     const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const move of change.moves) {
       overrides = movedOverrides(move.from, move.to, deduped, overrides);
+      // Only where the note had no exception of its own: `movedOverrides` has
+      // already re-derived that case against the destination, and re-deriving
+      // it a second time here would quietly retier an owner's deliberate
+      // exception. `nextOverrides` writes nothing where the destination folder
+      // already gives the note what it had, so a move that widens nothing
+      // leaves the manifest untouched.
+      if (hasOverride(current.overrides, move.from)) continue;
+      const was = wasVisibleAs.get(move.from);
+      if (was === undefined) continue;
+      // `narrowerVisibility` is typed for two optional arguments, so it answers
+      // optionally; both of these are present, and the guard says so rather
+      // than asserting it.
+      const carry = narrowerVisibility(was, visibilityOf(move.to, deduped));
+      if (carry === undefined) continue;
+      overrides = nextOverrides(move.to, carry, deduped, overrides);
     }
     return { rules: deduped, overrides };
   });
 }
 
-/** Give a copy the same exception as its original, where it is still one. */
+/**
+ * Give a copy what its original had — its exception where it had one, and
+ * otherwise the visibility its folder gave it.
+ *
+ * The second half is the same fact `remapPrivacy` turns on, and it is not the
+ * rarer half: a note is usually private because its FOLDER is, with nothing in
+ * the manifest naming the note. Carrying only exceptions meant a copy taken
+ * into a shared folder arrived readable by every member, and the copy is the
+ * operation where that is hardest to notice — the original is still sitting
+ * where it was, still private, so nothing the owner is looking at changed.
+ *
+ * Narrowed against the destination, never widened, exactly as a move is.
+ */
 async function copyPrivacy(
   store: FileStore,
   pairs: { from: string; to: string }[],
+  folderCopy: { from: string; to: string } | null = null,
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
-  if (!pairs.some(({ from }) => hasOverride(state.overrides, from))) return;
+  const wasVisibleAs = new Map<string, Visibility>();
+  for (const pair of pairs) {
+    wasVisibleAs.set(pair.from, effectiveVisibility(pair.from, state.rules, state.overrides));
+  }
+  const carriesSomething = pairs.some(
+    ({ from }) => hasOverride(state.overrides, from) || wasVisibleAs.get(from) === "private",
+  );
+  if (!carriesSomething) return;
 
   await mutateManifest(store, (current) => {
+    // One rule for a copied folder that was private only because its parent
+    // was, for `remapPrivacy`'s reason: an exception per note turns a
+    // customer's `privacy.md` into a list of everything they ever copied.
+    const rules = [...current.rules];
+    if (folderCopy !== null) {
+      const inherited = visibilityOf(folderCopy.from, current.rules);
+      if (inherited === "private" && visibilityOf(folderCopy.to, current.rules) === "team") {
+        rules.push({ prefix: folderCopy.to, vis: inherited });
+      }
+    }
+    const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const pair of pairs) {
       const existing = overrideFor(current.overrides, pair.from);
-      if (existing === undefined) continue;
-      overrides = nextOverrides(pair.to, existing, current.rules, overrides);
+      const was = wasVisibleAs.get(pair.from);
+      // An exception is carried as it stands — the owner chose it, and
+      // re-deriving it here would retier that choice. Only the inherited case
+      // is computed, and `nextOverrides` writes nothing where the destination
+      // folder already gives the copy what the original had.
+      const carry =
+        existing ?? (was === undefined ? undefined : narrowerVisibility(was, visibilityOf(pair.to, deduped)));
+      if (carry === undefined) continue;
+      overrides = nextOverrides(pair.to, carry, deduped, overrides);
     }
-    return { rules: current.rules, overrides };
+    return { rules: deduped, overrides };
   });
 }
 
