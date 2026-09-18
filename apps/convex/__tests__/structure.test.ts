@@ -988,6 +988,43 @@ describe("no public function can reach a storage secret", () => {
     expect(importers).toEqual([...DECRYPT_IMPORTERS].sort());
   });
 
+  /**
+   * NOBODY RESTATES THE CAPABILITY OBJECT.
+   *
+   * Four modules had their own copy of `{ conditionalWrite, conditionalCreate,
+   * conditionalDelete }` — two return validators in `controlPlane.ts`, two in
+   * `ingestionGateway.ts` — and `storage.ts` owned a fifth that was the real
+   * one. Adding `serverSideCopy` to the schema and to the probe therefore made
+   * both credential routes refuse the answer they had just built:
+   * `v.object` is exact, `openStorageBinding` and `openIngestionBinding` threw
+   * `ReturnsValidationError`, and every AI client and every inbound message was
+   * told `storage_unavailable` — advised to reconnect storage that was never
+   * unreachable.
+   *
+   * The lesson is not "remember the other four next time". It is that a
+   * credential route's return validator is the last hop before a customer, and
+   * a field list restated there is one nobody is watching. So: exactly one
+   * declaration of the shape, and this test is what keeps it at one.
+   *
+   * If this fails, import `capabilitiesValidator` from `functions/storage`
+   * rather than writing the fields out again.
+   */
+  test("only the schema spells the capability object out", () => {
+    // A `capabilities:` field whose validator is written inline, which is what
+    // each of the four copies looked like. `capabilitiesValidator` itself is
+    // `v.object({ … })` too, but it is not under a `capabilities:` key — it is
+    // the thing a `capabilities:` key is supposed to point at.
+    const inlineShape = /capabilities:\s*v\.object\(/;
+    const declarers = Object.entries(RAW_SOURCES)
+      .filter(([, source]) => inlineShape.test(source as string))
+      .map(([path]) => path.replace(/^(\.\.?\/)+/, ""))
+      .sort();
+
+    // The schema, and nowhere else. It is where the field list is defined, and
+    // `functions/storage.ts` builds the one validator from it.
+    expect(declarers).toEqual(["schema.ts"]);
+  });
+
   test("only these functions can reach a decrypted credential", () => {
     const { decryptCapable } = analyze(realModules());
 
