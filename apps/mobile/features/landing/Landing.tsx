@@ -582,9 +582,9 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * `flexWrap` alone was not enough and the landing page shipped broken at
    * 390pt because of it: a wrapped row still gives each child its `minWidth`,
    * so a 420pt window on a 390pt screen overflowed by 30 — and `marginRight:
-   * -28` pushed the whole row 28 further out, which is why the headline, the
-   * paragraph and the buttons all ran off the right edge rather than just the
-   * window. Everything below the fold was fine, which is exactly how it
+   * -28` pulled the whole row a further 28pt past the edge, which is why the
+   * headline, the paragraph and the buttons all ran off the right edge rather
+   * than just the window. Everything below the fold was fine, which is how it
    * survived a desktop review.
    *
    * So the negative margin is a pointer-layout thing (there is no page gutter
