@@ -65,12 +65,16 @@ const PATHS = {
   plan: `${FOLDER}/plan.md`,
 };
 
-const MARKS = pendingMarks([
-  { path: PATHS.pilot, state: "pending", queuedAt: 1 },
-  { path: PATHS.trip, state: "pending", queuedAt: 2 },
-  { path: PATHS.plan, state: "pending", queuedAt: 3 },
-  { path: PATHS.budget, state: "conflicted", queuedAt: 4 },
-]);
+const QUEUED = [
+  { path: PATHS.pilot, state: "pending" as const, queuedAt: 1 },
+  { path: PATHS.trip, state: "pending" as const, queuedAt: 2 },
+  { path: PATHS.plan, state: "pending" as const, queuedAt: 3 },
+];
+// Two sets, one per scene, so the list and the pill above it tell the same
+// story: a picture whose pill says "3, nothing parked" over a list with a
+// parked note in it documents a bug the app does not have.
+const QUEUED_MARKS = pendingMarks(QUEUED);
+const MARKS = pendingMarks([...QUEUED, { path: PATHS.budget, state: "conflicted", queuedAt: 4 }]);
 
 const OFFLINE: SyncFacts = {
   reachability: "offline",
@@ -164,7 +168,11 @@ function avatar() {
 }
 
 /** The phone's console: the real frame, the real pill, the real folder page. */
-function phone(sync: SyncFacts, save: ReturnType<typeof saveChip>): ReactElement {
+function phone(
+  sync: SyncFacts,
+  save: ReturnType<typeof saveChip>,
+  marks: typeof MARKS,
+): ReactElement {
   return createElement(AppFrame, {
     switcher: null,
     accountSlot: avatar(),
@@ -185,7 +193,7 @@ function phone(sync: SyncFacts, save: ReturnType<typeof saveChip>): ReactElement
         canSetVisibility: true,
         contextLabel: "@someone",
         onSelect: () => {},
-        pendingStateFor: MARKS.stateFor,
+        pendingStateFor: marks.stateFor,
       }),
     ),
   });
@@ -232,7 +240,7 @@ describe("offline status shots", () => {
         `phone-offline-${scheme}`,
         "Phone, offline: the pill and the marks",
         scheme,
-        phone(OFFLINE, null),
+        phone(OFFLINE, null, QUEUED_MARKS),
         390,
         560,
       );
@@ -240,7 +248,7 @@ describe("offline status shots", () => {
         `phone-needs-you-${scheme}`,
         "Phone, a note parked: crit outranks warn",
         scheme,
-        phone(OFFLINE_STUCK, CACHED),
+        phone(OFFLINE_STUCK, CACHED, MARKS),
         390,
         560,
       );
