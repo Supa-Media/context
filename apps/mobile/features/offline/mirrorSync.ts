@@ -160,6 +160,7 @@ export async function syncContext(
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   const maxPages = deps.maxPages ?? MAX_MANIFEST_PAGES;
+  let pagesListed = 0;
 
   for (let page = 0; ; page += 1) {
     if (page >= maxPages) {
@@ -177,6 +178,7 @@ export async function syncContext(
       break;
     }
     if (!deps.mine()) return aborted();
+    pagesListed += 1;
     manifestUsable = result.manifestUsable;
     for (const entry of result.entries) {
       if (entry.path.endsWith("/")) continue;
@@ -198,6 +200,15 @@ export async function syncContext(
     seenCursors.add(result.cursor);
     cursor = result.cursor;
   }
+
+  /*
+    Nothing listed at all — offline after all, storage not connected, a
+    refusal — is not a run that learned anything, so it writes nothing: an
+    index created here would make a context with no notes, or one whose
+    storage is down, read "only part of this context is on this device".
+    Whatever the device already held, and what it said about it, stands.
+  */
+  if (pagesListed === 0) return { ...run, incomplete: incomplete ?? "interrupted" };
 
   /* ------------------------------- 2. compare ----------------------------- */
 

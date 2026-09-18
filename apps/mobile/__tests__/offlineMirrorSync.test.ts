@@ -309,6 +309,25 @@ describe("what the device may hold is re-derived by every complete sync", () => 
     expect(await mirroredNote(store, "private", W1, "1-projects/deep/plan.md")).not.toBeNull();
   });
 
+  test("a manifest that cannot be fetched at all changes nothing on the device", async () => {
+    pageOverride = () => {
+      throw new Error("STORAGE_NOT_CONNECTED");
+    };
+    const first = await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    expect(first?.complete).toBe(false);
+    // No index is created, so an empty or unreachable context is not "partial".
+    expect(await readIndex(store, "private", W1)).toBeNull();
+
+    pageOverride = null;
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    const before = await readIndex(store, "private", W1);
+    pageOverride = () => {
+      throw new Error("timed out");
+    };
+    await syncContext(deps(), { workspaceId: W1, tier: "private" });
+    expect(await readIndex(store, "private", W1)).toEqual(before);
+  });
+
   test("a cursor that does not move is truncation, not a loop", async () => {
     pageOverride = () => ({
       entries: manifestOf(buckets[W1]!).slice(0, 1),
