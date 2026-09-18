@@ -257,6 +257,72 @@ describe("the console reads the mirror", () => {
   });
 });
 
+describe("online, the mirror answers first when the bucket is slow", () => {
+  /** A `readNote` that answers only when told to. */
+  function slowRead(): { answer: (note: OpenNote) => void; refuse: (code: string) => void } {
+    let answer: (note: OpenNote) => void = () => {};
+    let refuse: (code: string) => void = () => {};
+    actions[fn("readNote")] = () =>
+      new Promise((resolve, reject) => {
+        answer = resolve as (note: OpenNote) => void;
+        refuse = (code) => reject(new ConvexError({ code, message: "You can no longer see this." }));
+      });
+    return { answer: (note) => answer(note), refuse: (code) => refuse(code) };
+  }
+
+  async function pastTheGlance() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+    await settle(30);
+  }
+
+  test("the copy is shown, marked, then replaced by the bucket's version", async () => {
+    await settle();
+    await syncNow();
+    const read = slowRead();
+    browser.select(OTHER);
+    await pastTheGlance();
+    expect(browser.editor.path).toBe(OTHER);
+    expect(browser.editor.draft).toBe("Nobody opened this on this device.\n");
+    expect(browser.editor.fromCache).toBe(true);
+
+    read.answer(noteAt(OTHER, "Edited elsewhere a moment ago.\n", "o2"));
+    await settle(30);
+    expect(browser.editor.draft).toBe("Edited elsewhere a moment ago.\n");
+    expect(browser.editor.etag).toBe("o2");
+    expect(browser.editor.fromCache).toBeUndefined();
+  });
+
+  test("a refusal takes the copy away", async () => {
+    await settle();
+    await syncNow();
+    const read = slowRead();
+    browser.select(OTHER);
+    await pastTheGlance();
+    expect(browser.editor.path).toBe(OTHER);
+    read.refuse("FILE_NOT_FOUND");
+    await settle(30);
+    expect(browser.editor.path).toBeNull();
+    expect(browser.notice).toBe("You can no longer see this.");
+  });
+
+  test("typing into the copy is never replaced by the bucket's version", async () => {
+    await settle();
+    await syncNow();
+    const read = slowRead();
+    browser.select(OTHER);
+    await pastTheGlance();
+    browser.setDraft("Typed before the bucket answered.\n");
+    await settle();
+    read.answer(noteAt(OTHER, "Edited elsewhere a moment ago.\n", "o2"));
+    await settle(30);
+    expect(browser.editor.draft).toBe("Typed before the bucket answered.\n");
+    // Still based on the version the copy was, so a save is checked against it.
+    expect(browser.editor.etag).toBe("o1");
+  });
+});
+
 describe("never losing the merge", () => {
   test("a queued edit still gets a real merge after a sync moved the note on", async () => {
     await settle();

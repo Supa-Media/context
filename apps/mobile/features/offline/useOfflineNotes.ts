@@ -161,6 +161,14 @@ export interface OfflineNotes {
     baseEtag: string | null,
   ) => Promise<{ text: string; etag: string } | null>;
   /**
+   * The mirror's copy of a note, for showing while the bucket is asked — and
+   * `null` on a device with no mirror. Deliberately not the bounded cache: a
+   * copy of what somebody happened to open is not what a whole-context mirror
+   * reconciled minutes ago is, and the online open that would show it did not
+   * do so before the mirror existed.
+   */
+  instantCopy: (path: string) => Promise<Cached<OpenNote> | null>;
+  /**
    * Drop the cached copy of one note.
    *
    * The only *removal* on the copy side of this interface, and it exists for
@@ -582,6 +590,11 @@ export function useOfflineNotes(options: {
         return mirror === null
           ? getListing(store, copies.scope, copies.workspaceId, path)
           : mirroredListing(mirror, copies.scope, copies.workspaceId, path);
+      },
+      instantCopy: async (path) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null ? null : mirroredNote(mirror, copies.scope, copies.workspaceId, path);
       },
       ancestorFor: async (path, baseEtag) => {
         if (copies === null) return null;

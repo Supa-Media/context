@@ -121,6 +121,14 @@ export function draftIsKept(durable: boolean): string {
 export const OPERATION_TIMEOUT_MS = 45_000;
 
 /**
+ * How long an online open waits for the bucket before showing the mirror's
+ * copy. See `openNote`: long enough that an ordinary connection answers first
+ * and nothing flickers, short enough that a slow one does not leave somebody
+ * looking at a spinner over a note that is already on their device.
+ */
+export const INSTANT_OPEN_MS = 250;
+
+/**
  * What to say when we stopped waiting.
  *
  * It does not claim the operation failed, because we do not know: the request
@@ -956,10 +964,74 @@ export function useFileBrowser(options: {
             notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
         } else {
+          const reading = readNote({ workspaceId, path });
+          /*
+            Online, the mirror answers first when the bucket is slow.
+
+            A note that is on the device should open like a note in Apple
+            Notes, not after a round trip to somebody's bucket on a train's
+            wifi. So the read is given `INSTANT_OPEN_MS` — long enough that an
+            ordinary connection answers inside it and nothing flickers — and
+            past that the mirror's copy is put in the editor, marked
+            `fromCache` (the save chip says "Cached copy" until the bucket
+            answers), and the read carries on behind it.
+
+            Three things keep that honest, each a rule this file already had:
+
+             - **Not when there is work to restore.** A queued write or a draft
+               is restored against the note it was typed on (`restoreFor`),
+               once; showing a copy first would mean restoring twice against
+               two versions. Those opens wait for the bucket, as they always
+               did.
+             - **A refusal still wins.** The copy was shown while there was no
+               answer; when the answer is a refusal, the editor closes and says
+               so — the same outcome `isServerRefusal` gives an open that never
+               showed anything. A transport failure keeps the copy, as the
+               fallback below always has.
+             - **Typing is never replaced.** The bucket's version replaces the
+               copy only while the editor is still clean on this note. If
+               somebody started typing, their draft is based on the copy's
+               version, a save is checked against it, and the mirror holds that
+               version as the merge's ancestor (`mirrorHolds.ts`) — so a copy
+               that turned out stale becomes an ordinary conflict with a real
+               Merge, never an overwrite.
+          */
+          const quick = await raceTimeout(reading, {
+            ms: INSTANT_OPEN_MS,
+            schedule: (fn, ms) => setTimeout(fn, ms),
+            cancel: (handle) => clearTimeout(handle),
+          });
+          let early: OpenNote | null = null;
+          if (quick.kind === "timeout" && openRun.current === mine) {
+            const copy = await offline.instantCopy(path);
+            const waiting =
+              offline.pendingFor(path) !== undefined || (await offline.savedDraft(path)) !== null;
+            if (copy !== null && !waiting && openRun.current === mine) {
+              early = copy.value;
+              dispatch({ type: "opened", note: copy.value, fromCache: true });
+              settleOpening(path);
+            }
+          }
           try {
-            note = await readNote({ workspaceId, path });
+            note = quick.kind === "value" ? quick.value : await reading;
             offline.rememberNote(note);
+            if (early !== null) {
+              if (openRun.current !== mine) return;
+              const shown = editorRef.current;
+              if (shown.path === path && shown.status === "clean") {
+                dispatch({ type: "reloaded", note });
+              }
+              return;
+            }
           } catch (error) {
+            if (early !== null) {
+              if (openRun.current !== mine) return;
+              if (isServerRefusal(error)) {
+                dispatch({ type: "closed" });
+                setNotice(toFileError(error).message);
+              }
+              return;
+            }
             const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
             if (cached === null) {
               // Superseded: do not put a *different* request's failure into
