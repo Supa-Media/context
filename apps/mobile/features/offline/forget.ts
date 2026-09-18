@@ -8,6 +8,7 @@ import { endSession } from "./epoch";
 import { keysForDepartedContexts, keysForWorkspace, ownedKeys } from "./keys";
 import { forgetPlace, placeKeys } from "../console/lastPlace";
 import { forgetAllMeetings } from "../meetings/local";
+import { forgetSpooledAudio, spooledAudioCounts } from "../meetings/capture";
 import { meetingKeys } from "../meetings/keys";
 import type { OutboxCounts } from "./outbox";
 import { openStore } from "./store";
@@ -221,6 +222,18 @@ export async function forgetLocalCopies(): Promise<ForgetResult> {
 }
 
 async function clearEverything(): Promise<ForgetResult> {
+  /*
+    The meeting audio kept on this device to be transcribed later
+    (`meetings/capture/spool.ts`), first. It is not in the key store — it is
+    files, in the app's documents directory — which is exactly why it is named
+    here rather than assumed: a clear that walked the store and reported
+    `cleared` would say nothing about minutes of somebody's meeting still on the
+    phone. First, because it needs no store, so a store that throws cannot stand
+    between a sign-out and it. The epoch was ended before this was called, so a
+    recorder or a drain still running writes nothing back behind it, and what it
+    answers is a re-count, not a hope.
+  */
+  const audio = forgetSpooledAudio();
   try {
     const store = openStore();
     await forgetEverything(store);
@@ -252,11 +265,14 @@ async function clearEverything(): Promise<ForgetResult> {
       like the page above, rather than trusted to `ownedKeys`.
     */
     await forgetAllMeetings(store);
-    if (!store.durable) return { verdict: "unmeasured" };
+    if (!store.durable) {
+      if (audio.left > 0) warnLeftBehind("sign-out (meeting audio)", audio.left);
+      return { verdict: audio.left > 0 ? "left-behind" : "unmeasured" };
+    }
     const keys = await store.keys();
     const left = [...ownedKeys(keys), ...placeKeys(keys), ...meetingKeys(keys)];
-    if (left.length > 0) {
-      warnLeftBehind("sign-out", left.length);
+    if (left.length + audio.left > 0) {
+      warnLeftBehind("sign-out", left.length + audio.left);
       return { verdict: "left-behind" };
     }
     return { verdict: "cleared" };
@@ -400,6 +416,24 @@ async function clearDeparted(known: readonly string[]): Promise<ForgetResult> {
   } catch {
     warnStoreUnusable("departed contexts");
     return { verdict: "unmeasured" };
+  }
+}
+
+/**
+ * How many meetings have audio on this phone that has not been transcribed.
+ *
+ * Counted for the sign-out question, because `forgetLocalCopies` wipes the
+ * spool and nothing else would ever say so. Every meeting in every context —
+ * the spool is device-wide and so is the wipe — and every kept chunk,
+ * including ones the drain has set aside: they are the person's audio and they
+ * go with the rest. A spool that cannot be read answers zero, the same floor
+ * `unsentOnDevice` takes; it is synchronous, so there is no deadline to add.
+ */
+export function unsentMeetingAudio(): number {
+  try {
+    return Object.values(spooledAudioCounts()).filter((counts) => counts.kept > 0).length;
+  } catch {
+    return 0;
   }
 }
 

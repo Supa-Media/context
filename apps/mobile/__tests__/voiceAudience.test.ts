@@ -192,6 +192,16 @@ describe("the sentence a failure gets", () => {
     expect(reasonFor("unreachable", "")).toContain("rather than look live");
   });
 
+  test("offline says dictation needs a connection here, and points at the computer's own", () => {
+    const sentence = reasonFor("offline", "");
+    expect(sentence).toMatch(/connection/);
+    expect(sentence).toMatch(/offline/);
+    // Both desktop platforms name their own dictation, because that is the
+    // thing that works with no connection and the person needs to find it.
+    expect(sentence).toMatch(/Mac/);
+    expect(sentence).toMatch(/Windows/);
+  });
+
   test("an unsupported surface repeats the engine's own sentence", () => {
     expect(reasonFor("unsupported", "Use the mic on your keyboard.")).toBe(
       "Use the mic on your keyboard.",
@@ -199,7 +209,7 @@ describe("the sentence a failure gets", () => {
   });
 
   test("every failure has a sentence, so no state can render empty", () => {
-    for (const failure of ["denied", "no-microphone", "unreachable", "unsupported"] as const) {
+    for (const failure of ["denied", "no-microphone", "unreachable", "offline", "unsupported"] as const) {
       expect(reasonFor(failure, "fallback").length).toBeGreaterThan(0);
     }
   });

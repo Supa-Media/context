@@ -109,6 +109,12 @@ function constructor(): SpeechRecognitionCtor | null {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
 }
 
+/** Whether the browser says, reliably, that it has no connection. */
+function knownOffline(): boolean {
+  const nav = (globalThis as { navigator?: { onLine?: unknown } }).navigator;
+  return nav?.onLine === false;
+}
+
 /**
  * The engine's own error names, in this feature's words.
  *
@@ -125,6 +131,12 @@ export function failureFor(error: string): DictationFailure | null {
     case "audio-capture":
       return "no-microphone";
     case "network":
+      /*
+        The engine's service could not be reached. In Chrome that service is
+        the whole engine, so this is the offline case whatever `onLine` says —
+        a captive portal reads as online and fails exactly like this.
+      */
+      return "offline";
     case "language-not-supported":
     case "bad-grammar":
       return "unreachable";
@@ -270,6 +282,21 @@ export function createDictationEngine(): DictationEngine {
     unavailable: "",
     open: (handlers) => {
       if (session !== null) return;
+      /*
+        ASKED BEFORE THE MICROPHONE OPENS, NOT AFTER IT FAILS.
+
+        Chrome's engine sends the audio to a server, so a browser that already
+        knows it has no connection can only produce a live capsule, an open
+        microphone, and then a `network` error a moment later. `false` from
+        `navigator.onLine` is the reliable direction (`offline/reachability.web.ts`
+        makes the same argument), so it is answered here with the sentence that
+        points at the computer's own dictation. `true`, or no answer at all, opens
+        exactly as before: a captive portal still fails through `failureFor`.
+      */
+      if (knownOffline()) {
+        handlers.error("offline");
+        return;
+      }
       sink = handlers;
       wanted = true;
       instantRestarts = 0;

@@ -90,6 +90,8 @@ const keys = require("../features/offline/keys") as typeof import("../features/o
 const cache = require("../features/offline/cache") as typeof import("../features/offline/cache");
 const { emptyOutbox, enqueue } =
   require("../features/offline/outbox") as typeof import("../features/offline/outbox");
+const { memorySpool, setAudioSpool } =
+  require("../features/meetings/capture/spool") as typeof import("../features/meetings/capture/spool");
 
 type OutboxCounts = import("../features/offline/outbox").OutboxCounts;
 type OpenNote = import("../features/console/files/types").OpenNote;
@@ -337,6 +339,7 @@ beforeEach(() => {
   mockReplaced.length = 0;
   counts = NO_WRITES;
   queueReady = true;
+  setAudioSpool(null);
 });
 
 /* -------------------------------------------------------------------------- */
@@ -516,6 +519,66 @@ describe("signing out with work that never reached the bucket", () => {
 
     expect(signOutCalls).toBe(0);
     expect(app.text()).toContain("2 notes have edits that have not reached your bucket");
+    app.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("signing out with a meeting's audio still on the phone", () => {
+  /*
+    The spool keeps audio that has not reached the transcriber, and sign-out
+    wipes it (`forgetLocalCopies`). Without this question the person could end
+    their session and silently lose an un-transcribed meeting — the one thing
+    the spool exists to prevent. No note edits are waiting here, so the dialog
+    can only be about the audio.
+
+    SABOTAGE: `useSignOutFlow` passing `0` for the audio count, and separately
+    `unsentMeetingAudio` answering `0`: both fail both tests below.
+  */
+  function spoolWithAudio(meetings: number) {
+    const spool = memorySpool();
+    for (let n = 0; n < meetings; n += 1) {
+      const meetingId = `mtg_${String(n).repeat(20).slice(0, 20)}`;
+      for (let index = 0; index < 2; index += 1) {
+        spool.keep(
+          { meetingId, index, offsetMs: index * 20_000, durationMs: 20_000 },
+          { kind: "bytes", bytes: Uint8Array.from([index]), mimeType: "audio/wav" },
+          0,
+        );
+      }
+    }
+    setAudioSpool(spool);
+    return spool;
+  }
+
+  test("asks first, naming the meeting whose audio would be deleted", async () => {
+    const spool = spoolWithAudio(1);
+    await seedDevice({ cached: false });
+
+    const app = mountConsole();
+    await app.signOut();
+
+    expect(signOutCalls).toBe(0);
+    expect(app.text()).toContain(
+      "1 meeting's audio has not been transcribed yet — signing out deletes it from this phone.",
+    );
+    // Nothing is wiped while the question is open.
+    expect(spool.list()).toHaveLength(2);
+    app.unmount();
+  });
+
+  test("and signing out anyway takes the audio with it", async () => {
+    const spool = spoolWithAudio(2);
+    await seedDevice({ cached: false });
+
+    const app = mountConsole();
+    await app.signOut();
+    expect(app.text()).toContain("2 meetings' audio has not been transcribed yet");
+    await app.press(app.byLabel("Sign out and discard"));
+
+    expect(signOutCalls).toBe(1);
+    expect(spool.list()).toEqual([]);
     app.unmount();
   });
 });

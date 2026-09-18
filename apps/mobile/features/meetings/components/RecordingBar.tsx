@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { usePathname, useRouter } from "expo-router";
 import { fonts, layout, pointerType as t, radii } from "../../design/tokens";
 import { floatingStackBottom, useBottomChromeHeight } from "../../app/bottomChrome";
@@ -9,6 +9,7 @@ import { meetings, recordElapsedMs } from "../controller";
 import { meetingHref } from "../route";
 import { clock } from "../format";
 import { useMeetingsSnapshot, useTick } from "../useMeetings";
+import { barAudioBadge } from "../keptAudio";
 import { TransportMark } from "./TransportMark";
 import { Waveform } from "./Waveform";
 
@@ -149,6 +150,17 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
     this bar go away appeared to do nothing for five seconds.
   */
   const ending = snapshot.ending === live.session.id;
+  /*
+    Audio this phone is keeping because it could not send it yet. A pill has
+    room for two words, so the badge is short and the whole sentence — the one
+    that says the recording is safe and when it will be transcribed — is its
+    accessibility label and the live screen's chip, one tap away.
+  */
+  const counts = snapshot.audio[live.session.id];
+  const badge =
+    Platform.OS !== "web" || (counts?.waiting ?? 0) > 0
+      ? barAudioBadge(counts, snapshot.offline)
+      : null;
 
   return (
     <View
@@ -188,12 +200,19 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
         <Pressable
           onPress={open}
           accessibilityRole="button"
-          accessibilityLabel={`${live.session.title}, ${elapsed} recorded. Open the meeting.`}
+          accessibilityLabel={`${live.session.title}, ${elapsed} recorded.${
+            badge === null ? "" : ` ${badge.label}.`
+          } Open the meeting.`}
           style={styles.middle}
           testID="recording-bar-open"
         >
           <Waveform tone={paused ? "muted" : "ok"} paused={paused} />
           <Text style={styles.clock}>{elapsed}</Text>
+          {badge === null ? null : (
+            <Text variant="mini" style={styles.kept} numberOfLines={1} testID="recording-bar-kept">
+              {badge.short}
+            </Text>
+          )}
         </Pressable>
 
         <Pressable
@@ -280,5 +299,14 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   },
   /* Dimmed in place, never resized: see `LiveMeetingScreen`'s copy. */
   endBusy: { opacity: 0.5 },
+  kept: {
+    color: colors.warnText,
+    backgroundColor: colors.warnWash,
+    borderRadius: radii.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    overflow: "hidden",
+    flexShrink: 1,
+  },
   endLabel: { color: colors.ink, fontSize: t.lede },
 });

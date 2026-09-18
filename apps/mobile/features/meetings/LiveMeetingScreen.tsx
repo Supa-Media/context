@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Platform, Pressable, StyleSheet, View } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Screen } from "../app/Screen";
@@ -15,6 +15,7 @@ import { NotesPad } from "./components/NotesPad";
 import { MeetingTitleField } from "./components/MeetingTitleField";
 import { meetings, recordElapsedMs } from "./controller";
 import { attendeeCount, clock, sourceLabel, timeOfDay } from "./format";
+import { liveAudioLine } from "./keptAudio";
 import type { MeetingRecord } from "./record";
 import { isSynced } from "./record";
 import { UNTITLED_MEETING } from "./session";
@@ -389,6 +390,9 @@ export function LiveMeetingScreen({ meetingId }: { meetingId: string }) {
   );
 }
 
+/** Whether this build keeps audio it could not send. A phone does; a browser does not. */
+const KEEPS_AUDIO = Platform.OS !== "web";
+
 /**
  * What the transcript is doing, in one chip.
  *
@@ -415,6 +419,40 @@ function TranscriptChip({ record }: { record: MeetingRecord }) {
     was taken by a call" is what somebody needs, not "this build cannot capture
     audio" — which would be false, since it was capturing a moment ago.
   */
+  /*
+    AUDIO KEPT ON THE PHONE, SAID BEFORE ANYTHING ELSE WHEN OFFLINE.
+
+    Offline, the one thing somebody recording needs to know is that the
+    recording is not being lost: it is on this phone, and it will be
+    transcribed when they are back. That outranks a capture error — which
+    offline is usually just a send that could not go, i.e. the same fact said
+    worse. Online, a real capture error (a microphone taken by a call) comes
+    first, and the count of what is still waiting follows it.
+
+    A phone only: a browser keeps no audio (`capture/spoolDevice.web.ts`), and
+    `audio.web.ts` says so in its own words through `captureError`.
+  */
+  const counts = snapshot.audio[record.session.id];
+  const kept =
+    snapshot.capture.audio && (KEEPS_AUDIO || (counts?.waiting ?? 0) > 0)
+      ? liveAudioLine(counts, snapshot.offline)
+      : null;
+  if (kept !== null && (snapshot.offline || snapshot.captureError === null)) {
+    return (
+      <View style={[styles.chip, styles.chipWarn]} testID="meeting-transcript-chip">
+        <View style={[styles.pip, { backgroundColor: colors.warn }]} aria-hidden />
+        <Text
+          variant="pill"
+          style={styles.chipWarnText}
+          numberOfLines={2}
+          testID="meeting-audio-kept"
+        >
+          {kept}
+        </Text>
+      </View>
+    );
+  }
+
   if (snapshot.captureError !== null) {
     return (
       <View style={[styles.chip, styles.chipCrit]} testID="meeting-transcript-chip">
@@ -605,6 +643,8 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   chipText: { color: colors.muted, fontWeight: "500" },
   chipCrit: { backgroundColor: colors.critWash, borderColor: colors.critBorder },
   chipCritText: { color: colors.critText },
+  chipWarn: { backgroundColor: colors.warnWash, borderColor: colors.warnBorder, height: undefined, minHeight: 26 },
+  chipWarnText: { color: colors.warnText, flexShrink: 1 },
   backgroundWarning: {
     marginHorizontal: layout.readingMargin,
     marginBottom: 12,

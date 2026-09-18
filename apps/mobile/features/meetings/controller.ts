@@ -1,7 +1,14 @@
 import { currentEpoch } from "../offline/epoch";
 import type { MeetingDestination } from "./destination";
 import type { KeyValueStore } from "../offline/memory";
-import type { MeetingRecorder } from "./capture";
+import {
+  drainSpooledAudio,
+  forgetMeetingAudio,
+  onSpooledAudioChange,
+  spooledAudioCounts,
+  type MeetingRecorder,
+  type SpooledAudioCounts,
+} from "./capture";
 import type { MeetingsGateway } from "./gateway";
 import { newMeetingId, type RandomBytes } from "./ids";
 import { NOT_DURABLE_REASON, forgetMeeting, loadMeetings, saveMeeting } from "./local";
@@ -21,6 +28,7 @@ import type {
 import { PROTOCOL_VERSION, foreignSegmentSessions } from "./protocol";
 import { checkFinalizeTimeout } from "./recovery";
 import {
+  acceptsTranscript,
   applyMeetingEvent,
   can,
   elapsedMs,
@@ -169,6 +177,23 @@ export interface MeetingsSnapshot {
   captureError: string | null;
   /** A sticky warning that this session records only while the app stays open. */
   backgroundCaptureWarning: string | null;
+  /**
+   * Audio kept on this device that has not been turned into words yet, per
+   * meeting id. Absent means none.
+   *
+   * `waiting` is what holds a meeting's note back: `sync()` does not finalize a
+   * meeting while any of its audio is still on its way, because a note written
+   * without it is a note missing part of the meeting, and the words cannot be
+   * folded into a meeting that is already a note. `kept` also counts chunks the
+   * transcriber refused on their own merits and the drain has stopped trying
+   * (`spoolDrain.ts`) — still on the device, still the person's, and said so.
+   */
+  audio: Readonly<Record<string, SpooledAudioCounts>>;
+  /**
+   * The reachability hook's answer, mirrored in by `useMeetingsSetup`. Only an
+   * explicit "offline" is `true`; unknown is `false`, as it is everywhere else.
+   */
+  offline: boolean;
 }
 
 export interface ConfigureInput {
@@ -183,6 +208,17 @@ export interface ConfigureInput {
   persistDebounceMs?: number;
   /** Floor between two drains asked for by `requestSync`. */
   syncThrottleMs?: number;
+  /**
+   * How long `end()` waits for the recorder's own sends before moving on.
+   *
+   * The wait is what puts the end of a meeting in its note, and it is worth a
+   * few seconds. It is not worth forever — and forever is what it was offline,
+   * because an action with no connection neither resolves nor rejects, so the
+   * note screen said "still turning the last of the audio into words" for as
+   * long as the phone was underground. Past this, whatever has not answered is
+   * in the spool and the drain has it.
+   */
+  drainDeadlineMs?: number;
 }
 
 export interface StartInput {
@@ -238,6 +274,9 @@ export const PERSIST_DEBOUNCE_MS = 800;
  */
 export const SYNC_THROTTLE_MS = 5_000;
 
+/** See `ConfigureInput.drainDeadlineMs`. */
+export const DRAIN_DEADLINE_MS = 30_000;
+
 /** Shown when a session captured nothing and the device gave no reason why. */
 export const DEFAULT_EMPTY_REASON = "Nothing was recorded and no notes were typed.";
 
@@ -272,6 +311,8 @@ const UNCONFIGURED: MeetingsSnapshot = Object.freeze({
   capture: NO_CAPTURE,
   captureError: null,
   backgroundCaptureWarning: null,
+  audio: Object.freeze({}),
+  offline: false,
 });
 
 function constantTimeEqual(expected: string, supplied: string): boolean {
@@ -303,8 +344,26 @@ export class MeetingsController {
    * `listenToRecorder`.
    */
   private recorderOff: (() => void)[] = [];
+  /** The meeting `recorderOff` is listening for, or `null`. */
+  private listeningFor: string | null = null;
   /** Current one-use control capability, held only for this process/session. */
   private activityControlTokens = new Map<string, string>();
+  /** Stop hearing about the spool. Set while configured. */
+  private audioOff: (() => void) | null = null;
+  /** A spool drain is running; a second request sets `audioAgain` instead. */
+  private audioDraining: Promise<void> | null = null;
+  private audioAgain = false;
+  /** A drain the transcriber asked us to come back for. */
+  private audioRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The last reachability answer, kept across `configure` and `reset`.
+   *
+   * The hook mirrors it in only when it *changes*, and a context switch or a
+   * sign-in rebuilds the snapshot from `UNCONFIGURED` — so without this a phone
+   * that was already offline would forget it, and the screen would say "waiting
+   * to be transcribed" where it should say "offline".
+   */
+  private offlineNow = false;
 
   /* --------------------------- the store contract -------------------------- */
 
@@ -347,11 +406,17 @@ export class MeetingsController {
     this.epoch = currentEpoch();
     this.projections.clear();
     this.activityControlTokens.clear();
+    this.audioOff?.();
+    this.audioOff = onSpooledAudioChange(() => {
+      this.refreshAudio();
+      this.requestAudioDrain();
+    });
     this.set({
       ...UNCONFIGURED,
       workspaceId: input.workspaceId,
       status: "loading",
       capture: input.recorder.capability,
+      offline: this.offlineNow,
     });
 
     const { records, unreadable } = await loadMeetings(input.store, input.workspaceId);
@@ -365,6 +430,12 @@ export class MeetingsController {
     this.set({
       ...this.snapshot,
       status: "ready",
+      /*
+        Counted before anything below reads it: `recoverStaleFinalizes` must
+        see which meetings are waiting on audio, or a meeting that has been
+        waiting offline since yesterday is failed on the first launch back.
+      */
+      audio: spooledAudioCounts(),
       records,
       live: records.find((record) => isLive(record.session.state)) ?? null,
       unreadable,
@@ -392,6 +463,14 @@ export class MeetingsController {
       records `loadMeetings` just restored.
     */
     this.recoverStaleFinalizes();
+
+    /*
+      Audio a previous run kept and never sent — a meeting recorded
+      underground, the app killed before the drain finished. Counted above, so
+      the list can say so, and sent now if there is a connection: opening the
+      app is the phone's "on launch".
+    */
+    this.requestAudioDrain();
   }
 
   /**
@@ -482,6 +561,13 @@ export class MeetingsController {
 
     for (const record of this.snapshot.records) {
       if (record.session.state !== "finalizing") continue;
+      /*
+        A meeting whose audio is still on this device is not stuck, it is
+        waiting — on a connection, not on a finalize that got lost. Failing it
+        after ten minutes offline would put "Failed" over a meeting that is
+        doing exactly what it should.
+      */
+      if (this.audioHeld(record.session.id)) continue;
       const outcome = checkFinalizeTimeout(record.session, at, { retriedAt: record.retriedAt ?? null });
       if (outcome.action === "none") continue;
 
@@ -527,6 +613,11 @@ export class MeetingsController {
   reset(): void {
     const activityMeetingId = this.snapshot.live?.session.id ?? null;
     this.detachRecorder();
+    this.audioOff?.();
+    this.audioOff = null;
+    if (this.audioRetryTimer !== null) clearTimeout(this.audioRetryTimer);
+    this.audioRetryTimer = null;
+    this.audioAgain = false;
     for (const timer of this.persistTimers.values()) clearTimeout(timer);
     this.persistTimers.clear();
     if (this.syncTimer !== null) clearTimeout(this.syncTimer);
@@ -534,7 +625,7 @@ export class MeetingsController {
     this.projections.clear();
     this.activityControlTokens.clear();
     this.config = null;
-    this.set(UNCONFIGURED);
+    this.set({ ...UNCONFIGURED, offline: this.offlineNow });
     if (activityMeetingId !== null) {
       this.activityControlTokens.delete(activityMeetingId);
       this.activity.end(activityMeetingId);
@@ -784,17 +875,40 @@ export class MeetingsController {
     */
     if (activityMeetingId !== null) this.setTranscribing(activityMeetingId);
     try {
-      await config.recorder.drain?.();
+      await withDeadline(
+        config.recorder.drain?.() ?? Promise.resolve(),
+        config.drainDeadlineMs ?? DRAIN_DEADLINE_MS,
+      );
     } catch {
       /*
         A drain that fails is not a reason to refuse to file the meeting. What
-        it means is that some audio never came back as words, which is already
-        reported through `onError` by the send that failed — and the note is
-        still worth writing with the transcript that did arrive.
+        it means is that some audio never came back as words — and that audio
+        is now in the spool, so the note waits for it (`audioHeld`) rather than
+        being written without it.
       */
     } finally {
+      /*
+        AND ONLY NOW STOP LISTENING.
+
+        This used to happen straight after `stop()`, before the wait — so every
+        segment that came back *during* the wait was emitted to nobody, and the
+        last seconds of a meeting, the ones this wait exists for, were dropped
+        on the floor. It holds the listener until the wait is over. A send that
+        answers later still is not lost either: the recorder sees nobody
+        listening, leaves its chunk in the spool, and the drain below delivers
+        it by the meeting id it carries.
+      */
+      if (this.listeningFor === activityMeetingId) this.detachRecorder();
       this.setTranscribing(null);
     }
+    /*
+      Not awaited. A pass over kept audio is paced by the transcription budget
+      — minutes, for a meeting recorded offline — and `end()` is what the
+      recording bar awaits before it navigates. The note does not need this to
+      finish: `sync()` holds a meeting whose audio is still waiting, and the
+      drain asks for a sync when it is done.
+    */
+    void this.drainAudio();
     await this.sync();
   }
 
@@ -812,24 +926,40 @@ export class MeetingsController {
       this.activity.end(activityMeetingId);
     }
     /*
-      And stop listening for it, **after** the stop rather than before.
+      The listener is **not** detached here any more; `end()` does it once the
+      recorder's wait is over. `capture/desktop.ts` detaches from the shell
+      after the stop for the reason this used to give — the last segments are
+      emitted while the input is closing — and the phone's last segments arrive
+      later still, after the stop, while `drain()` waits on them. A start of the
+      next meeting in that window replaces the listener anyway
+      (`listenToRecorder`), so the window between two meetings is still never
+      one with two listeners.
 
-      `capture/desktop.ts` detaches from the shell in the same order and for
-      the same reason: the last segments of a meeting are emitted while the
-      input is closing, and unsubscribing first would drop the final words of
-      every recording. Detaching *here* rather than only at the next `start()`
-      is what makes the window between two meetings empty rather than merely
-      short — a meeting that has ended has no listener at all.
+      With nothing live there is nothing to wait for, so nothing to keep a
+      listener for either.
     */
-    this.detachRecorder();
+    if (activityMeetingId === null) this.detachRecorder();
 
     const live = this.snapshot.live;
     if (live === null) return;
     const endedAt = this.nowIso();
     this.apply(live.session.id, { type: "end", at: endedAt });
 
+    /*
+      Audio still on the phone is something captured. A meeting recorded
+      entirely offline has no transcript and, often, no typed notes at this
+      moment — and `empty` is terminal, so calling it empty here would refuse
+      every word its audio later comes back as. Re-read now rather than trusted
+      to the last notification: the recorder's stop has just kept its last
+      chunks, and the announcement of that is a microtask behind.
+    */
+    this.refreshAudio();
     const ended = this.find(live.session.id);
-    if (ended && hasNothingCaptured(ended.session)) {
+    if (
+      ended &&
+      hasNothingCaptured(ended.session) &&
+      (this.snapshot.audio[live.session.id]?.kept ?? 0) === 0
+    ) {
       this.apply(live.session.id, {
         type: "empty",
         at: endedAt,
@@ -917,6 +1047,12 @@ export class MeetingsController {
     this.activityControlTokens.delete(meetingId);
     if (discardingLive) this.activity.end(meetingId);
     this.projections.delete(meetingId);
+    /*
+      Its audio goes with it. A person discarding a meeting is the one act,
+      besides signing out, that may remove kept audio — and leaving it would be
+      minutes of a meeting on the phone that nothing would ever send or show.
+    */
+    forgetMeetingAudio(meetingId);
     await forgetMeeting(config.store, config.workspaceId, meetingId);
     const records = this.snapshot.records.filter((record) => record.session.id !== meetingId);
     this.set({ ...this.snapshot, records, live: records.find((r) => isLive(r.session.state)) ?? null });
@@ -1019,7 +1155,29 @@ export class MeetingsController {
     this.recoverStaleFinalizes(config.now?.() ?? Date.now());
 
     const waiting = this.snapshot.records.filter(
-      (record) => !isSynced(record) && record.rejection === undefined,
+      (record) =>
+        !isSynced(record) &&
+        record.rejection === undefined &&
+        /*
+          HELD WHILE ITS AUDIO IS STILL ON THE DEVICE.
+
+          Finalizing composes the note from the transcript this record holds,
+          and a `complete` meeting refuses every segment after it
+          (`acceptsTranscript`). So a meeting finalized with chunks still in
+          the spool would be a note missing part of the meeting *for good*:
+          the words would arrive, and be refused. The note waits instead, and
+          the screen says what it is waiting for.
+        */
+        !(record.session.state === "finalizing" && this.audioHeld(record.session.id)) &&
+        /*
+          And held while `end()` is still waiting on the recorder's last sends,
+          for the same reason one step earlier. `end()` calls `sync()` itself
+          once the wait is over; a drain asked for by anything else in the
+          meantime — the app's "something changed" effect fires on the `end`
+          event itself — would otherwise write the note without the last
+          seconds of the meeting, which is exactly what the wait is for.
+        */
+        this.snapshot.transcribing !== record.session.id,
     );
     if (waiting.length === 0) return;
 
@@ -1062,6 +1220,104 @@ export class MeetingsController {
     } finally {
       this.set({ ...this.snapshot, syncing: false });
     }
+  }
+
+  /* ------------------------------ kept audio ------------------------------ */
+
+  /**
+   * Mirror the reachability hook in. Coming back is a drain.
+   *
+   * Two receivers and one call, on purpose: the snapshot is what the screens
+   * read to say "offline — this is being kept on the phone", and the capture
+   * module is what the recorder reads to decide whether to send a chunk now or
+   * keep it. `useMeetingsSetup` calls this and `setCaptureOffline` together.
+   */
+  setOffline(offline: boolean): void {
+    this.offlineNow = offline;
+    if (this.snapshot.offline !== offline) this.set({ ...this.snapshot, offline });
+    if (!offline) this.requestAudioDrain();
+  }
+
+  /**
+   * Send what the spool is holding for the meetings in this context.
+   *
+   * One pass at a time; a request made during a pass runs another after it,
+   * because a chunk kept mid-pass was not in that pass's listing. A pass the
+   * transcriber rate-limited comes back when it was told to. Never throws.
+   */
+  async drainAudio(): Promise<void> {
+    if (this.audioDraining !== null) {
+      this.audioAgain = true;
+      return this.audioDraining;
+    }
+    const config = this.config;
+    if (config === null || this.snapshot.offline) return;
+    const epoch = this.epoch;
+    const run = (async () => {
+      do {
+        this.audioAgain = false;
+        const report = await drainSpooledAudio({
+          owns: (meetingId) => {
+            const projection = this.projections.get(meetingId);
+            return projection !== undefined && acceptsTranscript(projection.session.state);
+          },
+          deliver: async (meetingId, segments) => {
+            this.apply(meetingId, { type: "segments", segments });
+            await this.persistNow(meetingId);
+          },
+          mine: () => this.config === config && epoch === currentEpoch(),
+        }).catch(() => null);
+        if (report?.retryAfterMs != null) this.retryAudioAfter(report.retryAfterMs);
+        if (report === null || report.stoppedEarly) break;
+      } while (this.audioAgain && this.config === config);
+    })();
+    this.audioDraining = run;
+    try {
+      await run;
+    } finally {
+      this.audioDraining = null;
+    }
+    if (this.config !== config) return;
+    this.refreshAudio();
+    /*
+      A meeting whose last chunk just landed is no longer held, and its note
+      can be written now rather than on the next keystroke that asks.
+    */
+    this.requestSync();
+  }
+
+  /** Whether this meeting's note is waiting on audio still on the device. */
+  private audioHeld(meetingId: string): boolean {
+    return (this.snapshot.audio[meetingId]?.waiting ?? 0) > 0;
+  }
+
+  private requestAudioDrain(): void {
+    if (this.config === null || this.snapshot.offline) return;
+    void this.drainAudio();
+  }
+
+  private retryAudioAfter(ms: number): void {
+    if (this.audioRetryTimer !== null) return;
+    this.audioRetryTimer = setTimeout(() => {
+      this.audioRetryTimer = null;
+      this.requestAudioDrain();
+    }, ms);
+  }
+
+  /** Re-read the counts, and publish only if they changed. */
+  private refreshAudio(): void {
+    if (this.config === null) return;
+    const next = spooledAudioCounts();
+    if (sameCounts(this.snapshot.audio, next)) return;
+    this.set({ ...this.snapshot, audio: next });
+  }
+
+  /** Write a record down now and wait for it: a spooled chunk's words, before it is let go. */
+  private async persistNow(meetingId: string): Promise<void> {
+    const record = this.find(meetingId);
+    if (record === undefined) return;
+    this.cancelPersist(meetingId);
+    await this.persist(record);
   }
 
   /* ------------------------------- internals ------------------------------ */
@@ -1153,6 +1409,7 @@ export class MeetingsController {
   private listenToRecorder(meetingId: string): void {
     const config = this.require();
     this.detachRecorder();
+    this.listeningFor = meetingId;
     this.recorderOff.push(
       config.recorder.onSegment((segment) => {
         this.apply(meetingId, { type: "segment", segment });
@@ -1186,6 +1443,7 @@ export class MeetingsController {
   private detachRecorder(): void {
     const offs = this.recorderOff;
     this.recorderOff = [];
+    this.listeningFor = null;
     for (const off of offs) {
       try {
         off();
@@ -1291,6 +1549,34 @@ export class MeetingsController {
   private set(snapshot: MeetingsSnapshot): void {
     this.snapshot = snapshot;
     for (const listener of this.listeners) listener();
+  }
+}
+
+function sameCounts(
+  a: Readonly<Record<string, SpooledAudioCounts>>,
+  b: Readonly<Record<string, SpooledAudioCounts>>,
+): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key]?.kept === b[key]?.kept && a[key]?.waiting === b[key]?.waiting);
+}
+
+/**
+ * Wait for `work`, or for `ms`, whichever is first. A timeout, not a
+ * cancellation: `work` goes on, and whatever it has not finished is in the
+ * spool by then.
+ */
+async function withDeadline(work: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      work,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 

@@ -233,6 +233,15 @@ Four rules follow, and they are the enforceable part:
    attachment, not as a cache, not "temporarily" in a queue that has no expiry.
    The note is the artifact; the recording is not. The check is
    `no ingestion path writes an audio content type`.
+
+   **Amended 2026-09-18, and narrowed rather than dropped.** "Us" is the
+   control plane, the gateway, the transcription Worker and the customer's
+   bucket, and on every one of them this rule stands exactly as written. What
+   changed is the customer's *own phone*: audio that has not reached the
+   transcriber yet is now kept there, in a queue with no expiry, until it has.
+   That is the owner's call and the argument is *Audio nobody has transcribed
+   yet is kept on the device* below; the sentence above is left as it was
+   because it was right about everything it was about.
 2. **Every note records how it was made.** `transcription: on-device` or
    `transcription: cloud` in the frontmatter, alongside the device that recorded
    it. A person reading a meeting from eight months ago can tell whether its
@@ -707,6 +716,14 @@ shell`, `the refusal names the field without quoting what was sent` and
 `an anonymous caller with a bad chunk id is still just anonymous`.
 ### The device is never waiting on the network, and a backlog is dropped rather than kept
 
+**Amended 2026-09-18: the second half of this title is reversed.** A backlog is
+now *kept*, on the device, and the section that says so — *Audio nobody has
+transcribed yet is kept on the device*, next — records what that costs. The
+first half stands: the send is still off the chain that owns the microphone,
+and everything below about offsets, chunk ids and releasing the device is
+unchanged. The paragraph that argues for dropping is left as the record of the
+decision that was reversed, not as current behaviour.
+
 Capture rotates on a fixed wall clock, and the first version of it closed a
 chunk, **awaited the transcription round trip**, and only then reopened the
 microphone. That is 1.5-4s of every twenty seconds never recorded, cut mid-word,
@@ -760,6 +777,154 @@ not close does not take the next twenty seconds too`, `an interruption's lost
 time lands in the offset`, `a chunk whose path the file system refuses still
 releases the device`, and `a recording a previous run left behind is swept at
 startup`.
+
+### Audio nobody has transcribed yet is kept on the device
+
+The owner's call, 2026-09-18: **offline audio is spooled, never dropped.** A
+meeting recorded in a basement, on a train, or on one bar of signal came out of
+the app with a transcript full of holes, because every chunk sent without a
+connection failed once and was gone — its file had been deleted *before* the
+request that carried it, which was the point — and past
+`MAX_INFLIGHT_CHUNKS` the recorder dropped chunks outright with a sentence
+saying so. Losing signal is the ordinary case (*Ingestion is idempotent by
+construction*, above), and the words a meeting recorder most needs to keep are
+the ones it could not send.
+
+**What is built.** Every chunk a phone records is written into a spool before
+it is sent — `apps/mobile/features/meetings/capture/spool.ts`, one file per
+chunk under the app's *documents* directory, named
+`<index>_<offsetMs>_<durationMs>.<wav|m4a>` in a folder per meeting, so the
+file name is the whole index and there is no manifest to disagree with it. A
+chunk is sent when there is a connection and fewer than `MAX_INFLIGHT_CHUNKS`
+already out; otherwise it waits. It is deleted only once the transcriber has
+answered for it **and** its words have been handed to its meeting (and, on the
+drain's path, written down on the device). What waits is sent by
+`spoolDrain.ts` — on launch, on reconnect, on returning to the foreground, and
+after End — sequentially, oldest meeting first, in index order, through the
+same `transcribeChunk` with the same chunk id, offset and duration.
+
+- **`MAX_INFLIGHT_CHUNKS` is about network concurrency and nothing else now.**
+  Chunks in the spool are not in flight. Recording goes on for as long as the
+  meeting does, offline, with no bound.
+- **Offline, nothing is dispatched.** `ConvexReactClient.action()` has no
+  timeout: offline it holds its arguments — here twenty seconds of base64 — until
+  the socket returns. Sending anyway would put an hour of a meeting in the heap.
+  The reachability hook's "offline" is mirrored into `capture/connectivity.ts`.
+- **The note waits for its audio.** `sync()` does not finalize a meeting while
+  its audio is still waiting, because `complete` refuses every later segment
+  (`acceptsTranscript`) and the words would arrive to a note that can no longer
+  take them. `recoverStaleFinalizes` skips such a meeting (it is waiting, not
+  stuck), and End no longer calls a meeting whose only content is kept audio
+  `empty`, which is terminal.
+- **Idempotency is the chunk id's, and needs no server change.**
+  `transcribeChunk` derives every segment id from the chunk id and the
+  segment's position, so the same chunk answers with the same ids
+  (`two identical calls produce identical segments`), and the meeting upserts
+  by id. Making the server "remember" a chunk would mean the control plane
+  holding a transcript, which non-negotiable #1 forbids. The one residual:
+  Whisper re-run on the same audio could split it into a different number of
+  segments, and then a re-sent chunk whose first answer *was* folded in leaves
+  the extra rows of the longer answer. That needs an answer to be folded and
+  its chunk then re-sent — a crash in the milliseconds between the two — and
+  the drain orders it so that is the only way.
+- **A send that outlives its meeting leaves its chunk for the drain.** The
+  recorder emits only to a listener for the meeting a chunk names; a send that
+  answers after End's wait, or after the next meeting has started, leaves the
+  chunk where it is and the drain delivers it by id. The same change made End
+  hold its listener until its wait is over, which fixes an older loss: the last
+  seconds of every meeting were emitted after the controller had stopped
+  listening.
+- **One bad chunk cannot hold a note forever.** A chunk the transcriber refuses
+  on its own merits (`TRANSCRIPTION_FAILED`, `INVALID_CHUNK_ID`) is set aside
+  after `MAX_REFUSALS` in one process: it stops holding its meeting, stays on the
+  device, and is counted on the screen as kept and not transcribed. A network
+  failure, a rate limit or an expired session is never counted against a chunk.
+- **Somebody's content, not a cache** — the rule the offline layer already keeps
+  for a queued write. Nothing sweeps the spool, nothing bounds it, nothing ages
+  it out. A chunk leaves because its words arrived, because the person
+  discarded its meeting, or because they signed out: `forgetLocalCopies` wipes
+  it first (it needs no store, so a failing store cannot stand in front of it),
+  after `endSession()`, and re-counts rather than trusts. Every write carries the
+  epoch the recording started under and is checked on both sides of the write,
+  so a recorder still running behind a sign-out writes nothing and a write the
+  sign-out overtook is taken back. **And the person is asked first**: the
+  sign-out question counts meetings with audio on the phone
+  (`unsentMeetingAudio`) beside unsent note edits and says *"1 meeting's audio
+  has not been transcribed yet — signing out deletes it from this phone"*;
+  without it, sign-out was a silent way to lose exactly what the spool exists to
+  keep. `asks first, naming the meeting whose audio would be deleted`
+  (`signOutHygiene.test.ts`) fails if the spool is left out of the count.
+- **Written beside, then moved in.** Bytes go to `<name>.part` and are renamed
+  when whole; a crash mid-write leaves a `.part` that is never listed or sent.
+  A refused write removes its own `.part`.
+
+**What the person sees.** Recording offline, the live screen's chip says
+*"Offline — recording is saved on this phone and will be transcribed when
+you're back online"* with the count waiting, and it outranks a capture error
+(offline, that error is the same fact said worse). The recording bar, which has
+room for two words, shows *On phone · N* with the whole sentence as its label.
+An ended meeting whose audio is waiting says the note is written once the
+pieces are in; the transcript says *Incomplete — N pieces of audio on this
+phone are not in this transcript yet*; set-aside audio is said to be on the
+phone and not in the note. All of it is one pure module, `keptAudio.ts`.
+
+**A browser keeps nothing, and says so.** `spoolDevice.web.ts` is `null`. Holding
+minutes of somebody's meeting in IndexedDB on a machine that may be shared,
+under a quota the browser evicts without asking, is a different decision from
+the phone's and was not taken. Offline, `audio.web.ts` no longer dispatches
+into a socket that will not answer; it says once that this stretch is not being
+transcribed, that typed notes are still saved, and that the phone keeps audio.
+Browser *dictation* offline now names the computer's own dictation (macOS and
+Windows both have it) instead of "the words cannot be made right now", and
+checks `navigator.onLine` before it opens the microphone.
+
+**What it costs, stated.** The audio of a meeting now exists on the phone for as
+long as it takes to reach the transcriber — minutes normally, days if the phone
+stays offline — which is exactly the property the old design existed to rule
+out, and "audio is transient" is now true of everything *except* the
+customer's own device. On iOS the documents directory is included in the
+person's device backup, and this `expo-file-system` has no way to exclude a
+file; it is their backup of their meeting, and a chunk is gone from the device
+the moment its words land. A note waits for its audio, so a meeting recorded
+offline is not in the bucket until the phone has been back online long enough
+to send it — twenty chunks a minute, so an hour offline is about nine minutes
+of sending. And uncompressed 16 kHz audio is about 115 MB an hour on a phone
+that has no signal to send it.
+
+**What a "simplification" would cost.** Deleting the file before the send again
+is the transcript full of holes this reversed. Bounding the spool, or sweeping
+it by age, is a meeting silently losing its middle on the day somebody was
+offline longest. Finalizing without waiting for the spool writes the note
+without the words and then refuses them when they arrive. Dropping the epoch
+checks puts one person's meeting audio on the device after they signed out, for
+the next person to have sent under their own session.
+
+**The tests that fail if it is reversed**, each sabotaged and seen to fail:
+`a send that fails keeps its chunk, and says it is kept rather than lost`,
+`offline, nothing is sent and every chunk is kept, well past the in-flight
+bound`, `with the sends backed up, the rest are kept rather than dropped` and
+`an answer that arrives after its meeting has moved on leaves the chunk for the
+drain` (`meetingsCapture.test.ts`); `a meeting is not written while its audio is
+still on the phone`, `audio on the phone and nothing else is still a meeting`,
+`waiting on audio is not mistaken for a stuck finalize`, `a chunk sent twice is
+in the transcript once`, `words that come back while End waits reach the
+meeting` and `sign-out takes the audio with it` (`meetingsKeptAudio.test.ts`);
+`a chunk is let go only after its words are written down`, `a lost connection
+stops the pass and sets nothing aside` and `a sign-out during the round trip
+delivers nothing and confirms nothing` (`meetingsSpoolDrain.test.ts`); `a write
+that a sign-out overtook is taken back`, `a wipe that did not land says so` and
+`only whole chunks are listed` (`meetingsAudioSpool.test.ts`).
+
+**Not verified by any of this: a device.** Every test drives fakes of
+`expo-audio` and `expo-file-system`. Before this is trusted, on a real iPhone
+and a real Android phone: record in airplane mode for at least three minutes
+(locked for part of it), and confirm the chunk files under
+`Documents/meeting-audio/<meetingId>/` grow and the live chip says the audio is
+saved; end the meeting offline and confirm the note says it is waiting; turn
+the network back on and confirm the transcript fills in order, the files go,
+and the note is written once; kill the app mid-meeting offline, relaunch online
+and confirm the failed meeting still gets its words; sign out with audio
+waiting and confirm the folder is gone.
 
 ### The recorder is one interface with two implementations, and nothing above it knows which
 
@@ -2910,9 +3075,10 @@ this session can never keep.
 **Nothing is deleted, because there is nothing of a recording left to delete.**
 The question a review has to ask of a rule that files no note is whether it
 throws away a recording, and the answer is a property of the product rather
-than of this code: *audio is never persisted by us* — a chunk's file dies
-before the request carrying its contents (`The device is never waiting on the
-network`, above), no adapter writes audio to the bucket, and `empty` writes and
+than of this code: *audio is never persisted by us* — no adapter writes audio to
+the bucket, a chunk kept on the phone is kept only until its words land (*Audio
+nobody has transcribed yet is kept on the device*, above; a meeting with any of
+it waiting is never `empty`), and `empty` writes and
 deletes nothing at all: no note, no claim, and the session record itself stays
 readable with its reason. So the case that looks like data loss — a meeting
 whose audio was captured and whose transcription failed on every chunk, which

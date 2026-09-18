@@ -26,6 +26,8 @@ import {
   setTranscriber,
   type FakeTranscriber,
 } from "../features/meetings/capture/transcriber";
+import { memorySpool, setAudioSpool } from "../features/meetings/capture/spool";
+import { setCaptureOffline } from "../features/meetings/capture/connectivity";
 
 
 /**
@@ -162,6 +164,23 @@ import {
  *    just did left the session running: 1 — **"a failure with nowhere to send
  *    says so once, and not that it will be back"**. Two sentences for one
  *    event, the second of them false.
+ *
+ * ### The spool (2026-09-18): offline audio is kept, never dropped
+ *
+ *  - a failed send deleting its spooled chunk (the old "the file dies before
+ *    the request"): 1 — **"a send that fails keeps its chunk, and says it is
+ *    kept rather than lost"**.
+ *  - a kept chunk dropped again at `MAX_INFLIGHT_CHUNKS`: 2 — **"offline,
+ *    nothing is sent and every chunk is kept, well past the in-flight bound"**
+ *    and **"with the sends backed up, the rest are kept rather than dropped"**.
+ *  - `canSendNow` ignoring `captureOffline()`: 2 — the offline test above and
+ *    **"a continuous recording is cut into the spool offline, and nothing is
+ *    sent"**.
+ *  - `sendSpooled` without its `owner` check: 1 — **"an answer that arrives
+ *    after its meeting has moved on leaves the chunk for the drain"**.
+ *
+ * Everything above this section runs with no spool installed and is the spec
+ * of the fallback for a disk that will not take a chunk; see `beforeEach`.
  */
 
 /* -------------------------------------------------------------------------- */
@@ -641,10 +660,24 @@ beforeEach(() => {
   mockRecordingDirExists = true;
   mockUnopenableUri = null;
   mockBase64 = "YWJj";
+  /*
+    NO SPOOL UNLESS A TEST INSTALLS ONE.
+
+    Every test above `describe("audio nobody has transcribed yet is kept")`
+    was written before the spool, and is kept as the spec of the path the
+    recorder falls back to when the spool cannot take a chunk — a full disk.
+    Stated here rather than left to the resolver: under this suite `./spoolDevice`
+    resolves to its `.web.ts` half, which is `null`, and a default that holds
+    only because of a resolution quirk is a default nobody chose.
+  */
+  setAudioSpool(null);
+  setCaptureOffline(false);
 });
 
 afterEach(() => {
   setTranscriber(null);
+  setAudioSpool(null);
+  setCaptureOffline(false);
   jest.useRealTimers();
 });
 
@@ -828,7 +861,7 @@ describe("rotation", () => {
   });
 });
 
-describe("the audio is transient, structurally", () => {
+describe("with no room to keep it, the audio is transient, structurally", () => {
   /**
    * The recording is deleted **before** the request that carries its bytes.
    *
@@ -1449,7 +1482,7 @@ describe("the send is off the device's critical path", () => {
    * and a queue only moves the same decision `MAX_INFLIGHT_CHUNKS` chunks
    * later, by which time the backlog is minutes rather than seconds.
    */
-  test("a backlog is bounded, and what it drops it says", async () => {
+  test("with no room to keep it, a backlog is bounded, and what it drops it says", async () => {
     const { recorder, transcriber, errors } = harness({ hang: true });
     await recorder.start();
 
@@ -2392,3 +2425,143 @@ describe("the phone's own meter", () => {
     expect(afterStop).toEqual([]);
   });
 });
+
+describe("audio nobody has transcribed yet is kept on the phone", () => {
+  /*
+    THE OWNER'S CALL, 2026-09-18: OFFLINE AUDIO IS SPOOLED, NEVER DROPPED.
+
+    Everything above this block is the recorder with no spool — the fallback
+    for a disk that will not take a chunk. Here the spool is installed, as it
+    is on every phone, and the properties are the reversal: a chunk that could
+    not be sent stays on the device, the backlog is not dropped at
+    `MAX_INFLIGHT_CHUNKS`, and a chunk is let go only once its words have
+    reached somebody listening for its meeting.
+
+    The spool is `memorySpool`, whose file reads answer a fixed string: the
+    device half's move-into-documents is `meetingsAudioSpool.test.ts`'s, and
+    what is checked here is the recorder's side of the contract.
+  */
+  let spool: ReturnType<typeof memorySpool>;
+
+  beforeEach(() => {
+    spool = memorySpool({ readFile: async () => "bW92ZWQ=" });
+    setAudioSpool(spool);
+  });
+
+  test("a send that fails keeps its chunk, and says it is kept rather than lost", async () => {
+    const { recorder, transcriber, errors } = harness();
+    await recorder.start();
+    transcriber.refuse("the worker answered 502");
+    await advance(SEGMENT_MS);
+
+    expect(transcriber.chunks).toHaveLength(1);
+    expect(spool.list().map((chunk) => [chunk.chunkId, chunk.offsetMs, chunk.durationMs])).toEqual([
+      [chunkIdFor(TEST_MEETING_ID, 0), 0, SEGMENT_MS],
+    ]);
+    expect(errors.map((error) => error.message)).toEqual([
+      expect.stringMatching(/saved on this phone/),
+    ]);
+    expect(errors.every((error) => CAPTURE_MESSAGES.includes(error.message))).toBe(true);
+    void recorder.stop();
+    await advance(0);
+  });
+
+  test("a chunk whose words arrived is let go", async () => {
+    const { recorder, transcriber, segments } = harness();
+    await recorder.start();
+    transcriber.answerWith([
+      {
+        id: `${chunkIdFor(TEST_MEETING_ID, 0)}-0`,
+        startMs: 0,
+        endMs: 1_000,
+        text: "heard",
+        speaker: null,
+        channel: "mic",
+        confidence: null,
+      },
+    ]);
+    await advance(SEGMENT_MS);
+
+    expect(segments.map((segment) => segment.text)).toEqual(["heard"]);
+    expect(spool.list()).toEqual([]);
+    void recorder.stop();
+    await advance(0);
+  });
+
+  test("offline, nothing is sent and every chunk is kept, well past the in-flight bound", async () => {
+    const { recorder, transcriber, errors } = harness();
+    setCaptureOffline(true);
+    await recorder.start();
+    await advance(SEGMENT_MS * (MAX_INFLIGHT_CHUNKS + 3));
+
+    expect(transcriber.chunks).toHaveLength(0);
+    const kept = spool.list();
+    expect(kept.map((chunk) => chunk.chunkId)).toEqual(
+      Array.from({ length: MAX_INFLIGHT_CHUNKS + 3 }, (_, index) => chunkIdFor(TEST_MEETING_ID, index)),
+    );
+    // Laid end to end, exactly as they would have been sent.
+    expect(kept.map((chunk) => chunk.offsetMs)).toEqual(kept.map((_, index) => index * SEGMENT_MS));
+    // Nothing was dropped, so nothing says it was.
+    expect(errors.filter((error) => /dropped/i.test(error.message))).toEqual([]);
+    expect(recorder.state).toBe("recording");
+    await recorder.stop();
+  });
+
+  test("with the sends backed up, the rest are kept rather than dropped", async () => {
+    const { recorder, transcriber, errors } = harness({ hang: true });
+    await recorder.start();
+    await advance(SEGMENT_MS * 6);
+
+    expect(transcriber.chunks).toHaveLength(MAX_INFLIGHT_CHUNKS);
+    expect(spool.list()).toHaveLength(6);
+    expect(errors.filter((error) => /dropped/i.test(error.message))).toEqual([]);
+
+    // The three that were out answer; they are let go, and the other three wait
+    // for the drain.
+    for (const release of mockHeldSends.splice(0)) release();
+    await advance(0);
+    expect(spool.list().map((chunk) => chunk.index)).toEqual([3, 4, 5]);
+    void recorder.stop();
+    await advance(0);
+  });
+
+  test("a continuous recording is cut into the spool offline, and nothing is sent", async () => {
+    const { recorder, transcriber } = harness({ platform: "ios" });
+    setCaptureOffline(true);
+    await recorder.start();
+    for (let tick = 0; tick < 3; tick += 1) {
+      mockWriteAudio(SEGMENT_MS);
+      await advance(SEGMENT_MS);
+    }
+    mockWriteAudio(5_000);
+    await recorder.stop();
+
+    expect(transcriber.chunks).toHaveLength(0);
+    const kept = spool.list();
+    expect(kept.map((chunk) => chunk.mimeType)).toEqual(kept.map(() => "audio/wav"));
+    // Every millisecond that was recorded is on the phone, end to end.
+    const total = kept.reduce((sum, chunk) => sum + chunk.durationMs, 0);
+    expect(total).toBe(SEGMENT_MS * 3 + 5_000);
+    for (let index = 1; index < kept.length; index += 1) {
+      expect(kept[index]!.offsetMs).toBe(kept[index - 1]!.offsetMs + kept[index - 1]!.durationMs);
+    }
+  });
+
+  test("an answer that arrives after its meeting has moved on leaves the chunk for the drain", async () => {
+    const { recorder, transcriber, segments } = harness({ hang: true });
+    await recorder.start();
+    await advance(SEGMENT_MS);
+    expect(transcriber.chunks).toHaveLength(1);
+    await recorder.stop();
+
+    // The next meeting starts on the same recorder before the answer lands.
+    await recorder.start({ sessionId: OTHER_MEETING_ID, systemAudio: false });
+    for (const release of mockHeldSends.splice(0)) release();
+    await advance(0);
+
+    expect(segments).toEqual([]);
+    expect(spool.list().map((chunk) => chunk.meetingId)).toContain(TEST_MEETING_ID);
+    await recorder.stop();
+  });
+});
+

@@ -115,6 +115,20 @@ const CHUNK_FAILED =
 const SEND_BACKLOG =
   "Transcription is running behind, so a few seconds of audio were dropped. Capture is still running.";
 
+/**
+ * OFFLINE IN A BROWSER, SAID RATHER THAN HUNG.
+ *
+ * The phone keeps audio it cannot send (`spool.ts`); a browser does not —
+ * `spoolDevice.web.ts` says why — so offline, a chunk here has nowhere to go.
+ * It used to be dispatched anyway, into an action that neither resolves nor
+ * rejects without a socket, three of them held in memory and the rest dropped
+ * under "running behind", which blamed the transcriber for a missing network.
+ * Now the chunk is not sent, and the screen says what is true and what still
+ * works: the typed notes, and the phone.
+ */
+const OFFLINE_NOT_KEPT =
+  "You're offline, and this browser can't keep audio to transcribe later, so this part of the meeting isn't being transcribed. Your typed notes are still saved. The phone app keeps audio offline.";
+
 /*
   WHY THERE IS A SENTENCE FOR SILENCE AT ALL. Same rule and same words as
   `audio.ts`, because the browser recorder and the phone's send the same chunks
@@ -152,6 +166,12 @@ const SYSTEM_AUDIO_UNSHARED =
 const SYSTEM_AUDIO_ENDED =
   "Sharing stopped, so the rest of this meeting is your microphone only. What was recorded before it stopped still has both sides.";
 
+/** `navigator.onLine === false`, the one direction of it that is reliable. */
+function browserOffline(): boolean {
+  const nav = (globalThis as { navigator?: { onLine?: unknown } }).navigator;
+  return nav?.onLine === false;
+}
+
 /**
  * Everything a `RecorderError` from this module may say, and the whole of it.
  *
@@ -168,6 +188,7 @@ export const CAPTURE_MESSAGES: readonly string[] = Object.freeze([
   NO_TRANSCRIBER,
   CHUNK_FAILED,
   SEND_BACKLOG,
+  OFFLINE_NOT_KEPT,
   NO_SPEECH,
   NO_SESSION_ID,
   SYSTEM_AUDIO_UNSHARED,
@@ -373,6 +394,8 @@ function mediaRecorderRecorder(): MeetingRecorder {
 
   /** The sends that have not answered yet. See `MAX_INFLIGHT_CHUNKS`. */
   const inFlight = new Set<Promise<void>>();
+  /** `OFFLINE_NOT_KEPT` has been said for the stretch offline we are in. */
+  let offlineSaid = false;
 
   function queue(work: () => Promise<void>): Promise<void> {
     // Both arms are `work` on purpose — see `audio.ts`, same reason.
@@ -533,6 +556,15 @@ function mediaRecorderRecorder(): MeetingRecorder {
       await abandon(NO_TRANSCRIBER);
       return;
     }
+
+    if (browserOffline()) {
+      // Once per stretch offline, not once per chunk: a chip every twenty
+      // seconds saying the same thing is a chip people learn to ignore.
+      if (!offlineSaid) report({ recoverable: true, message: OFFLINE_NOT_KEPT });
+      offlineSaid = true;
+      return;
+    }
+    offlineSaid = false;
 
     if (inFlight.size >= MAX_INFLIGHT_CHUNKS) {
       // Dropped rather than queued, and said out loud. See MAX_INFLIGHT_CHUNKS.
