@@ -49,6 +49,7 @@ import { writeClipboard } from "../../design/clipboard";
 import { editorMenuItems, LINE_PREFIXES, type EditorMenuId } from "./editorMenu";
 import { insertTable, MARKERS, toggleWrap } from "./markdownFormat";
 import { TableSizePicker } from "./TableSizePicker.web";
+import { drawInterim, takeBackRun } from "./dictate";
 import { closeFindPanel, findInNote } from "./findInNote";
 import {
   editability,
@@ -117,6 +118,24 @@ export interface EditorControls {
    * for a panel the frame does not render.
    */
   closeFind?(): boolean;
+  /** A settled phrase, at the caret. See `dictate.ts`. */
+  dictate(text: string): void;
+  /**
+   * Draw the guess a speech engine has not settled on yet. `""` clears it.
+   *
+   * **Web only, and optional for the same reason `closeFind` is**: it is not a
+   * document change, so it has no verb in the bridge's protocol and nothing on
+   * the other side to run one — and the phone has no dictation engine to
+   * produce a guess in the first place (`features/voice/engine.ts` says why).
+   * A caller reads `showInterim?.(text)`.
+   */
+  showInterim?(text: string): void;
+  /**
+   * Take back everything the current dictation run inserted, and say whether
+   * it did. Web only, as above. `false` means the run had been hand-edited and
+   * was left alone, which the caller has to tell somebody rather than swallow.
+   */
+  discardDictation?(): boolean;
 }
 
 export interface LiveEditorProps {
@@ -803,6 +822,11 @@ export function LiveEditor({
       // no verb for it in the bridge's protocol and nothing on the other side
       // to run one.
       closeFind: () => closeFindPanel(created),
+      dictate: (text) => runCommand(created, { name: "dictate", text }),
+      // Not `runCommand`s: neither changes the document, so neither is a
+      // command. See `EditorControls.showInterim`.
+      showInterim: (text) => drawInterim(created, text),
+      discardDictation: () => takeBackRun(created),
     };
     handlers.current.controls?.(api);
 

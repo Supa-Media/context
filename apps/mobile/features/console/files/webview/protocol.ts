@@ -91,7 +91,23 @@ export type EditorCommand =
    * dismiss key has to work on a note somebody is only reading, and it is the
    * one control on the bar that must never be the one that is refused.
    */
-  | { name: "blur" };
+  | { name: "blur" }
+  /**
+   * A phrase that a speech engine has stopped revising, at the caret.
+   *
+   * The seventh verb, and it clears the bar the list above sets — "everything
+   * here is something the accessory bar actually does" generalises to *a
+   * control in the app does this*, and the voice button does. It is here
+   * rather than as a web-only method for the same reason `wrap` is: the
+   * *joining* rule (when a dictated phrase needs a space in front of it) must
+   * not be written twice, and `runCommand` is the one place both surfaces run.
+   *
+   * What is deliberately **not** a command is the unsettled guess. That is a
+   * decoration over the document rather than a change to it, so it has no
+   * business in a protocol whose every other member is an edit — see
+   * `EditorControls.showInterim`.
+   */
+  | { name: "dictate"; text: string };
 
 /**
  * Read a command off the wire.
@@ -120,6 +136,9 @@ export function decodeCommand(value: unknown): EditorCommand | null {
       return { name: "redo" };
     case "blur":
       return { name: "blur" };
+    case "dictate":
+      if (typeof (command as { text?: unknown }).text !== "string") return null;
+      return { name: "dictate", text: (command as { text: string }).text };
     default:
       return null;
   }

@@ -42,6 +42,7 @@ import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
+import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
 
 /**
@@ -345,6 +346,22 @@ export function runCommand(view: EditorView, command: EditorCommand): void {
     return;
   }
   if (view.state.readOnly) return;
+  /*
+    Dictation returns before the `view.focus()` below, and that is the one
+    behavioural difference between it and the other six.
+
+    Every other command is a *button press*, where taking focus back is the
+    whole point — a bar whose second press lands somewhere else is worse than
+    no bar. A dictated phrase is not a press: it arrives on its own several
+    times a minute while somebody is looking at the capsule, and focusing the
+    editor on each one would pull the keyboard focus off Stop mid-sentence and
+    make the control unusable from a keyboard. The caret does not need focus to
+    be inserted at; CodeMirror keeps the selection either way.
+  */
+  if (command.name === "dictate") {
+    insertDictated(view, command.text);
+    return;
+  }
   switch (command.name) {
     case "wrap":
       wrapSelection(view, command.before, command.after);
@@ -533,6 +550,17 @@ export function editorExtensions(options: {
     markdownLanguage(),
     livePreview(),
     codeHighlighting(),
+    /*
+      Dictation's two pieces of state: the guess drawn at the caret, and the
+      extent of what this run has inserted. Unconditional, and it costs an
+      empty `DecorationSet` on a surface nobody dictates into — the alternative
+      is reconfiguring an editor the moment somebody presses the microphone,
+      which would cost the caret. See `dictate.ts`.
+    */
+    dictationExtension({
+      openingCaret,
+      isExternalDoc: (transaction) => transaction.annotation(externalDoc) === true,
+    }),
     /*
       Both halves of "a link to another note": drawing one as a link and
       following it, and offering the notes a `[[` could mean. One ref feeds

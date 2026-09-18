@@ -28,6 +28,8 @@ import type {
   FormVote,
 } from "./formBlock";
 import { NoteAccessory } from "./NoteAccessory";
+import { VoiceButton } from "../../voice/VoiceButton";
+import { useVoiceHost } from "../../voice/VoiceHost";
 import type { Visibility } from "./types";
 
 /**
@@ -311,6 +313,16 @@ export function NoteEditor({
   const frame = useFrame();
   const padding = useSurfacePadding();
   const barUp = accessoryUp({ compact, editable, focused });
+  const voice = useVoiceHost();
+  /**
+   * The note is the editable document, rather than a drawing or an envelope.
+   *
+   * Read off the same two conditions the render below branches on, in the same
+   * order, so "is the editor on screen" and "what is on screen" cannot come
+   * apart — the failure that costs is the silent one where they disagree and a
+   * floating control hangs over a surface nobody tested it against.
+   */
+  const liveEditorOnScreen = !drawing && !passphraseLocked;
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
@@ -999,6 +1011,37 @@ export function NoteEditor({
         rather than one of two.
       */}
       {barUp ? <NoteAccessory controls={() => controls.current} /> : null}
+
+      {/*
+        The microphone, anchored to the region for the same reason the bar
+        above it is: inside the scroller it would ride the document.
+
+        Mounted here rather than in the console layout because this is the one
+        component that holds the live `EditorControls` — the same handle the
+        accessory bar takes, and taken the same way, as a getter that answers
+        `null` between notes. Everything it needs that the editor does not know
+        (which context, whose note, how to start a meeting) arrives through
+        `useVoiceHost`, which is `null` on the demo console and the fixtures so
+        they draw nothing.
+
+        **`liveEditorOnScreen` is the whole condition**, and it is the editor's
+        own branch rather than a list of exclusions. A drawing is an Excalidraw
+        canvas with no caret; a locked note is an envelope with a passphrase
+        field where the editor would be. Neither has a `controls` handle, so the
+        button would be inert — and inert is the *better* half of what went
+        wrong. It is `position: absolute` at this corner, so on a phone it also
+        lay over `LockedNoteView`'s own Save button and swallowed its presses.
+        WebKit CI found that, in `encryption.spec.ts`, not in a test of this
+        feature: a floating control is every other control's problem.
+      */}
+      {voice === null || !liveEditorOnScreen ? null : (
+        <VoiceButton
+          page={{ ...voice.page, writable: voice.page.writable && editable }}
+          controls={() => controls.current}
+          compact={compact}
+          onRecordMeeting={voice.onRecordMeeting}
+        />
+      )}
     </View>
   );
 }

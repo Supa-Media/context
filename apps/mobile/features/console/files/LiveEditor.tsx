@@ -345,6 +345,14 @@ export function LiveEditor({
       undo: () => bridge.run({ name: "undo" }),
       redo: () => bridge.run({ name: "redo" }),
       blur: () => bridge.run({ name: "blur" }),
+      /*
+        Reachable, and deliberately not reached today: no phone build has a
+        dictation engine (`features/voice/engine.ts`), so nothing calls this.
+        It is wired anyway because the *joining* rule lives in `runCommand` on
+        both sides of the bridge — a surface that grew an engine later and
+        found this missing would reimplement the spacing and get it different.
+      */
+      dictate: (text) => bridge.run({ name: "dictate", text }),
     };
   }
 
