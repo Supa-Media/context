@@ -151,6 +151,20 @@ function noteReference(editor: EditorState): NoteReference | null {
 }
 
 /**
+ * The console route for a context, without asking the router.
+ *
+ * `usePathname` would be the obvious source and is the wrong one here: the
+ * surfaces that mount the note pane include two fixtures and the landing
+ * page's demo console, none of which sits under a router, and a hook that
+ * throws on three surfaces to populate one field is a bad trade. The route
+ * this field wants to carry is `/console/@slug`, and the slug is already in
+ * hand.
+ */
+export function consoleRoute(context: DestinationContext | null): string {
+  return context === null ? "/console" : `/console/@${context.slug}`;
+}
+
+/**
  * One sentence naming the room, for the head of the agent's first turn.
  *
  * Kept here beside the shape rather than in a prompt template, because it is

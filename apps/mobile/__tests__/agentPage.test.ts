@@ -2,7 +2,7 @@ import { describe, expect, test } from "@jest/globals";
 import type { EditorState } from "../features/console/files/editor";
 import { emptyEditor } from "../features/console/files/editor";
 import type { DestinationContext } from "../features/meetings/destination";
-import { agentPage, describePlace } from "../features/agent/page";
+import { agentPage, consoleRoute, describePlace } from "../features/agent/page";
 
 /**
  * WHAT THE AGENT IS TOLD ABOUT WHERE YOU ARE — AND WHAT IT IS NEVER TOLD.
@@ -321,6 +321,16 @@ describe("the rest of the room", () => {
 
     expect(page.context).toBeNull();
     expect(page.note).toBeNull();
+  });
+});
+
+describe("the route", () => {
+  test("a context is addressed by its name", () => {
+    expect(consoleRoute(SHARED)).toBe("/console/@supa");
+  });
+
+  test("no context open is the console itself", () => {
+    expect(consoleRoute(null)).toBe("/console");
   });
 });
 

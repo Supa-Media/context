@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
 import { Button, PressRow } from "../design/components/Button";
@@ -14,6 +14,9 @@ import type { DestinationContext } from "../meetings/destination";
 import { useMeetingsSnapshot } from "../meetings/useMeetings";
 import { useDictation } from "./useDictation";
 import { VoiceSheet } from "./VoiceSheet";
+import { AgentPanel } from "../agent/AgentPanel";
+import { createStubEngine, type AgentEngine } from "../agent/engine";
+import type { AgentPage } from "../agent/page";
 import type { DictationEngine } from "./engine";
 
 /**
@@ -93,7 +96,9 @@ export function VoiceButton({
   onRecordMeeting,
   barMicrophone = false,
   bottomInset = 0,
+  place,
   engine,
+  agent,
   now = Date.now,
 }: {
   page: VoicePage;
@@ -113,6 +118,14 @@ export function VoiceButton({
    */
   barMicrophone?: boolean;
   /**
+   * Where the person is, for the conversation.
+   *
+   * `null` on a surface that has no context around it — the fixtures and the
+   * landing page's demo console — and the sheet then draws no agent row at
+   * all, rather than one that answers a press with nothing.
+   */
+  place?: AgentPage | null;
+  /**
    * The safe area under this edge, as `RecordingBar` takes it and for the same
    * reason: `useSafeAreaInsets` throws outside a `SafeAreaProvider`, and this
    * component is mounted by `NoteEditor`, which several surfaces render without
@@ -121,6 +134,8 @@ export function VoiceButton({
   bottomInset?: number;
   /** Injected by tests. */
   engine?: DictationEngine;
+  /** Injected by tests. The stub until a provider can be stored. */
+  agent?: AgentEngine;
   now?: () => number;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -134,6 +149,7 @@ export function VoiceButton({
   */
   const bottom = floatingStackBottom(bottomInset, useBottomChromeHeight());
   const [asking, setAsking] = useState(false);
+  const [talking, setTalking] = useState(false);
   const dictation = useDictation({ controls, notePath: page.notePath, engine });
   const { state, start, stop, discard, cancel } = dictation;
   const live = isLive(state);
@@ -180,6 +196,20 @@ export function VoiceButton({
     onRecordMeeting();
   }, [onRecordMeeting]);
 
+  const beginAgent = useCallback(() => {
+    setAsking(false);
+    setTalking(true);
+  }, []);
+
+  const endAgent = useCallback(() => setTalking(false), []);
+
+  /*
+    The stub is built once per mount rather than per render: `AgentPanel`
+    depends on the engine identity in the `useCallback` that sends, and a fresh
+    object every render would rebuild that callback on every keystroke.
+  */
+  const agentEngine = useMemo(() => agent ?? createStubEngine(), [agent]);
+
   /*
     A meeting started while this was open or listening. `cancel`, for the reason
     `useDictation` gives at the note-change effect: the pending phrase belongs
@@ -191,6 +221,18 @@ export function VoiceButton({
   useEffect(() => {
     if (!meetingRunning) return;
     setAsking(false);
+    /*
+      The conversation goes too — and not because it would otherwise stay on
+      screen. This control renders `null` for the length of a meeting, so the
+      panel is gone either way; that was the first version of this comment and
+      the sabotage run disproved it, because removing this line broke nothing.
+
+      What it actually prevents is the panel coming *back*. The flag would
+      still be set when the meeting finishes and the corner returns, reopening
+      a conversation somebody left twenty minutes ago over whatever they are
+      now looking at. `agentSurface.test.ts` drives both ends of that.
+    */
+    setTalking(false);
     cancel();
   }, [meetingRunning, cancel]);
 
@@ -244,7 +286,7 @@ export function VoiceButton({
     under the thumb that opened it would be this button answering a press by
     disappearing.
   */
-  if (barMicrophone && !asking && state.name !== "failed") return null;
+  if (barMicrophone && !asking && !talking && state.name !== "failed") return null;
 
   return (
     <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
@@ -278,7 +320,17 @@ export function VoiceButton({
           compact={compact}
           onDictate={beginDictation}
           onRecordMeeting={beginMeeting}
+          onAskAgent={place == null ? null : beginAgent}
           onCancel={dismiss}
+        />
+      ) : null}
+
+      {talking && place != null ? (
+        <AgentPanel
+          engine={agentEngine}
+          place={place}
+          compact={compact}
+          onClose={endAgent}
         />
       ) : null}
     </View>
