@@ -284,6 +284,36 @@ export function describeOpenLink(entryKind: "file" | "folder" = "file"): string 
 }
 
 /**
+ * WHAT A LINK IS THE SUBJECT OF, AND WHAT NOTHING HERE IS.
+ *
+ * The closing line of the links section, and the one sentence on this screen
+ * that is about the product rather than about this note. `Phone-Share.dc.html`
+ * draws it, and **its wording is not the one used here**: the canvas says a
+ * link "never publishes a folder", which was true when it was drawn and is not
+ * true now. `CLAUDE.md`'s fifth non-negotiable reads "A link covers one note,
+ * or one folder and the subtree beneath it" — so the canvas's version is a
+ * sentence this dialog would be telling an owner while the dialog next to it
+ * mints exactly that.
+ *
+ * So the claim is narrowed to the one the product actually keeps, and the
+ * narrowing is the interesting half: a folder link **re-derives every path
+ * under it through the live `privacy.md`**, so it publishes what the folder
+ * already published to the workspace and never more. That is why the same
+ * non-negotiable calls it a wider *locator* and not a wider *tier*, and it is
+ * the thing an owner would otherwise get wrong in the dangerous direction.
+ *
+ * The second clause is verbatim policy and stays: no *setting* publishes a
+ * context, and the whole context is never the subject of a link.
+ */
+export function describeLinkReach(): string {
+  return (
+    "A link covers one note, or one folder and what your workspace can " +
+    "already read beneath it — never your whole context. No setting anywhere " +
+    "publishes a context, and nothing here is indexed."
+  );
+}
+
+/**
  * …and what a personal share is for, said next to it.
  *
  * The distinction people get wrong is which one to reach for, so the dialog

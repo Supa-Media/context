@@ -15,6 +15,7 @@ import { storagePillLabel } from "../console/storage/pill";
 import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
+import { ShareDialog } from "../console/files/ShareDialog";
 import { NavBandProvider } from "../console/NavBand";
 import type { ConsoleRoute } from "../console/nav";
 
@@ -82,6 +83,20 @@ export function AppFrameVisualFixture() {
     view: "browse",
   });
   const current = selectedContext(data);
+  /*
+    The share sheet, mounted so `Phone-Share.dc.html` has something to be
+    compared against. Drawing its button was not enough: the product raises the
+    sheet through `barDialog` in the console layout, so a fixture that only
+    drew the icon could screenshot the control and never the thing it opens.
+
+    `ShareDialog`'s own header argues that its optional props are defaulted
+    "because the landing page's read-only demo builds these props from local
+    data with no backend, and a demo that cannot render the sheet is worse than
+    one that says 'this context'". This is that path: no `onShareWithGroup`, no
+    `onRemovalRoute`, so every control a non-owner may not use is simply absent,
+    which is the console's standing rule and the state worth reviewing.
+  */
+  const [sharing, setSharing] = useState(false);
 
   return (
     /*
@@ -155,7 +170,12 @@ export function AppFrameVisualFixture() {
         topTrailing={
           <>
             <FrameIconButton label="Read this note" icon="eye" grouped onPress={() => {}} />
-            <FrameIconButton label="Share this" icon="share" grouped onPress={() => {}} />
+            <FrameIconButton
+              label="Share this"
+              icon="share"
+              grouped
+              onPress={() => setSharing(true)}
+            />
           </>
         }
         accountSlot={
@@ -254,6 +274,39 @@ export function AppFrameVisualFixture() {
         }
       >
         <BrowsePane data={data} />
+        {sharing ? (
+          <ShareDialog
+            path="1-projects/context-lc.md"
+            shares={[]}
+            origin="https://context.lc"
+            onShare={() => {}}
+            /*
+              A real answer, because this one is asked for one: `onCopyLink`
+              resolves `{ok, message}` and the sheet reports what happened. A
+              fixture that resolved `ok: false` would be reviewing the failure
+              copy; `true` is the ordinary case the canvas draws.
+            */
+            onCopyLink={() => Promise.resolve({ ok: true, message: null })}
+            onRevoke={() => {}}
+            onSetPreviewTitle={() => {}}
+            onClose={() => setSharing(false)}
+            /*
+              The audience control is the half the board is FOR, and it is
+              absent without these two: `access` is what it reads and
+              `onSetScope` is the console's rule for a control somebody may not
+              use — absent, not disabled. Without them the fixture drew a share
+              field and a links section over the one thing
+              `Phone-Share.dc.html` is a picture of.
+
+              `private` with `exception: false` is the state the canvas draws:
+              the position in force is Private and it is inherited, which is
+              what "Follows its folder" on that board says. It is also the
+              ordinary case — most notes sit on their folder's rule.
+            */
+            access={{ visibility: "private", exception: false, members: [] }}
+            onSetScope={() => {}}
+          />
+        ) : null}
       </AppFrame>
     </NavBandProvider>
   );
