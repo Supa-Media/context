@@ -889,6 +889,99 @@ only thing this product treats as real), `Cached copy` with the copy's age, and
 the three answers. Pictures of both palettes are in `docs/design/conflict/`,
 written by `__tests__/conflictShots.render.ts`.
 
+### A cold start with no network is the case the offline layer was built for
+
+Everything in the section above — the cache, the drafts, the queue, the
+three-way merge — was reachable only while the app was *already running* with
+the context list *already loaded*. Both of those come from `listMyWorkspaces`,
+which is a Convex subscription, so with no network neither ever arrives:
+`(app)/_layout` sat on `resolveProtectedRoute`'s `wait` for as long as the app
+was open, and had it got past that, `visibilityTierForRole` answered `unknown`,
+which makes `useOfflineNotes` set its scope to `null` and refuse to serve a
+single cached byte. Deliberately, and for a good reason — an offline cache
+cannot re-check authorization, so a copy is filed under the clearance that read
+it and a session that does not know its clearance must not read one.
+
+The consequence was that the feature worked for a phone going into a pocket and
+not for a phone coming out of one. A relaunch — an OS reclaiming a backgrounded
+app, a restart, a browser tab opened fresh — is an app that will not start, on a
+device holding a complete offline copy of the notes somebody wanted to read.
+
+**So the context list is written down as it lands, and read back when it has
+not.** `features/offline/cache.ts` holds one `context` record per workspace and
+`useRememberedContexts` decides whether it may be served.
+
+**Three conditions, all of them required.** The live list has not landed (not
+"is slow" — `undefined`); the device says it is offline; and something was
+remembered. The first is why there is no merging and no preferring the fresher
+of two: one of them is a fact and the other is a memory, so the moment the
+server answers, the server wins. The second is why this is not a stale rail
+flickering ahead of a real one — online, a list that has not arrived is a list
+that is about to, and waiting for it is what the console already does. The third
+is the security property, and it is the whole of it: sign-out calls
+`forgetLocalCopies`, which clears this namespace along with the note bodies, so
+**the presence of a remembered row is the evidence that a session got far enough
+to have one**. A signed-out device remembers nothing, offers nothing, and waits
+exactly as it did before.
+
+**Remembering a role cannot widen a clearance, and that is a fact about the
+control plane rather than care taken in the console.** The clearance a cached
+copy is served under is `private` for `owner` and `team` for everybody else
+(`scopeForRole`, mirrored by `visibilityTierForRole`), and the owner role cannot
+be taken away: `setMemberRole` refuses with `CANNOT_CHANGE_OWNER_ROLE`,
+`removeMember` with `CANNOT_REMOVE_OWNER`, `leaveWorkspace` with
+`OWNER_CANNOT_LEAVE`, and ownership transfer is not built. A remembered role can
+therefore be *out of date* — a promotion from `member` to `editor` is not seen
+until the next successful load, and both of those read at `team` anyway — but
+never *wider* than the one the server would give, which is the only direction
+that discloses anything. That premise is pinned where it lives, in the control
+plane, by `apps/convex/__tests__/ownerRoleIsPermanent.test.ts`: build ownership
+transfer and that test goes red, which is the moment to make this remember
+`team` for a context whose ownership can move.
+
+**A remembered row never outlives the reach it describes.** It is taken by
+`keysForWorkspace` when somebody presses Leave and by `keysForDepartedContexts`
+on the first load that sees a context gone — the endings this device never
+witnesses, which is where a row left behind would name a context on the rail of
+somebody who was removed from it. Making that true needed one distinction the
+folder had been conflating: `sweep` and the departed purge both spelled "never
+somebody's typing" as "has no clearance", which was the same set only while
+every unscoped kind *was* typing. `isOwnTyping` is that idea by itself, spelled
+as a record over `Kind` so a kind added later has to declare which side it is
+on, and taken by default rather than exempt by accident.
+
+**The row holds identifiers and labels and nothing else** — the same class of
+thing `lastPlace` already keeps. No note text, no etag, no draft, no credential.
+It ages out on the same thirty-day bound as a cached note, because a device that
+has not reached the server in a month should not still name somebody's contexts;
+it is deliberately *not* subject to the count bound, because evicting a few
+hundred bytes to make room for a note body would cost the boot the rest of the
+feature now depends on, invisibly.
+
+**The gate renders without claiming the session is authenticated.**
+`resolveProtectedRoute` answers `render`, and `isAuthenticated` stays false —
+so `(app)/_layout` now reads its subscriptions off `auth.isAuthenticated` rather
+than off `decision.action === "render"`. Those were the same value until this
+landed and are now different questions: a subscription opened on an unconfirmed
+identity is refused by `requireAuth` anyway, and the layout should not be asking.
+
+What a simplification of any of it costs: dropping the offline condition puts a
+memory where a round trip was going to answer; dropping the "server always wins"
+ordering makes a rename take a reconnection to appear; dropping the sign-out
+clear draws one person's contexts for the next person to sign in on that
+machine. `__tests__/offlineRemembered.test.ts`,
+`__tests__/offlineRememberedHook.test.ts` and the protected-route tests in
+`__tests__/authRedirect.test.ts` each fail on their own rule.
+
+**What this does not fix, named so it is not mistaken for done.** A device that
+has *never* loaded the console online still cannot start offline, and should not
+— there is nothing to remember. The cache is still populated only by reads, so
+what is available on a train is what somebody happened to open; pinning a folder
+for offline is a separate decision. And on the web none of this survives a cold
+*tab*, because there is no service worker to serve the bundle — the app has to
+load before any of it runs. The desktop shell's mirror is a different origin
+again, with its own storage, so it sees none of this.
+
 ### A team link's note survives the console's own cold start, and the login gate
 
 `teamShareLink` returns the **readable** URL — `/console/@seyi?note=…` — and the

@@ -91,12 +91,37 @@ export type RouteDecision =
  * leave the app never survives being built, let alone followed. Passing
  * nothing still produces a bare `/login`, which is every caller that has no
  * particular place to return to.
+ *
+ * ## `rememberedSession`, and why waiting is not the safe answer offline
+ *
+ * `isLoading` is not "the token is being read off the device" — that part is
+ * local. It is "the socket has not come back yet", because `@convex-dev/auth`
+ * only calls a session authenticated once the server has said so. With no
+ * network that never happens, so `wait` never ends, and this gate renders
+ * `null` for as long as the app is open. A relaunch on a train is therefore an
+ * app that will not start, on a device holding a complete offline copy of the
+ * notes somebody wanted to read.
+ *
+ * `rememberedSession` is the caller's answer to "is there a session on this
+ * device that got far enough to write its context list down", and it is only
+ * ever consulted while the server has not answered **and** the device says it
+ * is offline. It cannot manufacture reach: sign-out clears that list with
+ * everything else in `features/offline`, so a signed-out device remembers
+ * nothing and this returns `wait` exactly as it does today.
+ *
+ * What it deliberately does *not* do is claim the session is authenticated.
+ * The decision is `render`, and `isAuthenticated` is still false — the layout
+ * keeps its subscriptions off the same boolean it always did, so nothing here
+ * subscribes on behalf of an identity the server has not confirmed. This gate
+ * decides whether a person sees their app, and the server decides what it may
+ * contain.
  */
 export function resolveProtectedRoute(
   state: AuthState,
   attempted?: string | null,
+  rememberedSession = false,
 ): RouteDecision {
-  if (state.isLoading) return { action: "wait" };
+  if (state.isLoading) return rememberedSession ? { action: "render" } : { action: "wait" };
   if (!state.isAuthenticated) return { action: "redirect", href: loginHref(attempted) };
   return { action: "render" };
 }
