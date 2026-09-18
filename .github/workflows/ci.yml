@@ -515,3 +515,35 @@ jobs:
           path: apps/mobile/e2e/webkit/playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # ── THE MONITOR HAS TO BE ABLE TO GO RED ────────────────────────────────
+  #
+  # `gateway-health.yml` probes production on a schedule, so nothing about it
+  # runs on a pull request — which would leave the assertions it is made of
+  # unchecked until the next tick, and a probe whose assertions have quietly
+  # stopped matching anything reports a healthy service forever. That is this
+  # repository's most-repeated failure shape, and it is worse in a monitor than
+  # anywhere else: the thing that is supposed to tell you the endpoint is down
+  # is the last thing anybody looks at while it is green.
+  #
+  # So the self-test runs here, on every pull request, and asserts the opposite
+  # of what the monitor asserts: that fifteen sabotaged responses — an
+  # unreachable host, a 200 serving an error page, PKCE dropped from the
+  # metadata, an unauthenticated 200 from the MCP route — each still produce a
+  # problem. No network, no credential, nothing to install.
+  gateway-health-assertions:
+    name: The gateway monitor can still fail
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # Plain Node over `fetch`, no dependency to install — see mcp.yml for
+          # why the cache must be off in a job without pnpm.
+          package-manager-cache: false
+
+      - name: The probe catches what it claims to
+        run: node scripts/health-check-gateway.mjs --self-test

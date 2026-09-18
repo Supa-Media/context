@@ -1,0 +1,90 @@
+# Is the gateway answering? Asked on a schedule, from outside.
+#
+# ── WHY THIS IS NOT health-check.yml ──────────────────────────────────────
+#
+# `health-check.yml` is the scaffolder's Convex health check and has never
+# run: its `convex-url` is still the `YOUR-DEPLOYMENT` placeholder and its
+# `schedule:` is still commented out. It also watches the wrong plane — it
+# pings a Convex query, while the endpoint every customer configured in
+# every AI client is the gateway Worker. The control plane can be perfectly
+# healthy while the thing clients talk to is dead, which is the outage this
+# workflow exists to notice.
+#
+# Filling that one in needs a deployment hostname, and a real
+# `*.convex.cloud` host is an account identifier that
+# `scripts/check-no-identifiers.mjs` refuses in this public tree — so it
+# belongs in a repository secret, which is the owner's to add. This workflow
+# deliberately needs nothing of the kind: all three of its probes are
+# unauthenticated by specification or by design, so it runs today.
+#
+# ── WHY IT DOES NOT REDEPLOY ──────────────────────────────────────────────
+#
+# The upstream scaffold redeploys on a failed health check. This does not.
+# Changing what the Worker serves is a decision somebody takes, and an
+# automatic redeploy in response to an outage of unknown cause is how a bad
+# deploy gets reapplied on a loop. A red run here is a report, not a remedy.
+#
+# ── WHY THERE IS NO RETRY ─────────────────────────────────────────────────
+#
+# A retry that turns red into green is how a real outage gets averaged away.
+# At this cadence one genuinely transient failure costs a single red run and
+# clears itself on the next tick, which is the honest trade.
+
+name: Gateway Health
+
+on:
+  schedule:
+    # Every 15 minutes. GitHub delays scheduled runs under load and may drop
+    # them entirely, so this is a floor on detection time, never a guarantee —
+    # it is uptime monitoring good enough to catch an outage in minutes, not a
+    # replacement for a paid monitor with an SLA.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: "Origin to probe (defaults to the production endpoint)"
+        required: false
+        default: ""
+        type: string
+
+# Least privilege: this reads a public endpoint and writes nothing.
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: The gateway answers, and answers correctly
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # No pnpm in this job: the probe is plain Node over `fetch`, with no
+          # dependency to install. See mcp.yml for why the cache must be off
+          # when pnpm is absent.
+          package-manager-cache: false
+
+      # The self-test first, and for the usual reason: a probe whose assertions
+      # have silently stopped matching anything reports a healthy service
+      # forever. This is the run that proves red is still reachable.
+      - name: The probe catches what it claims to
+        run: node scripts/health-check-gateway.mjs --self-test
+
+      # The dispatch input reaches the shell as an environment variable, never
+      # interpolated into the script text. `${{ }}` inside a `run:` block is
+      # substituted before bash ever sees it, so an input containing shell
+      # metacharacters would be executed rather than read — the standard Actions
+      # script-injection shape. It is bounded here (dispatch needs write access)
+      # and still not worth writing down as an example for the next workflow.
+      - name: Probe the gateway
+        env:
+          ORIGIN: ${{ inputs.origin }}
+        run: |
+          if [ -n "$ORIGIN" ]; then
+            node scripts/health-check-gateway.mjs --origin "$ORIGIN"
+          else
+            node scripts/health-check-gateway.mjs
+          fi

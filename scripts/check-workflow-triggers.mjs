@@ -197,6 +197,25 @@ const REQUIRED_PR_TYPES = ["opened", "synchronize", "reopened"];
  */
 const FILTERED_TRIGGERS = new Set(["pull_request", "push"]);
 
+/**
+ * Triggers whose value is a SEQUENCE, not a mapping.
+ *
+ * `schedule:` is the only one Actions has, and its entries sit directly under
+ * it with no key between:
+ *
+ *   schedule:
+ *     - cron: "0 <minute-spec> etc"
+ *
+ * The parser was written when no workflow here had a schedule — `health-check.yml`
+ * shipped with its own commented out — so the first live one failed to parse
+ * rather than being checked, which under rule E reads as "this checker's parser
+ * stopped understanding the file". That is the parser being right about its own
+ * limits and is still a workflow going unchecked, so the shape is taught rather
+ * than excepted: an entry that is not a `cron:` mapping is refused exactly as
+ * loudly as before.
+ */
+const SEQUENCE_TRIGGERS = new Set(["schedule"]);
+
 class WorkflowShapeError extends Error {}
 
 function stripComments(text) {
@@ -308,6 +327,21 @@ export function parseOnBlock(text, file = "<input>") {
 
     const listItem = content.match(/^-\s*(.+)$/);
     if (listItem) {
+      if (SEQUENCE_TRIGGERS.has(current)) {
+        const entry = listItem[1].match(/^cron\s*:\s*(.+)$/);
+        if (!entry) {
+          throw new WorkflowShapeError(`${file}:${line}: \`${content}\` is not a \`cron:\` entry, and \`${current}:\` takes nothing else.`);
+        }
+        if (triggers.get(current) === null) triggers.set(current, {});
+        const scheduleConfig = triggers.get(current);
+        if (!Array.isArray(scheduleConfig.cron)) scheduleConfig.cron = [];
+        const expression = unquote(entry[1]);
+        if (expression.trim() === "") {
+          throw new WorkflowShapeError(`${file}:${line}: empty \`cron:\` expression.`);
+        }
+        scheduleConfig.cron.push(expression);
+        continue;
+      }
       if (currentKey === null) {
         throw new WorkflowShapeError(`${file}:${line}: list item with no key above it.`);
       }
@@ -534,6 +568,7 @@ function selfTest() {
     { name: "mcp.yml", text: "name: A\non:\n  pull_request:\n  push:\n    branches: [main]\njobs: {}\n" },
     { name: "deploy-mcp.yml", text: "name: B\n# never on pull_request, see header\non:\n  push:\n    branches: [main]\n    paths:\n      - \"apps/mcp/**\"\n  workflow_dispatch:\njobs:\n  d:\n    steps:\n      - run: pnpm exec wrangler deploy\n" },
     { name: "health-check.yml", text: "name: C\non:\n  workflow_dispatch:\njobs: {}\n" },
+    { name: "gateway-health.yml", text: "name: D\non:\n  schedule:\n    - cron: \"*/15 * * * *\"\n  workflow_dispatch:\njobs: {}\n" },
   ];
 
   const rulesFor = (files) => analyse(files).problems.map((p) => `${p.rule} ${p.file}`);
@@ -656,6 +691,21 @@ function selfTest() {
       "a workflow whose on: block declares nothing",
       [{ name: "mcp.yml", text: "on:\n\njobs: {}\n" }],
       ["PARSE mcp.yml"],
+    ],
+    [
+      // Teaching the parser `schedule:` must not become "anything under
+      // `schedule:` parses". A sequence entry that is not a `cron:` mapping is
+      // still a shape this checker does not understand, and still fails.
+      "a schedule entry that is not a cron mapping",
+      [{ name: "gateway-health.yml", text: "on:\n  schedule:\n    - interval: hourly\njobs: {}\n" }],
+      ["PARSE gateway-health.yml"],
+    ],
+    [
+      // The empty-string spelling, which would otherwise record a schedule
+      // that GitHub rejects and this checker called fine.
+      "an empty cron expression",
+      [{ name: "gateway-health.yml", text: "on:\n  schedule:\n    - cron: \"\"\njobs: {}\n" }],
+      ["PARSE gateway-health.yml"],
     ],
     [
       // Rule A's three blind spots. Each restricts a `pull_request` exactly as
