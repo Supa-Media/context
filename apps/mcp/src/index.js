@@ -429,6 +429,20 @@ const FOLDER_MOVE_CAP = 500;
 const LOGICAL_FOLDER_MOVE_THRESHOLD = FOLDER_MOVE_CAP;
 const MOVE_JOB_PREFIX = ".context/moves/";
 const MOVE_SENTINEL_KEY = ".context/moves/active";
+/**
+ * Where a cross-workspace move leaves the owner's own copy.
+ *
+ * Plumbing, so it is out of every listing, search and privacy decision — a
+ * segment beginning with "." is what `isPlumbing` tests, and `.context/` is
+ * already where this product keeps its own objects.
+ *
+ * Only the **cross-workspace** move writes here, and the reason is the one
+ * thing that move cannot promise: its destination is a different bucket. A
+ * same-workspace move needs no copy, because the destination IS the copy — a
+ * third one of the same bytes in the same bucket would be storage the customer
+ * pays for to hold what they already have.
+ */
+const TRASH_PREFIX = ".context/trash/";
 const MOVE_JOB_VERSION = 1;
 const MOVE_MATERIALIZE_BATCH = 100;
 const LOGICAL_MOVE_WORKSPACES = new Set();
@@ -4089,25 +4103,106 @@ async function copyObjectForMove(store, item) {
   return written;
 }
 
+/**
+ * A move's last step: remove the source, or refuse to.
+ *
+ * ## WHY THIS IS NOT JUST A CONDITIONAL DELETE
+ *
+ * A move is copy-then-delete, and the delete is the dangerous half: an edit
+ * that lands between the two is destroyed by an unconditional delete, and the
+ * copy already taken is the *older* version, so the work is simply gone. A
+ * delete that carries `If-Match` turns that into a clean refusal, which is why
+ * every move here required `conditionalDelete` and refused outright without it.
+ *
+ * **R2 does not enforce `If-Match` on DELETE.** Measured, not assumed: the
+ * capability probe declares it, tests it, and every binding in production came
+ * back `conditionalDelete: false`. So "refuse outright" meant *no note could be
+ * moved, anywhere, on the storage this product runs on* — while `conditionalWrite`
+ * and `conditionalCreate` were true the whole time.
+ *
+ * ## THE SUBSTITUTE, AND WHY IT IS SAFE
+ *
+ * A conditional **write** is the guard a conditional delete would have been:
+ *
+ *   1. PUT the source path, `If-Match` the etag we copied. Atomic. If anybody
+ *      changed the note, this fails and nothing has been touched — the same
+ *      conflict the conditional delete reported, from the same evidence.
+ *   2. The object at that path is now a zero-byte marker of ours, so the
+ *      DELETE that follows cannot destroy a customer's bytes. It does not need
+ *      a precondition, because there is nothing left there worth protecting.
+ *
+ * The residual window is between (1) and (2), and it takes an unconditional
+ * writer racing a move on the same path to reach it. The window the old code
+ * had instead was "this feature does not work".
+ *
+ * ## THREE OUTCOMES, NAMED
+ *
+ * `"conflict"` and `"unguarded"` are different facts and the callers want them
+ * apart: a move has already refused an unguarded store in `moveSafetyRefusal`
+ * and can treat anything but success as a conflict, while `archive_note` —
+ * which deleted its source unconditionally long before this existed — uses the
+ * guard where there is one and keeps its old behaviour where there is not.
+ * Returning a falsy value for both is how "no guard available" would quietly
+ * read as "went fine".
+ *
+ * @returns {Promise<"retired" | "conflict" | "unguarded">}
+ */
+async function retireMovedSource(store, key, etag, trashBody) {
+  if (store?.capabilities?.conditionalDelete) {
+    if (!etag) return "unguarded";
+    const deleted = await deleteWithLegacyFallback(store, key, { onlyIf: { etagMatches: etag } });
+    return deleted === null ? "conflict" : "retired";
+  }
+  if (!store?.capabilities?.conditionalWrite || !etag) return "unguarded";
+  // Written before the source is claimed: a trash copy taken after the marker
+  // lands would archive the marker. Only-if-absent because the key carries a
+  // timestamp and the original path, and a collision means something else is
+  // already there.
+  if (trashBody !== undefined && trashBody !== null) {
+    const trashKey = `${TRASH_PREFIX}${new Date().toISOString().replace(/[:.]/g, "-")}/${key}`;
+    try {
+      await store.put(trashKey, trashBody, { onlyIf: { absent: true } });
+    } catch {
+      // A trash copy is a courtesy for a move whose destination is in another
+      // bucket, not the safety property — that is the conditional write below.
+      // Failing the move over it would take away the feature to protect a
+      // convenience.
+    }
+  }
+  const claimed = await store.put(key, new Uint8Array(0), { onlyIf: { etagMatches: etag } });
+  if (!claimed) return "conflict";
+  try {
+    await deleteWithLegacyFallback(store, key);
+  } catch {
+    // The marker is zero bytes at a path whose content is already at the
+    // destination, and the next pass of a materialization — or a retry of the
+    // tool — removes it. Reporting the move as failed here would be the false
+    // half of a move that did happen.
+  }
+  return "retired";
+}
+
 async function deleteObjectForMove(store, item) {
-  if (!store?.capabilities?.conditionalDelete) {
-    throw new Error(`store cannot safely delete copied source by etag: ${item.source}`);
+  if (!store?.capabilities?.conditionalDelete && !store?.capabilities?.conditionalWrite) {
+    throw new Error(`store cannot safely retire a copied source: ${item.source}`);
   }
   if (!item.etag) {
     throw new Error(`source has no captured etag for safe cleanup: ${item.source}`);
   }
-  const deleted = await deleteWithLegacyFallback(store, item.source, {
-    onlyIf: { etagMatches: item.etag },
-  });
-  if (deleted === null) throw new Error(`source changed before cleanup: ${item.source}`);
+  const retired = await retireMovedSource(store, item.source, item.etag);
+  if (retired !== "retired") throw new Error(`source changed before cleanup: ${item.source}`);
 }
 
 function moveSafetyRefusal(store) {
   if (!store?.capabilities?.conditionalCreate) {
     return "move requires a storage provider that supports conditional create";
   }
-  if (!store?.capabilities?.conditionalDelete) {
-    return "move requires a storage provider that supports conditional delete";
+  // Either guard will do, and the second is the one R2 actually has. See
+  // `retireMovedSource` for why a conditional write is a sound substitute for a
+  // conditional delete, and why requiring the delete alone meant no note could
+  // be moved on the storage this product runs on.
+  if (!store?.capabilities?.conditionalDelete && !store?.capabilities?.conditionalWrite) {
+    return "move requires a storage provider that supports conditional delete or conditional write";
   }
   return null;
 }
@@ -4115,8 +4210,12 @@ function moveSafetyRefusal(store) {
 async function deleteCreatedDestination(store, path, etag) {
   if (!etag) return false;
   try {
-    const deleted = await deleteWithLegacyFallback(store, path, { onlyIf: { etagMatches: etag } });
-    if (deleted === null) return false;
+    // The same substitute the forward path uses, for the same reason: without
+    // it a store with no conditional delete could create a destination and
+    // then be unable to take it back, which turns an aborted move into a
+    // duplicate note.
+    const retired = await retireMovedSource(store, path, etag);
+    if (retired !== "retired") return false;
     await clearExactVisibilityIfAbsent(store, path);
     return true;
   } catch {
@@ -8663,11 +8762,25 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
   if (destinationVisibility === "private") {
     await persistExactVisibility(store, dest, "private", rules);
   }
-  await store.put(dest, body);
+  const archived = await store.put(dest, body);
   if (destinationVisibility === "team") {
     await persistExactVisibility(store, dest, "team", rules);
   }
-  await deleteWithLegacyFallback(store, path);
+  /*
+    Archiving is copy-then-delete, so it is a move and it had the move's
+    hazard without the move's guard: this delete was unconditional, and an edit
+    landing between the read above and here was destroyed with the archived
+    copy holding the older text. `retireMovedSource` closes that wherever the
+    bucket can enforce either conditional, and reports "unguarded" — rather
+    than a conflict — where it cannot, so a backend that could always archive
+    still can.
+  */
+  const retired = await retireMovedSource(store, path, obj.etag);
+  if (retired === "conflict") {
+    await deleteCreatedDestination(store, dest, archived?.etag);
+    return toolError("conflict: note changed since it was read; re-read and retry");
+  }
+  if (retired === "unguarded") await deleteWithLegacyFallback(store, path);
   await clearExactVisibility(store, path);
   /*
     Archiving is a move, so its links follow it. Retiring a note is not the same
@@ -8870,8 +8983,8 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     await deleteCreatedDestination(store, destination, put.etag);
     return toolError(`move aborted before deleting source: ${error.message}`);
   }
-  const deleted = await deleteWithLegacyFallback(store, source, { onlyIf: { etagMatches: sourceEtag } });
-  if (deleted === null) {
+  const retired = await retireMovedSource(store, source, sourceEtag);
+  if (retired !== "retired") {
     await deleteCreatedDestination(store, destination, put.etag);
     return toolError("conflict: source changed since it was copied");
   }
@@ -8948,14 +9061,32 @@ async function toolMoveNoteAcrossContexts(
       `conflict: source changed since you read it (current etag ${sourceObject.etag}); re-read and retry`
     );
   }
-  if (!sourceStore?.capabilities?.conditionalDelete) {
-    return toolError("move requires a source storage provider that supports conditional delete");
+  // The source's half of a cross-workspace move is retiring one object, so it
+  // needs a guard for that and nothing else. `moveSafetyRefusal` would also
+  // demand `conditionalCreate` here, which the source never uses — the trash
+  // copy is written only-if-absent but is explicitly optional — and requiring
+  // it would refuse a move for a capability that is not on this side's path.
+  if (
+    !sourceStore?.capabilities?.conditionalDelete &&
+    !sourceStore?.capabilities?.conditionalWrite
+  ) {
+    return toolError(
+      "move requires a source storage provider that supports conditional delete or conditional write"
+    );
   }
   if (!destinationStore?.capabilities?.conditionalCreate) {
     return toolError("move requires a destination storage provider that supports conditional create");
   }
-  if (!destinationStore?.capabilities?.conditionalDelete) {
-    return toolError("move requires a destination storage provider that supports conditional delete");
+  // The destination's guard is about rolling *back*: an aborted move has to be
+  // able to take its own half-written destination away again, or the note ends
+  // up in two workspaces. Either conditional will do, exactly as on the source.
+  if (
+    !destinationStore?.capabilities?.conditionalDelete &&
+    !destinationStore?.capabilities?.conditionalWrite
+  ) {
+    return toolError(
+      "move requires a destination storage provider that supports conditional delete or conditional write"
+    );
   }
   if (await destinationStore.get(destination)) {
     return toolError("conflict: destination already exists");
@@ -9003,15 +9134,18 @@ async function toolMoveNoteAcrossContexts(
       await persistExactVisibility(destinationStore, destination, "team", destinationPrivacy.rules);
     }
   } catch (error) {
-    if (put?.etag && destinationStore?.capabilities?.conditionalDelete) {
+    if (put?.etag) {
       await deleteCreatedDestination(destinationStore, destination, put.etag);
     }
     return toolError(`move aborted before deleting source: ${error.message}`);
   }
 
   try {
-    const deleted = await sourceStore.delete(source, { onlyIf: { etagMatches: sourceEtag } });
-    if (deleted === null) throw new Error("source changed since it was copied");
+    // `body` — the bytes just written to the other workspace — rather than a
+    // re-read: this is the one move whose destination the owner may not always
+    // reach, so their own bucket keeps a copy. See `TRASH_PREFIX`.
+    const retired = await retireMovedSource(sourceStore, source, sourceEtag, body);
+    if (retired !== "retired") throw new Error("source changed since it was copied");
   } catch (error) {
     if (put?.etag) {
       await deleteCreatedDestination(destinationStore, destination, put.etag);
@@ -9203,8 +9337,8 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
 
   try {
     for (const move of preflight) {
-      const deleted = await deleteWithLegacyFallback(store, move.source, { onlyIf: { etagMatches: move.etag } });
-      if (deleted === null) throw new Error(`source changed during cleanup: ${move.source}`);
+      const retired = await retireMovedSource(store, move.source, move.etag);
+      if (retired !== "retired") throw new Error(`source changed during cleanup: ${move.source}`);
     }
   } catch (error) {
     return toolError(
@@ -9374,8 +9508,8 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
   }
 
   for (const move of moves) {
-    const deleted = await deleteWithLegacyFallback(store, move.source, { onlyIf: { etagMatches: move.etag } });
-    if (deleted === null) {
+    const retired = await retireMovedSource(store, move.source, move.etag);
+    if (retired !== "retired") {
       return toolError(
         `folder move partially applied; source cleanup stopped before all sources were deleted: ${move.source}`
       );
