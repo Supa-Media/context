@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  cachedNoteCopies,
   clearDraft,
   clearNote,
   getDraft,
@@ -10,12 +11,25 @@ import {
   putListing,
   putNote,
   putOutbox,
+  retireCopies,
   sweep,
   type Cached,
   type Draft,
 } from "./cache";
 import { openStore } from "./store";
 import { currentEpoch } from "./epoch";
+import {
+  adoptCachedNotes,
+  forgetMirroredNote,
+  mirroredAncestor,
+  mirroredListing,
+  mirroredNote,
+  moveMirroredBody,
+  putMirroredNotes,
+  rememberMirroredFolders,
+} from "./mirror";
+import { holdAncestors, neededEtags, releaseAncestors } from "./mirrorHolds";
+import { openMirrorStore } from "./mirrorStore";
 import type { KeyValueStore } from "./memory";
 import {
   counts,
@@ -92,6 +106,22 @@ import type { FolderListing, OpenNote } from "../console/files/types";
  * *copies* are gated on it: a draft and the queue are the person's own typing,
  * carry no clearance, and must keep working while the console is still finding
  * out what this person is.
+ *
+ * ## Where a copy comes from: the mirror, or the bounded cache
+ *
+ * On a device with a mirror (`mirrorStore.ts` — every native build, and every
+ * browser that lets IndexedDB open) a note and a folder listing are read from
+ * it and written to it, and the per-note cache in `cache.ts` is retired: its
+ * copies are handed to the mirror once, on mount, and removed. The mirror
+ * answers the same question for every note rather than for the ones somebody
+ * opened, and is re-derived from the server's own filter on every complete
+ * sync, which the bounded cache never was. On a browser with no mirror the
+ * bounded cache is still the answer, unchanged — so both halves stay, and each
+ * `remember*`/`cached*` below picks one per call rather than writing both.
+ *
+ * The draft and the queue are in `cache.ts` on every device, mirror or not.
+ * They are the person's typing, not copies, and nothing about the mirror
+ * touches them.
  */
 
 /** A second of typing is what a crash may cost. See the file comment. */
@@ -120,6 +150,16 @@ export interface OfflineNotes {
   rememberListing: (listing: FolderListing) => void;
   cachedNote: (path: string) => Promise<Cached<OpenNote> | null>;
   cachedListing: (path: string) => Promise<Cached<FolderListing> | null>;
+  /**
+   * The body a three-way merge may use as the ancestor of a draft typed on
+   * `baseEtag` — see `mirroredAncestor`. Not `cachedNote`: that is the newest
+   * copy, for reading, and the newest copy is exactly what the ancestor is not
+   * once the bucket has moved on.
+   */
+  ancestorFor: (
+    path: string,
+    baseEtag: string | null,
+  ) => Promise<{ text: string; etag: string } | null>;
   /**
    * Drop the cached copy of one note.
    *
@@ -300,8 +340,49 @@ export function useOfflineNotes(options: {
    */
   useEffect(() => {
     if (!ready) return;
-    void sweep(store, { now: Date.now() }).catch(() => {});
-  }, [ready, store]);
+    void (async () => {
+      /*
+        On a device with a mirror, the note and listing copies are handed over
+        and retired first — see the file comment. Adopted before removal, so a
+        copy that is the ancestor of an edit queued before the upgrade keeps
+        its Merge; removed only once the adoption has been written, so a
+        session that ended part-way (the adoption refused by the barrier)
+        leaves the copies for `forgetLocalCopies`, which is already taking them.
+      */
+      const mirror = await openMirrorStore();
+      if (mirror !== null && mine()) {
+        let handedOver = true;
+        for (const group of await cachedNoteCopies(store)) {
+          const adopted = await adoptCachedNotes(
+            mirror,
+            epochRef.current,
+            group.scope,
+            group.workspaceId,
+            group.copies,
+          );
+          if (!adopted && !mine()) handedOver = false;
+        }
+        if (handedOver && mine()) await retireCopies(store);
+      }
+      await sweep(store, { now: Date.now() });
+    })().catch(() => {});
+  }, [mine, ready, store]);
+
+  /*
+    The versions this context's live queue is based on, held for the mirror.
+
+    The store's copy of the queue trails this one by up to
+    `PERSIST_DEBOUNCE_MS`, and a sync that ran in that second would see no
+    queued edit and replace the body it is based on. The hold closes that
+    second; `mirrorHolds.ts` has the rest of the argument.
+  */
+  const holdOwner = useRef(`outbox:${Math.random().toString(36).slice(2)}`).current;
+  useEffect(() => {
+    const byPath: Record<string, (string | null)[]> = {};
+    for (const write of outbox.writes) (byPath[write.path] ??= []).push(write.baseEtag);
+    holdAncestors(holdOwner, workspaceId, byPath);
+  }, [holdOwner, outbox, workspaceId]);
+  useEffect(() => () => releaseAncestors(holdOwner), [holdOwner]);
 
   useEffect(
     () => () => {
@@ -309,6 +390,53 @@ export function useOfflineNotes(options: {
       if (draftTimer.current !== null) clearTimeout(draftTimer.current);
     },
     [],
+  );
+
+  /**
+   * Move this device's copy of a note onto text and an etag that are now in the
+   * bucket. The mirror where there is one — at every clearance holding the
+   * note, keeping any ancestor still needed — and the bounded cache where there
+   * is not. Neither invents an entry for a note it does not hold: a save result
+   * carries none of the visibility fields.
+   */
+  const rememberSent = useCallback(
+    (body: { path: string; text: string; etag: string }) => {
+      if (workspaceId === null || scope === null || !mine()) return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror !== null) {
+          const needed = await neededEtags(store, workspaceId);
+          if (!mine()) return;
+          await moveMirroredBody(mirror, epoch, workspaceId, body, needed, Date.now());
+          return;
+        }
+        const cached = await getNote(store, scope, workspaceId, body.path);
+        /*
+          Checked again here, and this is the one writer where the entry gate
+          is not enough: every other one writes synchronously after it, or
+          re-checks when its timer fires. This one awaits a read first, so the
+          session can end in the gap.
+
+          Web hid it — `store.web.ts` reads `localStorage` synchronously inside
+          an async function, so the whole chain drains in microtasks before a
+          press can be handled. Native does not: `AsyncStorage.getItem` is a
+          queued bridge call, so a read issued before sign-out resolves after
+          the clear has walked past that key, and the write behind it lands on
+          a device whose session is over. Measured that way round, from
+          `useFileBrowser`'s two call sites — a save, then sign out.
+        */
+        if (cached === null || !mine()) return;
+        await putNote(
+          store,
+          scope,
+          workspaceId,
+          { ...cached.value, text: body.text, etag: body.etag },
+          Date.now(),
+        );
+      })().catch(() => {});
+    },
+    [mine, scope, store, workspaceId],
   );
 
   const drain = useCallback(() => {
@@ -342,6 +470,16 @@ export function useOfflineNotes(options: {
         */
         commit(reconcile(outboxRef.current, next, report), true);
         setLastDrain(report);
+        /*
+          What was sent is in the bucket now, at the etag the write returned,
+          so the device's copy moves onto it — the same thing a Save that lands
+          does (`rememberBody`). Without it, an edit made offline and drained
+          reads back offline as the version it replaced until the next sync.
+        */
+        for (const sent of report.sent) {
+          const entry = current.writes.find((write) => write.path === sent.path);
+          if (entry !== undefined) rememberSent({ path: sent.path, text: entry.text, etag: sent.etag });
+        }
       })
       .catch(() => {
         // `drainOutbox` does not throw; an injected `write` that rejects rather
@@ -351,7 +489,7 @@ export function useOfflineNotes(options: {
       .finally(() => {
         draining.current = false;
       });
-  }, [commit, mine, workspaceId]);
+  }, [commit, mine, rememberSent, workspaceId]);
 
   /** Empty the queue whenever we believe we can reach the bucket. */
   useEffect(() => {
@@ -388,48 +526,72 @@ export function useOfflineNotes(options: {
       */
       rememberNote: (note) => {
         if (copies === null || !mine()) return;
-        void putNote(store, copies.scope, copies.workspaceId, note, Date.now()).catch(() => {});
+        const epoch = epochRef.current;
+        void (async () => {
+          const mirror = await openMirrorStore();
+          if (mirror === null) {
+            await putNote(store, copies.scope, copies.workspaceId, note, Date.now());
+            return;
+          }
+          /*
+            Through the one writer the sync uses too, so an online open keeps
+            the ancestor a parked write needs — the read cache lost it here,
+            the moment a note with a conflicted write was opened online.
+          */
+          const needed = await neededEtags(store, copies.workspaceId);
+          if (!mine()) return;
+          await putMirroredNotes(
+            mirror,
+            epoch,
+            copies.scope,
+            copies.workspaceId,
+            [note],
+            needed,
+            Date.now(),
+          );
+        })().catch(() => {});
       },
       rememberBody: (body) => {
-        if (copies === null || !mine()) return;
-        void getNote(store, copies.scope, copies.workspaceId, body.path)
-          .then((cached) => {
-            /*
-              Checked again here, and this is the one writer where the entry
-              gate is not enough: every other one writes synchronously after
-              it, or re-checks when its timer fires. This one awaits a read
-              first, so the session can end in the gap.
-
-              Web hid it — `store.web.ts` reads `localStorage` synchronously
-              inside an async function, so the whole chain drains in
-              microtasks before a press can be handled. Native does not:
-              `AsyncStorage.getItem` is a queued bridge call, so a read issued
-              before sign-out resolves after the clear has walked past that
-              key, and the write behind it lands on a device whose session is
-              over. Measured that way round, from `useFileBrowser`'s two call
-              sites — a save, then sign out.
-            */
-            if (cached === null || !mine()) return;
-            return putNote(
-              store,
-              copies.scope,
-              copies.workspaceId,
-              { ...cached.value, text: body.text, etag: body.etag },
-              Date.now(),
-            );
-          })
-          .catch(() => {});
+        if (copies === null) return;
+        rememberSent(body);
       },
       rememberListing: (listing) => {
         if (copies === null || !mine()) return;
-        void putListing(store, copies.scope, copies.workspaceId, listing, Date.now()).catch(
-          () => {},
-        );
+        const epoch = epochRef.current;
+        void (async () => {
+          const mirror = await openMirrorStore();
+          if (mirror === null) {
+            await putListing(store, copies.scope, copies.workspaceId, listing, Date.now());
+            return;
+          }
+          // The mirror derives every listing from paths; what a listing adds
+          // is each folder's own default, for its badge offline.
+          await rememberMirroredFolders(mirror, epoch, copies.scope, copies.workspaceId, listing);
+        })().catch(() => {});
       },
-      cachedNote: async (path) =>
-        copies === null ? null : getNote(store, copies.scope, copies.workspaceId, path),
-      cachedListing: async (path) =>
-        copies === null ? null : getListing(store, copies.scope, copies.workspaceId, path),
+      cachedNote: async (path) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null
+          ? getNote(store, copies.scope, copies.workspaceId, path)
+          : mirroredNote(mirror, copies.scope, copies.workspaceId, path);
+      },
+      cachedListing: async (path) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        return mirror === null
+          ? getListing(store, copies.scope, copies.workspaceId, path)
+          : mirroredListing(mirror, copies.scope, copies.workspaceId, path);
+      },
+      ancestorFor: async (path, baseEtag) => {
+        if (copies === null) return null;
+        const mirror = await openMirrorStore();
+        if (mirror !== null) {
+          return mirroredAncestor(mirror, copies.scope, copies.workspaceId, path, baseEtag);
+        }
+        const cached = await getNote(store, copies.scope, copies.workspaceId, path);
+        return cached === null ? null : { text: cached.value.text, etag: cached.value.etag };
+      },
 
       /*
         Not gated on `copies`, which is what every other line on the copy side
@@ -444,6 +606,15 @@ export function useOfflineNotes(options: {
       forgetNote: (path) => {
         if (workspaceId === null) return;
         void clearNote(store, workspace, path).catch(() => {});
+        // Both bodies and the entry, at every clearance — the mirrored copy is
+        // the same plaintext the lock was meant to be the last of.
+        void openMirrorStore()
+          .then((mirror) =>
+            mirror === null
+              ? undefined
+              : forgetMirroredNote(mirror, epochRef.current, workspace, path),
+          )
+          .catch(() => {});
       },
 
       savedDraft: async (path) => (workspaceId === null ? null : getDraft(store, workspace, path)),
@@ -497,7 +668,19 @@ export function useOfflineNotes(options: {
       drain,
       lastDrain,
     };
-  }, [commit, drain, lastDrain, mine, outbox, reachability, ready, scope, store, workspaceId]);
+  }, [
+    commit,
+    drain,
+    lastDrain,
+    mine,
+    outbox,
+    reachability,
+    ready,
+    rememberSent,
+    scope,
+    store,
+    workspaceId,
+  ]);
 
   return api;
 }

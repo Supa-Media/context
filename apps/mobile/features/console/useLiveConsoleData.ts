@@ -44,6 +44,9 @@ import {
   forgetLocalCopies,
 } from "../offline/forget";
 import { useBackgroundDrain } from "../offline/useBackgroundDrain";
+import { useMirrorSync, type MirrorActions } from "../offline/useMirrorSync";
+import { useMirrorStatuses } from "../offline/mirrorStatus";
+import type { BatchRead, ManifestPage } from "../offline/mirrorSync";
 import { useRememberedContexts } from "../offline/useRememberedContexts";
 import { queuedWriteSender } from "./files/queuedWrite";
 import { defaultContext } from "./nav";
@@ -416,6 +419,8 @@ export function useLiveConsoleData(): ConsoleData {
     there is still exactly one definition of what a queued write is.
   */
   const writeNoteAction = useAction(api.functions.files.writeNote);
+  const syncManifestAction = useAction(api.functions.files.syncManifest);
+  const readNotesAction = useAction(api.functions.files.readNotes);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const observeStorageLayout = useMutation(
     api.functions.storage.observeStorageLayout,
@@ -911,6 +916,44 @@ export function useLiveConsoleData(): ConsoleData {
   useBackgroundDrain({ openWorkspaceId: selectedContextId, write: sendQueuedTo });
 
   /*
+    Every note of every context this person can reach, on the device, kept in
+    step with the bucket — `features/offline/useMirrorSync.ts` decides when and
+    `mirrorSync.ts` what. From `liveWorkspaces` and never from `workspaces`, for
+    the reason the departed purge below gives at length: a remembered list is a
+    memory, and a sync *prunes* — driving it from a memory that aged a live
+    context out would delete that context's notes at the one moment they are
+    earning their keep.
+
+    The two actions are cast at this boundary and nowhere else: the validators
+    type `visibility` as a string where the console's `Visibility` is the
+    narrower template type, which is the same widening every other read in
+    `useFileBrowser` accepts.
+  */
+  const mirrorActions = useMemo<MirrorActions>(
+    () => ({
+      syncManifest: async ({ workspaceId, cursor }) =>
+        (await syncManifestAction({
+          workspaceId: workspaceId as Id<"workspaces">,
+          ...(cursor === undefined ? {} : { cursor }),
+        })) as unknown as ManifestPage,
+      readNotes: async ({ workspaceId, paths }) =>
+        (await readNotesAction({
+          workspaceId: workspaceId as Id<"workspaces">,
+          paths,
+        })) as unknown as { results: BatchRead[] },
+    }),
+    [readNotesAction, syncManifestAction],
+  );
+  useMirrorSync({
+    contexts: liveWorkspaces?.map((workspace) => ({
+      workspaceId: workspace.workspaceId,
+      role: workspace.role,
+    })),
+    actions: mirrorActions,
+  });
+  const mirrors = useMirrorStatuses();
+
+  /*
     The purge for "removed" belongs next to the purge for "left".
 
     `leaveContext` below clears a context's local copies on the server's answer,
@@ -1105,6 +1148,7 @@ export function useLiveConsoleData(): ConsoleData {
     pluginBrowse,
     pluginRuntime,
     fastSearch,
+    mirrors,
     // A query that threw is not "still loading". Leaving the console spinning
     // forever on an answer that already arrived — and is an error — is the
     // quieter version of the blank page this replaced.

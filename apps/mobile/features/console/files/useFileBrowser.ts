@@ -73,6 +73,7 @@ import {
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
+import { holdAncestors, releaseAncestors } from "../../offline/mirrorHolds";
 import { restoreFor } from "../../offline/restore";
 import { type WriteOutcome } from "../../offline/sync";
 import { queuedWriteSender } from "./queuedWrite";
@@ -477,6 +478,26 @@ export function useFileBrowser(options: {
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
 
+  /*
+    The open note's version, held for the mirror's ancestor rule.
+
+    A note can sit open and clean for ten minutes while a sync moves the
+    device's copy on underneath it; the moment somebody then types, the draft
+    is based on the version the editor opened, and a merge will need exactly
+    that body. Neither the queue nor a draft names it yet, so the editor holds
+    it itself (`mirrorHolds.ts`) — the etag it is showing, and the base of the
+    draft it is holding, which differ once a conflict is open.
+  */
+  const editorHold = useRef(`editor:${Math.random().toString(36).slice(2)}`).current;
+  useEffect(() => {
+    holdAncestors(
+      editorHold,
+      workspaceId,
+      editor.path === null ? {} : { [editor.path]: [editor.etag, editor.draftBase] },
+    );
+  }, [editor.draftBase, editor.etag, editor.path, editorHold, workspaceId]);
+  useEffect(() => () => releaseAncestors(editorHold), [editorHold]);
+
   /**
    * Read a note **without** remembering it.
    *
@@ -587,7 +608,7 @@ export function useFileBrowser(options: {
   const conflict = useConflictReview({
     editor,
     fetchNote,
-    cachedNote: offline.cachedNote,
+    ancestor: offline.ancestorFor,
     // `unknown` is treated as online: the read is what finds out, and refusing
     // to try would leave a cold load stuck on "cannot be read" forever.
     online: offline.reachability !== "offline",

@@ -748,3 +748,42 @@ export function listingOf(index: MirrorIndex, folder: string): FolderListing | n
     manifestUsable: index.manifestUsable ?? true,
   };
 }
+
+/**
+ * Take in copies the old read cache held, for paths the mirror does not have.
+ *
+ * Once a device has a mirror, the per-note cache in `cache.ts` is the same
+ * question answered worse, and it is retired rather than kept beside the
+ * mirror: two stores answering "what is this note offline" is two answers that
+ * can disagree, and the older one is exactly the one a lost grant could leave
+ * readable. But a copy in it may be the **ancestor** of an edit queued before
+ * the upgrade, and throwing it away would take that edit's Merge with it. So
+ * each copy moves in at the clearance it was filed under, dated by when it was
+ * read — and only where the mirror has nothing, because a mirrored version is
+ * newer than any cached one by construction. The next complete sync prunes
+ * whatever of it is no longer visible, exactly as it would its own.
+ */
+export function adoptCachedNotes(
+  store: MirrorStore,
+  epoch: number,
+  scope: CacheScope,
+  workspaceId: string,
+  copies: readonly Cached<OpenNote>[],
+): Promise<boolean> {
+  return updateIndex(store, epoch, scope, workspaceId, async (index) => {
+    let adopted = false;
+    for (const copy of copies) {
+      const note = copy.value;
+      if (index.entries.has(note.path)) continue;
+      const written = await writeBody(store, epoch, scope, workspaceId, "current", {
+        path: note.path,
+        etag: note.etag,
+        text: note.text,
+      });
+      if (!written) return false;
+      index.entries.set(note.path, entryOf(note, copy.cachedAt));
+      adopted = true;
+    }
+    return adopted;
+  });
+}
