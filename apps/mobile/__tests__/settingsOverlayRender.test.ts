@@ -229,6 +229,28 @@ describe("the account's own settings have a home", () => {
     expect(signedOut).toBe(1);
   });
 
+  test("with nothing pending there is no invitations row to press", () => {
+    /*
+      The row used to sit there reading "None" — a badge people learn to skip
+      past on the way to the rows that change. Absent instead, and a URL that
+      names it falls back the same way a section this context does not have
+      already does.
+    */
+    const data: ConsoleData = { ...demoData(), deleteAccount: async () => {}, invitations: [] };
+    mount(() =>
+      createElement(SettingsOverlay, {
+        data,
+        section: "invitations",
+        onSelect: () => {},
+        onDismiss: () => {},
+      }),
+    );
+    const body = document.body;
+    expect(body.querySelector('[data-testid="settings-section-invitations"]')).toBeNull();
+    // Fell back to the default section rather than opening an empty panel.
+    expect(body.textContent ?? "").not.toContain("Nothing pending");
+  });
+
   test("an invitation is a live row, and answering it navigates", () => {
     const tokens: string[] = [];
     const host = overlay("invitations", () => {}, () => {}, {

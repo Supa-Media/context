@@ -89,6 +89,17 @@ export interface SettingsSectionSpec {
    * their way out. `plugins/experiment.ts` holds the argument.
    */
   experimental?: boolean;
+  /**
+   * Absent unless something is actually waiting.
+   *
+   * The second shape of "absent, not disabled", and the one the first could
+   * not express: `personalOnly` asks what a *context* is, and this asks what
+   * is true for the person right now. Invitations is the row it exists for —
+   * most people have none most of the time, and a permanent row reading
+   * "None" is a badge somebody learns to skip past on the way to the rows
+   * that do change.
+   */
+  pendingOnly?: boolean;
 }
 
 export const SETTINGS_SECTIONS = [
@@ -129,6 +140,15 @@ export const SETTINGS_SECTIONS = [
     group: "Your account",
     icon: "mailOpen",
     personalOnly: false,
+    /*
+      Only while somebody is actually waiting for an answer. The row's own
+      preview already refused to say "None" on every load — `previews.ts`:
+      "the resting state of this row … is a badge people learn to ignore" —
+      and this is that argument carried one step further: if the row has
+      nothing to say in its resting state, the resting state should not have
+      a row.
+    */
+    pendingOnly: true,
   },
   {
     key: "overview",
@@ -391,10 +411,10 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
 export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
 
 /**
- * The sections this context actually has.
+ * The sections this context actually has, for this person, right now.
  *
  * `kind` decides nothing today and is kept because it will. Only a personal
- * personal workspace has an address mail can be sent to — but Email, Calendar, Chats and
+ * workspace has an address mail can be sent to — but Email, Calendar, Chats and
  * Meetings are all *listed* for a workspace, because each carries the sentence
  * saying why it cannot do that here, and a section removed takes its
  * explanation with it. `personalOnly` is the switch for a section that would
@@ -402,20 +422,41 @@ export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
  *
  * `shown` is the other axis, and it belongs to the caller rather than to this
  * file on purpose: whether Plugins is on the list depends on what that context
- * has installed and on how the app was built, neither of which a pure
- * catalogue can see. A key left out of `shown` stays hidden, so an
- * `experimental` row is absent until somebody wires it on — the fail-closed
- * direction, and the one a half-finished deprecation should land on.
+ * has installed and on how the app was built, and whether Invitations is on it
+ * depends on whether anybody has invited this person — none of which a pure
+ * catalogue can see. A key left out of `shown` stays hidden, so both an
+ * `experimental` row and a `pendingOnly` one are absent until somebody wires
+ * them on: the fail-closed direction, and the one a half-finished deprecation
+ * should land on.
+ *
+ * For Invitations the caller hands over `(data.invitations?.length ?? 0) > 0`,
+ * and the `??` is load-bearing rather than defensive: `undefined` is the list
+ * still in flight and is **not** zero (`ConsoleData.invitations`, and
+ * `previews.ts` on the same field). Both hide the row, for different reasons —
+ * nothing is waiting, or nothing is known yet — and only one of them would be
+ * wrong to state out loud, so neither is stated: the row simply arrives when
+ * there is something in it.
  */
 export function settingsSectionsFor(
   kind: "personal" | "shared" | null | undefined,
   shown: Partial<Record<SettingsSectionKey, boolean>> = {},
 ): readonly SettingsSectionSpec[] {
-  return SETTINGS_SECTIONS.filter((section) => {
+  return SETTINGS_SECTIONS.filter((entry) => {
+    /*
+      Widened deliberately: the catalogue is `as const`, so each entry's type
+      knows only the keys that entry happens to spell out and `pendingOnly` is
+      absent from every row but one. Reading it through the interface is what
+      makes an optional field optional here rather than a compile error.
+    */
+    const section: SettingsSectionSpec = entry;
     // Deprecated in the console, and absent before anything else is asked: a
     // section nobody may see is not made visible by the kind of context it is
     // in. See `plugins/experiment.ts`.
     if (isExperimentalSection(section) && shown[section.key] !== true) return false;
+    // And the row that has nothing in it until somebody is waiting for an
+    // answer. Same shape, different question: one asks what the product
+    // offers, this asks what is true for this person right now.
+    if (section.pendingOnly === true && shown[section.key] !== true) return false;
     // Account sections belong to the person, not to whichever context they
     // happen to have open, so a context's kind never removes one.
     if (section.scope === "account") return true;
