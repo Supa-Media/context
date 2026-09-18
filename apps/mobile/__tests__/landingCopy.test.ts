@@ -343,7 +343,33 @@ describe("the landing page is every component in the folder", () => {
     // Comments stripped first: this file's own header quotes the claims it
     // exists to guard, and a reader that took those for copy would report the
     // docblock as unguarded prose.
-    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+    const code = source
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/[^\n]*/g, "")
+      /*
+        AND IMPORT STATEMENTS DROPPED, BECAUSE A MODULE SPECIFIER IS NOT PROSE.
+
+        This reader matched every double-quoted run in the file, which was
+        harmless only for as long as no copy module imported anything — and
+        stopped being true the moment one drew a figure from a constant rather
+        than writing it out. It then reported
+        `"@context/convex/functions/lib/premium"` as a sentence a visitor reads
+        that nobody had listed.
+
+        **The whole statement, not the `from "…"` fragment.** Stripping the
+        fragment was the first fix and it was wrong in a way worth keeping a
+        note about: a copy constant that happens to *break after the word
+        "from"* — `"…named from " + "its id…"` — has `from "` followed by ` + `
+        and another quote, so the pattern ate the join and reported the two
+        halves as one sentence with a word missing. Anchoring at `import` and
+        stopping at the first `;` cannot reach a string literal, because an
+        import statement has no semicolon inside one.
+
+        Dropped rather than allow-listed: an import path is never copy, in this
+        module or a later one, and a list of paths to ignore is a list somebody
+        has to remember to extend.
+      */
+      .replace(/^import\b[^;]*;/gm, "");
     /*
       EVERY string is matched and the short ones are dropped AFTERWARDS, which
       is not a tidy-up. A pattern that puts the floor inside the quotes —
