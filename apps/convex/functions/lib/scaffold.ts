@@ -56,7 +56,12 @@
  * about what a *starting* manifest says.
  */
 
-import { PRIVACY_KEY, renderPrivacyRulesBlock, type Visibility } from "./privacy";
+import {
+  ARCHIVE_FOLDER_PATTERN,
+  PRIVACY_KEY,
+  renderPrivacyRulesBlock,
+  type Visibility,
+} from "./privacy";
 
 /**
  * The bit of `ContextStore` (`apps/mcp/src/store/index.js`) scaffolding needs.
@@ -724,39 +729,6 @@ export function renderFolderReadme(folder: string): string {
 export const GENERIC_ROOT_KEYS = ["todo.md"] as const;
 
 /**
- * Where `save_context` files a session — a folder name WE pick, not the owner.
- *
- * `defaultSessionFolder` in the gateway returns `4-archive/chat-history` when
- * the manifest declares a `4-archive` rule and `0-inbox/sessions` otherwise, so
- * every workspace whose owner has run the hook once has one of these. That makes
- * them two guesses per handle on names nobody chose — the same shape as the
- * five PARA folders, and they get the same answer.
- *
- * A blanket `.md` refusal used to cover this without naming it. Replacing that
- * with a list was right (guessability is a property of a name, not of
- * file-versus-folder) and it made the edge the blanket rule had been hiding
- * into a gap: measured, `4-archive/chat-history` unfurled as "Chat history"
- * with a live card token.
- *
- * **The platform folder beneath is NOT bounded by refusing the parent**, and a
- * first version of this comment said it was, twice over.
- * `isProductMandatedPath` is exact-match — the neighbouring test pins that it
- * must not be `startsWith` — so `4-archive/chat-history/claude` previews with
- * its name regardless. And the parent is not the only place it can live:
- * `save_context` takes a `destination`, so the platform folder appears under
- * whatever the caller chose.
- *
- * Stopping at the parent is still right, and for a different reason than the
- * one that was written down: the platform segment is caller-supplied
- * (`/^[a-z0-9][a-z0-9-]{0,31}$/`), so the child set is unbounded and cannot be
- * enumerated, and under an owner-chosen `destination` refusing it would cost a
- * card for nothing. The residual is that `<session folder>/<platform>` is
- * previewable for the three platform names somebody might guess. Named rather
- * than argued away.
- */
-export const SESSION_FOLDERS = ["4-archive/chat-history", "0-inbox/sessions"] as const;
-
-/**
  * Folders the GATEWAY creates from a capture's `source`, not the owner.
  *
  * `writeInboxCapture` files any capture carrying an `external_id` under
@@ -829,6 +801,68 @@ const PRESET_FOLDERS = [
   "4-customers",
   "5-archive",
 ] as const;
+
+/**
+ * The archive roots **this product ships**, and the session folders under them.
+ *
+ * Computed off the two lists above rather than restated, for the reason the
+ * whole of `PRODUCT_MANDATED_PATHS` is computed: a preset that adds
+ * `6-archive` tomorrow would otherwise ship a guessable session folder that no
+ * list names, and the guard below drives `defaultSessionFolder` rather than a
+ * copy of it, so the gap would surface as a failing check rather than a quiet
+ * card. `0-inbox/sessions` is the no-archive fallback and is ours outright.
+ */
+function productArchiveRoots(): string[] {
+  const roots = new Set<string>();
+  for (const folder of [...PARA_FOLDERS, ...PRESET_FOLDERS]) {
+    if (ARCHIVE_FOLDER_PATTERN.test(folder)) roots.add(folder);
+  }
+  return [...roots].sort();
+}
+
+function sessionFolders(): string[] {
+  return [...productArchiveRoots().map((root) => `${root}/chat-history`), "0-inbox/sessions"];
+}
+
+/**
+ * Where `save_context` files a session — a folder name WE pick, not the owner.
+ *
+ * `defaultSessionFolder` in the gateway returns `<archive>/chat-history` when
+ * the manifest declares an archive folder and `0-inbox/sessions` otherwise, so
+ * every workspace whose owner has run the hook once has one of these. That makes
+ * them a guess per handle on names nobody chose — the same shape as the five
+ * PARA folders, and they get the same answer.
+ *
+ * **`<archive>` is resolved, not literal**, which is why this list is computed
+ * rather than typed: the gateway recognises any `<n>-archive`, and the archive
+ * roots *this product ships* are the PARA one and the presets'. An archive a
+ * customer named themselves is theirs and stays off the list, on the same
+ * ground the `custom` template does below — the guessability premise does not
+ * hold for a folder we did not choose.
+ *
+ * A blanket `.md` refusal used to cover this without naming it. Replacing that
+ * with a list was right (guessability is a property of a name, not of
+ * file-versus-folder) and it made the edge the blanket rule had been hiding
+ * into a gap: measured, `4-archive/chat-history` unfurled as "Chat history"
+ * with a live card token.
+ *
+ * **The platform folder beneath is NOT bounded by refusing the parent**, and a
+ * first version of this comment said it was, twice over.
+ * `isProductMandatedPath` is exact-match — the neighbouring test pins that it
+ * must not be `startsWith` — so `4-archive/chat-history/claude` previews with
+ * its name regardless. And the parent is not the only place it can live:
+ * `save_context` takes a `destination`, so the platform folder appears under
+ * whatever the caller chose.
+ *
+ * Stopping at the parent is still right, and for a different reason than the
+ * one that was written down: the platform segment is caller-supplied
+ * (`/^[a-z0-9][a-z0-9-]{0,31}$/`), so the child set is unbounded and cannot be
+ * enumerated, and under an owner-chosen `destination` refusing it would cost a
+ * card for nothing. The residual is that `<session folder>/<platform>` is
+ * previewable for the three platform names somebody might guess. Named rather
+ * than argued away.
+ */
+export const SESSION_FOLDERS: readonly string[] = sessionFolders();
 
 /**
  * A path this product itself puts into every workspace, and therefore one anybody

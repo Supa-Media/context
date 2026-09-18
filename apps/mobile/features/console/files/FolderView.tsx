@@ -82,6 +82,7 @@
  * binding or a backfill is — the same split `Explorer` made for the same line.
  */
 
+import { Fragment } from "react";
 import { StyleSheet, View, useWindowDimensions } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
@@ -288,14 +289,20 @@ export function FolderView({
             */
             <View style={compact ? styles.card : undefined}>
               {rows.map((row, index) => (
-                <FolderRow
-                  key={row.path}
-                  row={row}
-                  onSelect={onSelect}
-                  menu={menu}
-                  card={compact}
-                  first={index === 0}
-                />
+                <Fragment key={row.path}>
+                  {/*
+                    The separator is its own element, not a border on the row.
+
+                    It was `borderTopWidth` plus a `marginLeft` to inset it —
+                    and a margin on a row moves the ROW, so every ruled row sat
+                    16pt to the right of the first one. React Native has no
+                    `::before` to hang an inset rule on, so the rule that is
+                    inset has to be a view that is inset. It also keeps a row's
+                    hover fill full-bleed, which a margin would have notched.
+                  */}
+                  {compact && index > 0 ? <View style={styles.rowRule} /> : null}
+                  <FolderRow row={row} onSelect={onSelect} menu={menu} card={compact} />
+                </Fragment>
               ))}
             </View>
           )}
@@ -338,15 +345,12 @@ function FolderRow({
   onSelect,
   menu,
   card = false,
-  first = false,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
   menu?: FolderMenu;
   /** Drawn inside the phone's grouped card — see the listing. */
   card?: boolean;
-  /** The first row in that card, which draws no separator above it. */
-  first?: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -366,15 +370,36 @@ function FolderRow({
     <View ref={rightClick.ref} collapsable={false}>
     <PressRow
       onPress={() => onSelect(row.path)}
-      style={[styles.row, card && styles.rowCard, card && !first && styles.rowRuled]}
+      style={[styles.row, card && styles.rowCard]}
       hoverStyle={styles.rowHover}
       radius={card ? 0 : radii.md}
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
       accessibilityLabel={row.kind === "folder" ? `${label}, folder` : label}
       testID="folder-row"
     >
+      {/*
+        A GLYPH IN THE CARD, A CHEVRON OUTSIDE IT.
+
+        `Phone-Browse.dc.html` puts an 18pt folder mark at the head of every
+        row, and the reason is not decoration: inside the card the chevron is
+        already **trailing**, where it says "this row goes somewhere". A
+        leading chevron there meant a folder row drew a chevron at each end —
+        two marks with two meanings and one shape — while a file row drew an
+        empty gutter, so a mixed listing said nothing at all about which of its
+        rows were folders. The glyph says it, once, in the slot the board puts
+        it in.
+
+        Outside the card there is no trailing chevron, so the leading one is
+        still the only thing carrying "this is a folder" and it stays.
+      */}
       <View style={styles.chevron}>
-        {row.kind === "folder" ? (
+        {card ? (
+          <Icon
+            name={row.kind === "folder" ? "folder" : "file"}
+            size={16}
+            color={colors.muted}
+          />
+        ) : row.kind === "folder" ? (
           <Icon name="chevronRight" size={15} color={colors.muted} />
         ) : null}
       </View>
@@ -542,12 +567,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   */
   rowCard: { height: 48, paddingLeft: space.x4, paddingRight: space.x4 },
   /*
-    The separator, inset past the icon gutter so the rules line up under the
-    names rather than cutting the whole card into bands. A top border on every
-    row but the first, rather than a bottom border on every row but the last:
-    the last row is the one whose border would sit on the card's rounded edge.
+    The separator, inset past the card's gutter so the rules start where the
+    row's glyph does rather than cutting the whole card into bands — which is
+    what `Phone-Browse.dc.html` draws, and the one thing that makes a card read
+    as a grouped list.
+
+    **The inset was written down here for a while and never applied**: the
+    comment described it while the style had only a `borderTopWidth`, so every
+    rule ran the card's full width. Applying it as `marginLeft` on the row was
+    worse and visibly so — a margin moves the row, so every ruled row sat 16pt
+    right of the first. It is a view between the rows now. Drawn between rather
+    than on the last row, which is the one whose rule would sit on the card's
+    rounded edge.
   */
-  rowRuled: { borderTopWidth: 1, borderTopColor: colors.line },
+  rowRule: { height: 1, marginLeft: space.x4, backgroundColor: colors.line },
   /** The chevron gutter, so a file's name lines up with a folder's. */
   chevron: { width: 18, alignItems: "center", justifyContent: "center" },
   rowName: { flexGrow: 1, flexShrink: 1, minWidth: 0, color: colors.text },

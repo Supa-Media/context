@@ -50,7 +50,10 @@ import {
   writeFile,
 } from "../functions/lib/fileOps";
 import { PRIVACY_KEY, canSee, isPlumbing, parsePrivacyManifest } from "../functions/lib/privacy";
-import { renderPrivacyManifest } from "../functions/lib/scaffold";
+import {
+  renderPrivacyManifest,
+  renderPrivacyManifestForFolders,
+} from "../functions/lib/scaffold";
 import { replacePrivacyRulesBlock, type Visibility } from "../functions/lib/privacy";
 
 const NOW = 1_800_000_000_000;
@@ -1133,6 +1136,54 @@ describe("archiving is the recoverable one", () => {
       archivePath(store, { path: "4-archive/README.md", clearance: clearanceOf("private"), now: NOW }),
     );
     expect(error.code).toBe("PATH_INVALID");
+  });
+
+  /**
+   * The console used to write `4-archive` whatever the layout said, so a
+   * workspace built from the `company` preset — the default for a shared
+   * context, whose archive is `5-archive` — got a second archive silently
+   * created beside the one it already had, in a bucket its owner also sees in
+   * Obsidian. Meanwhile `archive_note` refused the same workspace outright.
+   * One resolver answers both now.
+   */
+  test("the destination is the archive this context declares, not a literal", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(
+      PRIVACY_KEY,
+      renderPrivacyManifestForFolders(["0-inbox", "1-projects", "5-archive"]),
+    );
+    store.seed("1-projects/pitch.md", "# Pitch\n");
+
+    const result = await archivePath(store, {
+      path: "1-projects/pitch.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+
+    expect(result.to).toMatch(/^5-archive\/[\dTZ-]+\/1-projects\/pitch\.md$/);
+    expect(
+      Object.keys(store.snapshot()).some((key) => key.startsWith("4-archive/")),
+      "it invented a second archive beside the real one",
+    ).toBe(false);
+  });
+
+  /**
+   * And on a layout with no archive at all it now refuses, which is what the
+   * gateway has always done. Creating the folder was the disagreement: two
+   * surfaces, one bucket, opposite answers to "does this context archive".
+   */
+  test("a layout with no archive is told so rather than given one", async () => {
+    const store = memoryStore() as MemoryStore & FileStore;
+    store.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(["Journal", "Clients"]));
+    store.seed("Journal/day.md", "# A day\n");
+
+    const error = await capture(() =>
+      archivePath(store, { path: "Journal/day.md", clearance: clearanceOf("private"), now: NOW }),
+    );
+
+    expect(error.code).toBe("ARCHIVE_UNAVAILABLE");
+    expect(store.snapshot()["Journal/day.md"]).toBeTruthy();
+    expect(Object.keys(store.snapshot()).some((key) => key.includes("archive/"))).toBe(false);
   });
 });
 

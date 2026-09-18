@@ -265,9 +265,9 @@ index 705445c..e69f966 100644
 +    if (foldedTwinBlocks(move.destination, destinationVisibility, rules, overrides)) {
 +      return toolError(FOLDED_TWIN_REFUSAL);
 +    }
-     const fastArchiveCandidate =
-       move.source.startsWith("4-archive/") &&
-       move.destination.startsWith("4-archive/") &&
+     // Both ends inside the *same* archive. Two different archive roots is a
+     // move between folders that may have different visibility, which is exactly
+     // what the slow path is for.
 @@ -9235,6 +9316,19 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
    if (scope === "team" && moves.some(({ destination: path }) => hasOverride(overrides, path))) {
      return writePermissionError("folder move destination");
