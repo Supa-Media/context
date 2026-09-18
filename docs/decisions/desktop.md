@@ -3013,6 +3013,103 @@ down for it, the way `bottomChrome.ts` already lets the frame publish a height
 upward), and it needs every interactive child of that bar to carry
 `-webkit-app-region: no-drag` or a click on it moves the window. That is a
 layout change across every density with its own diff and its own screenshots.
+It is the section below.
+
+### The band moves into the bar
+
+Reported by the owner against the shipped shell, in the plainest terms the
+defect has: *"why is the top forehead so big, this needs to be more compact and
+thin like notion"*. Measured, it is 45pt of band drawing nothing on top of a
+45pt top bar, and the explorer's own 44pt header under that — 134pt before the
+first note, in a window whose default height is 760.
+
+**The comparison is more instructive than the complaint.** Notion's chrome is
+*taller* than this app's was: a tab strip of about 40pt and a page toolbar of
+about 45 under it. It reads thinner because both of its rows do a job — the
+window controls sit *in* the tab strip. The number to cut was never the total;
+it was the row that draws nothing, and there was exactly one.
+
+**The console's own top bar takes the buttons, and the root band stands down
+for it.** The bar keeps `layout.topBarHeight` and pays
+`SHELL_TITLE_BAND_LEAD_PX` of leading inset instead — 84, which is not a new
+measurement but the one `apps/desktop/src/renderer/notepad.css` has run its own
+45pt bar at since it was written. What the window gets back is the band's
+whole height, and what that buys, at the default window size, is two more rows
+of the note list.
+
+**It is a handshake, not a constant, and that is the whole of the design.**
+Three surfaces inside this same shell have no bar that can hold anything:
+
+- **The sign-in group.** No frame at all — the shell hosts it before there is a
+  session, which is why the band was mounted above every route rather than in
+  the console's layout in the first place.
+- **Settings.** `Overlay` is a `Modal`, its own root view, with the console
+  frame still mounted *behind* it and still saying it holds the buttons. This
+  is the surface that makes the handshake a two-component split rather than one
+  component with an `if`: `ShellTitleBand` is unconditional and settings uses
+  it; `RootShellTitleBand` reads the flag and only `app/_layout.tsx` uses it.
+  An overlay that consulted the flag would put the buttons back over its own
+  *Notes* control — the exact defect the section above records fixing.
+- **Compact density.** `topBarCompact` is `position: "absolute"`, transparent,
+  and lying over a document that scrolls under it; buttons placed there would
+  sit on the note. **A console window narrowed past `narrowBreakpoint` is that
+  layout on a Mac**, so this is reachable by dragging an edge and not only by
+  owning a phone — which is why the flag is published on every render of the
+  frame rather than once on mount, and why widening the window has to take the
+  job back.
+
+So a frame publishes "I hold them" through `features/app/topChrome.ts` — the
+same module-store shape, and the same argument for it, as `bottomChrome.ts` at
+the other edge: the band is an *ancestor*, so it cannot read a provider the
+route renders below it. **A layout effect rather than `useEffect`**, because
+standing an ancestor down is a parent re-render driven from a child: React
+flushes layout effects and the renders they schedule before the browser paints,
+and with `useEffect` every cold load would show 90pt of chrome for one frame
+and collapse to 45 on the next. That flash is the defect, briefly, every time.
+
+**The flag may only ever take a band away, never put one there.**
+`shellBandDraws` asks the platform gate first and the flag second. A frame
+publishing "I hold them" is stating an opinion about a shell it may not be
+inside, and the reverse order would grow 45pt of nothing on Windows, on Linux,
+and in every ordinary browser tab the moment a frame unmounted. The test is
+named for it.
+
+**`SHELL_TITLE_BAND_PX` is now 45 because `layout.topBarHeight` is**, and that
+equality is load-bearing rather than tidy. `trafficLightPosition` is set once,
+when the window is created; the page's density goes on changing under it. Two
+boxes of different heights could not share one `y`, so either the shell learns
+to move the buttons at runtime — a bridge call, a `BRIDGE_VERSION`, a round
+trip on every resize — or the two boxes are the same height and the question
+never arises. `SHELL_TRAFFIC_LIGHTS.y` moved 12 → 16 to centre a button in it.
+The band cost seven points on the two surfaces that draw nothing in it either
+way, and bought a single position that is correct wherever the buttons land.
+`shellTitleBand.test.ts` asserts the equality from the app's side and
+`packages/desktop-bridge/test/layout.test.mjs` from the package's.
+
+**`no-drag` goes on the frame's own slots, never on the controls a route hands
+in.** The bar is the window's drag handle now, so a control inside it would
+move the window instead of activating — the rule the section above flagged and
+the reason this was not smuggled into it. A route can put anything in
+`switcher`, `tabs`, `topTrailing`, `accountSlot` or `syncSlot`; a guard written
+on those contents would hold for exactly the chips somebody remembered, and the
+next one added would drag the window with no diff that looks wrong on its own.
+On the slot it is structural. What stays grabbable is the bar's own background:
+the gaps between slots, the run between the chip and the tabs, and the air
+above the tabs, which hang from the bar's foot — so **the top edge of the
+window is still where a person grabs it**, which is the property the settings
+overlay was already keeping and the console now owes too.
+
+The tests are `apps/mobile/__tests__/topChrome.test.ts` (the store, and which
+densities may take the job), the new half of
+`apps/mobile/__tests__/shellTitleBand.test.ts` (both pure rules, the two
+components giving different answers to the same flag, and settings keeping its
+band while the console behind it holds the lights), and the new half of
+`apps/mobile/__tests__/appFrameRender.test.ts` (the bar in real DOM: the lead,
+the drag region, every filled slot opting out, and the job handed back on
+narrowing and on unmount). **One thing here is not covered and is worth saying
+so**: that the effect is a *layout* effect rather than an ordinary one is
+invisible to jsdom, which paints nothing — `act` flushes both the same way. The
+argument for it is above; the check is a cold load on a Mac.
 
 ### Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 

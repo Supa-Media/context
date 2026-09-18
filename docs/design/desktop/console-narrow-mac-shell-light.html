@@ -1,0 +1,1583 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>console-narrow-mac-shell-light</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #050506; }
+  body { -webkit-font-smoothing: antialiased; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  #shot { width: 760px; height: 800px; overflow: hidden; position: relative; }
+  #shot > div { height: 800px !important; max-height: 800px !important; }
+  /*
+    And the frame inside it, for the reason this file's siblings already record
+    about `dvh`: jsdom's CSS parser does not know the unit, drops the whole
+    declaration on the way into the CSSOM, and so `StyleSheet.getSheet()` hands
+    over a sheet with no height on `AppFrame` at all. Chromium would honour
+    `calc(100dvh - …)` perfectly well if it ever received it — what it receives
+    is jsdom's edit. Without this the console stops at its content and the
+    bottom of every shot is bare page, which is a picture of the harness.
+  */
+  #shot [data-testid="app-frame"] { height: 800px !important; max-height: 800px !important; }
+</style>
+<style id="rnw">[stylesheet-group="0"]{}
+body{margin:0;}
+button::-moz-focus-inner,input::-moz-focus-inner{border:0;padding:0;}
+html{-ms-text-size-adjust:100%;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:rgba(0,0,0,0);}
+input::-webkit-search-cancel-button,input::-webkit-search-decoration,input::-webkit-search-results-button,input::-webkit-search-results-decoration{display:none;}
+[stylesheet-group="1"]{}
+.css-accessibilityImage-9pa8cd{bottom:0px;height:100%;left:0px;opacity:0;position:absolute;right:0px;top:0px;width:100%;z-index:-1;}
+.css-text-146c3p1{background-color:rgba(0,0,0,0.00);border:0 solid black;box-sizing:border-box;color:rgba(0,0,0,1.00);display:inline;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;list-style:none;margin:0px;padding:0px;position:relative;text-align:start;text-decoration:none;white-space:pre-wrap;word-wrap:break-word;}
+.css-textHasAncestor-1jxf684{background-color:rgba(0,0,0,0.00);border:0 solid black;box-sizing:border-box;color:inherit;display:inline;font:inherit;list-style:none;margin:0px;padding:0px;position:relative;text-align:inherit;text-decoration:none;white-space:inherit;word-wrap:break-word;}
+.css-textinput-11aywtz{-moz-appearance:textfield;-webkit-appearance:none;background-color:rgba(0,0,0,0.00);border-bottom-left-radius:0px;border-bottom-right-radius:0px;border-top-left-radius:0px;border-top-right-radius:0px;border:0 solid black;box-sizing:border-box;font:14px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;margin:0px;padding:0px;resize:none;}
+.css-view-g5y9jx{align-content:flex-start;align-items:stretch;background-color:rgba(0,0,0,0.00);border:0 solid black;box-sizing:border-box;display:flex;flex-basis:auto;flex-direction:column;flex-shrink:0;list-style:none;margin:0px;min-height:0px;min-width:0px;padding:0px;position:relative;text-decoration:none;z-index:0;}
+[stylesheet-group="2"]{}
+.r-borderColor-11lf5sy{border-bottom-color:rgba(150,96,10,0.30);border-left-color:rgba(150,96,10,0.30);border-right-color:rgba(150,96,10,0.30);border-top-color:rgba(150,96,10,0.30);}
+.r-borderColor-1awa8pu{border-bottom-color:rgba(101,119,134,1.00);border-left-color:rgba(101,119,134,1.00);border-right-color:rgba(101,119,134,1.00);border-top-color:rgba(101,119,134,1.00);}
+.r-borderColor-1c7zede{border-bottom-color:rgba(14,108,105,1.00);border-left-color:rgba(14,108,105,1.00);border-right-color:rgba(14,108,105,1.00);border-top-color:rgba(14,108,105,1.00);}
+.r-borderColor-1d4xg89{border-bottom-color:rgba(170,184,194,1.00);border-left-color:rgba(170,184,194,1.00);border-right-color:rgba(170,184,194,1.00);border-top-color:rgba(170,184,194,1.00);}
+.r-borderColor-1jyn79y{border-bottom-color:rgba(0,150,136,1.00);border-left-color:rgba(0,150,136,1.00);border-right-color:rgba(0,150,136,1.00);border-top-color:rgba(0,150,136,1.00);}
+.r-borderColor-1tbhxjf{border-bottom-color:rgba(178,58,43,0.28);border-left-color:rgba(178,58,43,0.28);border-right-color:rgba(178,58,43,0.28);border-top-color:rgba(178,58,43,0.28);}
+.r-borderColor-1u8jjii{border-bottom-color:rgba(106,70,184,0.30);border-left-color:rgba(106,70,184,0.30);border-right-color:rgba(106,70,184,0.30);border-top-color:rgba(106,70,184,0.30);}
+.r-borderColor-1ys34z8{border-bottom-color:rgba(14,108,105,0.22);border-left-color:rgba(14,108,105,0.22);border-right-color:rgba(14,108,105,0.22);border-top-color:rgba(14,108,105,0.22);}
+.r-borderColor-42olwf{border-bottom-color:rgba(0,0,0,0.00);border-left-color:rgba(0,0,0,0.00);border-right-color:rgba(0,0,0,0.00);border-top-color:rgba(0,0,0,0.00);}
+.r-borderColor-4a18lf{border-bottom-color:rgba(255,0,0,1.00);border-left-color:rgba(255,0,0,1.00);border-right-color:rgba(255,0,0,1.00);border-top-color:rgba(255,0,0,1.00);}
+.r-borderColor-60ke3l{border-bottom-color:rgba(0,128,0,1.00);border-left-color:rgba(0,128,0,1.00);border-right-color:rgba(0,128,0,1.00);border-top-color:rgba(0,128,0,1.00);}
+.r-borderColor-9x6qib{border-bottom-color:rgba(204,214,221,1.00);border-left-color:rgba(204,214,221,1.00);border-right-color:rgba(204,214,221,1.00);border-top-color:rgba(204,214,221,1.00);}
+.r-borderColor-cmayv8{border-bottom-color:rgba(26,23,20,0.09);border-left-color:rgba(26,23,20,0.09);border-right-color:rgba(26,23,20,0.09);border-top-color:rgba(26,23,20,0.09);}
+.r-borderColor-fx7oqy{border-bottom-color:rgba(0,0,255,1.00);border-left-color:rgba(0,0,255,1.00);border-right-color:rgba(0,0,255,1.00);border-top-color:rgba(0,0,255,1.00);}
+.r-borderColor-oyrb4f{border-bottom-color:rgba(62,122,78,0.28);border-left-color:rgba(62,122,78,0.28);border-right-color:rgba(62,122,78,0.28);border-top-color:rgba(62,122,78,0.28);}
+.r-borderColor-q66yl3{border-bottom-color:rgba(26,23,20,0.18);border-left-color:rgba(26,23,20,0.18);border-right-color:rgba(26,23,20,0.18);border-top-color:rgba(26,23,20,0.18);}
+.r-borderRadius-113wvc7{border-bottom-left-radius:5.5px;border-bottom-right-radius:5.5px;border-top-left-radius:5.5px;border-top-right-radius:5.5px;}
+.r-borderRadius-1dzdj1l{border-bottom-left-radius:10px;border-bottom-right-radius:10px;border-top-left-radius:10px;border-top-right-radius:10px;}
+.r-borderRadius-1f0042m{border-bottom-left-radius:5px;border-bottom-right-radius:5px;border-top-left-radius:5px;border-top-right-radius:5px;}
+.r-borderRadius-1j16mh1{border-bottom-left-radius:100%;border-bottom-right-radius:100%;border-top-left-radius:100%;border-top-right-radius:100%;}
+.r-borderRadius-1jkafct{border-bottom-left-radius:2px;border-bottom-right-radius:2px;border-top-left-radius:2px;border-top-right-radius:2px;}
+.r-borderRadius-1txcine{border-bottom-left-radius:13px;border-bottom-right-radius:13px;border-top-left-radius:13px;border-top-right-radius:13px;}
+.r-borderRadius-1xfd6ze{border-bottom-left-radius:8px;border-bottom-right-radius:8px;border-top-left-radius:8px;border-top-right-radius:8px;}
+.r-borderRadius-6ncur5{border-bottom-left-radius:18px;border-bottom-right-radius:18px;border-top-left-radius:18px;border-top-right-radius:18px;}
+.r-borderRadius-cpet4d{border-bottom-left-radius:999px;border-bottom-right-radius:999px;border-top-left-radius:999px;border-top-right-radius:999px;}
+.r-borderRadius-kdyh1x{border-bottom-left-radius:6px;border-bottom-right-radius:6px;border-top-left-radius:6px;border-top-right-radius:6px;}
+.r-borderRadius-qwd59z{border-bottom-left-radius:1px;border-bottom-right-radius:1px;border-top-left-radius:1px;border-top-right-radius:1px;}
+.r-borderRadius-t23y2h{border-bottom-left-radius:14px;border-bottom-right-radius:14px;border-top-left-radius:14px;border-top-right-radius:14px;}
+.r-borderRadius-z2wwpe{border-bottom-left-radius:4px;border-bottom-right-radius:4px;border-top-left-radius:4px;border-top-right-radius:4px;}
+.r-borderStyle-1phboty{border-bottom-style:solid;border-left-style:solid;border-right-style:solid;border-top-style:solid;}
+.r-borderStyle-eg6o18{border-bottom-style:dashed;border-left-style:dashed;border-right-style:dashed;border-top-style:dashed;}
+.r-borderWidth-d045u9{border-bottom-width:2px;border-left-width:2px;border-right-width:2px;border-top-width:2px;}
+.r-borderWidth-rs99b7{border-bottom-width:1px;border-left-width:1px;border-right-width:1px;border-top-width:1px;}
+.r-display-krxsd3{display:-webkit-box;}
+.r-display-xoduu5{display:inline-flex;}
+.r-flex-13awgt0{flex:1;}
+.r-margin-crgep1{margin:0px;}
+.r-margin-ywje51{margin:auto;}
+.r-overflow-1qsk4np{overflow-x:clip;overflow-y:clip;}
+.r-overflow-1udh08x{overflow-x:hidden;overflow-y:hidden;}
+.r-padding-d23pfw{padding:24px;}
+.r-padding-edyy15{padding:8px;}
+.r-padding-nsbfu8{padding:16px;}
+.r-padding-t60dpp{padding:0px;}
+.r-padding-xyw6el{padding:12px;}
+[stylesheet-group="2.1"]{}
+.r-marginBlock-l00any{margin-bottom:4px;margin-top:4px;}
+.r-marginInline-1537yvj{margin-left:4px;margin-right:4px;}
+.r-marginInline-1ld9doy{margin-left:-9px;margin-right:-9px;}
+.r-marginInline-1xpp3t0{margin-left:16px;margin-right:16px;}
+.r-marginInline-8dgmk1{margin-left:8px;margin-right:8px;}
+.r-paddingBlock-11f147o{padding-bottom:8px;padding-top:8px;}
+.r-paddingBlock-11o76bp{padding-bottom:1px;padding-top:1px;}
+.r-paddingBlock-1559e4e{padding-bottom:2px;padding-top:2px;}
+.r-paddingBlock-1mmae3n{padding-bottom:12px;padding-top:12px;}
+.r-paddingBlock-1s5swlz{padding-bottom:9px;padding-top:9px;}
+.r-paddingBlock-cnw61z{padding-bottom:4px;padding-top:4px;}
+.r-paddingBlock-rehuqn{padding-bottom:5px;padding-top:5px;}
+.r-paddingBlock-vuvdlw{padding-bottom:6px;padding-top:6px;}
+.r-paddingBlock-xjggfu{padding-bottom:3px;padding-top:3px;}
+.r-paddingInline-11gswi8{padding-left:3px;padding-right:3px;}
+.r-paddingInline-18c5d7m{padding-left:6px;padding-right:6px;}
+.r-paddingInline-1e084wi{padding-left:0px;padding-right:0px;}
+.r-paddingInline-1kti4dy{padding-left:25px;padding-right:25px;}
+.r-paddingInline-1ubuhtd{padding-left:10px;padding-right:10px;}
+.r-paddingInline-1wci7jc{padding-left:28px;padding-right:28px;}
+.r-paddingInline-3o4zer{padding-left:12px;padding-right:12px;}
+.r-paddingInline-3pj75a{padding-left:16px;padding-right:16px;}
+.r-paddingInline-is05cd{padding-left:8px;padding-right:8px;}
+.r-paddingInline-n7gxbd{padding-left:4px;padding-right:4px;}
+.r-paddingInline-u9wvl5{padding-left:20px;padding-right:20px;}
+.r-paddingInline-ubg91z{padding-left:15px;padding-right:15px;}
+[stylesheet-group="2.2"]{}
+.r-insetInlineStart-10s2tm5{left:0%;}
+.r-insetInlineStart-16o8guy{right:100%;}
+.r-insetInlineStart-dqe1q{right:0%;}
+.r-insetInlineStart-rci37q{left:100%;}
+[stylesheet-group="3"]{}
+.r-WebkitAppRegion-fvhao2{-webkit-app-region:no-drag;}
+.r-WebkitAppRegion-patsjg{-webkit-app-region:drag;}
+.r-WebkitBoxOrient-8akbws{-webkit-box-orient:vertical;}
+.r-WebkitOverflowScrolling-150rngu{-webkit-overflow-scrolling:touch;}
+.r-alignItems-1awozwy{align-items:center;}
+.r-alignItems-1habvwh{align-items:flex-start;}
+.r-alignItems-1oszu61{align-items:stretch;}
+.r-alignItems-obd0qt{align-items:flex-end;}
+.r-alignSelf-173mn98{align-self:flex-end;}
+.r-alignSelf-1kihuf0{align-self:center;}
+.r-alignSelf-1pz39u2{align-self:stretch;}
+.r-alignSelf-k200y{align-self:flex-start;}
+.r-animationDuration-17bb2tj{animation-duration:0.75s;}
+.r-animationDuration-1ay1djp{animation-duration:1s;}
+.r-animationDuration-9daxd3{animation-duration:250ms;}
+.r-animationIterationCount-1muvv40{animation-iteration-count:infinite;}
+.r-animationKeyframes-13aq9py{animation-name:r-animation-1iq689l;}
+.r-animationKeyframes-1qulhi1{animation-name:r-animation-1pzkwqh;}
+.r-animationKeyframes-1yef0xd{animation-name:r-animation-11cv4x;}
+.r-animationKeyframes-ebwn4k{animation-name:r-animation-q67da2;}
+.r-animationKeyframes-g3mlsw{animation-name:r-animation-t2lo5v;}
+.r-animationKeyframes-xx3c9p{animation-name:r-animation-imtty0;}
+.r-animationPlayState-1abnn5w{animation-play-state:paused;}
+.r-animationTimingFunction-1ldzwu0{animation-timing-function:linear;}
+.r-animationTimingFunction-leqjx2{animation-timing-function:cubic-bezier(0.215, 0.61, 0.355, 1);}
+.r-animationTimingFunction-s62m2j{animation-timing-function:cubic-bezier(0.47, 0, 0.745, 0.715);}
+.r-appearance-30o5oe{-moz-appearance:none;-ms-appearance:none;-webkit-appearance:none;appearance:none;}
+.r-backgroundColor-116bsv4{background-color:rgba(14,108,105,0.06);}
+.r-backgroundColor-11mpjr4{background-color:rgba(223,223,223,1.00);}
+.r-backgroundColor-11udlyb{background-color:rgba(0,150,136,1.00);}
+.r-backgroundColor-14lw9ot{background-color:rgba(255,255,255,1.00);}
+.r-backgroundColor-14sbq61{background-color:rgba(33,150,243,1.00);}
+.r-backgroundColor-19zg9cg{background-color:rgba(150,96,10,1.00);}
+.r-backgroundColor-1a1c2i5{background-color:rgba(178,58,43,0.08);}
+.r-backgroundColor-1azjzou{background-color:rgba(240,236,227,1.00);}
+.r-backgroundColor-1b546wh{background-color:rgba(14,108,105,1.00);}
+.r-backgroundColor-1ckj33k{background-color:rgba(26,23,20,0.22);}
+.r-backgroundColor-1db95km{background-color:rgba(230,225,214,1.00);}
+.r-backgroundColor-1dfbptu{background-color:rgba(228,223,212,1.00);}
+.r-backgroundColor-1du1thq{background-color:rgba(106,70,184,0.10);}
+.r-backgroundColor-1e4ma89{background-color:rgba(0,0,0,0.55);}
+.r-backgroundColor-1eovk8k{background-color:rgba(0,0,0,0.35);}
+.r-backgroundColor-1ghldbt{background-color:rgba(247,244,237,1.00);}
+.r-backgroundColor-1lcnwfu{background-color:rgba(26,23,20,0.05);}
+.r-backgroundColor-1niwhzg{background-color:rgba(0,0,0,0.00);}
+.r-backgroundColor-1q0ojjb{background-color:rgba(62,122,78,0.10);}
+.r-backgroundColor-1u2v5oc{background-color:rgba(150,96,10,0.12);}
+.r-backgroundColor-5hm7yd{background-color:rgba(237,233,225,1.00);}
+.r-backgroundColor-dkge59{background-color:rgba(170,184,194,1.00);}
+.r-backgroundColor-g4qa54{background-color:rgba(26,23,20,0.09);}
+.r-backgroundColor-jjdiq6{background-color:rgba(26,23,20,0.18);}
+.r-backgroundColor-oaswfg{background-color:rgba(14,108,105,0.10);}
+.r-backgroundColor-r49adf{background-color:rgba(244,241,234,1.00);}
+.r-backgroundColor-u92y06{background-color:rgba(255,165,0,1.00);}
+.r-backgroundColor-xmfz5a{background-color:rgba(178,58,43,1.00);}
+.r-backgroundColor-z2fii5{background-color:rgba(255,253,249,1.00);}
+.r-backgroundImage-18ka392{background-image:linear-gradient(to right, rgba(255,253,249,0), #FFFDF9);}
+.r-backgroundImage-rs94m5{background-image:url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+CjxzdmcKICAgeG1sbnM6ZGM9Imh0dHA6Ly9wdXJsLm9yZy9kYy9lbGVtZW50cy8xLjEvIgogICB4bWxuczpjYz0iaHR0cDovL2NyZWF0aXZlY29tbW9ucy5vcmcvbnMjIgogICB4bWxuczpyZGY9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkvMDIvMjItcmRmLXN5bnRheC1ucyMiCiAgIHhtbG5zOnN2Zz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciCiAgIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIKICAgdmVyc2lvbj0iMS4xIgogICB2aWV3Qm94PSIwIDAgMSAxIgogICBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJ4TWluWU1pbiBtZWV0Ij4KICA8cGF0aAogICAgIGQ9Ik0gMC4wNDAzODA1OSwwLjYyNjc3NjcgMC4xNDY0NDY2MSwwLjUyMDcxMDY4IDAuNDI5Mjg5MzIsMC44MDM1NTMzOSAwLjMyMzIyMzMsMC45MDk2MTk0MSB6IE0gMC4yMTcxNTcyOSwwLjgwMzU1MzM5IDAuODUzNTUzMzksMC4xNjcxNTcyOSAwLjk1OTYxOTQxLDAuMjczMjIzMyAwLjMyMzIyMzMsMC45MDk2MTk0MSB6IgogICAgIGlkPSJyZWN0Mzc4MCIKICAgICBzdHlsZT0iZmlsbDojZmZmZmZmO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTpub25lIiAvPgo8L3N2Zz4K");}
+.r-backgroundPosition-1mrlafo{background-position:0;}
+.r-backgroundPosition-vvn4in{background-position:center;}
+.r-backgroundRepeat-17leim2{background-repeat:repeat;}
+.r-backgroundRepeat-u6sd8q{background-repeat:no-repeat;}
+.r-backgroundSize-1sxrcry{background-size:auto;}
+.r-backgroundSize-4gszlv{background-size:cover;}
+.r-backgroundSize-ehq7j7{background-size:contain;}
+.r-backgroundSize-x3cy2q{background-size:100% 100%;}
+.r-borderBottomColor-1bj0mt{border-bottom-color:rgba(26,23,20,0.09);}
+.r-borderBottomRightRadius-1hd4d43{border-bottom-right-radius:20px;}
+.r-borderBottomWidth-ndvcnb{border-bottom-width:0px;}
+.r-borderBottomWidth-qklmqi{border-bottom-width:1px;}
+.r-borderRightColor-kwp09f{border-right-color:rgba(26,23,20,0.18);}
+.r-borderRightColor-s2dzr5{border-right-color:rgba(14,108,105,1.00);}
+.r-borderRightColor-vl44vs{border-right-color:rgba(26,23,20,0.09);}
+.r-borderRightWidth-13l2t4g{border-right-width:1px;}
+.r-borderRightWidth-fnigne{border-right-width:0px;}
+.r-borderTopColor-l8fh6t{border-top-color:rgba(26,23,20,0.09);}
+.r-borderTopColor-sax0am{border-top-color:rgba(26,23,20,0.18);}
+.r-borderTopLeftRadius-1vznrp2{border-top-left-radius:8px;}
+.r-borderTopLeftRadius-f1w8kp{border-top-left-radius:20px;}
+.r-borderTopRightRadius-3f7b68{border-top-right-radius:8px;}
+.r-borderTopRightRadius-cqzzvf{border-top-right-radius:20px;}
+.r-borderTopWidth-13yce4e{border-top-width:0px;}
+.r-borderTopWidth-5kkj8d{border-top-width:1px;}
+.r-bottom-14bkmb3{bottom:-3px;}
+.r-bottom-1p0dtai{bottom:0px;}
+.r-boxShadow-17b9qp5{box-shadow:none;}
+.r-boxShadow-1ewcgjf{box-shadow:0px 1px 3px rgba(0,0,0,0.5);}
+.r-boxShadow-1rmb0z6{box-shadow:0 6px 20px -6px rgba(16,16,28,0.18), 0 1px 3px rgba(16,16,28,0.10);}
+.r-boxShadow-1wqpjqf{box-shadow:0 18px 44px -18px rgba(0,0,0,.9);}
+.r-boxShadow-1yvr0lj{box-shadow:0 -10px 40px -12px rgba(16,16,28,0.20);}
+.r-boxShadow-ggxv6e{box-shadow:24px 0 60px -20px rgba(16,16,28,0.22);}
+.r-caretColor-van48c{caret-color:transparent;}
+.r-color-12ff5mr{color:rgba(106,70,184,1.00);}
+.r-color-141hess{color:rgba(255,253,249,1.00);}
+.r-color-1mbx6mk{color:rgba(10,83,80,1.00);}
+.r-color-1t5baz7{color:rgba(85,50,158,1.00);}
+.r-color-2d2yd3{color:rgba(26,23,20,1.00);}
+.r-color-9qe2d8{color:rgba(150,46,33,1.00);}
+.r-color-amc1x9{color:rgba(10,68,66,1.00);}
+.r-color-bueqc3{color:rgba(44,92,57,1.00);}
+.r-color-c68hjy{color:rgba(161,161,161,1.00);}
+.r-color-iaekij{color:rgba(122,114,100,1.00);}
+.r-color-jwli3a{color:rgba(255,255,255,1.00);}
+.r-color-kkvf2t{color:rgba(99,92,82,1.00);}
+.r-color-vo12lk{color:rgba(122,78,8,1.00);}
+.r-color-vuz0qd{color:rgba(74,68,60,1.00);}
+.r-color-zhmd4s{color:rgba(14,108,105,1.00);}
+.r-cursor-1ei5mc7{cursor:inherit;}
+.r-cursor-1loqt21{cursor:pointer;}
+.r-cursor-7q8q6z{cursor:default;}
+.r-cursor-boc4pi{cursor:col-resize;}
+.r-filter-iute03{-webkit-filter:blur(12px);filter:blur(12px);}
+.r-flexBasis-10i6yxd{flex-basis:190px;}
+.r-flexBasis-1mlwlqe{flex-basis:auto;}
+.r-flexBasis-fv6uei{flex-basis:52px;}
+.r-flexDirection-18u37iz{flex-direction:row;}
+.r-flexDirection-1d5kdc7{flex-direction:column-reverse;}
+.r-flexDirection-1euycsn{flex-direction:row-reverse;}
+.r-flexDirection-eqz5dr{flex-direction:column;}
+.r-flexGrow-16y2uox{flex-grow:1;}
+.r-flexGrow-18kxxzh{flex-grow:0;}
+.r-flexShrink-1q142lx{flex-shrink:0;}
+.r-flexShrink-1wbh5a2{flex-shrink:1;}
+.r-flexWrap-1w6e6rj{flex-wrap:wrap;}
+.r-flexWrap-tzz3ar{flex-wrap:nowrap;}
+.r-fontFamily-13obcvq{font-family:JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace;}
+.r-fontFamily-1qd0xha{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+.r-fontFamily-hzt0gu{font-family:Instrument Sans, ui-sans-serif, system-ui, -apple-system, sans-serif;}
+.r-fontSize-1b43r93{font-size:14px;}
+.r-fontSize-1blvdjr{font-size:23px;}
+.r-fontSize-1enofrn{font-size:12px;}
+.r-fontSize-1gkfh8e{font-size:11px;}
+.r-fontSize-1ra0lkn{font-size:30px;}
+.r-fontSize-7cikom{font-size:inherit;}
+.r-fontSize-a023e6{font-size:15px;}
+.r-fontSize-n6v787{font-size:13px;}
+.r-fontSize-ubezar{font-size:16px;}
+.r-fontStyle-36ujnk{font-style:italic;}
+.r-fontVariant-1ghxqbu{font-variant:tabular-nums;}
+.r-fontWeight-1kfrs79{font-weight:600;}
+.r-fontWeight-b88u0q{font-weight:700;}
+.r-fontWeight-majxgm{font-weight:500;}
+.r-forcedColorAdjust-1c6unfx{forced-color-adjust:none;}
+.r-gap-1cmwbt1{gap:8px;}
+.r-gap-1hxbrd1{gap:1px;}
+.r-gap-1i71y14{gap:14px;}
+.r-gap-1jnkns4{gap:0px;}
+.r-gap-1ssbvtb{gap:12px;}
+.r-gap-1y00bll{gap:9px;}
+.r-gap-580adz{gap:5px;}
+.r-gap-9aw3ui{gap:4px;}
+.r-gap-f4gmv6{gap:16px;}
+.r-gap-ojf8lh{gap:6px;}
+.r-gap-r3pdrr{gap:6.5px;}
+.r-gap-uaa2di{gap:10px;}
+.r-gap-z5qs1h{gap:2px;}
+.r-height-10ptun7{height:16px;}
+.r-height-1472mwg{height:24px;}
+.r-height-18yzcnr{height:22px;}
+.r-height-1dernwh{height:70%;}
+.r-height-1g7fiml{height:30px;}
+.r-height-1hjwoze{height:18px;}
+.r-height-1k25im9{height:26px;}
+.r-height-1mwlp6a{height:56px;}
+.r-height-1pexk7n{height:14px;}
+.r-height-1pi2tsx{height:100%;}
+.r-height-1r8g8re{height:36px;}
+.r-height-1ugchlj{height:44px;}
+.r-height-1xbve24{height:6px;}
+.r-height-3da1kt{height:8px;}
+.r-height-4v7adb{height:5px;}
+.r-height-728xn{height:620px;}
+.r-height-erd55g{height:300px;}
+.r-height-h0d30l{height:28px;}
+.r-height-hdaws3{height:4px;}
+.r-height-mabqd8{height:32px;}
+.r-height-tbmifm{height:12px;}
+.r-height-tmtnm0{height:45px;}
+.r-height-tumt6t{height:66px;}
+.r-height-ur6pnr{height:42px;}
+.r-height-vz2u4x{height:11px;}
+.r-height-z80fyv{height:20px;}
+.r-height-zx9znk{height:34px;}
+.r-justifyContent-1777fci{justify-content:center;}
+.r-justifyContent-17s6mgv{justify-content:flex-end;}
+.r-left-161ttwi{left:12px;}
+.r-left-1d2f490{left:0px;}
+.r-left-1lvo6oj{left:-7px;}
+.r-left-1mhtwjo{left:-3px;}
+.r-left-1r74h94{left:8px;}
+.r-left-1u10d71{left:1px;}
+.r-left-1wyvozj{left:50%;}
+.r-left-tceitz{left:16px;}
+.r-letterSpacing-10skgit{letter-spacing:-0.32px;}
+.r-letterSpacing-1g87msz{letter-spacing:1.4300000000000002px;}
+.r-letterSpacing-1i507n1{letter-spacing:-0.13px;}
+.r-letterSpacing-1s461h1{letter-spacing:-0.5750000000000001px;}
+.r-letterSpacing-7vlay4{letter-spacing:-0.69px;}
+.r-letterSpacing-icto9i{letter-spacing:-0.5px;}
+.r-letterSpacing-qj8a08{letter-spacing:0.55px;}
+.r-letterSpacing-r5ww3v{letter-spacing:0.6599999999999999px;}
+.r-lineHeight-14yzgew{line-height:18px;}
+.r-lineHeight-1624xl7{line-height:18.6px;}
+.r-lineHeight-1968qo6{line-height:24.8px;}
+.r-lineHeight-1aittka{line-height:22.4px;}
+.r-lineHeight-1akm30i{line-height:13px;}
+.r-lineHeight-1ilnil2{line-height:16.5px;}
+.r-lineHeight-1kb91oe{line-height:17.05px;}
+.r-lineHeight-1m8ila0{line-height:23.25px;}
+.r-lineHeight-1p4ux23{line-height:35.65px;}
+.r-lineHeight-727c2x{line-height:20.4px;}
+.r-lineHeight-9kdimu{line-height:20.15px;}
+.r-lineHeight-9zquzx{line-height:36.3px;}
+.r-lineHeight-cg746m{line-height:19.2px;}
+.r-lineHeight-d3xcji{line-height:21.7px;}
+.r-lineHeight-hbpseb{line-height:22px;}
+.r-lineHeight-rjixqe{line-height:20px;}
+.r-marginBottom-10sqg0u{margin-bottom:1px;}
+.r-marginBottom-15d164r{margin-bottom:10px;}
+.r-marginBottom-15zivkp{margin-bottom:4px;}
+.r-marginBottom-5oul0u{margin-bottom:8px;}
+.r-marginBottom-le4sbl{margin-bottom:18px;}
+.r-marginLeft-11wrixw{margin-left:0px;}
+.r-marginLeft-1dxl70u{margin-left:-450px;}
+.r-marginLeft-1fjnxer{margin-left:-550px;}
+.r-marginLeft-1jj8364{margin-left:auto;}
+.r-marginRight-1pcdyqj{margin-right:6px;}
+.r-marginTop-1444osr{margin-top:18px;}
+.r-marginTop-14gqq1x{margin-top:4px;}
+.r-marginTop-16lli6k{margin-top:-21px;}
+.r-marginTop-1bymd8e{margin-top:2px;}
+.r-marginTop-1cvj4g8{margin-top:1px;}
+.r-marginTop-1s2bzr4{margin-top:12px;}
+.r-marginTop-1wzrnnt{margin-top:16px;}
+.r-marginTop-1x0uki6{margin-top:20px;}
+.r-marginTop-knv0ih{margin-top:8px;}
+.r-marginTop-l71dzp{margin-top:14px;}
+.r-maxHeight-1ffdm5p{max-height:320px;}
+.r-maxHeight-wp4xyf{max-height:88%;}
+.r-maxHeight-zj7e2s{max-height:70%;}
+.r-maxHeight-zus5rz{max-height:360px;}
+.r-maxWidth-146iojx{max-width:300px;}
+.r-maxWidth-15yupfm{max-width:180px;}
+.r-maxWidth-4m99jg{max-width:320px;}
+.r-maxWidth-4xy98{max-width:620px;}
+.r-maxWidth-5is6sd{max-width:460px;}
+.r-maxWidth-bual8a{max-width:520px;}
+.r-maxWidth-dnmrzs{max-width:100%;}
+.r-maxWidth-l3xdm2{max-width:560px;}
+.r-maxWidth-lg2yrt{max-width:372px;}
+.r-minHeight-1ceczpf{min-height:24px;}
+.r-minHeight-2yi16{min-height:36px;}
+.r-minHeight-ifefl9{min-height:0px;}
+.r-minHeight-peo1c{min-height:44px;}
+.r-minWidth-18bj3io{min-width:28px;}
+.r-minWidth-1ps3wis{min-width:44px;}
+.r-minWidth-bcqeeo{min-width:0px;}
+.r-minWidth-tl9ukz{min-width:12px;}
+.r-opacity-6dt33c{opacity:1;}
+.r-opacity-9azuoe{opacity:0.55;}
+.r-opacity-icxjq6{opacity:0.85;}
+.r-opacity-lk5c7r{opacity:0.38;}
+.r-opacity-orgf3d{opacity:0;}
+.r-opacity-sgbo92{opacity:0.9;}
+.r-outlineStyle-1ny4l3l{outline-style:none;}
+.r-overflowX-11yh6sk{overflow-x:hidden;}
+.r-overflowX-lltvgl{overflow-x:auto;}
+.r-overflowY-1rnoaur{overflow-y:auto;}
+.r-overflowY-buy8e9{overflow-y:hidden;}
+.r-paddingBottom-12rqra3{padding-bottom:6px;}
+.r-paddingBottom-97e31f{padding-bottom:env(safe-area-inset-bottom);}
+.r-paddingBottom-iphfwy{padding-bottom:4px;}
+.r-paddingBottom-xd6kpl{padding-bottom:8px;}
+.r-paddingLeft-1ogct6q{padding-left:37px;}
+.r-paddingLeft-1ss6j8a{padding-left:6px;}
+.r-paddingLeft-1yt7n81{padding-left:15px;}
+.r-paddingLeft-bv2aro{padding-left:env(safe-area-inset-left);}
+.r-paddingLeft-f727ji{padding-left:12px;}
+.r-paddingLeft-qhyqy2{padding-left:5px;}
+.r-paddingRight-1pyaxff{padding-right:8px;}
+.r-paddingRight-1qortcd{padding-right:6px;}
+.r-paddingRight-fupfwf{padding-right:9px;}
+.r-paddingRight-hxflta{padding-right:env(safe-area-inset-right);}
+.r-paddingRight-i023vh{padding-right:16px;}
+.r-paddingRight-mzjzbw{padding-right:25px;}
+.r-paddingTop-10xqauy{padding-top:env(safe-area-inset-top);}
+.r-paddingTop-1da8fo0{padding-top:12%;}
+.r-paddingTop-1h8ys4a{padding-top:4px;}
+.r-paddingTop-1knelpx{padding-top:20px;}
+.r-paddingTop-95jzfe{padding-top:16px;}
+.r-paddingTop-tskmnb{padding-top:8px;}
+.r-paddingTop-ttdzmv{padding-top:12px;}
+.r-paddingTop-vmopo1{padding-top:2px;}
+.r-paddingTop-vwpk1v{padding-top:8%;}
+.r-paddingTop-wk8lta{padding-top:0px;}
+.r-placeholderTextColor-6taxm2:-ms-input-placeholder{color:var(--placeholderTextColor);opacity:1;}
+.r-placeholderTextColor-6taxm2::-moz-placeholder{color:var(--placeholderTextColor);opacity:1;}
+.r-placeholderTextColor-6taxm2::-webkit-input-placeholder{color:var(--placeholderTextColor);opacity:1;}
+.r-placeholderTextColor-6taxm2::placeholder{color:var(--placeholderTextColor);opacity:1;}
+.r-pointerEvents-105ug2t{pointer-events:auto!important;}
+.r-pointerEvents-12vffkv>* {pointer-events:auto;}
+.r-pointerEvents-12vffkv{pointer-events:none!important;}
+.r-pointerEvents-633pao>* {pointer-events:none;}
+.r-pointerEvents-633pao{pointer-events:none!important;}
+.r-pointerEvents-ah5dr5>* {pointer-events:none;}
+.r-pointerEvents-ah5dr5{pointer-events:auto!important;}
+.r-position-1xcajam{position:fixed;}
+.r-position-bnwqim{position:relative;}
+.r-position-gtdqiz{position:-webkit-sticky;position:sticky;}
+.r-position-u8s1d{position:absolute;}
+.r-right-1qefu2b{right:-3px;}
+.r-right-yj30ev{right:24px;}
+.r-right-zchlnj{right:0px;}
+.r-scrollSnapAlign-cpa5s6{scroll-snap-align:start;}
+.r-scrollSnapType-1ocf4r9{scroll-snap-type:y mandatory;}
+.r-scrollSnapType-mfh4gg{scroll-snap-type:x mandatory;}
+.r-scrollbarWidth-2eszeu::-webkit-scrollbar{display:none}
+.r-scrollbarWidth-2eszeu{scrollbar-width:none;}
+.r-textAlign-1ff274t{text-align:right;}
+.r-textAlign-fdjqy7{text-align:left;}
+.r-textAlign-q4m81j{text-align:center;}
+.r-textOverflow-1udbk01{text-overflow:ellipsis;}
+.r-textTransform-tsynxw{text-transform:uppercase;}
+.r-top-18nhz7w{top:-3px;}
+.r-top-19lq7b1{top:16px;}
+.r-top-1f4fyr{top:-140px;}
+.r-top-1sdbnja{top:-40px;}
+.r-top-1v2oles{top:50%;}
+.r-top-1ve781c{top:7px;}
+.r-top-1yxedwg{top:8px;}
+.r-top-3sxh79{top:-1px;}
+.r-top-ipm5af{top:0px;}
+.r-touchAction-19z077z{touch-action:none;}
+.r-touchAction-1otgn73{touch-action:manipulation;}
+.r-transform-10v3vxq{transform:scaleX(-1);}
+.r-transform-173mzie{transform:scaleY(-1);}
+.r-transform-agouwx{transform:translateZ(0);}
+.r-transform-bi4vy9{transform:translateY(100%);}
+.r-transform-ghxds0{transform:translateY(0%);}
+.r-transitionDuration-13tjlyg{transition-duration:0.1s;}
+.r-transitionDuration-eafdt9{transition-duration:0.15s;}
+.r-transitionProperty-1i6wzkk{-moz-transition-property:opacity;-webkit-transition-property:opacity;transition-property:opacity;}
+.r-userSelect-1xnzce8{-moz-user-select:text;-webkit-user-select:text;user-select:text;}
+.r-userSelect-lrvibr{-moz-user-select:none;-webkit-user-select:none;user-select:none;}
+.r-visibility-11j9u27{visibility:hidden;}
+.r-whiteSpace-3s2u2q{white-space:nowrap;}
+.r-width-10g5efv{width:4px;}
+.r-width-12rgx7y{width:7px;}
+.r-width-12ym1je{width:18px;}
+.r-width-13qz1uu{width:100%;}
+.r-width-16eto9q{width:12px;}
+.r-width-18tzken{width:56px;}
+.r-width-199wky7{width:30px;}
+.r-width-19tjxh9{width:26px;}
+.r-width-19wmn03{width:20px;}
+.r-width-1acpoxo{width:36px;}
+.r-width-1d69b4p{width:1100px;}
+.r-width-1iww7jx{width:28px;}
+.r-width-1janqcz{width:16px;}
+.r-width-1jg9483{width:8px;}
+.r-width-1yvhtrz{width:32px;}
+.r-width-5soawk{width:10px;}
+.r-width-6i6ryi{width:86%;}
+.r-width-7bouqp{width:96px;}
+.r-width-8hc5te{width:6px;}
+.r-width-92ng3h{width:1px;}
+.r-width-j1vcu1{width:11px;}
+.r-width-lrsllp{width:24px;}
+.r-width-m5arl1{width:2px;}
+.r-width-qck2ym{width:900px;}
+.r-width-usgzl9{width:44px;}
+.r-width-z2qzgk{width:5px;}
+.r-wordWrap-1iln25a{word-wrap:normal;}
+.r-zIndex-136ojw6{z-index:2;}
+.r-zIndex-184en5c{z-index:1;}
+.r-zIndex-1g40b8q{z-index:3;}
+.r-zIndex-1wyyakw{z-index:-1;}
+.r-zIndex-417010{z-index:0;}
+.r-zIndex-mhe3cw{z-index:10;}
+.r-zIndex-sfbmgh{z-index:9999;}
+@-webkit-keyframes r-animation-11cv4x{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
+@-webkit-keyframes r-animation-1iq689l{0%{transform:translateY(0%);}100%{transform:translateY(100%);}}
+@-webkit-keyframes r-animation-1pzkwqh{0%{transform:translateY(100%);}100%{transform:translateY(0%);}}
+@-webkit-keyframes r-animation-imtty0{0%{opacity:0;}100%{opacity:1;}}
+@-webkit-keyframes r-animation-q67da2{0%{transform:translateX(-100%);}100%{transform:translateX(400%);}}
+@-webkit-keyframes r-animation-t2lo5v{0%{opacity:1;}100%{opacity:0;}}
+@keyframes r-animation-11cv4x{0%{transform:rotate(0deg);}100%{transform:rotate(360deg);}}
+@keyframes r-animation-1iq689l{0%{transform:translateY(0%);}100%{transform:translateY(100%);}}
+@keyframes r-animation-1pzkwqh{0%{transform:translateY(100%);}100%{transform:translateY(0%);}}
+@keyframes r-animation-imtty0{0%{opacity:0;}100%{opacity:1;}}
+@keyframes r-animation-q67da2{0%{transform:translateX(-100%);}100%{transform:translateX(400%);}}
+@keyframes r-animation-t2lo5v{0%{opacity:1;}100%{opacity:0;}}
+.ͼ1.cm-focused {outline: 1px dotted #212121;}
+.ͼ1 {position: relative !important; box-sizing: border-box; display: flex !important; flex-direction: column;}
+.ͼ1 .cm-scroller {display: flex !important; align-items: flex-start !important; font-family: monospace; line-height: 1.4; height: 100%; overflow-x: auto; position: relative; z-index: 0; overflow-anchor: none;}
+.ͼ1 .cm-content[contenteditable=true] {-webkit-user-modify: read-write-plaintext-only;}
+.ͼ1 .cm-content {margin: 0; flex-grow: 2; flex-shrink: 0; display: block; white-space: pre; word-wrap: normal; box-sizing: border-box; min-height: 100%; padding: 4px 0; outline: none;}
+.ͼ1 .cm-lineWrapping {white-space: pre-wrap; white-space: break-spaces; word-break: break-word; overflow-wrap: anywhere; flex-shrink: 1;}
+.ͼ2 .cm-content {caret-color: black;}
+.ͼ3 .cm-content {caret-color: white;}
+.ͼ1 .cm-line {display: block; padding: 0 2px 0 6px;}
+.ͼ1 .cm-layer > * {position: absolute;}
+.ͼ1 .cm-layer {user-select: none; position: absolute; left: 0; top: 0; contain: size style;}
+.ͼ2 .cm-selectionBackground {background: #d9d9d9;}
+.ͼ3 .cm-selectionBackground {background: #222;}
+.ͼ2.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {background: #d7d4f0;}
+.ͼ3.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground {background: #233;}
+.ͼ1 .cm-cursorLayer {pointer-events: none;}
+.ͼ1.cm-focused > .cm-scroller > .cm-cursorLayer {animation: steps(1) cm-blink 1.2s infinite;}
+@keyframes cm-blink {50% {opacity: 0;}}
+@keyframes cm-blink2 {50% {opacity: 0;}}
+.ͼ1 .cm-cursor, .ͼ1 .cm-dropCursor {border-left: 1.2px solid black; margin-left: -0.6px; pointer-events: none;}
+.ͼ1 .cm-cursor {display: none;}
+.ͼ3 .cm-cursor {border-left-color: #ddd;}
+.ͼ1 .cm-selectionHandle {background-color: currentColor; width: 1.5px;}
+.ͼ1 .cm-selectionHandle-start::before, .ͼ1 .cm-selectionHandle-end::before {content: ""; background-color: inherit; border-radius: 50%; width: 8px; height: 8px; position: absolute; left: -3.25px;}
+.ͼ1 .cm-selectionHandle-start::before {top: -8px;}
+.ͼ1 .cm-selectionHandle-end::before {bottom: -8px;}
+.ͼ1 .cm-dropCursor {position: absolute;}
+.ͼ1.cm-focused > .cm-scroller > .cm-cursorLayer .cm-cursor {display: block;}
+.ͼ1 .cm-iso {unicode-bidi: isolate;}
+.ͼ1 .cm-announced {position: fixed; top: -10000px;}
+@media print {.ͼ1 .cm-announced {display: none;}}
+.ͼ2 .cm-activeLine {background-color: #cceeff44;}
+.ͼ3 .cm-activeLine {background-color: #99eeff33;}
+.ͼ2 .cm-specialChar {color: red;}
+.ͼ3 .cm-specialChar {color: #f78;}
+.ͼ1 .cm-gutters {flex-shrink: 0; display: flex; height: 100%; box-sizing: border-box; z-index: 200;}
+.ͼ1 .cm-gutters-before {inset-inline-start: 0;}
+.ͼ1 .cm-gutters-after {inset-inline-end: 0;}
+.ͼ2 .cm-gutters.cm-gutters-before {border-right-width: 1px;}
+.ͼ2 .cm-gutters.cm-gutters-after {border-left-width: 1px;}
+.ͼ2 .cm-gutters {background-color: #f5f5f5; color: #6c6c6c; border: 0px solid #ddd;}
+.ͼ3 .cm-gutters {background-color: #333338; color: #ccc;}
+.ͼ1 .cm-gutter {display: flex !important; flex-direction: column; flex-shrink: 0; box-sizing: border-box; min-height: 100%; overflow: hidden;}
+.ͼ1 .cm-gutterElement {box-sizing: border-box;}
+.ͼ1 .cm-lineNumbers .cm-gutterElement {padding: 0 3px 0 5px; min-width: 20px; text-align: right; white-space: nowrap;}
+.ͼ2 .cm-activeLineGutter {background-color: #e2f2ff;}
+.ͼ3 .cm-activeLineGutter {background-color: #222227;}
+.ͼ1 .cm-panels {box-sizing: border-box; position: sticky; left: 0; right: 0; z-index: 300;}
+.ͼ2 .cm-panels {background-color: #f5f5f5; color: black;}
+.ͼ1 .cm-panels-top {top: 0;}
+.ͼ1 .cm-panels-bottom {bottom: 0;}
+.ͼ2 .cm-panels-top {border-bottom: 1px solid #ddd;}
+.ͼ2 .cm-panels-bottom {border-top: 1px solid #ddd;}
+.ͼ3 .cm-panels {background-color: #333338; color: white;}
+.ͼ1 .cm-dialog label {font-size: 80%;}
+.ͼ1 .cm-dialog {padding: 2px 19px 4px 6px; position: relative;}
+.ͼ1 .cm-dialog-close {position: absolute; top: 3px; right: 4px; background-color: inherit; border: none; font: inherit; font-size: 14px; padding: 0;}
+.ͼ1 .cm-tab {display: inline-block; overflow: hidden; vertical-align: bottom;}
+.ͼ1 .cm-widgetBuffer {vertical-align: text-top; height: 1em; width: 0; display: inline;}
+.ͼ1 .cm-placeholder {color: #888; display: inline-block; vertical-align: top; user-select: none;}
+.ͼ1 .cm-highlightSpace {background-image: radial-gradient(circle at 50% 55%, #aaa 20%, transparent 5%); background-position: center;}
+.ͼ1 .cm-highlightTab {background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="20"><path stroke="%23888" stroke-width="1" fill="none" d="M1 10H196L190 5M190 15L196 10M197 4L197 16"/></svg>'); background-size: auto 100%; background-position: right 90%; background-repeat: no-repeat;}
+.ͼ1 .cm-trailingSpace {background-color: #ff332255;}
+.ͼ1 .cm-button {vertical-align: middle; color: inherit; font-size: 70%; padding: .2em 1em; border-radius: 1px;}
+.ͼ2 .cm-button:active {background-image: linear-gradient(#b4b4b4, #d0d3d6);}
+.ͼ2 .cm-button {background-image: linear-gradient(#eff1f5, #d9d9df); border: 1px solid #888;}
+.ͼ3 .cm-button:active {background-image: linear-gradient(#111, #333);}
+.ͼ3 .cm-button {background-image: linear-gradient(#393939, #111); border: 1px solid #888;}
+.ͼ1 .cm-textfield {vertical-align: middle; color: inherit; font-size: 70%; border: 1px solid silver; padding: .2em .5em;}
+.ͼ2 .cm-textfield {background-color: white;}
+.ͼ3 .cm-textfield {border: 1px solid #555; background-color: inherit;}
+.ͼ1 .cm-panel.cm-search [name=close] {position: absolute; top: 0; right: 4px; background-color: inherit; border: none; font: inherit; padding: 0; margin: 0;}
+.ͼ1 .cm-panel.cm-search input, .ͼ1 .cm-panel.cm-search button, .ͼ1 .cm-panel.cm-search label {margin: .2em .6em .2em 0;}
+.ͼ1 .cm-panel.cm-search input[type=checkbox] {margin-right: .2em;}
+.ͼ1 .cm-panel.cm-search label {font-size: 80%; white-space: pre;}
+.ͼ1 .cm-panel.cm-search {padding: 2px 6px 4px; position: relative;}
+.ͼ2 .cm-searchMatch {background-color: #ffff0054;}
+.ͼ3 .cm-searchMatch {background-color: #00ffff8a;}
+.ͼ2 .cm-searchMatch-selected {background-color: #ff6a0054;}
+.ͼ3 .cm-searchMatch-selected {background-color: #ff00ff8a;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > li, .ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {padding: 1px 3px; line-height: 1.2;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > li {overflow-x: hidden; text-overflow: ellipsis; cursor: pointer;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul > completion-section {display: list-item; border-bottom: 1px solid silver; padding-left: 0.5em; opacity: 0.7;}
+.ͼ1 .cm-tooltip.cm-tooltip-autocomplete > ul {font-family: monospace; white-space: nowrap; overflow: hidden auto; max-width: 700px; max-width: min(700px, 95vw); min-width: 250px; max-height: 10em; height: 100%; list-style: none; margin: 0; padding: 0;}
+.ͼ2 .cm-tooltip-autocomplete ul li[aria-selected] {background: #17c; color: white;}
+.ͼ2 .cm-tooltip-autocomplete-disabled ul li[aria-selected] {background: #777;}
+.ͼ3 .cm-tooltip-autocomplete ul li[aria-selected] {background: #347; color: white;}
+.ͼ3 .cm-tooltip-autocomplete-disabled ul li[aria-selected] {background: #444;}
+.ͼ1 .cm-completionListIncompleteTop:before, .ͼ1 .cm-completionListIncompleteBottom:after {content: "···"; opacity: 0.5; display: block; text-align: center; cursor: pointer;}
+.ͼ1 .cm-tooltip.cm-completionInfo {position: absolute; padding: 3px 9px; width: max-content; max-width: 400px; box-sizing: border-box; white-space: pre-line;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-left {right: 100%;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-right {left: 100%;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-left-narrow {right: 30px;}
+.ͼ1 .cm-completionInfo.cm-completionInfo-right-narrow {left: 30px;}
+.ͼ2 .cm-snippetField {background-color: #00000022;}
+.ͼ3 .cm-snippetField {background-color: #ffffff22;}
+.ͼ1 .cm-snippetFieldPosition {vertical-align: text-top; width: 0; height: 1.15em; display: inline-block; margin: 0 -0.7px -.7em; border-left: 1.4px dotted #888;}
+.ͼ1 .cm-completionMatchedText {text-decoration: underline;}
+.ͼ1 .cm-completionDetail {margin-left: 0.5em; font-style: italic;}
+.ͼ1 .cm-completionIcon {font-size: 90%; width: .8em; display: inline-block; text-align: center; padding-right: .6em; opacity: 0.6; box-sizing: content-box;}
+.ͼ1 .cm-completionIcon-function:after, .ͼ1 .cm-completionIcon-method:after {content: 'ƒ';}
+.ͼ1 .cm-completionIcon-class:after {content: '○';}
+.ͼ1 .cm-completionIcon-interface:after {content: '◌';}
+.ͼ1 .cm-completionIcon-variable:after {content: '𝑥';}
+.ͼ1 .cm-completionIcon-constant:after {content: '𝐶';}
+.ͼ1 .cm-completionIcon-type:after {content: '𝑡';}
+.ͼ1 .cm-completionIcon-enum:after {content: '∪';}
+.ͼ1 .cm-completionIcon-property:after {content: '□';}
+.ͼ1 .cm-completionIcon-keyword:after {content: '🔑︎';}
+.ͼ1 .cm-completionIcon-namespace:after {content: '▢';}
+.ͼ1 .cm-completionIcon-text:after {content: 'abc'; font-size: 50%; vertical-align: middle;}
+.ͼ1 .cm-tooltip {z-index: 500; box-sizing: border-box;}
+.ͼ2 .cm-tooltip {border: 1px solid #bbb; background-color: #f5f5f5;}
+.ͼ2 .cm-tooltip-section:not(:first-child) {border-top: 1px solid #bbb;}
+.ͼ3 .cm-tooltip {background-color: #333338; color: white;}
+.ͼ1 .cm-tooltip-arrow:before, .ͼ1 .cm-tooltip-arrow:after {content: ''; position: absolute; width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent;}
+.ͼ1 .cm-tooltip-above .cm-tooltip-arrow:before {border-top: 7px solid #bbb;}
+.ͼ1 .cm-tooltip-above .cm-tooltip-arrow:after {border-top: 7px solid #f5f5f5; bottom: 1px;}
+.ͼ1 .cm-tooltip-above .cm-tooltip-arrow {bottom: -7px;}
+.ͼ1 .cm-tooltip-below .cm-tooltip-arrow:before {border-bottom: 7px solid #bbb;}
+.ͼ1 .cm-tooltip-below .cm-tooltip-arrow:after {border-bottom: 7px solid #f5f5f5; top: 1px;}
+.ͼ1 .cm-tooltip-below .cm-tooltip-arrow {top: -7px;}
+.ͼ1 .cm-tooltip-arrow {height: 7px; width: 14px; position: absolute; z-index: -1; overflow: hidden;}
+.ͼ3 .cm-tooltip .cm-tooltip-arrow:before {border-top-color: #333338; border-bottom-color: #333338;}
+.ͼ3 .cm-tooltip .cm-tooltip-arrow:after {border-top-color: transparent; border-bottom-color: transparent;}
+.ͼp .cm-panels.cm-panels-top {position: absolute; top: 0; right: 0; left: auto; width: auto; max-width: 100%; z-index: 6; background: transparent; border: 0; color: var(--lp-heading);}
+.ͼp .cm-ctx-find {display: flex; align-items: center; gap: 2px; margin: 8px 10px; padding: 4px 4px 4px 8px; background: var(--lp-bg); border: 1px solid var(--lp-line-strong); border-radius: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.18); font: 13px/1.2 system-ui, sans-serif;}
+.ͼp .cm-ctx-find-field {border: 0; outline: none; background: transparent; color: var(--lp-heading); font-family: var(--lp-mono); font-size: 12px; width: 120px; min-width: 0; padding: 4px 2px;}
+.ͼp .cm-ctx-find-field::placeholder {color: var(--lp-muted);}
+.ͼp .cm-ctx-find-count {font-family: var(--lp-mono); font-size: 11px; color: var(--lp-muted); font-variant-numeric: tabular-nums; padding: 0 6px 0 4px; white-space: nowrap;}
+.ͼp .cm-ctx-find-sep {width: 1px; align-self: stretch; background: var(--lp-line); margin: 3px 4px;}
+.ͼp .cm-ctx-find-button {display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 4px; border: 0; border-radius: 7px; background: transparent; color: var(--lp-muted); cursor: pointer; font-family: var(--lp-mono); font-size: 11px; line-height: 1;}
+.ͼp .cm-ctx-find-button:hover {background: var(--lp-code-bg); color: var(--lp-heading);}
+.ͼp .cm-ctx-find-button:focus-visible {outline: 2px solid var(--lp-link); outline-offset: 1px;}
+.ͼp .cm-ctx-find-button[aria-pressed=true] {background: var(--lp-focus-ring); color: var(--lp-link);}
+.ͼp .cm-ctx-find-button svg {width: 13px; height: 13px; display: block; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;}
+.ͼp .cm-searchMatch {background: var(--lp-focus-ring); border-radius: 2px;}
+.ͼp .cm-searchMatch-selected {background: var(--lp-link); color: var(--lp-bg);}
+.ͼq .cm-tooltip.cm-tooltip-autocomplete {border: 1px solid var(--lp-code-bg); border-radius: 8px; background: var(--lp-bg); color: var(--lp-content); font: 13px/1.5 system-ui, sans-serif; box-shadow: 0 6px 20px rgba(0,0,0,0.18); overflow: hidden;}
+.ͼq .cm-tooltip.cm-tooltip-autocomplete > ul {font-family: inherit; max-height: 14em; max-width: min(92vw, 34em);}
+.ͼq .cm-tooltip.cm-tooltip-autocomplete > ul > li {padding: 5px 9px; display: flex; gap: 10px; align-items: baseline;}
+.ͼq .cm-tooltip.cm-tooltip-autocomplete > ul > li > .cm-completionLabel {display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; white-space: normal; overflow-wrap: anywhere;}
+.ͼq .cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected] {background: var(--lp-code-bg); color: var(--lp-content);}
+.ͼq .cm-completionDetail {margin-left: auto; font-style: normal; font-size: 0.85em; color: var(--lp-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60%;}
+.ͼr .cm-note-link {color: var(--lp-link); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; -webkit-touch-callout: none;}
+.ͼr .cm-note-link-tooltip {display: flex; flex-direction: column; gap: 2px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--lp-code-bg); background: var(--lp-bg); color: var(--lp-content); font: 12px/1.4 system-ui, sans-serif; max-width: 320px; box-shadow: 0 6px 20px rgba(0,0,0,0.18);}
+.ͼr .cm-note-link-name {font-weight: 500; word-break: break-all;}
+.ͼr .cm-note-link-hint {color: var(--lp-muted);}
+
+
+
+.cm-lp-root {
+  --lp-heading: #1A1714;
+  --lp-muted: #4A443C;
+  --lp-link: #0A5350;
+  --lp-code-bg: #EDE9E1;
+  --lp-mono: JetBrains Mono, ui-monospace, SFMono-Regular, Menlo, monospace;
+  /*
+    THIS BLOCK IS THE CONTRACT, AND IT HAS BEEN BROKEN TWICE THE SAME WAY.
+
+    Everything drawn inside the editor — the shared stylesheet appended below,
+    the completion list's theme, the link affordance — names its colours as
+    --lp-* custom properties rather than as values, because the same rules run
+    inside the iOS WebView where the palette arrives over a bridge. The guest
+    declares the whole set (webview/host.ts themeVars, webview/styles.ts); this
+    half has to declare the same set or those rules are talking to nothing.
+
+    A missing one does not fail loudly. An unknown custom property makes its
+    whole declaration invalid at computed-value time, so a colour naming one
+    becomes inherit rather than an error — and the text takes whatever colour
+    the app around the editor happens to be using, which was white ink on the
+    light ground in the completion list and in every form label. It was right
+    on iOS the whole time, which is exactly why nobody found it by looking at a
+    phone.
+
+    So: KEEP THIS IN STEP WITH themeVars. liveEditorMount.test.ts asserts
+    that every --lp-* any mounted stylesheet reads is one declared here, which
+    is the guard rather than this paragraph.
+  */
+  --lp-content: #4A443C;
+  /*
+    Hairlines, which this file had no token for at all — a rule that needed one
+    borrowed --lp-code-bg, and that is the code fence's *fill*: #F5F5F5 on a
+    #FFFFFF ground, which is not an edge. The palette has had the right two
+    values the whole time.
+  */
+  --lp-line: rgba(26,23,20,0.09);
+  --lp-line-strong: rgba(26,23,20,0.18);
+  /* The wash behind a focused control, so focus is a ring rather than one
+     pixel of border changing colour. */
+  --lp-focus-ring: rgba(14,108,105,0.10);
+  /*
+    What the note is drawn *on*. The editor itself is transparent (below), so
+    this names the surface behind it rather than painting one. The checkbox's
+    tick is cut out of the filled box in this colour.
+  */
+  --lp-bg: #FFFDF9;
+  /*
+    The face the rendered blocks are set in — a form's fields, a table's cells.
+    Not the scroller's own font-family, which is set directly below: that one
+    is the note's body text and existed before anything here needed a token.
+  */
+  --lp-body: Instrument Sans, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /*
+    THE READING MEASURE — the one --lp-* here that is not a colour or a face.
+
+    It is in this block rather than beside the rule that uses it for the
+    reason the paragraph above gives: the identical rule runs inside the iOS
+    WebView, where every --lp-* arrives over the bridge, so a property
+    declared on one host and read on both is a declaration that silently
+    becomes nothing on the other. themeVars sends this one too.
+
+    A BARE NUMBER, and the unit is added by the rule that uses it. A
+    font-relative length inside a custom property may be resolved either where
+    the property is declared or where it is substituted, and engines differ —
+    and those are two different lengths here, because this element is Times New
+    Roman at 16px (nothing sets a face on it) while the note is a sans at
+    14.5px. Multiplying by 1em down in .cm-content resolves it against the text
+    it is measuring, on every engine.
+
+    The number is layout.readingMeasureEm, which carries the argument for it,
+    including why it is em rather than the ch that nominally means characters.
+  */
+  --lp-measure: 40;
+  height: 100%;
+}
+.cm-lp-root .cm-editor { height: 100%; background: transparent; }
+.cm-lp-root .cm-editor.cm-focused { outline: none; }
+.cm-lp-root .cm-scroller {
+  font-family: Instrument Sans, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /*
+    The two numbers noteGutterFor needs, spent here and read there.
+
+    (No backticks in this comment: it is inside a template literal, and one
+    would end the string — the same trap frontmatterRange's neighbour records.)
+
+    They were literals, which is fine for a rule nothing else has to line up
+    with — and the breadcrumb above the note does. layout.noteFontSize is what
+    --lp-measure is multiplied by down in .cm-content, and layout.notePadX is
+    the gutter the measure is centred inside; anything drawn over this column
+    adds them the same way or sits four points off the text at one width and
+    level at another.
+  */
+  font-size: 16px;
+  line-height: 1.75;
+  padding: 14px 16px;
+  overflow: auto;
+}
+/*
+  Through the property rather than the value, so the body text and everything
+  that says "the note's ink" resolve to one colour. The media query below moves
+  both by moving the property once.
+*/
+.cm-lp-root .cm-content {
+  color: var(--lp-content);
+  caret-color: #1A1714;
+  /*
+    ONE COLUMN, AND EVERYTHING IN THE NOTE SHARES IT.
+
+    The measure is on .cm-content rather than on .cm-line because a note is
+    not only prose: a table, a form, a rendered diagram and a code fence are
+    block children of the same element, and constraining the lines alone would
+    leave every one of those starting at a different left edge from the
+    sentence above it. Nothing is allowed to be wider than the text it belongs
+    to; what a wide table gets instead is its own scroller (.cm-lp-grid's
+    overflow-x), which is why a 12-column table still reads as part of the
+    document rather than dragging the document sideways.
+
+    PADDING RATHER THAN MAX-WIDTH, BECAUSE THE EMPTY HALF OF THE PANE IS
+    STILL THE EDITOR.
+
+    The obvious recipe is max-width plus auto margins, and it draws exactly
+    the same column. It was measured in Chromium and rejected: it makes
+    .cm-content 572px wide inside a 1192px pane, so the 310px either side of
+    the text stop being the editable surface. A click there lands on
+    .cm-scroller, the editor does not take focus, and nothing happens — on a
+    desktop console that is half the note's apparent area gone dead, and
+    clicking beside a line to put the caret in it is something people do.
+
+    Padding keeps .cm-content the full width of the pane, so CodeMirror's own
+    mousedown handler still maps a click in the margin to the nearest position
+    the way it always did, while every block child is inset to the measure.
+    The max() floor is what hands the width back at narrow widths: once the
+    pane is no wider than the measure the padding is zero and .cm-scroller's
+    --lp-pad-x is the only gutter, which is the phone.
+
+    1em is this element's own font size — the note's — which is the point of
+    doing the multiplication here rather than storing a length.
+  */
+  padding-inline: max(0px, calc((100% - var(--lp-measure) * 1em) / 2));
+}
+.cm-lp-root .cm-line { padding: 0; }
+/*
+  The phone reads the note; it does not inspect it. Same buffer, same
+  decorations, larger measure and more air — see the native half's file comment
+  for the argument. A media query rather than a prop because this stylesheet is
+  injected once for the document and has no React state to read; the breakpoint
+  is layout.narrowBreakpoint, which is what densityFor calls compact, so the
+  two surfaces change over at the same width instead of at two numbers that
+  agree until somebody edits one. Minus 0.02 rather than minus 1: densityFor
+  says compact below the breakpoint, and CSS max-width is inclusive, so a whole
+  point would leave a window between 879 and 880 where one surface had changed
+  over and the other had not. (No backticks in here: this comment is inside a
+  template literal, and one would end the string.)
+*/
+@media (max-width: 879.98px) {
+  .cm-lp-root .cm-scroller {
+    /*
+      Measured off Obsidian mobile: 16px on a 24px line box, 24px of side
+      padding. Ours was 16.5/1.65 in 20px, which is a 27px line box — 13%
+      looser than the reference and enough to make a paragraph read as a list
+      of lines rather than a block of prose.
+    */
+    font-size: 16px;
+    line-height: 1.5;
+    padding: 8px 24px 32px;
+  }
+  /*
+    The note is the whole screen here rather than a column beside a file tree,
+    so it is drawn in the full-strength ink — themeVars' compact ? text : text2,
+    which is the same sentence in the same two colours.
+  */
+  .cm-lp-root { --lp-content: #1A1714; }
+}
+
+.cm-lp-h1, .cm-lp-h2, .cm-lp-h3, .cm-lp-h4, .cm-lp-h5, .cm-lp-h6 {
+  font-weight: 600;
+  color: var(--lp-heading);
+  line-height: 1.3;
+}
+/*
+  THE TYPE SCALE, RESTATED AS MULTIPLES OF THE BODY.
+
+  30 / 23 / 19 against a 16px body, which is pointerType's title, h2 and h3
+  exactly -- the scale this product already declares, arrived at here by
+  division rather than by a second opinion.
+
+  It was 1.625 / 1.3 / 1.15, measured off Obsidian mobile, and that was a third
+  ladder: neither the tokens' nor the 1.7 / 1.4 / 1.2 it replaced. Two scales in
+  one application is one of them being wrong wherever they meet, and where they
+  met was the note -- a 30pt title in the tokens, a 26pt one on the page. The
+  design canvas sides with the tokens.
+
+  Literals rather than a custom property because these are ratios to the
+  editor's own font size, which is what em means here. typeScale.test.ts holds
+  them to tokens.ts by reading this file as text.
+
+  (No backticks anywhere in this comment: it is inside a template literal and
+  one would end the string. That is not hypothetical -- writing this comment
+  with them is what broke the build a minute before it was rewritten.)
+*/
+.cm-lp-h1 { font-size: 1.875em; }
+.cm-lp-h2 { font-size: 1.4375em; }
+.cm-lp-h3 { font-size: 1.1875em; }
+.cm-lp-h4, .cm-lp-h5, .cm-lp-h6 { font-size: 1.05em; }
+/*
+  A note's metadata, drawn as metadata. Not hidden: the buffer is the Markdown,
+  and a block the editor refuses to show is a block you cannot fix. See
+  frontmatterRange above for what this replaced. (No backticks in this comment:
+  it is inside a template literal and one would end the string.)
+*/
+.cm-lp-frontmatter {
+  font-family: var(--lp-mono);
+  font-size: 0.82em;
+  line-height: 1.7;
+  color: var(--lp-muted);
+}
+/*
+  A dictated phrase the engine has not settled on yet.
+
+  Grey and italic because that is what "heard, not written" has to look like:
+  the reader has to be able to tell at a glance which words are in their file
+  and which are the machine still thinking. It is a widget, so it is not in
+  the document and cannot be selected, copied or saved — see dictate.ts.
+*/
+.cm-dictation-interim {
+  color: var(--lp-muted);
+  font-style: italic;
+  white-space: pre-wrap;
+}
+.cm-lp-strong { font-weight: 650; color: var(--lp-heading); }
+.cm-lp-em { font-style: italic; }
+.cm-lp-strike { text-decoration: line-through; opacity: 0.7; }
+.cm-lp-code {
+  font-family: var(--lp-mono);
+  font-size: 0.92em;
+  background: var(--lp-code-bg);
+  border-radius: 4px;
+  padding: 0.1em 0.32em;
+}
+.cm-lp-fence {
+  font-family: var(--lp-mono);
+  font-size: 0.92em;
+  background: var(--lp-code-bg);
+}
+/*
+  R3 in the sweep: a fence in one of the three languages the bundle already
+  carries (see FENCE_LANGUAGES) is coloured with tokens this file already has
+  rather than a new one — see fenceHighlightStyle's own comment for why.
+*/
+.cm-lp-code-keyword { color: var(--lp-link); }
+.cm-lp-code-string { color: var(--lp-heading); }
+.cm-lp-code-comment { color: var(--lp-muted); font-style: italic; }
+/*
+  A rendered html-preview fence. See HtmlPreviewWidget for what is inside the
+  frame and why nothing inside it can run.
+
+  ## The height is fixed, and that is a gap rather than a choice
+
+  Nothing here can measure the frame. Sizing an iframe to its content means
+  script inside it reporting a height out, and script inside it is the one thing
+  this feature never allows; the frame is also cross-origin by construction, so
+  the host cannot reach in and read it either. So the box is a number, and it
+  errs tall: a diagram drawn short leaves empty space under it, and a diagram
+  drawn tall loses its bottom third. The second is the failure a reader notices.
+
+  ## overflow: hidden is not tidying
+
+  The markup in the fence may have been emailed in by a stranger, and a layout
+  that escapes its box draws over real console UI — a toolbar, a save state, a
+  privacy control. The clip is on the wrapper, so nothing the frame's own CSS
+  does can widen it, and max-height keeps the box inside the viewport on a phone
+  where 620px is most of the screen.
+
+  pointer-events: none on the frame is what lets a click reach the editor and
+  reveal the source. See the widget's comment.
+*/
+.cm-lp-preview {
+  overflow: hidden;
+  margin: 0.5em 0;
+  border: 1px solid var(--lp-code-bg);
+  border-radius: 8px;
+  background: var(--lp-code-bg);
+}
+.cm-lp-preview-frame {
+  display: block;
+  width: 100%;
+  height: 620px;
+  max-height: 80vh;
+  border: 0;
+  pointer-events: none;
+}
+.cm-lp-quote { color: var(--lp-muted); font-style: italic; }
+/*
+  A CALLOUT — an Obsidian blockquote that opens with [!type].
+
+  A box rather than the quote's italic muted run, because that is the whole
+  point of the syntax: the author is setting this apart from the prose around
+  it. The callout's own lines override the quote styling they inherit, since
+  every line of one is also a Blockquote and would otherwise be drawn as an
+  aside inside its own box.
+
+  NO PER-TYPE COLOUR, deliberately, and it is the restraint this file already
+  states about its palette: Obsidian has thirteen callout types and thirteen
+  colours, and each one here would be another --lp-* token crossing the WebView
+  bridge for a distinction the box and the title already carry. The icon in the
+  report that prompted this is not Obsidian's either — it is the plugin's own
+  stylesheet, which Context does not load into the trusted realm.
+
+  The left bar is the one piece of the quote's vocabulary kept, so a callout
+  still reads as a quoted block rather than as a code fence.
+*/
+.cm-lp-callout {
+  background: var(--lp-code-bg);
+  border-left: 3px solid var(--lp-line-strong);
+  color: var(--lp-content);
+  font-style: normal;
+  padding-left: 10px;
+}
+.cm-lp-callout .cm-lp-quote { color: inherit; font-style: inherit; }
+/* Rounded at the ends, so a run of lines reads as one box. */
+.cm-lp-callout-head { border-top-right-radius: 6px; padding-top: 2px; }
+/* The title line carries the weight; the type stands in when there is none. */
+.cm-lp-callout-head .cm-lp-quote { color: var(--lp-heading); font-weight: 600; }
+.cm-lp-callout-type { color: var(--lp-heading); font-weight: 600; font-style: normal; }
+.cm-lp-link { color: var(--lp-link); text-decoration: underline; }
+/*
+  A list item's indent is arithmetic rather than taste, and it is not here: the
+  padding and the negative text-indent are one number set per line by the
+  decoration, because it depends on how wide that item's own marker is, so the
+  first line starts at the margin with its marker and every wrapped line clears
+  it. See hangingIndents. What is here is only the marker's colour.
+*/
+.cm-lp-list-mark { color: var(--lp-muted); }
+/*
+  Both widgets hold the width of the characters they replaced, so the hanging
+  indent above stays true on a wrapped line. A bullet stands in for one
+  character and a checkbox for three.
+
+  ## text-indent: 0 is not tidying, it is the whole of "bullets look broken"
+
+  The hanging indent is padding-left:Nch with text-indent:-Nch on the line,
+  which puts the first line's content back at the margin and every wrapped line
+  clear of the marker. TEXT-INDENT IS INHERITED, and both of these are
+  inline-level boxes with their own inner line box — so each widget applied the
+  line's negative indent a second time, inside itself. Measured in a browser at
+  390pt: the bullet glyph drew at -20.4px, a full indent OUTSIDE the reading
+  margin, while the text after it started correctly at 10.2px. A bullet adrift
+  in the left gutter, a third of an inch from the line it belongs to — and a
+  nested item, whose indent is twice as deep, drew its bullet off the left edge
+  of the screen entirely.
+
+  An ordered list was never affected and that is the tell: "1." is real text,
+  not a widget, so it took the indent once and landed correctly. Only what was
+  replaced went wrong.
+*/
+.cm-lp-bullet {
+  display: inline-block;
+  width: 1ch;
+  text-indent: 0;
+  color: var(--lp-muted);
+}
+/*
+  The checkbox, and the reason it is drawn rather than written.
+
+  It used to be the character U+2610, which is text: it takes the body font's
+  weight, it is a different shape in every font that has it, plenty of fonts do
+  not have it at all, and none of them looks like something you press. A border
+  and a radius do not depend on a font being installed and do not change weight
+  when the text around them does.
+
+  The outer span is the three columns the source characters occupied and the box
+  is centred in them, so a list mixing tasks and plain items keeps its text in
+  one column.
+*/
+.cm-lp-task {
+  display: inline-flex;
+  align-items: center;
+  /* Inherited text-indent, for .cm-lp-bullet's reason. */
+  text-indent: 0;
+  justify-content: center;
+  width: 3ch;
+  cursor: pointer;
+  /* The press is the whole point; the system callout is the other thing that
+     answers a long press over it. */
+  -webkit-touch-callout: none;
+}
+.cm-lp-task-box {
+  position: relative;
+  box-sizing: border-box;
+  width: 0.95em;
+  height: 0.95em;
+  border: 1.5px solid var(--lp-muted);
+  border-radius: 3px;
+  /* A hair below the text baseline, where a checkbox sits beside a line of
+     prose rather than floating in the middle of it. */
+  transform: translateY(0.04em);
+}
+.cm-lp-task-on .cm-lp-task-box {
+  background: var(--lp-link);
+  border-color: var(--lp-link);
+}
+/*
+  The tick: two borders on a rotated box, which is the construction that needs
+  no font and no image. Drawn in the editor background so it reads as cut out of
+  the filled square rather than painted on it.
+*/
+.cm-lp-task-on .cm-lp-task-box::after {
+  content: "";
+  position: absolute;
+  left: 0.27em;
+  top: 0.09em;
+  width: 0.17em;
+  height: 0.40em;
+  border: solid var(--lp-bg);
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+/*
+  A finished task, drawn as finished — the half of a checkbox that a one-column
+  glyph could never carry. This is what lets somebody skim a list and see what
+  is left without reading it.
+*/
+.cm-lp-task-done {
+  color: var(--lp-muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+/*
+  AN EDITABLE table is not laid out — the pipes are still the author's — but it
+  is drawn in the mono face, which is what makes the columns of a table that
+  fits line up. A reader gets the grid below instead. See tableLines and
+  tableGrids.
+*/
+.cm-lp-table {
+  font-family: var(--lp-mono);
+  font-size: 0.86em;
+}
+.cm-lp-table-delim { color: var(--lp-muted); }
+/*
+  A TABLE, LAID OUT FOR A READER.
+
+  Hairlines and nothing else: no outer box, no fill, no zebra. A table in a
+  note is part of the document rather than a panel sitting on it, and every
+  edge spent here is an edge competing with the note's own structure. What
+  separates the header from the body is one stronger rule, which is the only
+  place this needs weight.
+
+  The scroller is the wrapper, so a table wider than the measure scrolls in its
+  own box rather than dragging the whole note sideways.
+*/
+.cm-lp-grid {
+  overflow-x: auto;
+  margin: 0.4em 0;
+}
+.cm-lp-grid-table {
+  border-collapse: collapse;
+  /*
+    Sized by its content rather than stretched to the measure. A two-column
+    table pushed to full width puts a hand-span of nothing between the label
+    and its value, which is harder to read than the pipes were.
+  */
+  width: auto;
+  max-width: 100%;
+  font-size: 0.94em;
+  line-height: 1.5;
+  /* Digits in a column line up, which is most of why a column of them exists. */
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-grid-table th {
+  font-weight: 600;
+  color: var(--lp-heading);
+  text-align: left;
+  padding: 7px 14px 8px;
+  border-bottom: 1px solid var(--lp-line-strong);
+  /*
+    A header is a label, and a label that wraps to two lines over a one-line
+    column is the table drawing attention to its own chrome.
+  */
+  white-space: nowrap;
+}
+.cm-lp-grid-table td {
+  padding: 8px 14px;
+  border-top: 1px solid var(--lp-line);
+  vertical-align: top;
+  color: var(--lp-content);
+}
+/*
+  The outer columns lose their side padding, so the grid's own edges line up
+  with the paragraph above it. Without this a table reads as indented from the
+  text around it by however much cell padding happens to be, which is the one
+  thing that gives away a rendered block as a rendered block.
+*/
+.cm-lp-grid-table tr > :first-child { padding-left: 0; }
+.cm-lp-grid-table tr > :last-child { padding-right: 0; }
+.cm-lp-grid-left { text-align: left; }
+.cm-lp-grid-center { text-align: center; }
+.cm-lp-grid-right { text-align: right; }
+/*
+  An empty cell says so. Drawn as nothing it is indistinguishable from a column
+  that failed to render, and a reader cannot tell which they are looking at.
+*/
+.cm-lp-grid-empty::after {
+  content: "—";
+  color: var(--lp-muted);
+}
+.cm-lp-rule { color: var(--lp-muted); }
+/*
+  A FORM, DRAWN FROM ITS DECLARATION.
+
+  Every colour here is one of the --lp-* properties the host already sets from
+  the palette in force, so the form follows the theme without this file naming a
+  single value — the rule the rest of these styles follow. --lp-code-bg is the
+  one that does the most work: it is a translucent ink rather than a fixed grey,
+  so it darkens a light ground and lightens a dark one, which is exactly what a
+  field's fill and a card's hairline both want.
+
+  The card is the same object as the note around it rather than a panel floating
+  over it: one hairline, the page's own background, and the reading measure. A
+  raised surface would be a second document inside the note, which is what the
+  diagram frame beside it is and what a form is not.
+*/
+.cm-lp-form {
+  /*
+    A real hairline. This was --lp-code-bg, which is the code fence's FILL:
+    #F5F5F5 on a #FFFFFF ground, so in light mode the card had no visible edge
+    at all and the form read as loose controls dropped into the note. --lp-line
+    is the palette's own separator and is the same value every hairline in the
+    app is drawn in.
+  */
+  border: 1px solid var(--lp-line);
+  /*
+    ONE GUTTER, DECLARED ONCE.
+
+    Every band inside measures its own edge from this, and so does the first and
+    last cell of the response table — which is the only way rows that scroll
+    sideways can line up with a heading that does not. It was 14px written out
+    in four rules and 9 / 11 / 14 vertically in three of them, and no two bands
+    agreeing on where their edge was is the whole of "the spacing looks off".
+
+    Deliberately NOT --lp-form-gutter. In this file --lp-* names a value the
+    host supplies over the bridge, and two tests hold every one of them to
+    themeVars and to the guest's own :root for a reason worth keeping: an
+    undeclared custom property does not fall back, it invalidates the whole
+    declaration that names it. This is a layout constant declared on the only
+    element whose descendants read it, so it is not that kind of property and
+    does not borrow that prefix.
+  */
+  --form-gutter: 14px;
+  /*
+    One radius family — 10 on the card, 8 on the field, 8 on the button. It was
+    12 / 9 / 11, three radii no two of which agreed, which is what made a small
+    card read as three unrelated objects stacked up.
+  */
+  border-radius: 10px;
+  /* The padding belongs to the three bands inside, so their rules can run edge
+     to edge. */
+  overflow: hidden;
+  margin: 0.6em 0;
+  font-family: var(--lp-body);
+  font-size: 0.94em;
+  line-height: 1.45;
+  color: var(--lp-content);
+}
+/*
+  WHAT THIS BOX IS, AND WHERE WHAT YOU TYPE GOES.
+
+  See FormWidget.drawHead. The destination is the half that earns the strip:
+  responses live in a sister note by design, and a reader had no way to learn
+  which one before pressing Submit.
+*/
+.cm-lp-form-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 10px var(--form-gutter);
+  border-bottom: 1px solid var(--lp-line);
+  background: var(--lp-code-bg);
+}
+.cm-lp-form-kind {
+  font-family: var(--lp-mono);
+  font-size: 0.72em;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+.cm-lp-form-dest { font-size: 0.82em; color: var(--lp-muted); }
+.cm-lp-form-dest-path { font-family: var(--lp-mono); color: var(--lp-content); }
+.cm-lp-form-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: var(--form-gutter);
+}
+.cm-lp-form-row { display: flex; flex-direction: column; gap: 6px; }
+/* The label and its character count, on one line. */
+.cm-lp-form-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+/*
+  A field's name is its label verbatim, with underscores spaced out. Sentence
+  case is left alone rather than title-cased: the author wrote the name, and a
+  form that renames somebody's field on screen is a form whose error messages
+  are about a field they cannot find.
+*/
+.cm-lp-form-label {
+  /*
+    Small, spaced and upper-case: a field name is a label rather than a
+    sentence, and at 0.85em in sentence case it read as body copy that happened
+    to be grey — the note's own prose and the form's chrome in the same voice.
+    The name itself is still verbatim; see drawField.
+  */
+  font-size: 0.76em;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+/*
+  The word rather than an asterisk. An asterisk has to be learned, is invisible
+  to a screen reader that announces punctuation differently, and at 0.85em is
+  three pixels of ink carrying the difference between a form that submits and
+  one that is refused.
+*/
+.cm-lp-form-required {
+  font-weight: 500;
+  /* Not upper-cased with the name: it is a note about the field, not part of
+     what the field is called. */
+  text-transform: none;
+  letter-spacing: 0.02em;
+  color: var(--lp-muted);
+  opacity: 0.85;
+}
+.cm-lp-form-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  font-family: var(--lp-body);
+  color: var(--lp-content);
+  background: var(--lp-code-bg);
+  /*
+    A real border at rest rather than a transparent one. A filled slab with no
+    edge is a block of colour; the edge is what says "you type in here", and
+    without it the only thing distinguishing a field from a code span was its
+    width.
+  */
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 8px;
+  padding: 8px 10px;
+  /* Safari draws its own rounded fill over the one above without this. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cm-lp-form-input::placeholder { color: var(--lp-muted); opacity: 0.7; }
+/* The two controls that are meaningless at full width and a target at 18px. */
+.cm-lp-form-input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--lp-link); }
+.cm-lp-form-input[type="date"], .cm-lp-form-input[type="number"] { width: auto; min-width: 10em; }
+.cm-lp-form-input:focus {
+  outline: none;
+  border-color: var(--lp-link);
+  /*
+    A ring as well as the border. The border alone moves one pixel of colour on
+    focus, which is not enough to find the field you just tabbed to — and this
+    is the control a keyboard user reaches Submit through.
+  */
+  box-shadow: 0 0 0 3px var(--lp-focus-ring);
+}
+textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
+/*
+  Right-aligned under the box it counts, in the muted ink: it is a fact about
+  the room left rather than a message, and reading order should reach the next
+  field before it.
+*/
+.cm-lp-form-count {
+  font-size: 0.76em;
+  color: var(--lp-muted);
+  /* Digits that change under the reader's eye must not move the label. */
+  font-variant-numeric: tabular-nums;
+}
+.cm-lp-form-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px var(--form-gutter);
+  /* The action is separated from the fields rather than being the next thing
+     in the stack — pressing it is not the same kind of act as filling one in. */
+  border-top: 1px solid var(--lp-line);
+}
+/*
+  The app's primary button, in CSS: the accent fill, white ink, 11px corners and
+  a 15px label. It is the one filled thing in the note, which is what a button
+  in a document should be.
+*/
+.cm-lp-form-submit {
+  font: inherit;
+  font-family: var(--lp-body);
+  font-weight: 600;
+  color: #ffffff;
+  background: var(--lp-link);
+  border: none;
+  border-radius: 8px;
+  padding: 7px 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cm-lp-form-submit:focus-visible { outline: 2px solid var(--lp-link); outline-offset: 2px; }
+.cm-lp-form-submit:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-status { font-size: 0.88em; color: var(--lp-muted); }
+.cm-lp-form-status-ok { color: var(--lp-link); font-weight: 600; }
+/*
+  A refusal is drawn in the muted ink at full weight rather than in red. There
+  is no --lp-danger, and inventing a hex here would be the one colour in this
+  file that does not follow the theme — the failure the file's own header names.
+  Weight carries it, and the words carry the rest.
+*/
+.cm-lp-form-status-bad { color: var(--lp-content); font-weight: 600; }
+.cm-lp-form-status-quiet { opacity: 0.75; }
+/*
+  The sister file's rows, as the card's fourth band.
+
+  Its own padding and no margin, because the card is now edge-to-edge bands
+  separated by rules (see .cm-lp-form) rather than one padded box — a margin
+  here would inset the rule and leave the rows flush against the border. The
+  title takes the same small upper-case voice as a field label, so the two
+  headings inside one card agree.
+*/
+/*
+  THE BAND IS PADDED; THE TABLE INSIDE IT IS NOT.
+
+  The heading and the status line carry the card's gutter themselves so the
+  scroll box can run wall to wall. A scroll inset by the card's padding leaves
+  a dead strip on each side that the rows slide *under*, which reads as the
+  table being clipped rather than as there being more of it to the right.
+*/
+.cm-lp-form-responses {
+  border-top: 1px solid var(--lp-line);
+  padding: var(--form-gutter) 0;
+}
+.cm-lp-form-responses-title {
+  font-weight: 600;
+  font-size: 0.76em;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+  margin: 0 var(--form-gutter) 10px;
+}
+.cm-lp-form-responses-status {
+  color: var(--lp-muted);
+  font-size: 0.88em;
+  margin: 0 var(--form-gutter);
+}
+.cm-lp-form-responses-scroll {
+  overflow-x: auto;
+  /*
+    A sideways swipe over the table scrolls the table and stops there. Without
+    this it chains to the page once the last column is reached, which on iOS is
+    the back gesture — leaving the note to read one more column is not a trade
+    anybody is offering.
+  */
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+/*
+  THE TABLE IS AS WIDE AS ITS COLUMNS NEED.
+
+  This was width: 100%, and with seven columns inside a card the width of the
+  reading measure the browser's only move is to shrink every one of them until
+  the whole thing fits: a handle broken across two lines mid-word, a timestamp
+  taking four, one response 190px tall, and every column equally unreadable in
+  service of showing all of them at once.
+
+  max-content asks for the width the columns actually want and lets the box
+  above scroll to the rest of it — which is what Notion does, and what the owner
+  asked for by pointing at it. min-width is the other half: when the columns
+  do NOT need the whole card, the rules still run its full width instead of the
+  table huddling against the left edge.
+*/
+.cm-lp-form-responses-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.cm-lp-form-responses-table th,
+.cm-lp-form-responses-table td {
+  border-bottom: 1px solid var(--lp-line);
+  /*
+    A rule between columns as well as between rows. On a table narrow enough to
+    fit, row rules alone are enough; on one you scroll, the vertical rule is
+    what tells you which column you have arrived at once its heading is off the
+    left edge.
+  */
+  border-right: 1px solid var(--lp-line);
+  padding: 7px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+/* The gutter the band gave up, carried by the columns at each end so the rows
+   line up with the heading above them. */
+.cm-lp-form-responses-table th:first-child,
+.cm-lp-form-responses-table td:first-child { padding-left: var(--form-gutter); }
+/* ...and no rule on the last column, which would otherwise hang in the card's
+   own padding with nothing to its right to separate. */
+.cm-lp-form-responses-table th:last-child,
+.cm-lp-form-responses-table td:last-child {
+  padding-right: var(--form-gutter);
+  border-right: none;
+}
+.cm-lp-form-responses-table th { color: var(--lp-muted); font-size: 0.88em; font-weight: 600; }
+/*
+  AN ANSWER WRAPS; A FACT ABOUT IT DOES NOT.
+
+  Notion clips a cell to one line and gives you the row to open when you need
+  the rest. This table has no row to open, and the answers are the entire point
+  of the feature — a feature request truncated at 40 characters in the list of
+  feature requests is the list not working. So the cap is on the column's
+  *width*, at about a reading measure, and the text wraps inside it.
+*/
+.cm-lp-form-cell-value {
+  /*
+    24em is about one phone-width of column: at this table's size that is 324px
+    against the ~350px a 390pt phone gives the card, so the answer is readable
+    before any sideways scroll and the columns about it are one swipe away.
+
+    The vw term is what makes the swipe DISCOVERABLE. At 24em flat the column
+    filled a phone exactly, the next one started precisely at the card's edge,
+    and a table with more to the right looked identical to one without — the
+    scrollbar that says so on a desktop is a transient overlay on a phone and
+    is not there at rest. Capped a little under the viewport, the next column
+    always peeks, which is the same hint Notion leaves at the right edge. On
+    anything wider than a phone the em term wins and the note keeps its
+    measure.
+  */
+  max-width: min(24em, 72vw);
+  /* A pasted URL or a 40-character token has nowhere to break, and one would
+     otherwise push every column after it off the card on its own. */
+  overflow-wrap: anywhere;
+}
+/*
+  A handle broken across two lines mid-word is the screenshot this came from.
+  A handle, an ISO timestamp and a row of buttons are each one token: wrapping
+  buys nothing and is paid for in the height of every row.
+*/
+.cm-lp-form-cell-meta { white-space: nowrap; }
+.cm-lp-form-cell-at { color: var(--lp-muted); font-variant-numeric: tabular-nums; }
+/*
+  THE VOTES CELL IS ONE LINE, BECAUSE IT SETS EVERY ROW'S HEIGHT.
+
+  The voters and the two buttons were stacked, which made the tallest cell in
+  the table one that holds no answer — every row paid two lines for it whatever
+  it contained. Side by side they cost width instead, and width is the thing
+  this table now has: it scrolls.
+*/
+/* On the text's baseline rather than the buttons' box, so the voters line up
+   with By and At across the row instead of riding half a button lower. */
+.cm-lp-form-votes { display: flex; align-items: baseline; gap: 10px; }
+/*
+  A REFUSAL LANDS HERE, AND A SENTENCE IN A NOWRAP CELL WOULD SET THE TABLE'S
+  WIDTH.
+
+  When a vote is declined the gateway's message replaces the voters (see
+  drawResponses), and when a delete is declined it replaces the button's label.
+  Inside a cell that never wraps, and a table that is now as wide as its widest
+  content, one sentence would push every column to its right off the card and
+  keep them there. So these two — the only places server text reaches a meta
+  column — wrap inside a cap of their own. The buttons beside them still do
+  not: their labels are short and fixed.
+*/
+.cm-lp-form-voters { color: var(--lp-muted); white-space: normal; max-width: 18em; }
+.cm-lp-form-vote-controls { display: flex; gap: 6px; }
+.cm-lp-form-response-controls { display: flex; gap: 6px; }
+/*
+  The row's own buttons, sized as chrome rather than as the content.
+
+  At font: inherit with a 4/8 pad these were body size, and the two in a Votes
+  cell made it taller than the response it belongs to — a whole row of height
+  spent on controls in a table whose job is to be scanned. They are still the
+  full 8mm target on the axis that matters for a thumb.
+*/
+.cm-lp-form-vote,
+.cm-lp-form-response-action {
+  font: inherit;
+  font-size: 0.86em;
+  line-height: 1.35;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 6px;
+  padding: 4px 9px;
+  color: var(--lp-link);
+  background: transparent;
+  cursor: pointer;
+  /*
+    And the labels wrap, inside a cap. Their own are short and fixed, but a
+    declined delete replaces this one with the gateway's refusal — inside a
+    column that never wraps, in a table now as wide as its widest content, one
+    sentence would push every column to its right off the card and keep them
+    there. Same reason, and same shape, as the cap on the voters above.
+  */
+  white-space: normal;
+  max-width: 14em;
+}
+.cm-lp-form-vote:disabled,
+.cm-lp-form-response-action:disabled { opacity: 0.45; cursor: default; }
+.cm-lp-form-vote-remove { color: var(--lp-muted); }
+.cm-lp-form-delete { color: var(--lp-muted); }
+/*
+  "We can't display because the formatting is off", which is what the owner
+  asked for. Dashed rather than solid so it reads as a gap in the note that
+  something should fill, and muted rather than loud: a form that will not parse
+  is the author's problem to fix and nobody else's to be alarmed by.
+*/
+.cm-lp-form-broken {
+  border-style: dashed;
+  border-color: var(--lp-line-strong);
+  color: var(--lp-muted);
+  /* No head, no fields, no foot — so this one carries its own padding. */
+  padding: 14px;
+}
+.cm-lp-form-broken-title { font-weight: 600; color: var(--lp-content); }
+.cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }
+.cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }
+
+</style>
+</head><body><div id="shot"><div class="css-view-g5y9jx" style="width: 760px; height: 800px; background-color: rgb(255, 253, 249);"><div class="css-view-g5y9jx r-WebkitAppRegion-patsjg r-flexShrink-1q142lx r-height-tmtnm0 r-width-13qz1uu" style="background-color: rgb(247, 244, 237);" data-testid="shell-title-band"></div><div class="css-view-g5y9jx" style="flex: 1; min-height: 0px;"><div class="css-view-g5y9jx r-backgroundColor-z2fii5 r-overflow-1udh08x" style="height: calc(100dvh - 45px); max-height: calc(100dvh - 45px);" data-testid="app-frame"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-backgroundColor-1niwhzg r-borderBottomWidth-ndvcnb r-gap-1cmwbt1 r-left-1d2f490 r-paddingInline-3o4zer r-position-u8s1d r-right-zchlnj r-top-ipm5af r-zIndex-184en5c" style="padding-top: 0px; height: 56px;" data-testid="app-top-bar"><div class="css-view-g5y9jx r-WebkitAppRegion-fvhao2 r-flexGrow-18kxxzh r-flexShrink-1q142lx"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-9aw3ui"><div class="css-view-g5y9jx"><button aria-expanded="false" aria-haspopup="menu" aria-label="@seyi — account menu" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-cpet4d r-height-1ugchlj r-justifyContent-1777fci r-width-usgzl9" data-testid="account-menu" type="button"><div aria-hidden="true" class="css-view-g5y9jx r-alignItems-1awozwy r-backgroundColor-1b546wh r-borderRadius-1txcine r-height-1k25im9 r-justifyContent-1777fci r-width-19tjxh9"><div dir="auto" class="css-text-146c3p1 r-fontFamily-hzt0gu r-lineHeight-1m8ila0 r-color-141hess r-fontSize-1gkfh8e r-fontWeight-b88u0q">S</div></div></button></div></div></div><div class="css-view-g5y9jx r-WebkitAppRegion-fvhao2 r-flexDirection-18u37iz r-flexShrink-1wbh5a2 r-justifyContent-17s6mgv r-marginLeft-1jj8364 r-minWidth-bcqeeo"></div><div class="css-view-g5y9jx r-WebkitAppRegion-fvhao2 r-alignItems-1awozwy r-flexDirection-18u37iz r-backgroundColor-r49adf r-borderRadius-cpet4d r-boxShadow-1rmb0z6 r-gap-1jnkns4 r-minHeight-peo1c r-paddingInline-n7gxbd r-flexShrink-1q142lx r-marginLeft-11wrixw"><button aria-label="Read this note" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-justifyContent-1777fci r-borderRadius-cpet4d r-height-1ugchlj r-width-usgzl9" data-testid="note-read" type="button"><div aria-hidden="true" data-icon="eye" class="css-view-g5y9jx r-position-bnwqim" style="width: 20px; height: 20px;"><svg width="20" height="20" viewBox="0 0 1 1"><path d="M 0.06 0.5 A 0.4857142857142857 0.4857142857142857 0 0 1 0.94 0.5 A 0.4857142857142857 0.4857142857142857 0 0 1 0.06 0.5 Z" fill="none" stroke="#4A443C" stroke-width="0.1" stroke-linejoin="round" stroke-linecap="round"></path><circle cx="0.5" cy="0.5" r="0.165" fill="none" stroke="#4A443C" stroke-width="0.1"></circle></svg></div></button><button aria-label="Share this" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-justifyContent-1777fci r-borderRadius-cpet4d r-height-1ugchlj r-width-usgzl9" data-testid="note-share" type="button"><div aria-hidden="true" data-icon="share" class="css-view-g5y9jx r-position-bnwqim" style="width: 20px; height: 20px;"><div class="css-view-g5y9jx" style="position: absolute; left: 6.6px; top: 5.800000000000001px; width: 6.800000000000001px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(-34deg);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 6.6px; top: 12.200000000000001px; width: 6.800000000000001px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(34deg);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 2.1999999999999997px; top: 7.4px; width: 5.2px; height: 5.2px; border-top-left-radius: 2.6px; border-top-right-radius: 2.6px; border-bottom-right-radius: 2.6px; border-bottom-left-radius: 2.6px; background-color: rgb(74, 68, 60);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 12.6px; top: 1.4px; width: 5.2px; height: 5.2px; border-top-left-radius: 2.6px; border-top-right-radius: 2.6px; border-bottom-right-radius: 2.6px; border-bottom-left-radius: 2.6px; background-color: rgb(74, 68, 60);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 12.6px; top: 13.4px; width: 5.2px; height: 5.2px; border-top-left-radius: 2.6px; border-top-right-radius: 2.6px; border-bottom-right-radius: 2.6px; border-bottom-left-radius: 2.6px; background-color: rgb(74, 68, 60);"></div></div></button></div></div><div class="css-view-g5y9jx r-flex-13awgt0 r-flexDirection-18u37iz r-minHeight-ifefl9 r-position-bnwqim"><div class="css-view-g5y9jx r-backgroundColor-z2fii5 r-flex-13awgt0 r-minWidth-bcqeeo"><div class="css-view-g5y9jx r-flex-13awgt0 r-minHeight-ifefl9"><div class="css-view-g5y9jx r-flex-13awgt0 r-minHeight-ifefl9"><div class="css-view-g5y9jx r-flex-13awgt0 r-minHeight-ifefl9 r-gap-1jnkns4"><div class="css-view-g5y9jx r-flex-13awgt0 r-minHeight-ifefl9" style="padding-top: 0px; padding-bottom: 0px;"><div class="css-view-g5y9jx r-WebkitOverflowScrolling-150rngu r-flexDirection-eqz5dr r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-overflowX-11yh6sk r-overflowY-1rnoaur r-transform-agouwx r-flex-13awgt0 r-minHeight-ifefl9" data-testid="note-scroll"><div class="css-view-g5y9jx" style="padding-top: 56px; padding-bottom: 101px;"><div class="css-view-g5y9jx r-gap-9aw3ui" style="padding-right: 25px; padding-left: 25px;" data-testid="nav-band"><nav aria-label="Contexts" role="navigation" class="css-view-g5y9jx r-alignSelf-1pz39u2 r-justifyContent-1777fci r-position-bnwqim" data-testid="context-strip"><div class="css-view-g5y9jx r-WebkitOverflowScrolling-150rngu r-flexDirection-18u37iz r-flexShrink-1wbh5a2 r-overflowX-lltvgl r-overflowY-buy8e9 r-transform-agouwx r-flexGrow-18kxxzh r-scrollbarWidth-2eszeu" data-testid="context-strip-scroll"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-ojf8lh"><button aria-label="Open @lk" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-flexShrink-1q142lx r-height-1ugchlj r-justifyContent-1777fci r-minWidth-1ps3wis" data-testid="context-strip-lk" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-backgroundColor-r49adf r-borderRadius-kdyh1x r-boxShadow-1rmb0z6 r-flexDirection-18u37iz r-flexShrink-1q142lx r-gap-ojf8lh r-height-zx9znk r-paddingInline-is05cd" data-testid="mark-context-strip-lk"><div aria-hidden="true" class="css-view-g5y9jx r-flexGrow-18kxxzh r-flexShrink-1q142lx" style="width: 7px; height: 7px; border-top-left-radius: 3.5px; border-top-right-radius: 3.5px; border-bottom-right-radius: 3.5px; border-bottom-left-radius: 3.5px; background-color: rgb(62, 122, 78);"></div><div dir="auto" class="css-text-146c3p1 r-color-2d2yd3 r-fontFamily-hzt0gu r-fontSize-n6v787 r-fontWeight-majxgm r-lineHeight-9kdimu">@lk</div></div></button><button aria-label="Open @public-worship" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-flexShrink-1q142lx r-height-1ugchlj r-justifyContent-1777fci r-minWidth-1ps3wis" data-testid="context-strip-public-worship" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-backgroundColor-r49adf r-borderRadius-kdyh1x r-boxShadow-1rmb0z6 r-flexDirection-18u37iz r-flexShrink-1q142lx r-gap-ojf8lh r-height-zx9znk r-paddingInline-is05cd" data-testid="mark-context-strip-public-worship"><div aria-hidden="true" class="css-view-g5y9jx r-flexGrow-18kxxzh r-flexShrink-1q142lx" style="width: 7px; height: 7px; border-top-left-radius: 3.5px; border-top-right-radius: 3.5px; border-bottom-right-radius: 3.5px; border-bottom-left-radius: 3.5px; background-color: rgb(99, 92, 82);"></div><div dir="auto" class="css-text-146c3p1 r-color-2d2yd3 r-fontFamily-hzt0gu r-fontSize-n6v787 r-fontWeight-majxgm r-lineHeight-9kdimu">@public-worship</div></div></button></div></div><div aria-hidden="true" class="css-view-g5y9jx r-backgroundImage-18ka392 r-bottom-1p0dtai r-position-u8s1d r-right-zchlnj r-top-ipm5af r-width-lrsllp r-pointerEvents-633pao" data-testid="context-strip-fade"></div></nav><div class="css-view-g5y9jx r-position-bnwqim"><div class="css-view-g5y9jx r-WebkitOverflowScrolling-150rngu r-flexDirection-18u37iz r-flexShrink-1wbh5a2 r-overflowX-lltvgl r-overflowY-buy8e9 r-transform-agouwx r-flexGrow-18kxxzh r-scrollbarWidth-2eszeu" data-testid="nav-band-trail"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-gap-ojf8lh"><div class="css-view-g5y9jx r-flexShrink-1q142lx r-position-bnwqim" data-testid="nav-current-context"><button aria-label="@seyi, the context you are in — open its root" role="button" aria-selected="true" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-flexShrink-1q142lx r-height-1ugchlj r-justifyContent-1777fci r-minWidth-1ps3wis" data-testid="nav-context-seyi" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-flexShrink-1q142lx r-gap-ojf8lh r-backgroundColor-oaswfg r-borderRadius-kdyh1x r-boxShadow-17b9qp5 r-height-1k25im9 r-paddingInline-18c5d7m" data-testid="mark-nav-context-seyi"><div aria-hidden="true" class="css-view-g5y9jx r-alignItems-1awozwy r-backgroundColor-1b546wh r-borderRadius-1f0042m r-height-1hjwoze r-justifyContent-1777fci r-width-12ym1je"><div dir="auto" class="css-text-146c3p1 r-fontFamily-hzt0gu r-lineHeight-1m8ila0 r-color-141hess r-fontSize-1gkfh8e r-fontWeight-1kfrs79">S</div></div><div dir="auto" class="css-text-146c3p1 r-fontFamily-13obcvq r-lineHeight-9kdimu r-color-1mbx6mk r-fontSize-1gkfh8e r-fontWeight-1kfrs79">@seyi</div></div></button></div><div dir="auto" aria-hidden="true" class="css-text-146c3p1 r-fontFamily-13obcvq r-lineHeight-9kdimu r-color-iaekij r-fontSize-1gkfh8e">/</div><div class="css-view-g5y9jx"><button aria-label="Open 1-projects" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-borderRadius-kdyh1x r-paddingBlock-11o76bp r-paddingInline-11gswi8 r-justifyContent-1777fci r-minHeight-peo1c" data-testid="breadcrumb-folder-1-projects" type="button"><div dir="auto" class="css-text-146c3p1 r-maxWidth-dnmrzs r-overflow-1udh08x r-textOverflow-1udbk01 r-whiteSpace-3s2u2q r-wordWrap-1iln25a r-fontFamily-13obcvq r-lineHeight-9kdimu r-color-kkvf2t r-fontSize-1gkfh8e">projects</div></button></div><div dir="auto" aria-hidden="true" class="css-text-146c3p1 r-fontFamily-13obcvq r-lineHeight-9kdimu r-color-iaekij r-fontSize-1gkfh8e">/</div><div dir="auto" class="css-text-146c3p1 r-maxWidth-dnmrzs r-overflow-1udh08x r-textOverflow-1udbk01 r-whiteSpace-3s2u2q r-wordWrap-1iln25a r-fontFamily-hzt0gu r-lineHeight-1m8ila0 r-color-2d2yd3 r-fontSize-1gkfh8e r-fontWeight-1kfrs79" data-testid="breadcrumb-leaf">Context.LC — build decisions</div></div></div><div aria-hidden="true" class="css-view-g5y9jx r-backgroundImage-18ka392 r-bottom-1p0dtai r-position-u8s1d r-right-zchlnj r-top-ipm5af r-width-lrsllp r-pointerEvents-633pao" data-testid="nav-band-fade"></div></div></div><div class="css-view-g5y9jx"><div class="css-view-g5y9jx r-paddingBottom-xd6kpl r-paddingTop-1h8ys4a" style="padding-left: 25px; padding-right: 25px;"><button aria-label="Show this note's 3 properties" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-alignSelf-k200y r-borderRadius-kdyh1x r-flexDirection-18u37iz r-gap-ojf8lh r-paddingRight-1pyaxff r-minHeight-peo1c" data-testid="note-properties" type="button"><div aria-hidden="true" data-icon="chevronRight" class="css-view-g5y9jx r-position-bnwqim" style="width: 13px; height: 13px;"><div class="css-view-g5y9jx" style="position: absolute; left: 3.1199999999999997px; top: 3.9px; width: 5.2px; height: 5.2px; border-top-width: 1px; border-right-width: 1px; border-top-color: rgba(99,92,82,1.00); border-right-color: rgba(99,92,82,1.00); border-bottom-color: rgba(99,92,82,1.00); border-left-color: rgba(99,92,82,1.00); transform: rotate(45deg);"></div></div><div dir="auto" class="css-text-146c3p1 r-color-kkvf2t r-fontFamily-hzt0gu r-fontSize-1gkfh8e r-lineHeight-1kb91oe">3 properties</div></button></div><div class="cm-lp-root" aria-label="1-projects/context-lc.md markdown" style="flex: 1; min-height: 0; overflow: hidden;"><div class="cm-editor ͼ1 ͼ2 ͼr ͼq ͼp"><div class="cm-announced" aria-live="polite"></div><div tabindex="-1" class="cm-scroller"><div style="tab-size: 4;" spellcheck="true" autocorrect="off" autocapitalize="off" writingsuggestions="false" translate="no" contenteditable="true" class="cm-content cm-lineWrapping" role="textbox" aria-multiline="true" aria-placeholder="Write in markdown…" data-language="markdown" aria-autocomplete="list"><div class="cm-line"><br></div><div class="cm-line"><img class="cm-widgetBuffer" aria-hidden="true"><span></span><img class="cm-widgetBuffer" aria-hidden="true"><span class="cm-lp-h1">Context.LC — build decisions</span></div><div class="cm-line"><br></div><div class="cm-line">Tenancy is bucket-level, never prefix-level. No key namespacing inside a customer bucket, so an existing workspace connects with zero migration and Obsidian Remotely Save keeps working.</div><div class="cm-line"><br></div><div class="cm-line">A shared context is just a workspace with more than one member — so a storage binding hangs off a workspaceId, never a userId.</div><div class="cm-line"><br></div></div></div></div></div></div><div class="css-view-g5y9jx r-alignItems-1awozwy r-flexDirection-18u37iz r-flexWrap-1w6e6rj r-gap-uaa2di r-paddingBottom-xd6kpl r-paddingInline-1kti4dy r-paddingTop-95jzfe"><div dir="auto" class="css-text-146c3p1 r-color-kkvf2t r-fontFamily-hzt0gu r-fontSize-1enofrn r-lineHeight-1624xl7 r-flexGrow-16y2uox r-flexShrink-1wbh5a2" data-testid="note-durability">Saved in your bucket</div></div></div></div></div></div></div></div><div class="css-view-g5y9jx r-alignItems-1awozwy r-gap-1cmwbt1 r-left-1d2f490 r-position-u8s1d r-right-zchlnj r-pointerEvents-12vffkv" style="bottom: 16px;" data-testid="toast-host"></div></div></div><div class="css-view-g5y9jx r-bottom-1p0dtai r-left-1d2f490 r-position-u8s1d r-right-zchlnj r-zIndex-184en5c r-pointerEvents-12vffkv" style="padding: 10px 24px 25px 24px;"><div aria-label="Console actions" role="toolbar" class="css-view-g5y9jx r-alignItems-1oszu61 r-alignSelf-1pz39u2 r-backgroundColor-r49adf r-borderRadius-cpet4d r-boxShadow-1rmb0z6 r-flexDirection-18u37iz r-height-tumt6t" style="padding-right: 12px; padding-left: 12px; margin-right: 0px; margin-left: 0px;" data-testid="bottom-bar"><button aria-disabled="true" disabled="" aria-label="Go back" role="button" tabindex="-1" class="css-view-g5y9jx r-pointerEvents-12vffkv r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis r-opacity-lk5c7r" data-testid="bottom-bar-back" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="chevronLeft" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 7.92px; top: 6.6px; width: 8.8px; height: 8.8px; border-top-width: 2px; border-right-width: 2px; border-top-color: rgba(74,68,60,1.00); border-right-color: rgba(74,68,60,1.00); border-bottom-color: rgba(74,68,60,1.00); border-left-color: rgba(74,68,60,1.00); transform: rotate(-135deg);"></div></div></div></button><button aria-disabled="true" disabled="" aria-label="Go forward" role="button" tabindex="-1" class="css-view-g5y9jx r-pointerEvents-12vffkv r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis r-opacity-lk5c7r" data-testid="bottom-bar-forward" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="chevronRight" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 5.279999999999999px; top: 6.6px; width: 8.8px; height: 8.8px; border-top-width: 2px; border-right-width: 2px; border-top-color: rgba(74,68,60,1.00); border-right-color: rgba(74,68,60,1.00); border-bottom-color: rgba(74,68,60,1.00); border-left-color: rgba(74,68,60,1.00); transform: rotate(45deg);"></div></div></div></button><button aria-label="Search notes" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis" data-testid="bottom-bar-search" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="search" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 3.7399999999999984px; top: 3.7399999999999984px; width: 11.440000000000001px; height: 11.440000000000001px; border-top-left-radius: 5.720000000000001px; border-top-right-radius: 5.720000000000001px; border-bottom-right-radius: 5.720000000000001px; border-bottom-left-radius: 5.720000000000001px; border-top-width: 2px; border-right-width: 2px; border-bottom-width: 2px; border-left-width: 2px; border-top-color: rgba(74,68,60,1.00); border-right-color: rgba(74,68,60,1.00); border-bottom-color: rgba(74,68,60,1.00); border-left-color: rgba(74,68,60,1.00);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 13.200000000000001px; top: 15.280000000000001px; width: 6.16px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(45deg);"></div></div></div></button><button aria-label="New note or folder" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis" data-testid="bottom-bar-new" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="plus" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 4.18px; top: 10px; width: 13.64px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 4.18px; top: 10px; width: 13.64px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(90deg);"></div></div></div></button><button aria-disabled="true" disabled="" aria-label="Recently opened" role="button" tabindex="-1" class="css-view-g5y9jx r-pointerEvents-12vffkv r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis r-opacity-lk5c7r" data-testid="bottom-bar-recent" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="clock" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 2.8599999999999994px; top: 2.8599999999999994px; width: 16.28px; height: 16.28px; border-top-left-radius: 8.14px; border-top-right-radius: 8.14px; border-bottom-right-radius: 8.14px; border-bottom-left-radius: 8.14px; border-top-width: 2px; border-right-width: 2px; border-bottom-width: 2px; border-left-width: 2px; border-top-color: rgba(74,68,60,1.00); border-right-color: rgba(74,68,60,1.00); border-bottom-color: rgba(74,68,60,1.00); border-left-color: rgba(74,68,60,1.00);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 8.58px; top: 7.58px; width: 4.84px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(90deg);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 11px; top: 10px; width: 3.52px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60);"></div></div></div></button><button aria-disabled="true" disabled="" aria-label="Save this note" role="button" tabindex="-1" class="css-view-g5y9jx r-pointerEvents-12vffkv r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis r-opacity-lk5c7r" data-testid="bottom-bar-save" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="check" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 3.8500000000000005px; top: 12.75px; width: 6.6px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(45deg);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 6.27px; top: 10px; width: 13.2px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(-48deg);"></div></div></div></button><div aria-hidden="true" class="css-view-g5y9jx r-alignSelf-1kihuf0 r-backgroundColor-g4qa54 r-flexGrow-18kxxzh r-flexShrink-1q142lx r-height-18yzcnr r-width-92ng3h" data-testid="bottom-bar-separator"></div><button aria-label="Record a meeting" role="button" tabindex="0" class="css-view-g5y9jx r-cursor-1loqt21 r-touchAction-1otgn73 r-alignItems-1awozwy r-borderRadius-t23y2h r-flexBasis-fv6uei r-flexGrow-16y2uox r-flexShrink-1wbh5a2 r-justifyContent-1777fci r-minHeight-peo1c r-minWidth-1ps3wis" data-testid="bottom-bar-meeting" type="button"><div class="css-view-g5y9jx r-alignItems-1awozwy r-height-h0d30l r-justifyContent-1777fci r-minWidth-18bj3io"><div aria-hidden="true" data-icon="mic" class="css-view-g5y9jx r-position-bnwqim" style="width: 22px; height: 22px;"><div class="css-view-g5y9jx" style="position: absolute; left: 7.48px; top: 2.2px; width: 7.04px; height: 11px; border-top-left-radius: 3.52px; border-top-right-radius: 3.52px; border-bottom-right-radius: 3.52px; border-bottom-left-radius: 3.52px; border-top-width: 2px; border-right-width: 2px; border-bottom-width: 2px; border-left-width: 2px; border-top-color: rgba(74,68,60,1.00); border-right-color: rgba(74,68,60,1.00); border-bottom-color: rgba(74,68,60,1.00); border-left-color: rgba(74,68,60,1.00);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 4.84px; top: 9.24px; width: 12.32px; height: 6.6px; border-bottom-width: 2px; border-left-width: 2px; border-right-width: 2px; border-bottom-left-radius: 6.16px; border-bottom-right-radius: 6.16px; border-top-color: rgba(74,68,60,1.00); border-right-color: rgba(74,68,60,1.00); border-bottom-color: rgba(74,68,60,1.00); border-left-color: rgba(74,68,60,1.00);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 9.68px; top: 16.6px; width: 2.6399999999999997px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60); transform: rotate(90deg);"></div><div class="css-view-g5y9jx" style="position: absolute; left: 7.7px; top: 18.36px; width: 6.6px; height: 2px; border-top-left-radius: 1px; border-top-right-radius: 1px; border-bottom-right-radius: 1px; border-bottom-left-radius: 1px; background-color: rgb(74, 68, 60);"></div></div></div></button></div></div></div></div></div><span style="position:absolute;left:12px;top:16px;width:12px;height:12px;border-radius:50%;background:#ff5f57;"></span><span style="position:absolute;left:32px;top:16px;width:12px;height:12px;border-radius:50%;background:#febc2e;"></span><span style="position:absolute;left:52px;top:16px;width:12px;height:12px;border-radius:50%;background:#28c840;"></span></div></body></html>

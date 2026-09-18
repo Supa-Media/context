@@ -7,7 +7,7 @@ import { SupaConvexProvider } from "@supa-media/core/providers";
 import { ErrorBoundary } from "../features/app/ErrorBoundary";
 import { Observability } from "../features/observability/Observability";
 import { resetObservabilityUser } from "../features/observability/client";
-import { ShellTitleBand } from "../features/app/ShellTitleBandView";
+import { RootShellTitleBand } from "../features/app/ShellTitleBandView";
 import { holdSplash, releaseSplash } from "../features/app/splash";
 import { shouldHandleCodeHere } from "../features/auth/handleCode";
 import { ensureFontsLoaded } from "../features/design/fonts";
@@ -149,8 +149,14 @@ function AppGround() {
           disk is this same bundle. In normal flow, not `position:
           "absolute"`, so it shifts the route below down rather than floating
           over it — nothing under it for a stray click to land on instead.
+
+          `RootShellTitleBand` rather than the band itself, because a route
+          whose own chrome is tall enough to hold the buttons takes the job
+          and this stands down for it — the console at a pointer density does,
+          the sign-in screen and the phone layout do not. `topChrome.ts` is
+          the handshake and the argument for it.
         */}
-        <ShellTitleBand />
+        <RootShellTitleBand />
         <View style={{ flex: 1, minHeight: 0 }}>
           <ErrorBoundary>
             <Slot />

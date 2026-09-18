@@ -1,7 +1,17 @@
 import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
-import { getDesktopBridge, SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
+import {
+  getDesktopBridge,
+  SHELL_TITLE_BAND_LEAD_PX,
+  SHELL_TITLE_BAND_PX,
+} from "@context/desktop-bridge";
 import { useColors } from "../design/theme";
-import { shellTitleBandPx, shouldShowShellTitleBand } from "./shellTitleBand";
+import {
+  shellBandDraws,
+  shellLightsLeadPx,
+  shellTitleBandPx,
+  shouldShowShellTitleBand,
+} from "./shellTitleBand";
+import { useTopChromeHoldsLights } from "./topChrome";
 
 /**
  * The band that keeps the desktop shell's traffic lights off the console's
@@ -62,6 +72,60 @@ export function ShellTitleBand({ color }: { color?: string } = {}) {
 export function useShellTitleBandPx(): number {
   const bridge = Platform.OS === "web" ? getDesktopBridge() : null;
   return shellTitleBandPx(Platform.OS, bridge?.shell?.platform ?? null, SHELL_TITLE_BAND_PX);
+}
+
+/**
+ * The band mounted at the root, which stands down when a route holds the
+ * lights in its own chrome.
+ *
+ * **This is the only caller that may read the handshake**, and the split into
+ * two components is how that is enforced rather than remembered. `Overlay`
+ * renders `ShellTitleBand` above, unconditionally, because a `Modal` is its
+ * own root and the console frame *behind* it goes on publishing "I hold them"
+ * for as long as settings is open — an overlay that consulted the flag would
+ * put the buttons back over its own first control, which is exactly the defect
+ * `docs/decisions/desktop.md` records under "The band's other two payers".
+ *
+ * `app/_layout.tsx` mounts this one. See `topChrome.ts` for the handshake.
+ */
+export function RootShellTitleBand() {
+  const holdsLights = useTopChromeHoldsLights();
+  const bridge = Platform.OS === "web" ? getDesktopBridge() : null;
+
+  if (!shellBandDraws(Platform.OS, bridge?.shell?.platform ?? null, holdsLights)) return null;
+  return <ShellTitleBand />;
+}
+
+/**
+ * How much band is drawn *above* a frame that may itself be holding the
+ * lights — the inset `viewportHeight` has to subtract.
+ *
+ * Not the same question as `useShellTitleBandPx`, and the difference is the
+ * whole point: a frame that took the job has nothing above it, so it is one
+ * whole viewport tall again and the 45pt goes back to the note list. A frame
+ * that did not — the phone layout, an ordinary browser tab — pays exactly what
+ * it paid before.
+ */
+export function useShellBandAbovePx(chromeHoldsLights: boolean): number {
+  const bandPx = useShellTitleBandPx();
+  return chromeHoldsLights ? 0 : bandPx;
+}
+
+/**
+ * The leading inset a bar owes when it is the thing holding the buttons.
+ *
+ * Zero in an ordinary browser tab, zero on a phone, zero at compact density
+ * inside the shell — see `shellLightsLeadPx`, which is where that rule lives
+ * so it can be tested without a bridge or a rendered tree.
+ */
+export function useShellLightsLeadPx(chromeHoldsLights: boolean): number {
+  const bridge = Platform.OS === "web" ? getDesktopBridge() : null;
+  return shellLightsLeadPx(
+    Platform.OS,
+    bridge?.shell?.platform ?? null,
+    chromeHoldsLights,
+    SHELL_TITLE_BAND_LEAD_PX,
+  );
 }
 
 const styles = StyleSheet.create({
