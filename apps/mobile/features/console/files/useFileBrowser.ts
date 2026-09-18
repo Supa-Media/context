@@ -555,12 +555,51 @@ export function useFileBrowser(options: {
       contentType: string;
     }): Promise<{ target: string } | { error: string }> => {
       if (workspaceId === null) return { error: "No context is open." };
+      /*
+        AN ENCRYPTED NOTE TAKES NO IMAGE, AND SAYS SO.
+
+        The note's text is encrypted on this device and the bytes of an image are
+        not: storing one beside it would put in the clear exactly what somebody
+        turned encryption on to keep out of it, in the same bucket, under a name
+        the note itself spells out. Encrypting attachments is real work —
+        `encryption.md` scopes it — and until it is done the honest answer is a
+        refusal a person can read, not a paste that quietly weakens the thing
+        they asked for.
+      */
+      if (editorRef.current.encrypted) {
+        return { error: "An encrypted note can’t hold an image yet." };
+      }
+      /*
+        WHICH NOTE THE EMBED IS ABOUT TO LAND IN.
+
+        An upload is a round trip, and the editor inserts the line when it comes
+        back. Open another note in that window — a click in the tree, a link
+        followed — and the insert would land in *that* note, which is an image
+        appearing in a document nobody pasted into. The editor cannot notice:
+        it is one view with notes swapped through it, and by then its state is
+        the new note's.
+
+        So the check is here, where the open note is already known, and it is
+        made after the write rather than before: the bytes are in the bucket
+        either way — content-addressed, so nothing is orphaned that a second
+        paste would not reuse — and what is refused is the *insert*.
+      */
+      const noteAtStart = selectedPathRef.current;
       try {
         const stored = await storeNoteImageAction({
           workspaceId,
           bytes: image.bytes,
           contentType: image.contentType,
         });
+        if (selectedPathRef.current !== noteAtStart) {
+          imageCache.current.set(
+            `${workspaceId}|${stored.path}`,
+            dataUrlFor(image.bytes, image.contentType),
+          );
+          return {
+            error: "That note closed before the image was stored. It is in your bucket.",
+          };
+        }
         imageCache.current.set(
           `${workspaceId}|${stored.path}`,
           dataUrlFor(image.bytes, image.contentType),

@@ -22,6 +22,7 @@ import { EditorState, type TransactionSpec } from "@codemirror/state";
 import { markdownLanguage, selectionTouches } from "../features/console/files/livePreview";
 import {
   MIN_IMAGE_WIDTH,
+  imageFilesFrom,
   imageRows,
   inCode,
   planAlign,
@@ -235,5 +236,54 @@ describe("bytes to a src", () => {
   test("the src carries the type the store answered with", () => {
     const bytes = new TextEncoder().encode("hi");
     expect(dataUrlFor(bytes.buffer, "image/png")).toBe("data:image/png;base64,aGk=");
+  });
+});
+
+describe("what a paste offers, and from which list", () => {
+  /** A `File` without the DOM's constructor, which jsdom's `DataTransfer` lacks. */
+  function file(type: string): File {
+    return { type, name: "x", size: 1 } as unknown as File;
+  }
+
+  function transfer(options: {
+    files?: File[];
+    items?: Array<{ kind: string; file: File | null }>;
+  }): DataTransfer {
+    return {
+      files: options.files ?? [],
+      items: (options.items ?? []).map((entry) => ({
+        kind: entry.kind,
+        getAsFile: () => entry.file,
+      })),
+    } as unknown as DataTransfer;
+  }
+
+  test("a drop from the desktop arrives in files", () => {
+    const png = file("image/png");
+    expect(imageFilesFrom(transfer({ files: [png] }))).toEqual([png]);
+  });
+
+  test("a paste that only fills items is still a paste", () => {
+    const png = file("image/png");
+    expect(imageFilesFrom(transfer({ items: [{ kind: "file", file: png }] }))).toEqual([png]);
+  });
+
+  test("a browser that fills both lists does not paste the image twice", () => {
+    const png = file("image/png");
+    expect(
+      imageFilesFrom(transfer({ files: [png], items: [{ kind: "file", file: png }] })),
+    ).toEqual([png]);
+  });
+
+  test("text on the clipboard is not an image, and neither is a PDF", () => {
+    expect(
+      imageFilesFrom(
+        transfer({
+          files: [file("application/pdf")],
+          items: [{ kind: "string", file: null }],
+        }),
+      ),
+    ).toEqual([]);
+    expect(imageFilesFrom(null)).toEqual([]);
   });
 });

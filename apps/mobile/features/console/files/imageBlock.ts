@@ -330,12 +330,31 @@ export function planInsert(
   };
 }
 
-/** The image files on a clipboard or drop event, in the order they arrive. */
+/**
+ * The image files on a clipboard or drop event, in the order they arrive.
+ *
+ * **Both lists, because neither is always the one with the image in it.**
+ * `files` is populated for a drag from the desktop and for a screenshot pasted
+ * by current Chrome and Safari; `items` is what an older WebKit and some
+ * applications put a pasted image in, with `files` left empty. Reading one and
+ * not the other is a paste that works on the machine it was written on.
+ *
+ * De-duplicated by identity, since a browser that populates both populates them
+ * with the same `File`.
+ */
 export function imageFilesFrom(data: DataTransfer | null): File[] {
   if (data === null) return [];
   const files: File[] = [];
-  for (const item of Array.from(data.files)) {
-    if (item.type.startsWith("image/")) files.push(item);
+  const keep = (file: File | null): void => {
+    if (file === null) return;
+    if (!file.type.startsWith("image/")) return;
+    if (files.includes(file)) return;
+    files.push(file);
+  };
+  for (const file of Array.from(data.files ?? [])) keep(file);
+  for (const item of Array.from(data.items ?? [])) {
+    if (item.kind !== "file") continue;
+    keep(item.getAsFile());
   }
   return files;
 }
