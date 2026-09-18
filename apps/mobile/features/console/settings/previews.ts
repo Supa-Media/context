@@ -129,10 +129,9 @@ export function settingsPreview(
       to this switch is a compile error rather than a blank row nobody
       notices.
     */
-    case "overview":
+    case "workspace":
     case "premium":
     case "meetings":
-    case "advanced":
       return null;
   }
 }

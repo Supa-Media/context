@@ -118,101 +118,14 @@ export function OverviewPanel({
           console load, and a row that navigates and says nothing is the list
           this section was supposed to be an answer to. */}
 
-      <WayOut data={data} onSelect={onSelect} />
+      {/*
+        "Delete this workspace" used to be a signpost here, pointing at the
+        Advanced section. Advanced is a block on this same page now, with the
+        deletion card in it and the same sentence about what survives, so the
+        signpost would be a press that goes nowhere and a second copy of the
+        copy it was pointing at.
+      */}
     </View>
-  );
-}
-
-/**
- * The way out of a workspace you are done with.
- *
- * ## Why it is here and not only where it works
- *
- * The control that actually deletes a workspace — the typed-name confirmation
- * — is in Advanced, and that is the right home for it: it is the one thing on
- * that screen that cannot be undone, and Advanced already means "not for me".
- * What was missing is that nothing anywhere *pointed* at it. A person decides
- * they are done with a workspace while looking at the workspace, which is this
- * page; the three facts above are each "a way into the section that changes
- * them", and until this row there was no way into the section that ends it.
- *
- * So this is a signpost, not a second control. It navigates and nothing else —
- * the confirmation, the refusals, and the sentence about what survives all
- * stay in one place, where the server's own guards are mirrored
- * (`deletionBlockedReason`).
- *
- * ## When it is absent, and why absent rather than refused
- *
- *  - **A workspace.** Its slug is the person's username and its capture address is
- *    live on the apex, so releasing it is account deletion's business — a row
- *    here would point at a card that exists only to explain that it cannot.
- *  - **A workspace you do not own.** `account.deleteWorkspace` is owner-only,
- *    and `useAdvanced` withholds the whole `deletion` object from anybody else,
- *    so the row would lead to a page with nothing on it. The door out of
- *    somebody else's context is Leave, which is a different verb on a
- *    different row and is not this one wearing a warning colour.
- *  - **The demo.** `AdvancedPanel` draws no deletion card there, so a row
- *    leading to it would be a signpost to an empty space.
- *
- * A blocked workspace — one on storage we run — deliberately still gets the
- * row. Advanced answers that case with the reason in a sentence, and sending
- * somebody to an explanation beats leaving them to conclude the feature does
- * not exist, which is the conclusion this whole row exists to stop.
- */
-function WayOut({
-  data,
-  onSelect,
-}: {
-  data: ConsoleData;
-  onSelect?: (key: SettingsSectionKey) => void;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const current = selectedContext(data);
-
-  if (onSelect === undefined || data.demo) return null;
-  if (current === null || current.kind !== "shared" || current.role !== "owner") return null;
-
-  /*
-    Only claim the notes survive when there are notes to survive.
-
-    `undefined` is a binding that has not answered and `null` is one that is
-    not there — the distinction `describeBinding` above spends a paragraph on —
-    and the workspace this row was written for is precisely the second: named
-    at step 1, never given a bucket, never returned to. Printing "notes in its
-    bucket stay where they are" under a health strip that says "No bucket
-    connected" two inches above is a contradiction on one screen. So the
-    reassurance is attached to the fact that earns it, and the loading state
-    takes the shorter sentence rather than a guess.
-  */
-  const bound = data.storage !== null && data.storage !== undefined;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Delete the workspace ${atName(current.slug)}`}
-      onPress={() => onSelect("advanced")}
-      style={styles.wayOut}
-      testID="overview-delete-workspace"
-    >
-      <View style={styles.wayOutText}>
-        <Text variant="rowTitle" style={styles.wayOutTitle}>
-          Delete this workspace
-        </Text>
-        {/*
-          What survives leads, the same order `DeleteWorkspaceCard` puts it in
-          and for the same reason: the notes are the thing people are afraid of
-          getting wrong, and a destructive signpost that does not say what stays
-          is one nobody follows even when they should.
-        */}
-        <Text variant="rowSub" style={styles.wayOutSub}>
-          {bound ? "Notes in its bucket stay where they are. " : ""}
-          {atName(current.slug)} is released, and stops counting against the workspaces
-          you can own.
-        </Text>
-      </View>
-      <Icon name="chevronRight" size={13} color={colors.critText} />
-    </Pressable>
   );
 }
 

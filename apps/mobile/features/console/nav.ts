@@ -448,6 +448,13 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
     it is built from, so it lives under them.
   */
   search: "storage",
+  /*
+    Overview heads the Workspace page rather than being a row above it, and
+    Advanced is the block under it — audit, keys and deleting the workspace
+    are the same subject at the other end.
+  */
+  overview: "workspace",
+  advanced: "workspace",
   people: "sharing",
   groups: "sharing",
   shares: "sharing",

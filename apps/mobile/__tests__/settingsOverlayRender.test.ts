@@ -162,9 +162,9 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(text).toContain("Fast search");
   });
 
-  test("overview answers which context this is before anything else", () => {
-    const text = overlay("overview").textContent ?? "";
-    expect(text).toContain("Overview");
+  test("the workspace page answers which context this is before anything else", () => {
+    const text = overlay("workspace").textContent ?? "";
+    expect(text).toContain("Workspace");
     expect(text).toContain("Personal workspace");
   });
 
@@ -198,8 +198,8 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
   });
 
-  test("advanced shows the audit trail and offers no key export in the demo", () => {
-    const host = overlay("advanced");
+  test("the audit trail is a block on it, and offers no key export in the demo", () => {
+    const host = overlay("workspace");
     const text = host.textContent ?? "";
     expect(text).toContain("Audit trail");
     expect(text).toContain("Encryption keys");
@@ -308,7 +308,7 @@ describe("the account's own settings have a home", () => {
 
 describe("the search box", () => {
   test("narrows the list to what somebody typed", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -342,10 +342,9 @@ describe("the list is one press away, and it navigates", () => {
     });
     const text = host.textContent ?? "";
     for (const label of [
-      "Overview",
+      "Workspace",
       "Sharing & Access",
       "Storage",
-      "Advanced",
       "Integrations",
       "Meetings",
     ]) {
@@ -389,7 +388,7 @@ describe("the list is the context switcher too", () => {
     from a setting the person was already looking at the name of.
   */
   function list(onSwitchContext: (slug: string) => void) {
-    const host = overlay("overview", () => {}, () => {}, { onSwitchContext });
+    const host = overlay("workspace", () => {}, () => {}, { onSwitchContext });
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -452,7 +451,7 @@ describe("the list is the context switcher too", () => {
  */
 describe("a row says what it is set to", () => {
   test("Storage carries the bucket it is bound to, in the list", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -472,7 +471,7 @@ describe("a row says what it is set to", () => {
     // Meetings has no persisted state to report, by design — so the row must
     // not invent one. See `settingsPreview`'s header for the three absences
     // this protects.
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -492,7 +491,7 @@ describe("the contexts are a scope bar above the sections", () => {
   }
 
   test("every context comes before the first section row", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -538,11 +537,11 @@ describe("the section is named once", () => {
       seventy points of the first screenful spent restating a word already on
       it. The bar names where Back goes instead.
     */
-    const host = overlay("overview");
+    const host = overlay("workspace");
     const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
       (node) => node.textContent ?? "",
     );
-    expect(headings.filter((text) => text === "Overview")).toHaveLength(1);
+    expect(headings.filter((text) => text === "Workspace")).toHaveLength(1);
     expect(headings).not.toContain("Settings");
 
     // And the way back is named, not a bare chevron.
@@ -551,7 +550,7 @@ describe("the section is named once", () => {
   });
 
   test("the list screen is titled, because nothing under it is", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -562,9 +561,9 @@ describe("the section is named once", () => {
   });
 });
 
-describe("Overview answers rather than listing properties", () => {
+describe("the workspace page answers rather than listing properties", () => {
   test("the bucket, whether it is working, and when anybody last checked", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     const strip = host.querySelector('[data-testid="overview-health"]');
     expect(strip).not.toBeNull();
     // The word the old title-bar pill carried, now beside the thing it is a
@@ -574,7 +573,7 @@ describe("Overview answers rather than listing properties", () => {
 
   test("each fact is the way into the section that changes it", () => {
     const chosen: string[] = [];
-    const host = overlay("overview", (next) => chosen.push(next));
+    const host = overlay("workspace", (next) => chosen.push(next));
     const fact = host.querySelector('[data-testid="overview-fact-sharing"]');
     expect(fact).not.toBeNull();
     act(() => {
@@ -584,7 +583,7 @@ describe("Overview answers rather than listing properties", () => {
   });
 
   test("the role is a sentence about you, not a lower-cased enum", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     const identity = host.querySelector('[data-testid="overview-identity"]');
     expect(identity).not.toBeNull();
     const text = identity!.textContent ?? "";
@@ -676,11 +675,11 @@ describe("the Plugins row is off a list that has no plugins behind it", () => {
     return host;
   }
 
-  test("no row, while the rest of Your notes is untouched", () => {
+  test("no row, while the rest of the list is untouched", () => {
     const host = list(untouched());
     expect(host.querySelector('[data-testid="settings-section-plugins"]')).toBeNull();
     expect(host.querySelector('[data-testid="settings-section-storage"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="settings-section-advanced"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-workspace"]')).not.toBeNull();
     expect(host.textContent ?? "").not.toContain("Plugins");
   });
 
@@ -759,7 +758,7 @@ describe("a section follows the context it belongs to, not the one beside it", (
   });
 
   test("an audit row belongs to the context that recorded it, not the one beside it", () => {
-    const { host, data } = liveOverlay("advanced");
+    const { host, data } = liveOverlay("workspace");
     expect(host.textContent ?? "").toContain("1-projects/board-update.md");
     expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
 
