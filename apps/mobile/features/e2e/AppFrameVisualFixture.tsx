@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AppFrame } from "../app/AppFrame";
+import { AppFrame, FrameIconButton } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
 import { ConsoleBottomBar } from "../console/ConsoleBottomBar";
@@ -17,7 +17,6 @@ import { BrowsePane } from "../console/panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
 import { NavBandProvider } from "../console/NavBand";
 import type { ConsoleRoute } from "../console/nav";
-import { Text } from "../design/components/Text";
 
 /**
  * The frame with its slots **filled**, for looking at rather than measuring.
@@ -136,7 +135,29 @@ export function AppFrameVisualFixture() {
             }
           />
         }
-        topTrailing={<Text variant="treeMeta">actions</Text>}
+        /*
+          THE PHONE'S TRAILING GROUP, NOT THE WORD "actions".
+
+          This slot held a `Text`, which is the same defect the bottom bar had
+          before `ConsoleBottomBar` became a module: the board could not answer
+          "does the top-right of the phone match the design" because what was
+          drawn there was a placeholder. It is also the only route to the share
+          sheet at compact — `BrowsePane`'s own eye and share are behind a
+          `!compact` guard — so `Phone-Share.dc.html` had no way to be reached
+          from this fixture at all.
+
+          `FrameIconButton` with `grouped`, in the order and with the glyphs
+          `console/_layout.tsx` passes: reading mode leads, because it is the
+          reversible one and the group reads left to right, and Share follows.
+          The presses are no-ops here; what this board is for is the geometry
+          and the marks.
+        */
+        topTrailing={
+          <>
+            <FrameIconButton label="Read this note" icon="eye" grouped onPress={() => {}} />
+            <FrameIconButton label="Share this" icon="share" grouped onPress={() => {}} />
+          </>
+        }
         accountSlot={
           <AccountBlock
             name={data.viewer.name}
