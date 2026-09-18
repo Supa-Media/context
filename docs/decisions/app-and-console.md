@@ -1144,6 +1144,102 @@ two tests rather than one — the cross-tenant assertion *and* the exclusion,
 which sees it in the calls it was handed even though the queues taken were
 right.
 
+### The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
+
+The sections above cache what somebody happened to open. The mirror — every
+note a person can see, on the device, reconciled when online — needs three
+things the control plane did not have: a way to enumerate everything visible
+*with its version* without reading it, a way to fetch many notes without a
+round trip each, and a create that stays a create when it is sent hours after
+it was typed. `functions/files.ts` now has `syncManifest`, `readNotes`, and an
+atomic create inside the existing `writeNote`.
+
+**The manifest is filtered by the same `canSee`, and it is the only filter.**
+`syncManifest` walks the whole bucket once and keeps what `canSee` keeps at the
+caller's clearance — the clearance `authorizeFileAccess` resolves for
+`listFiles` and `readNote`, group names included. A `team` member never
+receives a private note's path, etag *or size* — the version is half of
+"exists", and a manifest that dropped the path and kept the etag would still
+count somebody's private notes and date every edit to them. Context's plumbing
+is absent for everybody; `privacy.md` reaches only the owner, marked
+`readOnly`, as it does in a listing. A non-member is refused with
+`WORKSPACE_NOT_FOUND`, byte-identical to a context that never existed — an
+empty manifest would be an oracle of a different shape.
+
+**Versions come from the listing, never from a read.** The etag on each entry
+is the store's own — S3's `ETag`, Dropbox's `rev` (which the Dropbox listing
+used to drop) — and is the value `readNote` returns, so one walk says which
+notes changed and nothing else is fetched. An entry without an etag means the
+store listed none: read it to learn its version, never "unchanged".
+
+**The cursor is the last path the caller was given, never the store's
+continuation token.** That token is base64 of the last *backend* key of a page,
+and at `team` scope that key is routinely a private note: handing it back would
+name one private path per page, to exactly the reader the filter exists for.
+So a page ends on a visible entry and the next call asks the store to start
+after it (`startAfter`, ListObjectsV2's `start-after`). That only means
+something on a store that lists in key order and honours the position, and
+Dropbox does neither, so both are *checked*: a listing seen out of order gets no
+cursor, and a resumed walk that comes back with a key at or before the cursor
+stops. Either way the page says `truncated: true` — the pages so far are a
+floor, and the client must not read a missing path as a deletion — rather than
+replaying the start of the bucket under a cursor that promised the rest, which
+would loop the client forever.
+
+**The batched read is `readFile`, N times, under one manifest load.**
+`readFiles` calls `readFile`'s own body (`readVisibleFile`) per path; there is no
+second privacy path to drift. A hidden note and a missing one are the same row,
+with `readNote`'s own code and message, and a hidden note is never fetched from
+the bucket at all. A refusal is that path's answer and does not fail the batch.
+It is capped at `READ_BATCH_PATHS` (50) — refused before the credential barrier
+opens anything — and at `READ_BATCH_BYTES` of note text, past which the rest
+come back `deferred`. The budget is spent only by notes that were read, which
+only a visible one is, so a deferral says nothing about a hidden path.
+
+**A create that must not clobber is the create that already existed, made
+atomic.** `writeNote` with no `expectedEtag` has always meant "new, and a
+conflict if something is there" — and the offline queue already sends exactly
+that for a note typed while it did not exist. But the check was a read and the
+put after it was unconditional, so a note created at that path in between was
+overwritten silently, and offline turned that round trip into hours. The put is
+now `onlyIf: { absent: true }` wherever the binding **proved**
+`conditionalCreate` — `If-None-Match`, probed separately from `If-Match`'s
+`conditionalWrite`, because a bucket that honours one need not honour the other.
+A lost race is the same `CONFLICT`, with the `currentEtag` of what won, that
+every other conflict carries, so the queue parks it by the rules above. Where
+the capability is not proven the read is still the check, and the result says
+`read-compare`, exactly as an update on such a bucket does. No flag was added:
+a second way to say "create" would be a second place for somebody to leave it
+off.
+
+What a simplification costs, and what fails:
+
+- Filtering the manifest with anything but `canSee`, or running it at the
+  owner's clearance, hands a team reader the private half.
+  `offlineSync.test.ts` ("a team reader gets only what is shared…") and
+  `files.test.ts` ("an owner's manifest and a member's differ by exactly the
+  private half") fail.
+- Returning the store's continuation token as the cursor names private paths.
+  "a team reader's cursor is always a path they were given" fails.
+- Trusting a store to have resumed, or to list in order, loops the client or
+  skips notes. "a store that ignores the resume point…" and "a store that does
+  not list in key order…" fail.
+- A batch read that does its own visibility check, or none, breaks the
+  hidden-equals-missing rule. "hidden and missing answer byte-identically…" and
+  "a batch answers each path as readNote would…" fail.
+- An unconditional create, or one gated on `conditionalWrite`, clobbers or
+  claims a guarantee it does not have. "a create that lost a race…" (both
+  files) and "a bucket that has not proven onlyIf-absent…" fail.
+
+**What this does not do.** It is the server half. The mirror itself — walking
+the manifest, fetching what changed, dropping what is no longer visible,
+reconciling with the queue — is the client's, and none of it exists yet. The
+manifest does not say whether a note is encrypted: that is in the note's
+frontmatter, not in a listing, and `readNotes` reports it per note. And a bucket
+of more than about a hundred thousand hidden keys in a row before anything the
+caller can see ends a page with no progress, which is reported as `truncated`
+rather than hidden behind a cursor that could only have been a private path.
+
 ### A team link's note survives the console's own cold start, and the login gate
 
 `teamShareLink` returns the **readable** URL — `/console/@seyi?note=…` — and the
