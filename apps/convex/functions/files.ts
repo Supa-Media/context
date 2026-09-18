@@ -188,6 +188,7 @@ import {
   deleteMovedSources,
   exportContextMoveBatch,
   importContextMoveBatch,
+  listFolderPaths,
   createFolder,
   deletePath,
   duplicatePath,
@@ -639,6 +640,13 @@ const deletedValidator = v.object({
   paths: v.array(v.string()),
 });
 
+const folderPathsValidator = v.object({
+  kind: v.literal("folderPaths"),
+  folders: v.array(v.string()),
+  /** The walk hit a ceiling. The list is a floor, and the picker says so. */
+  truncated: v.boolean(),
+});
+
 const contextMoveExportedValidator = v.object({
   kind: v.literal("contextMoveExported"),
   objects: v.array(v.object({
@@ -933,6 +941,7 @@ const operationResultValidator = v.union(
   writtenValidator,
   movedValidator,
   deletedValidator,
+  folderPathsValidator,
   contextMoveExportedValidator,
   contextMoveLandedValidator,
   contextMoveRemovedValidator,
@@ -1115,6 +1124,12 @@ const operationValidator = v.union(
     cross-context move from needing a second credential barrier that holds two
     customers' plaintext secrets at once.
   */
+  /**
+   * Every folder this caller can see, for the "move into another context"
+   * picker. Read-only, `member` and above, and its own operation rather than a
+   * shape of `list` because it walks the whole bucket rather than one folder.
+   */
+  v.object({ kind: v.literal("folderPaths") }),
   v.object({
     kind: v.literal("contextMoveExport"),
     from: v.string(),
@@ -1255,6 +1270,7 @@ type FileOperation =
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
   | { kind: "copy"; from: string; to: string }
+  | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
   | { kind: "contextMoveImport"; objects: ContextMoveObject[] }
   | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
@@ -1438,6 +1454,7 @@ type OperationResult =
       forms: FormSeedResult;
     }
   | { kind: "moved"; from: string; to: string; paths: string[] }
+  | { kind: "folderPaths"; folders: string[]; truncated: boolean }
   | ({ kind: "contextMoveExported" } & ContextMoveExport)
   | ({ kind: "contextMoveLanded" } & ContextMoveImport)
   | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
@@ -3461,6 +3478,10 @@ export async function executeOperation(
         });
         return { kind: "moved", ...moved };
       }
+      case "folderPaths": {
+        const found = await listFolderPaths(store, { clearance });
+        return { kind: "folderPaths", ...found };
+      }
       case "contextMoveExport": {
         const exported = await exportContextMoveBatch(store, {
           from: operation.from,
@@ -3969,6 +3990,42 @@ export const searchContext = action({
       });
     }
     return result;
+  },
+});
+
+/**
+ * Every folder this member's scope may see, for a destination picker.
+ *
+ * `member` and above, which is the read this already is — and deliberately
+ * NOT gated on being able to write here. The picker offers a context only
+ * where the mover is at least an `editor`, and that decision belongs where the
+ * list of contexts is, not to a folder listing: an action that refused a
+ * reader would also refuse every other honest use of "what folders are in
+ * @work", starting with the next one.
+ *
+ * Its own action rather than a shape of `listFiles`, because the walk is the
+ * point: one call, one credential, the whole tree. See `listFolderPaths`.
+ */
+export const folderPaths = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: folderPathsValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "folderPaths" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "folderPaths" },
+    });
+    return result as Extract<OperationResult, { kind: "folderPaths" }>;
   },
 });
 

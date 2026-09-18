@@ -4626,3 +4626,52 @@ a trim leaking into `crumb.path` asks somebody's bucket for a folder that is not
 there. `fileTabs.test.ts`, "a sort number is dropped, and the collision test
 sees the same name" — `1-plan.md` and `plan.md` both draw `plan`, so a collision
 test on the untrimmed name would leave two identical tabs.
+
+### "Move to…" is one dialog, and the other context is a destination rather than a mode
+
+A person who owns two contexts thinks "this belongs in @work", not "this belongs
+in a different tenancy". So the destination picker gained a row of contexts
+above its folder list, rather than a second command beside `Move to…`. Where
+there is nowhere else to send anything — one context, or somebody who is only an
+editor of this one — the row is **absent**, not a single disabled option: the
+same rule the rest of this console follows, argued in the header of `menu.ts`.
+
+Three things about that dialog are decisions rather than mechanics.
+
+**The list of contexts is the client-side gate, and it is gated on ownership of
+the context being left.** `useFileBrowser` empties it unless `isOwner`, because
+moving something *out* removes it from everybody who could read it there — the
+server's own rule in `functions/contextMoves.ts`. The console never offers a
+destination whose press would be refused, and it never re-derives the rule from
+anything else.
+
+**Choosing another context asks it for its folders, once.** A console only ever
+holds the tree of the context it is standing in, and walking another one a
+`listFiles` at a time would be one bucket credential opened per folder. One
+`folderPaths` action walks it inside the single call that already has the store
+open, bounded, and says so when it hit the ceiling rather than presenting a
+floor as a total — #25's shape. A folder chosen in one context is dropped when
+the person switches to another, because two contexts can both have `work/` and a
+stale selection is not an invalid press that fails, it is a valid press that
+lands somewhere nobody chose.
+
+**It is the one file operation that reports itself in a sentence.** Everything
+else in this console finishes inside the press and reports itself by the tree
+changing while somebody watches. A cross-context move can still be running
+minutes later, in a scheduled action, with nothing on this device involved — so
+it gets a line in the notice band that says what is happening, says that closing
+the console does not stop it, and settles into something a person can act on: a
+count, a list of what stayed behind and why, or a failure with "Finish the move"
+rather than "Try again" — because everything already carried stays carried, and
+resuming is not a re-run. A finished move is dismissible and a running one is
+not, because a Dismiss that would be ignored is worse than no Dismiss.
+
+**What a "simplification" of this would cost.** A second top-level command
+splits one question into two and makes the cross-context case feel like a
+different product. Drawing the context row from `canEdit` offers an editor a
+control that is always refused. Keeping the chosen folder across a context
+switch files something into the wrong context silently. Reporting a move only as
+a toast loses the outcome for every move longer than eight seconds, which is all
+the ones that needed reporting. `apps/mobile/__tests__/contextMoveBrowser.test.ts`,
+`contextMoveNotice.test.ts`, and the "move dialog's other contexts" block in
+`explorerActionGuards.test.ts` fail.

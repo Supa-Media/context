@@ -45,6 +45,7 @@ import {
   exportContextMoveBatch,
   importContextMoveBatch,
   landingVisibility,
+  listFolderPaths,
 } from "../functions/lib/fileOps";
 import {
   PRIVACY_KEY,
@@ -408,6 +409,55 @@ describe("moving a folder into another context", () => {
     // nothing would be a move that can never finish.
     expect(first.objects.length).toBe(1);
     expect(first.remaining).toBe(true);
+  });
+});
+
+describe("the folders a destination picker is offered", () => {
+  test("every folder in the context, flattened, in one walk", async () => {
+    const store = bucket(["1-projects", "2-areas"]);
+    store.seed("1-projects/acme/notes.md", "# Notes\n");
+    store.seed("1-projects/acme/deep/further.md", "# Further\n");
+    store.seed("2-areas/health.md", "# Health\n");
+    store.seed(".context/trash/1-projects/gone.md", "# Gone\n");
+
+    const { folders, truncated } = await listFolderPaths(store, { clearance: OWNER });
+
+    expect(folders).toEqual([
+      "1-projects",
+      "1-projects/acme",
+      "1-projects/acme/deep",
+      "2-areas",
+    ]);
+    // Plumbing is not a destination, and it is not a name a picker may print.
+    expect(folders.some((folder) => folder.startsWith(".context"))).toBe(false);
+    expect(truncated).toBe(false);
+  });
+
+  test("a folder the caller cannot see is not in the list", async () => {
+    const store = bucket(["work", "board"], "shared");
+    withRules(store, (state) => {
+      state.rules = state.rules.map((rule) =>
+        rule.prefix === "board" ? { ...rule, vis: "private" as const } : rule,
+      );
+    });
+    store.seed("work/plan.md", "# Plan\n");
+    store.seed("board/minutes.md", "# Minutes\n");
+
+    expect((await listFolderPaths(store, { clearance: OWNER })).folders).toEqual([
+      "board",
+      "work",
+    ]);
+    // An editor is offered only what they could already list. Offering the
+    // other one would name a private folder to somebody in a picker.
+    expect((await listFolderPaths(store, { clearance: EDITOR })).folders).toEqual(["work"]);
+  });
+
+  test("an unreadable manifest lists nothing rather than everything", async () => {
+    const store = bucket(["work"]);
+    store.seed(PRIVACY_KEY, "# privacy\n\n<!-- BEGIN BRAIN PRIVACY RULES -->\nnonsense\n");
+    store.seed("work/plan.md", "# Plan\n");
+
+    await expect(listFolderPaths(store, { clearance: EDITOR })).rejects.toThrow();
   });
 });
 

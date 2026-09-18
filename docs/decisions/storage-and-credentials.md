@@ -1087,3 +1087,78 @@ rather than its oldest flatters a total whose other half is a year stale.
 verified"), `noteTotals.test.ts` ("how old the number is"),
 `liveConsoleFacts.test.ts` ("dates the number rather than implying it is
 current") and the two usage-line checks in `premiumSettings.test.ts` fail.
+
+### A move between two contexts is three calls, not one function holding two keys
+
+Moving a note or a folder from one context into another crosses a tenancy
+boundary: two buckets, usually two credentials, often two customers' accounts.
+The storage adapter has `get`, `put`, `delete` and `list` and **no portable
+server-side copy**, so the bytes have to be read out of one bucket and written
+into the other by something that can reach both.
+
+The obvious shape is one internal action that opens both credentials. It is
+refused. `runFileOperation` is one of the two members of `CREDENTIAL_BARRIERS`
+and the whole argument for that enumeration — see "Credential barriers are
+enumerated, never inferred" above — is that a barrier is small enough to audit
+by reading it: it opens **one** workspace's credential, performs one operation,
+and hands back a result that by construction cannot contain a key. A barrier
+holding two customers' plaintext secrets in one scope is a different object with
+a different blast radius, and it would need that argument made again from
+scratch.
+
+So a batch is three trips through the one barrier — `contextMoveExport` against
+the source, `contextMoveImport` against the destination, `contextMoveDelete`
+against the source — and the orchestrator that sequences them,
+`functions/contextMoves.ts`, holds no credential at all. Note bodies pass
+through it in flight, bounded by `CONTEXT_MOVE_BATCH_BYTES`; nothing is stored.
+That is the same transit every `readNote` already makes and is not what
+non-negotiable #1 forbids, which is the control plane *holding* note content.
+
+**Copy, verify, then delete, per object.** The destination answers with an etag
+before the source key is removed, and the removal is conditional on the etag the
+copy was taken at. A batch that dies leaves objects in both places, which the
+next pass simply does not see — the recoverable direction. The opposite order
+loses notes. A source edited between the copy and the delete keeps the newer
+text: the copy is rolled back and the move stops, because silently deleting the
+newer one is the only outcome here that destroys work.
+
+**This is also why a cross-context move has no size limit.**
+`FOLDER_OPERATION_CAP` refuses a single-store folder move past 500 files, and
+that refusal is right where it is: `movePath` rewrites `privacy.md` as though
+the whole walk happened, so a partial walk cannot be operated on. Here the
+all-or-nothing unit is one *object*, so nine thousand notes is not a bigger
+operation — it is more batches, carried by a `contextMoves` row and a chain of
+scheduled passes that outlive the request that started them. Each pass lists the
+subtree **from the beginning**, which costs nothing because the previous batch's
+objects are gone by then, and which avoids the cursor-over-a-mutating-listing
+skip that `clearVaultBatch` documents one function up.
+
+**The row holds paths, and `gatewayJobs` beside it deliberately does not.** That
+row is minted for a queue ticket and read again with nobody present, so the less
+it knows the better. A `contextMoves` row exists only because a person pressed
+Move, it is readable only by an owner of the context the move is leaving, and
+the audit trail already records `file.move` with both paths for every
+same-context move. A move job that could not name what was moving could not tell
+that person which of their folders is still going.
+
+**Authorization is asymmetric: `owner` on the source, `editor` on the
+destination.** Taking something out of a context removes it from everybody who
+could read it there, which is not a call an editor invited to help with one
+project gets to make. Putting something in is an ordinary write. The
+destination's own clearance is then re-checked by the same
+`assertDestinationsVisible` a single-store move uses, so an editor cannot land
+anything in a folder that context keeps private — this is the one place a write
+arrives in a context from outside it, and a second implementation of "may they
+write here" is a second one to get wrong.
+
+**What a "simplification" of this would cost.** One action with two credentials
+puts a second, wider entry in `CREDENTIAL_BARRIERS` and every argument that
+enumeration exists to force. Deleting before the destination answers loses notes
+on any failure. An unconditional delete loses the edit somebody made while the
+move ran. A persisted listing cursor skips objects on S3-compatible providers.
+Doing it in one request reintroduces the 500-file ceiling on the operation whose
+whole point is not having one. `apps/convex/__tests__/contextMove.test.ts` and
+`contextMoves.test.ts` fail — in particular "a folder larger than a single-store
+move could touch still moves, whole", "a note edited between the copy and the
+delete keeps the newer text", and the endpoint enumeration that makes a fourth
+public function in that module impossible to add without an isolation test.

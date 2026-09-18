@@ -189,6 +189,17 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       createFolder: noop,
       rename: noop,
       move: noop,
+      /*
+        No other context to move into, and that is the truth on the landing
+        page rather than a stub: the demo console is one literal bucket with
+        nobody signed in. An empty list is what keeps "Move to…" showing only
+        the folders it can actually reach — see `MovePicker`.
+      */
+      moveDestinations: [],
+      destinationFolders: async () => ({ folders: [], truncated: false }),
+      moveToContext: noop,
+      contextMoves: [],
+      resumeContextMove: noop,
       duplicate: noop,
       archive: noop,
       destroy: noop,

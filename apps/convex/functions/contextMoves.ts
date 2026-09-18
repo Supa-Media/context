@@ -69,7 +69,7 @@ import {
   query,
 } from "../_generated/server";
 import { CONTEXT_MOVE_SKIP_CAP } from "./lib/fileOps";
-import { requireWorkspaceRole } from "./lib/workspaceAuth";
+import { requireWorkspaceRole, workspaceNotFound } from "./lib/workspaceAuth";
 
 /**
  * Batches one scheduled link may run before handing on to the next.
@@ -257,7 +257,26 @@ export const reopenMove = internalMutation({
   returns: v.boolean(),
   handler: async (ctx, args) => {
     const row = await ctx.db.get(args.moveId);
-    if (row === null || row.status !== "failed") return false;
+    if (row === null) {
+      /*
+        A MOVE THAT IS NOT THERE ANSWERS AS ONE SOMEBODY ELSE OWNS.
+
+        The two arms below are the only other outcomes — a role refusal, which
+        throws `WORKSPACE_NOT_FOUND`, and `false` for a move that has already
+        finished — and returning `false` here instead would make those three
+        cases two distinguishable answers over an id space. Anybody holding a
+        move id could then ask whether it is live, which is activity in a
+        context they have proven nothing about.
+
+        The cost is that an owner resuming a move whose row has aged out is
+        told the context is not found rather than the move. Rare, recoverable
+        by starting the move again, and the right side of the trade: the same
+        one `authorizeFileAccess` makes when it answers `WORKSPACE_NOT_FOUND`
+        for a workspace that exists and one that never did.
+      */
+      throw workspaceNotFound();
+    }
+    if (row.status !== "failed") return false;
     await authorizeMove(ctx, {
       sourceWorkspaceId: row.sourceWorkspaceId,
       destinationWorkspaceId: row.destinationWorkspaceId,
@@ -439,14 +458,49 @@ export const advanceContextMove = internalAction({
       return null;
     };
 
+    /*
+      BOTH ROLES, ASKED AGAIN, ON EVERY PASS.
+
+      `openMove` established them when somebody pressed Move, and a large move
+      outlives that press by minutes. In between, an owner can have handed the
+      source on, or the destination's owner can have taken this person's write
+      access back — and a job that kept batching on the strength of a check made
+      before either would be carrying notes out of a context on an authority
+      that no longer exists.
+
+      It also supplies the two *scopes*, which is not a detail: the destination
+      write goes through the same `assertDestinationsVisible` every other write
+      does, so a mover who owns the destination must arrive at it as `private`
+      and an editor as `team`. Hardcoding `team` here — which this did — refused
+      the commonest case there is, one person moving something between two
+      contexts they own, with `not found` about their own folder.
+    */
+    let source: { scope: "private" | "team"; grantedNames: string[] };
+    let destination: { scope: "private" | "team"; grantedNames: string[] };
+    try {
+      source = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+        actorUserId: row.actorUserId,
+        workspaceId: row.sourceWorkspaceId,
+        minimum: "owner",
+      });
+      destination = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+        actorUserId: row.actorUserId,
+        workspaceId: row.destinationWorkspaceId,
+        minimum: "editor",
+      });
+    } catch {
+      return await stop(
+        "failed",
+        "This move stopped because the access it was started with is no longer in place. Everything already moved is in the new context.",
+      );
+    }
+
     try {
       for (let batch = 0; batch < BATCHES_PER_PASS && remaining; batch += 1) {
         const exported = await ctx.runAction(internal.functions.files.runFileOperation, {
           workspaceId: row.sourceWorkspaceId,
-          // An owner reads at `private`, which is the only scope that can see
-          // the whole of what it is being asked to move. `openMove` is what
-          // makes that true, and it runs before any of this.
-          scope: "private",
+          scope: source.scope,
+          grantedNames: source.grantedNames,
           operation: {
             kind: "contextMoveExport",
             from: row.from,
@@ -469,11 +523,8 @@ export const advanceContextMove = internalAction({
 
         const landed = await ctx.runAction(internal.functions.files.runFileOperation, {
           workspaceId: row.destinationWorkspaceId,
-          // Whoever pressed Move is at least an `editor` there, and an editor
-          // reads at `team`. Writing at the tier the person actually holds is
-          // what stops a move from being a way to read the destination's
-          // private folders sideways.
-          scope: "team",
+          scope: destination.scope,
+          grantedNames: destination.grantedNames,
           operation: {
             kind: "contextMoveImport",
             objects: exported.objects,
@@ -487,7 +538,8 @@ export const advanceContextMove = internalAction({
           );
           const removed = await ctx.runAction(internal.functions.files.runFileOperation, {
             workspaceId: row.sourceWorkspaceId,
-            scope: "private",
+            scope: source.scope,
+            grantedNames: source.grantedNames,
             operation: {
               kind: "contextMoveDelete",
               sources: landed.landed.map((entry) => ({
@@ -516,7 +568,8 @@ export const advanceContextMove = internalAction({
             await ctx
               .runAction(internal.functions.files.runFileOperation, {
                 workspaceId: row.destinationWorkspaceId,
-                scope: "team",
+                scope: destination.scope,
+                grantedNames: destination.grantedNames,
                 // The same conditional-delete operation the source half uses,
                 // pointed the other way: it removes each copy only if it still
                 // holds the etag this move gave it, and clears the exception
@@ -582,7 +635,8 @@ export const advanceContextMove = internalAction({
     try {
       await ctx.runAction(internal.functions.files.runFileOperation, {
         workspaceId: row.sourceWorkspaceId,
-        scope: "private",
+        scope: source.scope,
+        grantedNames: source.grantedNames,
         operation: {
           kind: "contextMoveFinish",
           from: row.from,

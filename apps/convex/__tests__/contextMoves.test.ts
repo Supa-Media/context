@@ -27,6 +27,7 @@
 
 import { describe, expect, test } from "vitest";
 import { api } from "../_generated/api";
+import * as contextMoveFunctions from "../functions/contextMoves";
 import type { Id } from "../_generated/dataModel";
 import {
   addMember,
@@ -39,6 +40,17 @@ import {
   setupTest,
   type TestConvex,
 } from "./fixtures.helpers";
+
+/**
+ * A refusal compared as a whole, not by its code.
+ *
+ * Local rather than shared, exactly as `files.test.ts` keeps its own: two
+ * refusals that differ only in a message are still two refusals a stranger can
+ * tell apart, and a helper that compared codes would hide that.
+ */
+function errorShape(error: unknown): string {
+  return JSON.stringify((error as { data?: unknown }).data ?? null);
+}
 
 async function twoContexts(t: TestConvex): Promise<{
   owner: Id<"users">;
@@ -65,6 +77,109 @@ function start(
 ) {
   return asUser(t, userId).action(api.functions.contextMoves.startContextMove, args);
 }
+
+/**
+ * THE ENUMERATION `files.test.ts` SAYS IT CANNOT DO FOR ME.
+ *
+ * Its own coverage check reads `functions/files.ts` alone and states the gap
+ * plainly: "a file endpoint that lands in a different module … needs its own
+ * entry, and no check here will say so." This module is exactly that, so this
+ * is that entry — the same shape, against this module's own public surface, so
+ * a fourth endpoint added here cannot arrive without an isolation test.
+ *
+ * The property is the one `isolation.test.ts` insists on everywhere: a refusal
+ * about somebody else's context must be **byte-identical** to a refusal about a
+ * context that never existed. "Both throw" is not enough — a different code, or
+ * a different message, tells a stranger which of the two they guessed.
+ */
+describe("every endpoint here refuses a stranger the way it refuses nothing", () => {
+  test("and the list of them is Convex's, not one somebody remembered to update", async () => {
+    const t = setupTest();
+    const { them, mine, theirs } = await twoContexts(t);
+    const ghost = await createUser(t, "ghost@example.invalid");
+    const nowhere = await createWorkspace(t, ghost, "cee-context");
+    const move = await t.run((ctx) =>
+      ctx.db.insert("contextMoves", {
+        sourceWorkspaceId: mine,
+        destinationWorkspaceId: theirs,
+        actorUserId: ghost,
+        from: "1-projects/acme",
+        to: "work/acme",
+        status: "failed" as const,
+        movedObjects: 0,
+        movedBytes: 0,
+        skipped: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    );
+    // A move id that refers to nothing, made the same way the workspace one is:
+    // insert and delete, so it is indistinguishable in shape from a live id.
+    const gone = await t.run(async (ctx) => {
+      const id = await ctx.db.insert("contextMoves", {
+        sourceWorkspaceId: theirs,
+        destinationWorkspaceId: mine,
+        actorUserId: ghost,
+        from: "a",
+        to: "b",
+        status: "failed" as const,
+        movedObjects: 0,
+        movedBytes: 0,
+        skipped: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.delete(id);
+      await ctx.db.delete(nowhere);
+      return id;
+    });
+
+    // `them` owns `theirs` and has never been near `mine`.
+    const as = asUser(t, them);
+    const calls: Array<(workspaceId: Id<"workspaces">) => Promise<unknown>> = [
+      (workspaceId) =>
+        as.action(api.functions.contextMoves.startContextMove, {
+          sourceWorkspaceId: workspaceId,
+          from: "1-projects/acme",
+          destinationWorkspaceId: theirs,
+          to: "work/acme",
+        }),
+      (workspaceId) =>
+        as.query(api.functions.contextMoves.listContextMoves, { workspaceId }),
+      /*
+        Takes a move id rather than a workspace id, so the stranger's two
+        guesses are "a real move out of a context that is not mine" and "a move
+        that is not there at all". Same requirement: the answers must not
+        differ, or the id space becomes a way to ask whether somebody is in the
+        middle of moving a folder.
+      */
+      (workspaceId) =>
+        as.action(api.functions.contextMoves.resumeContextMove, {
+          moveId: workspaceId === mine ? move : gone,
+        }),
+    ];
+
+    const covered = new Set(
+      calls.flatMap((call) =>
+        [...call.toString().matchAll(/api\.functions\.contextMoves\.(\w+)/g)].map((m) => m[1]),
+      ),
+    );
+    const publicEndpoints = Object.entries(contextMoveFunctions)
+      .filter(([, value]) => {
+        const fn = value as { isPublic?: boolean; isHttp?: boolean } | null;
+        return fn?.isPublic === true || fn?.isHttp === true;
+      })
+      .map(([name]) => name);
+    expect(publicEndpoints.length).toBeGreaterThan(0);
+    expect([...covered].sort()).toEqual([...publicEndpoints].sort());
+
+    for (const call of calls) {
+      const theirsError = await captureError(() => call(mine));
+      const nowhereError = await captureError(() => call(nowhere));
+      expect(errorShape(theirsError)).toBe(errorShape(nowhereError));
+    }
+  });
+});
 
 describe("who may start a move between contexts", () => {
   test("an owner of the source who can write the destination may", async () => {
@@ -238,6 +353,46 @@ describe("a move that cannot reach a bucket", () => {
     expect(move?.action).toBe("file.moveOut.failed");
     expect(move?.actorUserId).toBe(owner);
     expect(move?.paths).toEqual(["1-projects/acme", "work/acme"]);
+  });
+});
+
+/**
+ * A LONG MOVE OUTLIVES THE PRESS THAT STARTED IT, SO IT RE-ASKS.
+ *
+ * `openMove` establishes both roles when somebody presses Move. A folder of
+ * nine thousand notes is still crossing minutes later, and in that time an
+ * owner can hand the source on or the destination's owner can take the write
+ * access back. A job that kept batching on the strength of the original check
+ * would be carrying notes out of a context on an authority that has gone.
+ */
+describe("a move in flight", () => {
+  test("stops when the access it started with is taken away", async () => {
+    const t = setupTest();
+    const { owner, mine, theirs } = await twoContexts(t);
+    await addMember(t, theirs, owner, "editor");
+    const { moveId } = await start(t, owner, {
+      sourceWorkspaceId: mine,
+      from: "1-projects/acme",
+      destinationWorkspaceId: theirs,
+      to: "work/acme",
+    });
+
+    // Before any pass runs: the destination's owner demotes them.
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query("workspaceMembers")
+        .filter((q) => q.eq(q.field("workspaceId"), theirs))
+        .filter((q) => q.eq(q.field("userId"), owner))
+        .first();
+      await ctx.db.patch(membership!._id, { role: "member" });
+    });
+    await drainScheduled(t);
+
+    const row = await t.run((ctx) => ctx.db.get(moveId));
+    expect(row?.status).toBe("failed");
+    expect(row?.error).toContain("no longer in place");
+    // And it says which way to read that: what crossed, crossed.
+    expect(row?.error).toContain("already moved is in the new context");
   });
 });
 

@@ -2234,6 +2234,86 @@ export function landingVisibility(
 }
 
 /**
+ * Folders this caller can see, everywhere in the context, in one call.
+ *
+ * For the destination picker: "move this into @work" needs @work's folders,
+ * and the console's tree only ever holds the folders of the context it is
+ * standing in. Asking for them one `listFiles` at a time would be one Convex
+ * action — and one bucket credential — per folder, so the walk happens here,
+ * inside the single call that already has the store open.
+ *
+ * Bounded twice over, because the bucket is a customer's and somebody is
+ * waiting on this: `FOLDER_PATH_CAP` folders and `FOLDER_PATH_LISTINGS`
+ * listings. Past either it reports `truncated` and returns what it has, which
+ * is the honest shape for a picker — a short list somebody can still use beats
+ * a refusal, and the destination they wanted can always be typed into a
+ * subfolder of one that is here. It is the same choice `listFolder` makes one
+ * folder down, and the opposite of `keysUnder`'s, for the reason that function
+ * gives: a partial *walk* cannot be operated on, and a partial *list* can be
+ * read.
+ */
+export const FOLDER_PATH_CAP = 500;
+const FOLDER_PATH_LISTINGS = 200;
+
+export async function listFolderPaths(
+  store: FileStore,
+  options: { clearance: Clearance },
+): Promise<{ folders: string[]; truncated: boolean }> {
+  const state = await loadPrivacyState(store);
+  if (state.invalid) {
+    // Fail closed, exactly as every read does: an unreadable manifest is not a
+    // reason to show somebody every folder in the bucket.
+    throw new FileOpError(
+      "PRIVACY_MANIFEST_INVALID",
+      "privacy.md could not be read, so this context's folders cannot be listed.",
+    );
+  }
+
+  const folders: string[] = [];
+  const queue: string[] = [""];
+  let listings = 0;
+  let truncated = false;
+
+  while (queue.length > 0) {
+    const folder = queue.shift()!;
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    for (let page = 0; page < LIST_PAGE_CAP; page += 1) {
+      if (listings >= FOLDER_PATH_LISTINGS) return { folders, truncated: true };
+      listings += 1;
+      const listing = await store.list({
+        prefix: folder === "" ? "" : `${folder}/`,
+        delimiter: "/",
+        limit: 1_000,
+        cursor,
+      });
+      for (const raw of listing.delimitedPrefixes ?? []) {
+        const child = raw.replace(/\/+$/, "");
+        if (!child || isPlumbing(child)) continue;
+        if (!folderVisibleAtScope(child, options.clearance, state.rules, state.overrides)) continue;
+        if (folders.length >= FOLDER_PATH_CAP) {
+          truncated = true;
+          continue;
+        }
+        folders.push(child);
+        queue.push(child);
+      }
+      if (!listing.truncated) break;
+      if (!listing.cursor || seen.has(listing.cursor)) {
+        truncated = true;
+        break;
+      }
+      seen.add(listing.cursor);
+      cursor = listing.cursor;
+      if (page === LIST_PAGE_CAP - 1) truncated = true;
+    }
+  }
+
+  folders.sort();
+  return { folders, truncated };
+}
+
+/**
  * Read the next bounded piece of what is moving out of this context.
  *
  * **It lists from the beginning of the subtree every time, and that is the

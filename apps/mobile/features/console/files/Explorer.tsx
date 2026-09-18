@@ -973,10 +973,25 @@ export function ExplorerDialogs({
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),
           )}
           currentFolder={parentPath(dialog.path)}
+          /*
+            Only offered where the browser says so, which is: this person owns
+            the context the thing is leaving, and the far end is one they can
+            write. Both halves are the server's rule — see
+            `functions/contextMoves.ts` — and re-deciding either of them here
+            would be a second answer that can drift from the one that is
+            actually enforced.
+
+            A folder is not filtered out of the far context's list the way it
+            is out of this one, because it cannot be its own ancestor there:
+            the two paths are in different buckets.
+          */
+          destinations={files.moveDestinations}
+          loadDestinationFolders={files.destinationFolders}
           onCancel={onClose}
-          onConfirm={(folder) => {
+          onConfirm={(folder, contextId) => {
             onClose();
-            files.move(dialog.path, folder);
+            if (contextId === null) files.move(dialog.path, folder);
+            else files.moveToContext(dialog.path, contextId, folder);
           }}
         />
       );
