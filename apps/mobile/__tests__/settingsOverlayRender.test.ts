@@ -31,10 +31,10 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
   The whole of `convex/react` that any settings panel reaches for, not just
   `useAction`.
 
-  Two sections could not be mounted at all until this grew: `DevicesPanel`
-  calls `useConvexAuth` and `PremiumPanel` calls `useConvex`, and a narrower
-  mock meant the sweep below could not even *render* the two screens whose
-  headings it was written to check. Each stub answers the way an unauthorised,
+  Two screens could not be mounted at all until this grew: the machines card
+  at the foot of Profile calls `useConvexAuth` and `PremiumPanel` calls
+  `useConvex`, and a narrower mock meant the sweep below could not even
+  *render* the two screens whose headings it was written to check. Each stub answers the way an unauthorised,
   clientless console does, which is the state these panels already handle.
 */
 jest.mock("convex/react", () => ({
@@ -239,6 +239,13 @@ describe("the account's own settings have a home", () => {
       (row as HTMLElement).click();
     });
     expect(tokens).toEqual(["invite-token"]);
+  });
+
+  test("profile carries the machines, because their own row is gone", () => {
+    // The Revoke button for a lost Mac has to stay reachable from a phone.
+    // `useQuery` is stubbed to `undefined` here, which is the loading state —
+    // the block itself is what this asserts, not the list inside it.
+    expect(overlay("profile").textContent ?? "").toContain("Your Macs");
   });
 
   test("profile states the name and does not pretend it can be changed", () => {
