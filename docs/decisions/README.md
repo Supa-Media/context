@@ -343,6 +343,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - An invisible character in source is a fixture nobody can review
 - WebKit in CI proves the JavaScript engine, not the OS gesture recogniser
 - A surface no browser can open is a surface no test is looking at
+- An unauthenticated probe is not a health check for an authenticated endpoint
 
 ## [Vocabulary and the workspace model](./vocabulary-and-workspaces.md)
 
