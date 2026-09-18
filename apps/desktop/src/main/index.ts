@@ -76,6 +76,7 @@ import type { TrayState } from "../core/tray/presentation.ts";
 import { AppTray } from "./tray.ts";
 import { DesktopUpdater } from "./updater.ts";
 import type { ManualUpdateCheckOutcome } from "./updater.ts";
+import { INSTALL_REFUSED_PROMPT, updateCheckPrompt } from "../core/update/prompt.ts";
 import {
   createConsoleWindow,
   createNotepad,
@@ -513,65 +514,66 @@ let checkForUpdatesFromMenu = () => {
   void showUpdateCheckMessage({ type: "not-started" });
 };
 
-function updateCheckMessage(outcome: ManualUpdateCheckOutcome): Pick<MessageBoxOptions, "type" | "message" | "detail"> {
-  switch (outcome.type) {
-    case "not-started":
-      return {
-        type: "info",
-        message: "Context is still starting up.",
-        detail: "Try checking again in a moment.",
-      };
-    case "unarmed":
-      return {
-        type: "info",
-        message: "Updates are only available in signed packaged builds.",
-        detail: "This local or unsigned build cannot verify release updates.",
-      };
-    case "checking":
-      return {
-        type: "info",
-        message: "Context is already checking for updates.",
-        detail: "The current check will finish in the background.",
-      };
-    case "no-update":
-      return {
-        type: "info",
-        message: "Context is up to date.",
-        detail: "No newer desktop release is available right now.",
-      };
-    case "downloaded":
-      return outcome.deferred
-        ? {
-            type: "info",
-            message: "Update ready.",
-            detail: "Finish the current recording, then restart Context to install it.",
-          }
-        : {
-            type: "info",
-            message: "Update ready.",
-            detail: outcome.version === null ? "Restart Context to install it." : `Version ${outcome.version} is ready to install.`,
-          };
-    case "error":
-      return {
-        type: "warning",
-        message: "Context could not check for updates.",
-        detail: "Try again in a bit. The app did not expose release URLs or credentials in this message.",
-      };
-  }
-}
-
 function showNativeNotification(body: string): void {
   if (Notification.isSupported()) new Notification({ title: "Context", body }).show();
 }
 
-async function showUpdateCheckMessage(outcome: ManualUpdateCheckOutcome): Promise<void> {
-  const parent = BrowserWindow.getFocusedWindow();
-  const message = updateCheckMessage(outcome);
-  await askSomething(parent === null || parent.isDestroyed() ? null : parent, {
-    ...message,
+/**
+ * Show the outcome of a manual check, and let the person act on it.
+ *
+ * The dialog used to be one *OK* button whatever it said — including on
+ * *"Update ready. Version 0.1.44 is ready to install."*, which named an action
+ * and then offered no way to take it; the only route was a *Restart to update*
+ * item in the menu bar the dialog never mentioned. `updateCheckPrompt()` now
+ * decides the buttons, and `installButton` is the one index this function will
+ * turn into an install.
+ *
+ * `install` is `DesktopUpdater.install()`, which asks `mayInstall()` and
+ * re-reads `controller.recording` at the moment of the click — so a meeting
+ * that started while this box was open refuses the press rather than tearing
+ * itself down, and says so.
+ */
+async function showUpdateCheckMessage(
+  outcome: ManualUpdateCheckOutcome,
+  install: () => boolean = () => false,
+): Promise<void> {
+  const prompt = updateCheckPrompt(outcome);
+  const { installButton, ...options } = prompt;
+  const parent = liveFocusedWindow();
+  const answer = await askSomething(parent, { ...options, title: "Check for Updates" });
+  if (installButton === null || answer.response !== installButton) return;
+  if (!install()) sayInstallRefused();
+}
+
+/**
+ * *Restart Now* pressed into a refusal, because a meeting started while the box
+ * was open.
+ *
+ * A **notification** and not a second alert when there is no window to hang a
+ * sheet off: `askSomething`'s header measured what a parentless
+ * `showMessageBox` does — `-[NSAlert runModal]` spins its own run loop and this
+ * process stops, draining nothing — and the one moment that must never happen
+ * is the one this branch is reached in, with a recording running.
+ */
+function sayInstallRefused(): void {
+  const { message, detail } = INSTALL_REFUSED_PROMPT;
+  const parent = liveFocusedWindow();
+  if (parent === null) {
+    showNativeNotification(`${message} ${detail}`);
+    return;
+  }
+  void askSomething(parent, {
+    type: INSTALL_REFUSED_PROMPT.type,
     title: "Check for Updates",
-    buttons: ["OK"],
+    message,
+    detail,
+    buttons: INSTALL_REFUSED_PROMPT.buttons,
   });
+}
+
+function liveFocusedWindow(): BrowserWindow | null {
+  const parent = BrowserWindow.getFocusedWindow();
+  return parent === null || parent.isDestroyed() ? null : parent;
 }
 
 function installApplicationMenu(): void {
@@ -906,12 +908,20 @@ async function main(): Promise<void> {
   checkForUpdatesFromMenu = () => {
     const result = updater.checkNow();
     push();
+    // `install()` is handed to the dialog rather than called for it: the
+    // person decides, `mayInstall()` re-checks the meeting, and `push()`
+    // refreshes the tray when an install was refused after all.
+    const installNow = () => {
+      const installing = updater.install();
+      if (!installing) push();
+      return installing;
+    };
     if (!result.started) {
-      void showUpdateCheckMessage(result.outcome);
+      void showUpdateCheckMessage(result.outcome, installNow);
       return;
     }
     showNativeNotification("Checking for updates...");
-    void result.outcome.then((outcome) => showUpdateCheckMessage(outcome));
+    void result.outcome.then((outcome) => showUpdateCheckMessage(outcome, installNow));
   };
 
   const tray = new AppTray({

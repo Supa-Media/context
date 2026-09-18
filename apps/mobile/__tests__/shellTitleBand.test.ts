@@ -34,6 +34,8 @@
  *   `ShellTitleBand` reading `bridge.shell.platform` without `?.`        1
  *   the band's height hard-coded instead of `SHELL_TITLE_BAND_PX`       1
  *   the band losing `WebkitAppRegion: "drag"`                          1
+ *   `viewportHeight` ignoring its inset (the clipped footer)             1
+ *   `shellTitleBandPx` answering the band's height with no shell         2
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "@jest/globals";
@@ -41,8 +43,9 @@ import { act, createElement, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
 import { SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
-import { shouldShowShellTitleBand } from "../features/app/shellTitleBand";
-import { ShellTitleBand } from "../features/app/ShellTitleBandView";
+import { shellTitleBandPx, shouldShowShellTitleBand } from "../features/app/shellTitleBand";
+import { ShellTitleBand, useShellTitleBandPx } from "../features/app/ShellTitleBandView";
+import { viewportHeight } from "../features/design/css";
 // `StyleSheet.getSheet()` is react-native-web's, absent from the `react-native`
 // types this repo compiles against — see `design-shots.ts`'s own note on it.
 const { StyleSheet: RNStyleSheet } = require("react-native") as {
@@ -179,3 +182,64 @@ describe("ShellTitleBand", () => {
     mounted.unmount();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/* the same reservation as a number — what the frame and the overlays pay      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE BOTTOM OF THE CONSOLE WAS OFF THE BOTTOM OF THE WINDOW.
+ *
+ * Reported against the shipped shell: *"the bottom part looks cut off"*. The
+ * band reserves 38px at the top, and `AppFrame` is sized in viewport units
+ * rather than by a flex parent — so a full `100dvh` frame drawn under a 38px
+ * band is a window-and-a-bit tall, and the last 38px of it, which is where the
+ * context switcher and the sync row sit, had nowhere to go and no way to
+ * scroll to it.
+ */
+describe("the band's height, as the number the rest of the app pays", () => {
+  test("a Mac shell reserves the shared constant; nothing else reserves anything", () => {
+    expect(shellTitleBandPx("web", "macos", SHELL_TITLE_BAND_PX)).toBe(SHELL_TITLE_BAND_PX);
+    expect(shellTitleBandPx("web", "windows", SHELL_TITLE_BAND_PX)).toBe(0);
+    expect(shellTitleBandPx("web", null, SHELL_TITLE_BAND_PX)).toBe(0);
+    expect(shellTitleBandPx("ios", "macos", SHELL_TITLE_BAND_PX)).toBe(0);
+  });
+
+  test("the hook answers the same, from the bridge on the page", () => {
+    installShell(
+      fakeDesktopBridge({ shell: { app: "Context", version: "1.0.0", platform: "macos" } }).bridge,
+    );
+    expect(readBandPx()).toBe(SHELL_TITLE_BAND_PX);
+
+    removeShell();
+    expect(readBandPx()).toBe(0);
+  });
+
+  test("THE FRAME IS ONE VIEWPORT MINUS THE BAND, never a whole one under it", () => {
+    // Asserted against the style function rather than a rendered node for the
+    // reason `appFrameRender.test.ts` gives: jsdom's CSS parser knows neither
+    // `dvh` nor `calc` with it, and drops the declaration either way.
+    expect(viewportHeight(SHELL_TITLE_BAND_PX)).toMatchObject({
+      height: `calc(100dvh - ${SHELL_TITLE_BAND_PX}px)`,
+      maxHeight: `calc(100dvh - ${SHELL_TITLE_BAND_PX}px)`,
+    });
+  });
+
+  test("...and an ordinary browser tab is still exactly one viewport", () => {
+    expect(viewportHeight(0)).toMatchObject({ height: "100dvh", maxHeight: "100dvh" });
+    expect(viewportHeight()).toMatchObject({ height: "100dvh", maxHeight: "100dvh" });
+  });
+});
+
+/** `useShellTitleBandPx` read out of a mounted probe, the way a component sees it. */
+function readBandPx(): number {
+  let seen: number | null = null;
+  function Probe() {
+    seen = useShellTitleBandPx();
+    return null;
+  }
+  const mounted = mount(createElement(Probe));
+  mounted.unmount();
+  if (seen === null) throw new Error("the probe never rendered");
+  return seen;
+}
