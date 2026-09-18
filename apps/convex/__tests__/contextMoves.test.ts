@@ -396,6 +396,28 @@ describe("a move in flight", () => {
   });
 });
 
+describe("a move of something that is not there", () => {
+  test("fails rather than completing over an empty folder", async () => {
+    const t = setupTest();
+    const { owner, mine, theirs } = await twoContexts(t);
+    await addMember(t, theirs, owner, "editor");
+    // No bucket is bound in this fixture, so the pass fails at the credential
+    // before it can reach the empty-export arm. Asserted at the engine level
+    // in `contextMove.test.ts`; what matters here is the shape of the row.
+    const { moveId } = await start(t, owner, {
+      sourceWorkspaceId: mine,
+      from: "1-projects/nothing-here",
+      destinationWorkspaceId: theirs,
+      to: "work/nothing-here",
+    });
+    await drainScheduled(t);
+
+    const row = await t.run((ctx) => ctx.db.get(moveId));
+    expect(row?.status).toBe("failed");
+    expect(row?.movedObjects).toBe(0);
+  });
+});
+
 describe("picking a stopped move back up", () => {
   test("re-asks both questions rather than trusting the row", async () => {
     const t = setupTest();

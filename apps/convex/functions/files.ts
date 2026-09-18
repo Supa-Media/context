@@ -1138,6 +1138,8 @@ const operationValidator = v.union(
   }),
   v.object({
     kind: v.literal("contextMoveImport"),
+    /** Set on the first batch only — see `importContextMoveBatch`. */
+    root: v.optional(v.string()),
     objects: v.array(v.object({
       source: v.string(),
       destination: v.string(),
@@ -1272,7 +1274,7 @@ type FileOperation =
   | { kind: "copy"; from: string; to: string }
   | { kind: "folderPaths" }
   | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
-  | { kind: "contextMoveImport"; objects: ContextMoveObject[] }
+  | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
   | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
   | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
@@ -3495,6 +3497,7 @@ export async function executeOperation(
         const landed = await importContextMoveBatch(store, {
           objects: operation.objects,
           clearance,
+          ...(operation.root === undefined ? {} : { root: operation.root }),
         });
         return { kind: "contextMoveLanded", ...landed };
       }

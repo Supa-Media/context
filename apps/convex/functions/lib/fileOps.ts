@@ -2477,7 +2477,27 @@ export interface ContextMoveImport {
  */
 export async function importContextMoveBatch(
   store: FileStore,
-  options: { objects: readonly ContextMoveObject[]; clearance: Clearance },
+  options: {
+    objects: readonly ContextMoveObject[];
+    clearance: Clearance;
+    /**
+     * The move's destination root, on the first batch only.
+     *
+     * Checked once rather than per object, and only when nothing has landed
+     * yet — by the second batch this move's own objects are under it, so the
+     * same check would then refuse the move on the strength of its own work.
+     *
+     * It is what stops a folder move **merging** into a folder that is already
+     * there. The per-object `get` below cannot see that: for a folder move
+     * every destination is `to` plus a suffix, so two trees interleave key by
+     * key with no key ever colliding, and `movePath` records what the result
+     * is — the source folder's rule carried onto a destination that already
+     * had notes in it, one of which went from hidden to readable. A file
+     * already sitting at `to` is the other half of the same question, and is
+     * invisible to a per-object check for the same reason.
+     */
+    root?: string;
+  },
 ): Promise<ContextMoveImport> {
   const state = await loadPrivacyState(store);
   if (state.invalid) {
@@ -2485,6 +2505,29 @@ export async function importContextMoveBatch(
       "PRIVACY_MANIFEST_INVALID",
       "privacy.md could not be read in the context this is moving into. Nothing was moved.",
     );
+  }
+
+  if (options.root !== undefined) {
+    const root = requirePath(options.root);
+    assertWritablePath(root);
+    if (await isFolder(store, root)) {
+      // Refused whether or not they can see it, and `notFound` when they
+      // cannot: "that folder already exists" about a folder somebody cannot
+      // list is the disclosure, not the merge. Same shape as `movePath`'s.
+      if (!folderVisibleAtScope(root, options.clearance, state.rules, state.overrides)) {
+        throw notFound();
+      }
+      throw new FileOpError(
+        "DESTINATION_EXISTS",
+        `${root} already exists there. Moving one folder onto another would merge them.`,
+      );
+    }
+    if ((await store.get(root)) !== null) {
+      if (!canSee(root, options.clearance.scope, state.rules, state.overrides, options.clearance.names)) {
+        throw notFound();
+      }
+      throw new FileOpError("DESTINATION_EXISTS", `Something already exists at ${root}.`);
+    }
   }
 
   const planned = options.objects.map((object) => {

@@ -38,6 +38,7 @@ import { memoryStore, type MemoryStore } from "./storeStub.helpers";
 import {
   CONTEXT_MOVE_SKIP_CAP,
   FOLDER_OPERATION_CAP,
+  FileOpError,
   type ContextMoveSkip,
   type FileStore,
   clearMovedSourceRules,
@@ -140,6 +141,7 @@ async function runMove(
   let failure: string | null = null;
   let batches = 0;
 
+  try {
   for (let pass = 0; pass < (options.passes ?? 500); pass += 1) {
     const exported = await exportContextMoveBatch(source, {
       from: options.from,
@@ -157,6 +159,8 @@ async function runMove(
       const landed = await importContextMoveBatch(destination, {
         objects: exported.objects,
         clearance: options.landAs ?? OWNER,
+        // First batch only, exactly as `advanceContextMove` passes it.
+        ...(moved.length === 0 ? { root: options.to } : {}),
       });
       if (landed.landed.length > 0) {
         const removed = await deleteMovedSources(source, {
@@ -182,6 +186,16 @@ async function runMove(
       }
     }
     if (!exported.remaining) break;
+  }
+  } catch (error) {
+    /*
+      The orchestrator's own `catch`, in miniature: a refusal thrown out of the
+      engine — a destination that is already a folder, an unreadable manifest —
+      ends the move on the row rather than escaping. A harness that let it
+      escape would make every such test read as a crash rather than as the
+      refusal it is.
+    */
+    failure = error instanceof FileOpError ? error.code : "threw";
   }
 
   if (failure === null) {
@@ -557,6 +571,67 @@ describe("what a cross-context move refuses to do", () => {
     // Stated here because the engine cannot see the list growing across
     // batches — `advanceContextMove` is what counts it and stops.
     expect(CONTEXT_MOVE_SKIP_CAP).toBeGreaterThan(0);
+  });
+
+  test("it will not merge a folder onto a folder the destination already has", async () => {
+    const source = bucket(["1-projects"]);
+    const destination = bucket(["work"]);
+    source.seed("1-projects/acme/notes.md", "# mine\n");
+    destination.seed("work/acme/theirs.md", "# theirs\n");
+
+    const result = await runMove(source, destination, {
+      from: "1-projects/acme",
+      to: "work/acme",
+    });
+
+    /*
+      Two trees whose keys never collide, so the per-object check cannot see
+      this at all — and `movePath` records what the merge does when it is
+      allowed: the source folder's rule lands on a destination that already had
+      notes in it, and one of them changes tier. Refused before anything is
+      written, and the source is untouched.
+    */
+    expect(result.failure).toBe("DESTINATION_EXISTS");
+    expect(destination.objects.has("work/acme/notes.md")).toBe(false);
+    expect(source.snapshot()["1-projects/acme/notes.md"]).toBe("# mine\n");
+  });
+
+  test("it will not put a folder where the destination has a file of that name", async () => {
+    const source = bucket(["1-projects"]);
+    const destination = bucket(["work"]);
+    source.seed("1-projects/acme/notes.md", "# mine\n");
+    destination.seed("work/acme", "not a folder");
+
+    const result = await runMove(source, destination, {
+      from: "1-projects/acme",
+      to: "work/acme",
+    });
+
+    // Invisible to a per-object check too: every destination is `work/acme/…`
+    // and none of them is `work/acme`. The result would be a file key
+    // shadowing a folder prefix, a shape a Dropbox binding cannot represent.
+    expect(result.failure).toBe("DESTINATION_EXISTS");
+    expect(destination.snapshot()["work/acme"]).toBe("not a folder");
+  });
+
+  test("the second batch is not refused by the folder the first one made", async () => {
+    const source = bucket(["1-projects"]);
+    const destination = bucket(["work"]);
+    for (let index = 0; index < 5; index += 1) {
+      source.seed(`1-projects/acme/note-${index}.md`, `# ${index}\n`);
+    }
+
+    const result = await runMove(source, destination, {
+      from: "1-projects/acme",
+      to: "work/acme",
+      limit: 2,
+    });
+
+    // The check above runs on the first batch only. Asking it again would have
+    // the move refuse itself the moment it has written anything.
+    expect(result.failure).toBeNull();
+    expect(result.moved.length).toBe(5);
+    expect(result.batches).toBeGreaterThan(1);
   });
 
   test("an editor cannot land something in a folder the destination keeps private", async () => {

@@ -519,7 +519,28 @@ export const advanceContextMove = internalAction({
             `More than ${CONTEXT_MOVE_SKIP_CAP} notes here are encrypted to this context and cannot move. Take them out of the encrypted state first, or move this in smaller pieces.`,
           );
         }
-        if (exported.objects.length === 0) break;
+        if (exported.objects.length === 0) {
+          /*
+            NOTHING TO CARRY, ON A MOVE THAT HAS CARRIED NOTHING.
+
+            Every other way of reaching an empty export is ordinary — a batch
+            whose candidates were all skipped, or the pass after the last
+            object went. This one is not: it means the path somebody typed or
+            picked is not there, and completing on it would tell them their
+            note is in the other context.
+
+            `movePath` throws `notFound` for the same case. Here the export
+            cannot: an export that refused an empty subtree would refuse the
+            final pass of every successful move.
+          */
+          if (row.movedObjects + movedObjects === 0 && skipped.length === 0) {
+            return await stop(
+              "failed",
+              `There is nothing at ${row.from} to move.`,
+            );
+          }
+          break;
+        }
 
         const landed = await ctx.runAction(internal.functions.files.runFileOperation, {
           workspaceId: row.destinationWorkspaceId,
@@ -528,6 +549,14 @@ export const advanceContextMove = internalAction({
           operation: {
             kind: "contextMoveImport",
             objects: exported.objects,
+            /*
+              Only while nothing of this move has landed yet. It is the check
+              that refuses a merge onto a folder the destination already has —
+              and by the second batch the folder it would be looking at is this
+              move's own, so asking again would refuse the move halfway through
+              itself.
+            */
+            ...(row.movedObjects + movedObjects === 0 ? { root: row.to } : {}),
           },
         });
         if (landed.kind !== "contextMoveLanded") return await stop("failed", UNEXPECTED);
