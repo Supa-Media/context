@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { EditorControls } from "../features/console/files/LiveEditor";
 import type { DictationEngine, DictationHandlers } from "../features/voice/engine";
 import { VoiceButton, type VoicePage } from "../features/voice/VoiceButton";
+import { useVoiceHost, VoiceHostProvider } from "../features/voice/VoiceHost";
 import {
   DICTATE_TITLE,
   DICTATION_SENTENCE,
@@ -53,6 +54,11 @@ import { meetings } from "../features/meetings/controller";
  *  6. `useDictation`'s note-change effect dropped.
  *     → `opening another note stops dictation rather than typing into it`
  *     fails.
+ *  7. The note-change effect dispatches `discard` rather than `cancel`.
+ *     → `opening another note keeps the sentences already dictated into this
+ *     one` fails. This is what the self-review pass found: the two reads the
+ *     same in the app today only because the document replacement invalidates
+ *     the run before the effect runs.
  */
 
 let root: Root | null = null;
@@ -333,6 +339,74 @@ describe("what else is going on", () => {
     );
     expect(fake.calls).toEqual(["open", "abandon"]);
     expect(findByTestId("voice-capsule")).toBeNull();
+  });
+
+  test("opening another note keeps the sentences already dictated into this one", () => {
+    const fake = fakeEngine();
+    const controls = fakeControls();
+    render(button({ engine: fake.engine, controls: controls.get }));
+    press("voice-button");
+    press("voice-sheet-dictate");
+    fake.say("Three sentences that landed.", true);
+
+    render(
+      button({
+        engine: fake.engine,
+        controls: controls.get,
+        page: { ...OWN, notePath: "1-projects/something-else.md" },
+      }),
+    );
+
+    /*
+      The finding this test was written for. Navigating away used to `discard`,
+      which takes the run back out — deleting writing somebody had dictated and
+      meant, because they clicked a different note. It works out either way in
+      the app today, because replacing the document invalidates the run first,
+      but the intent was wrong and the ordering it relied on is not one this
+      component controls.
+    */
+    expect(controls.discarded).toBe(0);
+    expect(controls.dictated).toEqual(["Three sentences that landed."]);
+    expect(fake.calls).toEqual(["open", "abandon"]);
+  });
+
+  test("a surface that provides no voice host draws no microphone", () => {
+    /*
+      The landing page's demo console, the visual fixture and any future
+      embedder all render `BrowsePane` without a `VoiceHostProvider`. The
+      landing page is a public marketing surface with no workspace behind it,
+      and a microphone on it would be a control that cannot work and a
+      permission prompt nobody asked for. `useVoiceHost` answering `null` is
+      what keeps it off them, so that is what is asserted rather than the
+      absence being left to whoever next edits `NoteEditor`.
+    */
+    let seen: unknown = "not read";
+    function Probe() {
+      seen = useVoiceHost();
+      return null;
+    }
+    render(createElement(Probe));
+    expect(seen).toBeNull();
+
+    // And with one, the same hook hands it straight back.
+    const host = { page: OWN, onRecordMeeting: () => {} };
+    render(
+      createElement(VoiceHostProvider, {
+        value: host,
+        children: createElement(Probe),
+      }),
+    );
+    expect(seen).toBe(host);
+  });
+
+  test("the button announces itself as the disclosure control it is", () => {
+    render(button({ engine: fakeEngine().engine }));
+    const node = findByTestId("voice-button")!;
+    expect(node.getAttribute("aria-label")).toBe("Voice capture");
+    expect(node.getAttribute("aria-haspopup")).toBe("menu");
+    expect(node.getAttribute("aria-expanded")).toBe("false");
+    press("voice-button");
+    expect(findByTestId("voice-button")!.getAttribute("aria-expanded")).toBe("true");
   });
 
   test("a running meeting takes the corner, and the microphone with it", () => {

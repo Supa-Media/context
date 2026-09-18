@@ -139,7 +139,7 @@ test("the sheet says who can hear it and what happens to the audio", async ({ pa
   await page.getByTestId("voice-button").click();
   await expect(page.getByTestId("voice-sheet-audience")).toHaveText("Only you.");
   await expect(page.getByTestId("voice-sheet-disclosure")).toContainText(
-    "Context stores none of the audio",
+    "Context never receives the audio",
   );
   await expect(page.getByTestId("voice-sheet-dictate")).toBeVisible();
   await expect(page.getByTestId("voice-sheet-meeting")).toBeVisible();

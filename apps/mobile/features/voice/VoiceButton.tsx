@@ -75,7 +75,7 @@ export function VoiceButton({
   const colors = useColors();
   const [asking, setAsking] = useState(false);
   const dictation = useDictation({ controls, notePath: page.notePath, engine });
-  const { state, start, stop, discard } = dictation;
+  const { state, start, stop, discard, cancel } = dictation;
   const live = isLive(state);
   /*
     A meeting is running, so this corner is not ours.
@@ -120,17 +120,18 @@ export function VoiceButton({
   }, [onRecordMeeting]);
 
   /*
-    A meeting started while this was open or listening. `discard` rather than
-    `stop`: the pending phrase belongs to a microphone that is now the
-    meeting's, and settling it would put words into the note that the engine
-    heard on the way out.
+    A meeting started while this was open or listening. `cancel`, for the reason
+    `useDictation` gives at the note-change effect: the pending phrase belongs
+    to a microphone that is now the meeting's and cannot be settled, but the
+    sentences already in the note were said on purpose and starting a meeting is
+    not a request to delete them.
   */
   const meetingRunning = meeting !== null;
   useEffect(() => {
     if (!meetingRunning) return;
     setAsking(false);
-    discard();
-  }, [meetingRunning, discard]);
+    cancel();
+  }, [meetingRunning, cancel]);
 
   // Every hook above this line, so the yield cannot change their order.
   if (meetingRunning) return null;

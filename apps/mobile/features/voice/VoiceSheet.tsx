@@ -37,13 +37,22 @@ export const SHEET_TITLE = "Voice capture";
  * What happens to what you say, for the dictation half.
  *
  * Deliberately not `DestinationSheet`'s `AUDIO_SENTENCE`: that one is about a
- * recording — audio captured, transcribed, discarded. Dictation captures no
- * audio at all as far as this product is concerned. Claiming the recording
- * sentence here would be over-disclosing in a way that reads as evasive, and
- * claiming less would be worse.
+ * recording this product makes — audio captured, transcribed by us, discarded.
+ * Dictation captures no audio at all as far as Context is concerned, so
+ * borrowing that sentence would describe a pipeline that does not exist here.
+ *
+ * **The first clause is the one that matters and it was wrong once.** An
+ * earlier draft read "Your browser turns what you say into text", which is
+ * true and, next to a promise about *our* handling of the audio, invites
+ * somebody to read it as "so it never leaves this machine". Chrome's
+ * `SpeechRecognition` sends audio to a service of Google's; Safari's may not.
+ * Which one it is belongs to the browser and is not ours to claim either way,
+ * so the sentence names the uncertainty rather than resolving it in the
+ * direction that flatters us.
  */
 export const DICTATION_SENTENCE =
-  "Your browser turns what you say into text. Context stores none of the audio and uploads none of it. " +
+  "Your browser does the listening — some browsers do it on the device, some send the sound to their own service. " +
+  "Context never receives the audio, never stores it, and never puts it in your bucket. " +
   "Words appear at the caret as they settle; what is still being heard is grey and is not in the file yet.";
 
 export const DICTATE_TITLE = "Dictate into this note";

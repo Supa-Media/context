@@ -19,11 +19,12 @@ import type { DictationEngine, DictationHandlers } from "./engine";
  * that implements it, and costs nothing per minute. Two things follow that are
  * worth saying out loud rather than discovering:
  *
- *  - **Nothing leaves this machine through this file.** No audio is uploaded,
- *    no chunk is stored, and the browser's own engine may or may not use a
- *    network service of its vendor's — which is the browser's disclosure to
- *    make and ours to not misrepresent. The sheet says "transcribed on this
- *    device where your browser can" rather than claiming more.
+ *  - **Nothing leaves this machine through *this file*.** No audio is read by
+ *    it, uploaded by it or stored by it — and that is a smaller claim than it
+ *    looks, because the browser's own engine may well use a network service of
+ *    its vendor's. Chrome's does. Which browsers do is theirs to disclose and
+ *    ours not to paper over, so `DICTATION_SENTENCE` names the uncertainty
+ *    instead of resolving it in the direction that flatters us.
  *  - **It is not universal.** Firefox ships no implementation at all. That is
  *    an `available: false` with a sentence, not a broken button: see
  *    `NO_ENGINE`.

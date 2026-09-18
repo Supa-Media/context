@@ -39,6 +39,8 @@ export interface DictationApi {
   stop: () => void;
   /** Settle nothing and take the run back out of the note. */
   discard: () => void;
+  /** Close the microphone, keep what landed, drop the pending phrase. */
+  cancel: () => void;
   available: boolean;
   /** The engine's sentence for why it is not available. `""` when it is. */
   unavailable: string;
@@ -94,18 +96,43 @@ export function useDictation(input: {
   const start = useCallback(() => dispatch({ type: "start" }), [dispatch]);
   const stop = useCallback(() => dispatch({ type: "stop" }), [dispatch]);
   const discard = useCallback(() => dispatch({ type: "discard" }), [dispatch]);
+  const cancel = useCallback(() => dispatch({ type: "cancel" }), [dispatch]);
 
   /*
-    The note changed under a live microphone. `discard` rather than `stop`:
-    what was said belongs to the note that was open when it was said, and the
-    run this takes back is that note's. Stopping would settle the pending
-    phrase into whichever note is open *now*.
+    The note changed under a live microphone.
+
+    `cancel`, and the choice between the three verbs is the whole of it.
+    `stop` would settle the pending phrase into whichever note is open *now*,
+    which is a sentence landing in a file its speaker never had open. `discard`
+    would take the run back out — deleting three sentences somebody dictated and
+    meant, because they clicked another note. `cancel` closes the microphone,
+    drops the half-phrase nobody can place any more, and leaves what landed
+    exactly where it landed.
+
+    ## The window this does not close, stated rather than left to be found
+
+    An effect runs after the render that changed the note, so in principle a
+    phrase the engine settled microseconds earlier could be delivered into the
+    editor now on screen. A version of this file carried a second guard for it —
+    the started-on path, compared at delivery, the way `autosave.ts` compares
+    its captured path. It was **removed**, because nothing in this harness can
+    reach that window: `act` flushes render and effects together, so a test
+    that "reproduces" it either never re-renders (and the guard is not what
+    refuses the phrase) or flushes the effect first (and dictation is already
+    closed). An unreachable guard is not a guard — `docs/decisions/testing.md` —
+    and a guard whose test passes for another reason is worse than none,
+    because it reads as coverage.
+
+    What is left is the ordinary React ordering, and it is narrow: the speech
+    event would have to land between commit and the passive-effect flush of the
+    same frame. If it is ever seen, the fix is to move this to a render-phase
+    check rather than to re-add a check nothing exercises.
   */
   const openNote = useRef(notePath);
   useEffect(() => {
     if (openNote.current === notePath) return;
     openNote.current = notePath;
-    if (isLive(current.current)) dispatch({ type: "discard" });
+    if (isLive(current.current)) dispatch({ type: "cancel" });
   }, [notePath, dispatch]);
 
   // Unmounting with the microphone open is the one failure nobody would see
@@ -123,6 +150,7 @@ export function useDictation(input: {
     start,
     stop,
     discard,
+    cancel,
     available: engine.available,
     unavailable: engine.unavailable,
   };

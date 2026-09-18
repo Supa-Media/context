@@ -50,6 +50,10 @@ import {
  *     up to the word before it` fail.
  *  7. `joinDictated` never prefixes a space.
  *     → `a phrase after a word is spaced off it` fails.
+ *  8. `cancel` reduced to `discard` — the shape this file shipped with before
+ *     the self-review pass, when leaving a note took its dictation with it.
+ *     → `cancel keeps what landed and takes nothing back` and `the three verbs
+ *     differ exactly where it matters` fail.
  */
 
 /** Drive a list of events through the reducer, collecting every effect. */
@@ -200,6 +204,44 @@ describe("discarding", () => {
     ]);
     expect(effects).toContainEqual({ do: "undoRun" });
     expect(state).toEqual(IDLE);
+  });
+});
+
+describe("cancelling, which is neither stopping nor discarding", () => {
+  test("cancel keeps what landed and takes nothing back", () => {
+    const { state, effects } = run([
+      { type: "start" },
+      { type: "final", text: "Three sentences that landed." },
+      { type: "interim", text: "and half of a fourth" },
+      { type: "cancel" },
+    ]);
+    expect(effects).toContainEqual({ do: "abandon" });
+    expect(effects).not.toContainEqual({ do: "undoRun" });
+    expect(effects).not.toContainEqual({ do: "finalize" });
+    expect(state).toEqual(IDLE);
+  });
+
+  test("cancel drops the pending phrase rather than settling it somewhere else", () => {
+    const { effects } = run([
+      { type: "start" },
+      { type: "interim", text: "half a sentence" },
+      { type: "cancel" },
+    ]);
+    expect(inserts(effects)).toEqual([]);
+    expect(effects.at(-1)).toEqual({ do: "ghost", text: "" });
+  });
+
+  test("the three verbs differ exactly where it matters", () => {
+    const after = (last: DictationEvent) =>
+      // open, ghost-clear, insert, then whatever the last verb asks for.
+      run([{ type: "start" }, { type: "final", text: "Landed." }, last]).effects.slice(3);
+    expect(after({ type: "stop" })).toEqual([{ do: "finalize" }]);
+    expect(after({ type: "cancel" })).toEqual([{ do: "abandon" }, { do: "ghost", text: "" }]);
+    expect(after({ type: "discard" })).toEqual([
+      { do: "abandon" },
+      { do: "ghost", text: "" },
+      { do: "undoRun" },
+    ]);
   });
 });
 

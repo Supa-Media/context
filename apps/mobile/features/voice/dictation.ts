@@ -75,6 +75,16 @@ export type DictationEvent =
   | { type: "stop" }
   /** Discard: settle nothing, and take back what this run put in the note. */
   | { type: "discard" }
+  /**
+   * Something else needs the microphone, or the note went away.
+   *
+   * Between `stop` and `discard` and it is neither: the pending phrase is
+   * dropped, because there is nothing left to settle it into, and what already
+   * landed **stays**. A person who dictates three sentences and then opens
+   * another note said those sentences; taking them back out would be this
+   * feature deleting somebody's writing because they navigated.
+   */
+  | { type: "cancel" }
   /** The engine has closed. Nothing more is coming. */
   | { type: "ended" }
   | { type: "error"; reason: DictationFailure };
@@ -163,6 +173,10 @@ export function reduce(state: DictationState, event: DictationEvent): Step {
         state: IDLE,
         effects: [{ do: "abandon" }, { do: "ghost", text: "" }, { do: "undoRun" }],
       };
+
+    case "cancel":
+      if (!isLive(state)) return { state, effects: [] };
+      return { state: IDLE, effects: [{ do: "abandon" }, { do: "ghost", text: "" }] };
 
     case "ended":
       if (!isLive(state)) return { state, effects: [] };

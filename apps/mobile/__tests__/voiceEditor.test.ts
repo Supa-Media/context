@@ -9,6 +9,7 @@ import {
   dictationRun,
   dictationTarget,
   drawInterim,
+  openingAtField,
   insertDictated,
   interimField,
   takeBackRun,
@@ -17,6 +18,7 @@ import {
   editability,
   editorExtensions,
   openingCaret,
+  replaceDocument,
   runCommand,
 } from "../features/console/files/editorSetup";
 import {
@@ -339,6 +341,33 @@ describe("the run, and what Discard may take back", () => {
     view.dispatch({ changes: { from: 0, to: 0, insert: "# Weekly sync\n\n" } });
     expect(takeBackRun(view)).toBe(true);
     expect(view.state.doc.toString()).toBe("# Weekly sync\n\n## Today\n");
+  });
+
+  test("a different note loaded into the same editor is not the old note's run", () => {
+    /*
+      The run is a pair of offsets. Carried across a note swap they would be
+      offsets into a document that no longer exists, and Discard would delete
+      whatever now sits at them — in somebody else's note. `replaceDocument` is
+      what the editor does when a different note is opened, a draft discarded,
+      or a conflict resolved.
+    */
+    const view = mount("## Today\n");
+    insertDictated(view, "Dictated into the first note.");
+    expect(view.state.field(dictationRun)).not.toBeNull();
+
+    replaceDocument(view, "# A completely different note\n\nWith its own body.");
+
+    expect(view.state.field(dictationRun)).toBeNull();
+    expect(takeBackRun(view)).toBe(false);
+    expect(view.state.doc.toString()).toBe("# A completely different note\n\nWith its own body.");
+  });
+
+  test("the opening caret is re-read for the note that was just loaded", () => {
+    const view = mount("no frontmatter here");
+    expect(view.state.field(openingAtField)).toBe(0);
+    const next = "---\nupdated: 2026-09-18\n---\n# Loaded second";
+    replaceDocument(view, next);
+    expect(view.state.field(openingAtField)).toBe(openingCaret(next));
   });
 
   test("Discard with nothing dictated yet does nothing and says so", () => {
