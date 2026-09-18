@@ -257,6 +257,31 @@ describe("when the gateway refuses", () => {
   });
 });
 
+describe("what the panel is told it is talking to", () => {
+  /**
+   * `AgentPanel`'s header renders this, and its own docstring says why that
+   * matters: which model answered decides what it cost and whose machine saw
+   * the question. It was a ref in the first draft — for the same reason the
+   * token is one — and a ref means no re-render, so the header said "Your
+   * model" forever. This is that finding, pinned.
+   */
+  test("the header names the provider once one has answered", async () => {
+    const held = engine();
+    expect(held.current.provider).toBe("Your model");
+
+    await ask(held);
+
+    expect(held.current.provider).toBe("Claude");
+  });
+
+  test("a turn that never answered leaves it unnamed rather than guessing", async () => {
+    responder = () => ({ status: 502, body: { error: "model_unavailable" } });
+    const held = engine();
+    await ask(held);
+    expect(held.current.provider).toBe("Your model");
+  });
+});
+
 describe("where a turn can be sent at all", () => {
   test("no context and no endpoint means nothing is asked", async () => {
     const noWorkspace = engine({ workspaceId: null });

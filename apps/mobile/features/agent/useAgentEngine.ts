@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
@@ -51,7 +51,22 @@ export function useAgentEngine(options: {
   const token = useRef<{ value: string; expiresAt: number } | null>(null);
   const route = options.endpoint === null ? null : agentEndpoint(options.endpoint);
   const workspaceId = options.workspaceId;
-  const provider = useRef("");
+  /**
+   * Which provider answered, in **state** and not a ref.
+   *
+   * This is a self-review finding rather than the first draft. It was a ref,
+   * for the same reason the token is one — nothing re-renders when it changes —
+   * and that was wrong: `AgentPanel`'s header renders it, and its own docstring
+   * says why that matters ("it decides what the answer costs them and whose
+   * machine saw the question"). A ref meant the header said "Your model"
+   * forever, whatever answered.
+   *
+   * It changes once per session in practice — the first turn names the
+   * provider and every turn after it names the same one — so the re-render it
+   * costs is one, and `VoiceButton`'s note about the engine's identity being a
+   * `useCallback` dependency is satisfied by it settling immediately.
+   */
+  const [provider, setProvider] = useState("");
 
   /**
    * A live token, minted if there is not one.
@@ -113,7 +128,7 @@ export function useAgentEngine(options: {
 
       const read = readAnswer(response.status, body);
       if (typeof read === "string") return read;
-      provider.current = read.provider;
+      setProvider(read.provider);
       return read.answer;
     },
     [route, tokenFor, workspaceId],
@@ -121,7 +136,7 @@ export function useAgentEngine(options: {
 
   return useMemo<AgentEngine>(
     () => ({
-      provider: providerLabel(provider.current),
+      provider: providerLabel(provider),
       /*
         Available where there is somewhere to send a turn and a context to send
         it about. Not gated on a model being *connected*: the console cannot
@@ -142,6 +157,6 @@ export function useAgentEngine(options: {
       unavailable: NO_PROVIDER,
       ask,
     }),
-    [ask, route, workspaceId],
+    [ask, provider, route, workspaceId],
   );
 }
