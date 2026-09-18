@@ -353,6 +353,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Testing and guards](./testing.md)
 
 - A guard nobody has checked is not a guard
+- A fake models the platform only where somebody has already been surprised by it
+- Two offline claims rest on stores no test in this repository has ever talked to
 - A gate that only speaks at release is a gate that speaks too late
 - A hand-scan is not a fix for something that has already recurred
 - An invisible character in source is a fixture nobody can review
