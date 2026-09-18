@@ -546,6 +546,48 @@ const DELIBERATE_KEY_DISCLOSURES = new Set([
 /** The one field those two are exempt from, and nothing else. */
 const DISCLOSED_KEY_FIELD = "material";
 
+/**
+ * THE FUNCTION ALLOWED TO HAND BACK A TOKEN IT JUST MINTED, BY NAME.
+ *
+ * A different question from `DELIBERATE_KEY_DISCLOSURES` above, kept apart
+ * because the answer is different: that one discloses a *stored* key, and this
+ * one returns a credential that did not exist a line earlier and describes
+ * nothing but the caller's own session.
+ *
+ * `mintConsoleGrant` is the console's own OAuth grant. The agent turn runs in
+ * the gateway — that is where the privacy engine and the tools are, and where a
+ * model key is decrypted — and the gateway authenticates with an access token
+ * and nothing else. The console has a Convex session and has never held one, so
+ * something has to issue it. What is issued is an ordinary `oauthGrants` row:
+ * same table, same `resolveGrantByAccessToken`, same `clampScopes` against the
+ * role read in that transaction, same revocation from the connections list,
+ * same audit. Only the plaintext travels back, and only to the person it was
+ * minted for.
+ *
+ * **The precedent it is enumerated against, rather than hidden behind.**
+ * `approveOwnMachineGrant` is already a public action that hands its caller a
+ * freshly minted secret about themselves — an authorization code, live, inside
+ * the URL it returns. It passes this guard for one reason: the field is called
+ * `redirectTo`. That is the rename `PLAINTEXT_CREDENTIAL_FIELDS`' own comment
+ * warns about, arrived at honestly rather than to evade anything, and it is
+ * exactly why this one is listed here instead of having its field renamed to
+ * `token` or `session` to slip past.
+ *
+ * What bounds the disclosure: an hour, no refresh token, one live grant per
+ * person per context (the previous token dies in the transaction that mints the
+ * next), and a caller who must already hold the Convex session — which reaches
+ * the same notes through `files.ts` and can additionally rebind storage and
+ * delete the account. The token is the smaller of the two powers.
+ *
+ * It is an allowlist and not a widening. A second function returning an
+ * `accesstoken` fails, and so does this one growing a `secretaccesskey`, an
+ * `apitoken` or an `encryptedapikey`. See `__tests__/agentGrant.test.ts`.
+ */
+const DELIBERATE_TOKEN_MINTS = new Set(["functions.agentGrant.mintConsoleGrant"]);
+
+/** The one field that one is exempt from, and nothing else. */
+const MINTED_TOKEN_FIELD = "accesstoken";
+
 const PUBLIC_FORBIDDEN_FIELDS = [
   ...new Set([...PLAINTEXT_CREDENTIAL_FIELDS, ...SCHEMA_ENCRYPTED_FIELDS]),
 ];
@@ -1559,6 +1601,50 @@ describe("no public function can reach a storage secret", () => {
   });
 
   /**
+   * The minted-token exemption, held to the same three things the key one is:
+   * it names something that exists, it is one entry rather than a category, and
+   * it buys exactly one field.
+   */
+  test("the minted-token exemption is one real function and one field", () => {
+    const live = new Set<string>();
+    for (const [globKey, module] of Object.entries(LIVE_MODULES)) {
+      for (const name of Object.keys(module ?? {})) {
+        live.add(`${referencePath(globKey)}.${name}`);
+      }
+    }
+    expect(DELIBERATE_TOKEN_MINTS.size).toBe(1);
+    for (const node of DELIBERATE_TOKEN_MINTS) {
+      expect(live.has(node), `${node} is exempted but does not exist`).toBe(true);
+    }
+
+    // One field, and it is not the key one: the two exemptions must not start
+    // covering for each other.
+    expect(MINTED_TOKEN_FIELD).not.toBe(DISCLOSED_KEY_FIELD);
+    expect(PUBLIC_FORBIDDEN_FIELDS).toContain(MINTED_TOKEN_FIELD);
+
+    /*
+      And the exempted function is still held to every other forbidden field.
+      A `mintConsoleGrant` that grew a `secretaccesskey` would be caught by the
+      guard above; this asserts the source has none of them, so the exemption
+      cannot be read as "this function is out of scope".
+    */
+    for (const node of DELIBERATE_TOKEN_MINTS) {
+      const [, moduleName, exportName] = node.split(".");
+      const module = LIVE_MODULES[`../functions/${moduleName}.ts`] as
+        | Record<string, { exportReturns?: () => string }>
+        | undefined;
+      const returns = module?.[exportName!]?.exportReturns?.().toLowerCase() ?? "";
+      expect(returns.length).toBeGreaterThan(0);
+      for (const field of PUBLIC_FORBIDDEN_FIELDS) {
+        if (field === MINTED_TOKEN_FIELD) continue;
+        expect(returns.includes(`"${field}"`), `${node} also returns ${field}`).toBe(
+          false,
+        );
+      }
+    }
+  });
+
+  /**
    * THE GUARD'S OWN SELF-TEST, because a check that only ever runs against
    * source that passes it has not been shown to catch anything. A synthetic
    * public function declaring the disclosed field under a name that is NOT
@@ -1601,6 +1687,9 @@ describe("no public function can reach a storage secret", () => {
             DELIBERATE_KEY_DISCLOSURES.has(node)
           )
             continue;
+          if (field === MINTED_TOKEN_FIELD && DELIBERATE_TOKEN_MINTS.has(node)) {
+            continue;
+          }
           expect(
             returns.includes(`"${field}"`),
             `${globKey}#${name} is public and returns a "${field}" field`,

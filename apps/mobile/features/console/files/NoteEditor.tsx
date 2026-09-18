@@ -1119,6 +1119,14 @@ export function NoteEditor({
             meetingLive: false,
             query: null,
           })}
+          /*
+            Absent on the three surfaces that provide no host value for it —
+            the demo console, the E2E fixture, the visual fixture — where
+            `VoiceButton` falls back to the stub. A conditional *value*, never
+            a conditional hook: the engine is built in the console layout,
+            which is mounted or not as a whole.
+          */
+          agent={voice.agent}
           onRecordMeeting={voice.onRecordMeeting}
         />
       )}

@@ -75,6 +75,7 @@ import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
 import { VoiceHostProvider, type VoiceHost } from "../../../features/voice/VoiceHost";
+import { useAgentEngine } from "../../../features/agent/useAgentEngine";
 import {
   currentContextPress,
   hrefFor,
@@ -592,6 +593,19 @@ export default function ConsoleLayout() {
    * and a conflict both close the note to typing without changing either of
    * these.
    */
+  /*
+    The agent's own engine, built here and not in the editor.
+
+    It mints this app's gateway grant on demand — an ordinary, revocable OAuth
+    grant clamped to this person's role — and holds it in memory for the hour
+    it lives. `features/agent/useAgentEngine.ts` has the argument for why it is
+    never written to the device.
+  */
+  const agentEngine = useAgentEngine({
+    workspaceId: data.selectedContextId,
+    endpoint: data.endpoint,
+  });
+
   const voiceHost = useMemo<VoiceHost>(
     () => ({
       page: {
@@ -608,8 +622,15 @@ export default function ConsoleLayout() {
         noteVisibility: selectedEntry?.kind === "file" ? selectedEntry.visibility : undefined,
       },
       onRecordMeeting: startMeetingFlow,
+      /*
+        The one place holding both halves the engine needs: the workspace the
+        grant is minted for, and the endpoint its `/agent` route is derived
+        from. `NoteEditor` has never seen either, and the surfaces that render
+        `BrowsePane` without this provider get the stub instead.
+      */
+      agent: agentEngine,
     }),
-    [insideContext, current, selectedEntry, startMeetingFlow],
+    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine],
   );
 
   /**
