@@ -476,6 +476,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * Inert where it should be: on a phone this sits inside `BrowsePane`'s
    * scroller, whose content container does not stretch its children, so the
    * page goes on being as long as what is in it.
+   *
+   * On a pointer layout it is inside a scroller too now — `document-scroll`,
+   * which is what lets a fifty-row folder be read past the bottom of the
+   * window. That one's content container carries `flexGrow: 1` so this goes on
+   * growing to the region: without it the background would hug the rows again
+   * and the empty area below them would stop answering a right-click, which is
+   * the thing this style exists for.
    */
   folder: { flexGrow: 1 },
   /*
