@@ -43,6 +43,8 @@ import {
   forgetDepartedContexts,
   forgetLocalCopies,
 } from "../offline/forget";
+import { useBackgroundDrain } from "../offline/useBackgroundDrain";
+import { queuedWriteSender } from "./files/queuedWrite";
 import { defaultContext } from "./nav";
 import {
   buildConstellation,
@@ -390,6 +392,14 @@ export function useLiveConsoleData(): ConsoleData {
   const results = useQueries(queries);
   const revoke = useMutation(api.functions.grants.revokeGrant);
   const bindStorage = useAction(api.functions.storage.bindStorage);
+  /*
+    The same action `useFileBrowser` holds, taken here too rather than threaded
+    up through `FileBrowser`'s interface: `useAction` returns a callable, not a
+    subscription, so a second handle costs nothing and widening that interface
+    with a writer no view calls would. Both go through `queuedWriteSender`, so
+    there is still exactly one definition of what a queued write is.
+  */
+  const writeNoteAction = useAction(api.functions.files.writeNote);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const observeStorageLayout = useMutation(
     api.functions.storage.observeStorageLayout,
@@ -864,6 +874,25 @@ export function useLiveConsoleData(): ConsoleData {
     grants: pluginGrants.grants,
     onNoteWrite: files.applyPluginNoteWrite,
   });
+
+  /*
+    Every *other* context's queue, emptied on the same reconnection.
+
+    `useFileBrowser` holds a live queue for the context on screen and drains
+    that one itself; until this was mounted, nothing drained the rest. Edit in
+    your own context, switch to a shared one and edit there, go through a
+    tunnel: the context on screen sent its writes and the other sat unsent
+    until somebody navigated back into it. The status strip said "3 notes
+    waiting to sync", correctly, about work the app had no way to act on.
+
+    Here rather than inside `useOfflineNotes` because that hook is instantiated
+    per open context and its whole surface describes that context — a
+    device-wide pass inside it would mean the object describing one context
+    quietly acted on four others. `drainAll.ts` carries the rest of the
+    argument, including why the open context is excluded rather than shared.
+  */
+  const sendQueuedTo = useMemo(() => queuedWriteSender(writeNoteAction), [writeNoteAction]);
+  useBackgroundDrain({ openWorkspaceId: selectedContextId, write: sendQueuedTo });
 
   /*
     The purge for "removed" belongs next to the purge for "left".

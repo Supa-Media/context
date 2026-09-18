@@ -74,7 +74,8 @@ import {
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
 import { restoreFor } from "../../offline/restore";
-import { classifyWriteFailure, type WriteOutcome } from "../../offline/sync";
+import { type WriteOutcome } from "../../offline/sync";
+import { queuedWriteSender } from "./queuedWrite";
 import type { PendingWrite } from "../../offline/outbox";
 import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
@@ -389,23 +390,21 @@ export function useFileBrowser(options: {
    * typed against, so it gets the server's `onlyIf: { etagMatches }` where the
    * bucket supports one and its read-compare where it does not — and the same
    * `CONFLICT`, with the same `currentEtag`, when somebody got there first.
+   *
+   * The write itself now lives in `queuedWrite.ts`, because there are two
+   * things that empty a queue: this one for the open context, and
+   * `useBackgroundDrain` for every other. One definition of what a queued
+   * write *is*, bound here to the context on screen and there to the one each
+   * queue is filed under — two copies would be two places for a `force` flag
+   * or a dropped `expectedEtag` to appear.
    */
+  const sendTo = useMemo(() => queuedWriteSender(writeNote), [writeNote]);
   const sendQueued = useCallback(
     async (pending: PendingWrite): Promise<WriteOutcome> => {
       if (workspaceId === null) return { kind: "failed", message: "No context is open." };
-      try {
-        const result = await writeNote({
-          workspaceId,
-          path: pending.path,
-          text: pending.text,
-          expectedEtag: pending.baseEtag ?? undefined,
-        });
-        return { kind: "written", etag: result.etag, conflictCheck: result.conflictCheck };
-      } catch (error) {
-        return classifyWriteFailure(toFileError(error));
-      }
+      return sendTo(workspaceId, pending);
     },
-    [workspaceId, writeNote],
+    [sendTo, workspaceId],
   );
 
   /**
