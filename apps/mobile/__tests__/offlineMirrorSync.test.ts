@@ -240,6 +240,29 @@ describe("a sync puts every note on the device", () => {
   });
 });
 
+describe("a first sync does not rewrite the index per batch", () => {
+  test("six hundred notes are committed in a handful of index writes", async () => {
+    buckets[W1] = Array.from({ length: 600 }, (_, n) => ({
+      path: `n${n}.md`,
+      text: `note ${n}`,
+      etag: `e${n}`,
+    }));
+    let indexWrites = 0;
+    const counted: MirrorStore = {
+      ...store,
+      writeIndex: (...args) => {
+        indexWrites += 1;
+        return store.writeIndex(...args);
+      },
+    };
+    const run = await syncContext(deps({ store: counted }), { workspaceId: W1, tier: "private" });
+    expect(run?.complete).toBe(true);
+    expect((await readIndex(store, "private", W1))?.entries.size).toBe(600);
+    // Three commits of up to 250 and the final reconcile — not twelve batches.
+    expect(indexWrites).toBeLessThanOrEqual(4);
+  });
+});
+
 describe("what the device may hold is re-derived by every complete sync", () => {
   test("a note that left the manifest leaves the device", async () => {
     await syncContext(deps(), { workspaceId: W1, tier: "team" });

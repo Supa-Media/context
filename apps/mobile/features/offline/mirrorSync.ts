@@ -118,6 +118,10 @@ export interface MirrorRun {
 
 /** `READ_BATCH_PATHS` on the server. More is refused before the bucket is opened. */
 export const MIRROR_BATCH = 50;
+/** Notes written per index commit. See `commit` in `syncContext`. */
+export const COMMIT_NOTES = 250;
+/** Or fewer, once this much text is waiting — the memory a commit holds. */
+export const COMMIT_BYTES = 4 * 1024 * 1024;
 /** Batches in flight within one context. */
 export const MIRROR_CONCURRENCY = 2;
 /**
@@ -275,24 +279,49 @@ export async function syncContext(
       }
       queue.unshift(...deferred);
       if (read.length === 0) continue;
+      pending.push(...read);
+      pendingBytes += read.reduce((sum, note) => sum + note.text.length, 0);
+      if (pending.length >= COMMIT_NOTES || pendingBytes >= COMMIT_BYTES) await commit();
+    }
+  };
+
+  /*
+    Fetched notes are written in commits of up to `COMMIT_NOTES`, not one per
+    batch. Every commit rewrites the index, and a first sync of ten thousand
+    notes committed per fifty-note batch would write a growing, multi-megabyte
+    index two hundred times — on a phone, on the JS thread. A commit writes its
+    bodies and then the index that names them, so a run that dies between
+    commits leaves bodies nothing names: unreachable, and fetched again next
+    time. Nothing is lost that was not a download.
+  */
+  const pending: (OpenNote & { updatedAt?: number })[] = [];
+  let pendingBytes = 0;
+  let committing: Promise<void> = Promise.resolve();
+  const commit = (): Promise<void> => {
+    const notes = pending.splice(0, pending.length);
+    pendingBytes = 0;
+    committing = committing.then(async () => {
+      if (notes.length === 0 || sessionEnded) return;
       const needed = await deps.needed(workspaceId);
       if (!deps.mine()) {
         sessionEnded = true;
         return;
       }
-      const written = await putMirroredNotes(store, epoch, scope, workspaceId, read, needed, deps.now());
+      const written = await putMirroredNotes(store, epoch, scope, workspaceId, notes, needed, deps.now());
       if (!written) {
         sessionEnded = true;
         return;
       }
-      run.fetched += read.length;
+      run.fetched += notes.length;
       progress();
-    }
+    });
+    return committing;
   };
 
   await Promise.all(
     Array.from({ length: Math.max(1, deps.concurrency ?? MIRROR_CONCURRENCY) }, () => worker()),
   );
+  await commit();
   if (sessionEnded || !deps.mine()) return aborted();
 
   /* --------------------------- 4. reconcile, prune ------------------------ */
