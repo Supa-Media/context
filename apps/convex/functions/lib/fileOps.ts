@@ -4627,6 +4627,188 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
   return await reader.arrayBuffer();
 }
 
+/* -------------------------------------------------------------------------- */
+/*                      an image somebody pasted into a note                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where a pasted image goes, and why it is **not** the store above.
+ *
+ * `IMAGE_PREFIX` is dot-prefixed and opaque on purpose: it holds pictures a
+ * machine produced — a share card, an inline image off an email — addressed by
+ * hash, browsed by nobody, and hidden from Obsidian along with every other
+ * listing. That is right for those and wrong for this one.
+ *
+ * An image somebody pasted into a note is **their content**. The note points at
+ * it, so the reference has to resolve in the tools they already use: Obsidian
+ * skips dot-folders, so an embed pointing into `.context/` draws as a broken
+ * link in the app half this product's customers keep open beside it. It also
+ * has to leave with them, plainly, without an explanation about which hidden
+ * folder the pictures were in — which is non-negotiable #1 applied to the
+ * things in a note that are not Markdown.
+ *
+ * So: a visible folder, one level of date filing so a bucket with ten years of
+ * pastes is still navigable, and a content-hash name — see
+ * `docs/decisions/app-and-console.md`, "A pasted image is a width in the note
+ * and a file in the bucket".
+ */
+export const ATTACHMENT_PREFIX = "attachments/";
+
+/** The extension for a content type, and the only types a paste may carry. */
+const ATTACHMENT_EXTENSIONS = new Map<string, string>([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/gif", "gif"],
+  ["image/webp", "webp"],
+  ["image/heic", "heic"],
+  ["image/heif", "heif"],
+]);
+
+/** The content type for an extension, for a read that has only a key. */
+const ATTACHMENT_TYPES = new Map<string, string>([
+  ["png", "image/png"],
+  ["jpg", "image/jpeg"],
+  ["jpeg", "image/jpeg"],
+  ["gif", "image/gif"],
+  ["webp", "image/webp"],
+  ["heic", "image/heic"],
+  ["heif", "image/heif"],
+]);
+
+/**
+ * The key a paste lands at: `attachments/<YYYY>/<MM>/paste-<hash>.<ext>`.
+ *
+ * The hash is the whole naming scheme and it buys three things: the same
+ * screenshot pasted into three notes is one object, a retried upload overwrites
+ * itself rather than leaving `-1` behind, and a clipboard with no filename needs
+ * no invented one. The date folders are filing for a person opening the bucket,
+ * nothing reads them.
+ */
+export function attachmentKeyFor(options: {
+  hash: string;
+  contentType: string;
+  at: Date;
+}): string {
+  const extension = ATTACHMENT_EXTENSIONS.get(options.contentType);
+  if (extension === undefined) {
+    throw new FileOpError("PATH_INVALID", "That is not an image type this store accepts.");
+  }
+  const year = String(options.at.getUTCFullYear());
+  const month = String(options.at.getUTCMonth() + 1).padStart(2, "0");
+  const hash = options.hash.toLowerCase().replace(/[^a-f0-9]/g, "").slice(0, 16);
+  if (hash.length < 8) {
+    throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
+  }
+  return `${ATTACHMENT_PREFIX}${year}/${month}/paste-${hash}.${extension}`;
+}
+
+/**
+ * The gate that keeps this from being a general object writer.
+ *
+ * Under `attachments/`, one to four further segments, each starting
+ * alphanumeric, ending in an image extension — so no `..`, no leading dot
+ * anywhere (which would make a segment plumbing), nothing outside the folder,
+ * and nothing whose extension the reader below cannot answer for. The same
+ * shape as `writeImage`'s leaf rule, widened by exactly one thing: slashes,
+ * because this store is browsable and a flat folder of ten thousand pastes is
+ * not.
+ */
+export function assertAttachmentPath(path: string): string {
+  if (
+    !path.startsWith(ATTACHMENT_PREFIX) ||
+    path.includes("..") ||
+    path.includes("\\") ||
+    path.length > 200
+  ) {
+    throw new FileOpError("PATH_INVALID", "That is not a valid attachment path.");
+  }
+  const segments = path.slice(ATTACHMENT_PREFIX.length).split("/");
+  if (segments.length < 1 || segments.length > 4) {
+    throw new FileOpError("PATH_INVALID", "That is not a valid attachment path.");
+  }
+  for (const segment of segments) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment)) {
+      throw new FileOpError("PATH_INVALID", "That is not a valid attachment path.");
+    }
+  }
+  const leaf = segments[segments.length - 1];
+  const dot = leaf.lastIndexOf(".");
+  if (dot <= 0 || !ATTACHMENT_TYPES.has(leaf.slice(dot + 1).toLowerCase())) {
+    throw new FileOpError(
+      "PATH_INVALID",
+      "An attachment must end in an image extension this store can serve.",
+    );
+  }
+  return leaf;
+}
+
+/**
+ * Write a pasted image into the bucket.
+ *
+ * Exempt from the three rules a note lives by, for `writeImage`'s reasons: no
+ * `.md`, no visibility of its own — it borrows the visibility of whatever note
+ * references it, which is what stops an image and the access map drifting apart
+ * — and no history, because a content-addressed key is never edited in place.
+ *
+ * Not conditional, and that is the deliberate part: the key **is** the bytes, so
+ * two writers racing write the same object, and a retry is idempotent rather
+ * than a conflict to resolve. That is also why a store with no conditional
+ * writes (B2, Wasabi) loses nothing here.
+ */
+export async function writeAttachment(
+  store: FileStore,
+  options: { path: string; bytes: Uint8Array; contentType: string },
+): Promise<{ key: string; etag: string }> {
+  assertAttachmentPath(options.path);
+  if (!ATTACHMENT_EXTENSIONS.has(options.contentType)) {
+    throw new FileOpError("PATH_INVALID", "That is not an image type this store accepts.");
+  }
+  if (options.bytes.byteLength === 0) {
+    throw new FileOpError("CONTENT_TOO_LARGE", "There is nothing to store.");
+  }
+  if (options.bytes.byteLength > MAX_STORED_IMAGE_BYTES) {
+    throw new FileOpError(
+      "CONTENT_TOO_LARGE",
+      `A stored image must be at most ${MAX_STORED_IMAGE_BYTES} bytes.`,
+    );
+  }
+  const put = await store.put(options.path, options.bytes, {
+    contentType: options.contentType,
+  });
+  if (put === null) {
+    throw new FileOpError("CONFLICT", "Your bucket did not accept that write.");
+  }
+  return { key: options.path, etag: put.etag };
+}
+
+/**
+ * Read a pasted image back, with the type to serve it as.
+ *
+ * The type comes from the extension rather than from the store, because an
+ * adapter is not obliged to hand a content type back and a picture served as
+ * `application/octet-stream` is a download rather than an image. The same path
+ * gate as the writer, which is what stops `attachments/../privacy.md` walking
+ * out of the folder and handing back the access map.
+ *
+ * `FILE_NOT_FOUND` for everything that is not bytes — a missing object, an
+ * adapter too old to return any — so a caller cannot tell "no such image" from
+ * "not yours".
+ */
+export async function readAttachment(
+  store: FileStore,
+  path: string,
+): Promise<{ bytes: ArrayBuffer; contentType: string }> {
+  const leaf = assertAttachmentPath(path);
+  const extension = leaf.slice(leaf.lastIndexOf(".") + 1).toLowerCase();
+  const contentType = ATTACHMENT_TYPES.get(extension);
+  if (contentType === undefined) throw notFound();
+  const object = await store.get(path);
+  if (object === null) throw notFound();
+  const reader = object as { arrayBuffer?: () => Promise<ArrayBuffer> };
+  if (typeof reader.arrayBuffer !== "function") throw notFound();
+  return { bytes: await reader.arrayBuffer(), contentType };
+}
+
 /** One console search result: a path the caller may see, and lines from it. */
 export interface SearchHit {
   path: string;
