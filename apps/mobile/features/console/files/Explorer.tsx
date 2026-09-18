@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -98,8 +98,19 @@ export function Explorer({
   onOpenPinned,
   onOverlayChange,
   access,
+  workspaces,
 }: {
   files: FileBrowser;
+  /**
+   * The workspace row that ends the column — `ContextFootRow`.
+   *
+   * A slot rather than something this component builds, for the same reason the
+   * `vault` slot that used to sit here was one: the row needs the context list,
+   * the recently-visited log and the router, none of which this component has
+   * or should acquire. `undefined` where there is nowhere to switch to, and the
+   * column then ends at the counts line exactly as it did before.
+   */
+  workspaces?: ReactNode;
   /** Handed straight to the share dialog. See `ExplorerDialogs`. */
   access?: {
     members: readonly AccessMember[];
@@ -755,6 +766,18 @@ export function Explorer({
           {counts}
         </Text>
       </View>
+
+      {/*
+        Under the counts rather than over them, and that is the order of the two
+        scopes rather than a preference. The counts line is about *this tree*:
+        how much of the context you are in has been read. The row below it is
+        about which context that is and which others you can reach — a wider
+        fact, and the widest fact in a column reads as its footer. Reversed, the
+        counts line would sit between two pieces of navigation and read as a
+        caption on the workspace above it, which is a sentence about the wrong
+        thing.
+      */}
+      {workspaces}
 
       {refusal !== null ? (
         <View style={styles.refusal}>
