@@ -558,6 +558,14 @@ export default function ConsoleLayout() {
         context: insideContext ? current : null,
         notePath: selectedEntry?.kind === "file" ? selectedEntry.path : null,
         writable: selectedEntry !== null && !selectedEntry.readOnly,
+        /*
+          The entry's own answer to who can read it, which is the question the
+          sheet asks and the one `kind` cannot answer: a personal workspace
+          takes members, so `team` on a note inside one means real people. Left
+          absent when a folder is on screen, and `audience.ts` treats absent as
+          "not established" rather than as private.
+        */
+        noteVisibility: selectedEntry?.kind === "file" ? selectedEntry.visibility : undefined,
       },
       onRecordMeeting: startMeetingFlow,
     }),

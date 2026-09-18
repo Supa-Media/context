@@ -135,9 +135,18 @@ test("the microphone is on the page, and pressing it opens no microphone", async
   await shot(page, "2-sheet");
 });
 
+/*
+  The fixture opens on `1-projects/context-lc.md`, which `placeholderData.ts`
+  declares with `teamFile(...)` — a note the whole demo workspace reads. This
+  case asserted "Only you." over it for as long as the sheet answered from the
+  workspace's kind rather than the note's visibility. The string changed
+  because the claim was wrong, not because the test was.
+*/
 test("the sheet says who can hear it and what happens to the audio", async ({ page }) => {
   await page.getByTestId("voice-button").click();
-  await expect(page.getByTestId("voice-sheet-audience")).toHaveText("Only you.");
+  await expect(page.getByTestId("voice-sheet-audience")).toHaveText(
+    "Anyone you have shared 1-projects/context-lc.md with can read it.",
+  );
   await expect(page.getByTestId("voice-sheet-disclosure")).toContainText(
     "Context never receives the audio",
   );

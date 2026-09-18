@@ -43,6 +43,12 @@ import { setBottomChromeHeight } from "../features/app/bottomChrome";
  *     that is silent for the common case teaches people the line means
  *     "warning" and not "audience", so the one time it appears it is read as
  *     an error and dismissed.
+ *  2a. `noteVisibility` ignored, so the line is computed from `kind` alone.
+ *     → `a shared note in your own context is not called only yours` fails,
+ *     and so do three cases in `voiceAudience.test.ts`. This is the shape the
+ *     row above is about pointed at the other field: a personal workspace
+ *     takes members, so "Only you." over a `team` note in one is false in the
+ *     one sentence somebody reads before speaking into it.
  *  3. `DICTATION_SENTENCE` emptied out of the sheet.
  *     → `the sheet says what happens to what you say` fails.
  *  3a. The dock given a fixed `bottom` instead of `floatingStackBottom`.
@@ -162,6 +168,10 @@ const OWN: VoicePage = {
   context: { slug: "seyi", kind: "personal", role: "owner" },
   notePath: "1-projects/weekly-sync.md",
   writable: true,
+  // The note's own answer, which is what "only you" was always describing.
+  // The workspace being personal never established it: a personal workspace
+  // takes members, and a `team` note inside one is read by all of them.
+  noteVisibility: "private",
 };
 
 const SHARED: VoicePage = {
@@ -222,6 +232,14 @@ describe("the press", () => {
     render(button({ engine: fakeEngine().engine }));
     press("voice-button");
     expect(findByTestId("voice-sheet-audience")?.textContent).toBe("Only you.");
+  });
+
+  test("a shared note in your own context is not called only yours", () => {
+    render(button({ page: { ...OWN, noteVisibility: "team" }, engine: fakeEngine().engine }));
+    press("voice-button");
+    const line = findByTestId("voice-sheet-audience")?.textContent ?? "";
+    expect(line).not.toBe("Only you.");
+    expect(line).toContain("1-projects/weekly-sync.md");
   });
 
   test("a note in somebody else's context names them before the microphone opens", () => {

@@ -1,4 +1,6 @@
 import type { DestinationContext } from "../meetings/destination";
+import type { Visibility } from "../console/files/types";
+import { isGroupVisibility } from "../console/files/types";
 import type { DictationFailure } from "./dictation";
 
 /**
@@ -90,6 +92,25 @@ export function offerDictation(input: {
   noteOpen: boolean;
   /** False for `privacy.md`, an encrypted envelope, or a reader's membership. */
   writable: boolean;
+  /**
+   * The open note's own visibility, as the access map answers it.
+   *
+   * **The question this sheet asks is about the note, and `kind` cannot answer
+   * it.** A personal workspace takes members — `inviteMember` has no `kind`
+   * check, and `invitations.ts` opens by saying a shared context is the same
+   * row as a personal one with more membership — so a `team` note in a
+   * personal context is readable by every one of them. Answering from the
+   * workspace alone wrote "Only you." over exactly that note, in the one
+   * sentence somebody reads before speaking into it.
+   *
+   * Optional, because the entry beside the editor is what knows, and
+   * `NoteEditor` states the rule for its own copy of this field: a component
+   * that was not told has no honest answer, and "inventing `private` would be
+   * a claim about access made by a component that was not told". Absent is
+   * therefore **not** private here, the same way an unrecognised `kind` is not
+   * personal.
+   */
+  noteVisibility?: Visibility | undefined;
   /** From the engine. False on a phone, and in a browser with none. */
   engineAvailable: boolean;
   /** The engine's own sentence, shown when it is not available. */
@@ -109,7 +130,47 @@ export function offerDictation(input: {
     backwards writes "Only you" over a workspace several people are watching.
   */
   if (input.context.kind === PERSONAL) {
-    return { audience: { tone: "private", line: "Only you." }, refusal: null };
+    /*
+      "Only you." is a claim about the NOTE, so the note has to have said so.
+      A folder set to `team`, an exception pointed at a group, or a field this
+      build was not given are each a reason not to say it — and the last one is
+      the same fail-towards-more rule the `kind` check above states, applied to
+      the field that actually answers the question.
+    */
+    if (input.noteVisibility === "private") {
+      return { audience: { tone: "private", line: "Only you." }, refusal: null };
+    }
+    if (input.noteVisibility !== undefined && isGroupVisibility(input.noteVisibility)) {
+      return {
+        audience: {
+          tone: "shared",
+          line: `Everyone in ${atName(input.noteVisibility)} can read ${input.path}.`,
+        },
+        refusal: null,
+      };
+    }
+    /*
+      True whatever the answer turns out to be, which is the point: it names
+      nobody the sheet has not been told about, and it does not claim the note
+      is unshared. A sentence that is never false is the right shape for the
+      case where the honest answer has not arrived.
+    */
+    return {
+      audience: {
+        tone: "shared",
+        line: `Anyone you have shared ${input.path} with can read it.`,
+      },
+      refusal: null,
+    };
+  }
+  if (input.noteVisibility !== undefined && isGroupVisibility(input.noteVisibility)) {
+    return {
+      audience: {
+        tone: "shared",
+        line: `Everyone in ${atName(input.noteVisibility)} can read ${input.path}.`,
+      },
+      refusal: null,
+    };
   }
   return {
     audience: {

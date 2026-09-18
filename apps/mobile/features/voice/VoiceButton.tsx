@@ -8,6 +8,7 @@ import { fonts, layout, pointerType as t, radii } from "../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
 import type { EditorControls } from "../console/files/LiveEditor";
 import { offerDictation, reasonFor, type DictationOffer } from "./audience";
+import type { Visibility } from "../console/files/types";
 import { isLive } from "./dictation";
 import type { DestinationContext } from "../meetings/destination";
 import { useMeetingsSnapshot } from "../meetings/useMeetings";
@@ -52,6 +53,14 @@ export interface VoicePage {
   notePath: string | null;
   /** False for `privacy.md`, an encrypted envelope, or a reader's membership. */
   writable: boolean;
+  /**
+   * What the open note's own entry says about who can read it.
+   *
+   * The sheet's sentence is about the note, and the workspace's `kind` cannot
+   * answer it: a personal workspace takes members, so a `team` note in one is
+   * read by every one of them. Absent is not private — see `audience.ts`.
+   */
+  noteVisibility?: Visibility | undefined;
 }
 
 export function VoiceButton({
@@ -114,6 +123,7 @@ export function VoiceButton({
     path: page.notePath ?? "",
     noteOpen: page.notePath !== null,
     writable: page.writable,
+    noteVisibility: page.noteVisibility,
     engineAvailable: dictation.available,
     unavailable: dictation.unavailable,
   });
