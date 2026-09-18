@@ -406,11 +406,11 @@ export type SettingsSectionKey = (typeof SETTINGS_SECTIONS)[number]["key"];
  * A function rather than a bare `section.experimental`, because the catalogue
  * is `as const` and only the row that carries the flag has the property —
  * narrowing it at each reader is how the one place that asks and the one place
- * that tests it drift apart. Spelling `experimental: false` on the other
- * nineteen rows, the way `personalOnly` is spelled, was the alternative: it
- * would read uniformly and it would put a line about a deprecation on every
- * setting this product has, which is the wrong thing for the file anybody
- * opens to find out what settings exist.
+ * that tests it drift apart. Spelling `experimental: false` on every other row,
+ * the way `personalOnly` is spelled, was the alternative: it would read
+ * uniformly and it would put a line about a deprecation on every setting this
+ * product has, which is the wrong thing for the file anybody opens to find out
+ * what settings exist.
  */
 export function isExperimentalSection(
   section: (typeof SETTINGS_SECTIONS)[number] | SettingsSectionSpec,
