@@ -13,6 +13,7 @@ import { baseName, displayName, displayPath, parentPath } from "./paths";
 import type { PendingMarks } from "./pendingMarks";
 import { compactSync, syncSheetSections, type StatusSegment, type SyncSheetSection } from "./status";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
+import { mirrorSheetSection } from "../../offline/mirrorCopy";
 
 /**
  * Sync, on a phone: a pill in the header and a sheet behind it.
@@ -100,7 +101,12 @@ export function SyncSheet({
 }) {
   const styles = useThemedStyles(makeStyles);
   const insets = useSafeAreaInsets();
-  const sections = syncSheetSections(sync, pending, save);
+  /*
+    The mirror's line last: how much of this context is on the device. Quiet
+    unless the device is offline with part of it missing — `mirrorCopy.ts` —
+    and never on its own a reason for the pill that opens this sheet.
+  */
+  const sections = [...syncSheetSections(sync, pending, save), ...mirrorSheetSection(sync, Date.now())];
 
   /*
     A sheet about nothing closes itself — the queue draining while it is open
@@ -150,10 +156,16 @@ function Section({
   return (
     <View style={styles.section} testID={`sync-section-${section.id}`}>
       <View style={styles.sectionHead}>
-        <Dot tone={section.tone} />
+        <Dot tone={section.tone === "quiet" ? "neutral" : section.tone} />
         <Text
           variant="rowTitle"
-          style={section.tone === "crit" ? styles.critText : styles.warnText}
+          style={
+            section.tone === "crit"
+              ? styles.critText
+              : section.tone === "warn"
+                ? styles.warnText
+                : undefined
+          }
         >
           {section.text}
         </Text>

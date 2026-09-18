@@ -3,6 +3,9 @@ import { drainOtherContexts, type BackgroundDrainReport, type DrainAllDeps } fro
 import { currentEpoch } from "./epoch";
 import { useReachability } from "./reachability";
 import { openStore } from "./store";
+import { moveMirroredBody } from "./mirror";
+import { neededEtags } from "./mirrorHolds";
+import { openMirrorStore } from "./mirrorStore";
 
 /**
  * One pass over every context's queue except the open one, on reconnection.
@@ -94,6 +97,17 @@ export function useBackgroundDrain(options: {
       write: (workspaceId, write) => writeRef.current(workspaceId, write),
       now: () => Date.now(),
       mine,
+      onSent: (workspaceId, body) => {
+        if (!mine()) return;
+        const epoch = epochRef.current;
+        void (async () => {
+          const mirror = await openMirrorStore();
+          if (mirror === null) return;
+          const needed = await neededEtags(store, workspaceId);
+          if (!mine()) return;
+          await moveMirroredBody(mirror, epoch, workspaceId, body, needed, Date.now());
+        })().catch(() => {});
+      },
     })
       .then((reports) => {
         if (reports.length > 0 && mine()) onDrainedRef.current?.(reports);

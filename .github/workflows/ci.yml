@@ -453,10 +453,17 @@ jobs:
       # matching the npm package `pnpm install` just resolved, so the two
       # cannot drift, and bumping the browser is the same pull request as
       # bumping the dependency.
-      - name: Install Playwright's WebKit
+      #
+      # Chromium comes too, and only for `offlineShell.spec.ts` below: WebKit
+      # runs the suite, and that one case skips itself there because
+      # Playwright's WebKit driver errors on a reload taken while offline. The
+      # first attempt at this installed WebKit alone and the Chromium step died
+      # with "Executable doesn't exist" — a step that runs a browser has to ask
+      # for it, and nothing else in this job did.
+      - name: Install Playwright's WebKit (and Chromium, for the offline case)
         if: steps.changes.outputs.mobile == 'true'
         working-directory: apps/mobile
-        run: pnpm exec playwright install --with-deps webkit
+        run: pnpm exec playwright install --with-deps webkit chromium
 
       # `EXPO_PUBLIC_E2E_FIXTURE=1` is the only thing that makes `/e2e-fixture`
       # render anything — see that route's own header. Every other export in
@@ -500,6 +507,32 @@ jobs:
         env:
           CI: "true"
         run: pnpm test:e2e:webkit
+
+      # ── THE OFFLINE CHECK, IN THE ENGINE THAT CAN BE TAKEN OFFLINE ──────
+      #
+      # `offlineShell.spec.ts` is the only thing in this repository that loads
+      # the app in a real browser with the network genuinely gone — the class
+      # of defect #690 escaped into, where a hand-written `CacheStorage` fake
+      # could not model `Response.url` and a private note path ended up in a
+      # cache that sign-out does not clear.
+      #
+      # It skips itself on WebKit, and the reason is measured rather than
+      # assumed: WebKit registers and controls the worker fine (85 cases passed
+      # beside it), but a reload taken while `setOffline(true)` is in force
+      # fails inside Playwright's WebKit driver — "WebKit encountered an
+      # internal error", before the navigation starts. The spec's own header
+      # carries the detail and says to re-check it when that support changes.
+      #
+      # So it runs here, in Chromium, as its own step. A step rather than
+      # folding the chromium project into the line above, because that project
+      # exists to validate *the tests* against the whole suite and would double
+      # every case's runtime for one file's worth of coverage.
+      - name: The app opens with the network off (Chromium)
+        if: steps.changes.outputs.mobile == 'true'
+        working-directory: apps/mobile
+        env:
+          CI: "true"
+        run: pnpm test:e2e:offline
 
       # Playwright's own HTML report — screenshots, traces, and the exact
       # assertion that failed — rather than the raw `test-results/` directory,

@@ -387,6 +387,25 @@ resets a deferred update to `"idle"` on `capture-ended` passes every other
 check in the file and fails only that one — which is the point of naming it
 rather than folding it into the sweep.
 
+**A dialog that reports a ready install offers the install.** *"Check for
+Updates…"* showed **"Update ready. Version 0.1.44 is ready to install."** over a
+single *OK*; the only way to apply it was a *Restart to update* item in the menu
+bar the dialog never named, and the owner's report was *"nothing else, no way to
+actually install it"*. The ready outcome is now a two-button prompt — *Restart
+Now* (default) and *Later* — and the copy the box renders moved out of
+`main/index.ts` into `core/update/prompt.ts`, a pure function of the outcome, so
+the button set is asserted rather than eyeballed. **The button is a route, never
+a permission**: `mayInstall()` still decides, re-reading `controller.recording`
+at the click, so the deferred-by-a-recording outcome offers no install button at
+all and a meeting started while the box was open refuses the press and says so —
+by notification rather than a second alert when there is no window, because a
+parentless `NSAlert` stops the main process and that branch is only reachable
+while something is recording. **The test that fails if this is reversed**:
+`updatePrompt.test.mjs`'s `"A DOWNLOADED UPDATE OFFERS A BUTTON THAT INSTALLS IT
+— the reported bug"`; restoring the one-button prompt fails it and two others,
+and `"AN UPDATE DEFERRED BY A RECORDING OFFERS NO INSTALL BUTTON"` fails if the
+fix is "simplified" into offering it always.
+
 A third call worth recording even though it was not asked for by name: the
 build job's `permissions` block moves from `contents: read` to `contents:
 write` rather than splitting into a second job, because GitHub Actions grants
@@ -2943,6 +2962,57 @@ own copy cannot silently stop matching the other's). The shell's half —
 drawing the buttons at `SHELL_TRAFFIC_LIGHTS` — is not tested here because it
 is not built here; it belongs to the `apps/desktop` change this section
 anticipates rather than ships.
+
+### The band's other two payers, and the shell half finally wired
+
+The band above shipped and two surfaces went on ignoring it, which the owner
+reported from the installed app in one sentence each: *"the bottom part looks
+cut off"*, and *"some pages dont take the streetlights in consideration"*, with
+a screenshot of the settings bar's *Notes* control under the traffic lights.
+Both are the same omission — a reservation drawn above every route only moves
+things that are laid out *by* that route tree.
+
+**The app frame is one viewport minus the band.** `AppFrame` is sized in
+viewport units and not by a flex parent (`design/css.ts` argues `100dvh` over
+`100vh`, and that argument is untouched), so a band drawn above it does not
+shorten it: the frame stayed a full window tall and hung `SHELL_TITLE_BAND_PX`
+past the bottom, taking the context switcher and the sync row off the bottom
+edge with nothing to scroll. `viewportHeight()` now takes the inset something
+above it already spent, `calc(100dvh - 38px)`, and the unit stays dynamic
+because the subtraction is the constant, not the viewport. **The test that
+fails if this is reversed**: `shellTitleBand.test.ts`'s `"THE FRAME IS ONE
+VIEWPORT MINUS THE BAND"`, asserted against the style function rather than a
+node, because jsdom drops any declaration containing `dvh`.
+
+**A `Modal` is its own root, so settings reserves the band itself.** `Overlay`
+is deliberately a `Modal` — its header keeps it for the focus trap on iOS and
+Android — and nothing in the route tree, band included, is above it. It
+therefore renders `ShellTitleBand` as its own first row, in its own `ground`
+rather than the console header's `surface2`, and reserves the space with the
+band element rather than a `paddingTop` so the drag region comes with it: while
+settings is open, the top edge of the window is still where a person grabs it.
+Any future full-window `Modal` owes the same, and the reason it is written here
+as well as in the component is that this is the second time this exact
+reservation was missed by the second surface to need it.
+
+**And the shell's half, which the section above anticipated and left unbuilt,
+is wired**: `createConsoleWindow` passes `trafficLightPosition:
+SHELL_TRAFFIC_LIGHTS`. Until it did, the page reserved a number from
+`packages/desktop-bridge` and the shell placed the buttons wherever macOS
+defaults put them for `hiddenInset` — the two agreeing by luck, which is the
+drift the shared constants exist to prevent. The notepad window deliberately
+does not get it: it loads `notepad.html` from disk, not the hosted app, so
+nothing there reserves the band the position assumes.
+
+**Still not done, and deliberately not smuggled into this change**: the band is
+an empty strip *above* the console's own top bar, where a Mac app people
+compare this to puts the traffic lights *in* that bar. Unifying them is not a
+number — it needs the route to declare that its own chrome reserves the lights
+(the frame would pad its leading edge instead, and the root band would stand
+down for it, the way `bottomChrome.ts` already lets the frame publish a height
+upward), and it needs every interactive child of that bar to carry
+`-webkit-app-region: no-drag` or a click on it moves the window. That is a
+layout change across every density with its own diff and its own screenshots.
 
 ### Bridge version 4 adds `imessage`, and it is a status object, never a query surface
 

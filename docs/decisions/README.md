@@ -155,6 +155,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note is the unit of the index, except when it is bundled mail
 - The index is sized by the volume it has to hold, and an oversized part sheds rather than taking the rest with it
 - A shed index must say so to the caller it happened to, not only to the operator
+- With no connection, search reads the copy on the device, and says so
 
 ## [The mobile app and the console](./app-and-console.md)
 
@@ -175,6 +176,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A cold start with no network is the case the offline layer was built for
 - A reconnection empties every queue, not the one on screen
 - The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
+- Every note on the device: the mirror
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
@@ -355,6 +357,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 ## [Testing and guards](./testing.md)
 
 - A guard nobody has checked is not a guard
+- A fake models the platform only where somebody has already been surprised by it
+- Two offline claims rest on stores no test in this repository has ever talked to
 - A gate that only speaks at release is a gate that speaks too late
 - A hand-scan is not a fix for something that has already recurred
 - An invisible character in source is a fixture nobody can review

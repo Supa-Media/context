@@ -39,6 +39,7 @@ import {
   type Regions,
 } from "./frame";
 import { setBottomChromeHeight } from "./bottomChrome";
+import { useShellTitleBandPx } from "./ShellTitleBandView";
 
 /**
  * The application frame.
@@ -454,6 +455,18 @@ export function AppFrame({
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  /*
+    What the desktop shell's title band already took out of the window above
+    this frame. Zero everywhere else, including an ordinary browser tab.
+
+    The frame is sized in viewport units rather than `flex: 1` (see
+    `design/css.ts` for why the unit has to be `dvh`), so a band drawn above
+    it does not shorten it the way a flex parent would — it pushed a full
+    viewport down by 38px instead, and the bottom 38px of the console, which
+    is where the context switcher and the sync row live, was off the bottom of
+    the window with no way to scroll to it.
+  */
+  const shellBandPx = useShellTitleBandPx();
   const [state, setState] = useState<FrameState>(initialFrame);
 
   const density = densityFor(width);
@@ -760,7 +773,7 @@ export function AppFrame({
       <View
         style={[
           styles.frame,
-          viewportHeight(),
+          viewportHeight(shellBandPx),
           /*
             The notch, and only where the layout keeps the document out of it.
 

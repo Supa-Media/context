@@ -63,6 +63,8 @@ import { ThemeProvider } from "../features/design/theme";
 import { darkColors } from "../features/design/tokens";
 import type { ConsoleData } from "../features/console/types";
 import type { SettingsSectionKey } from "../features/console/settings/sections";
+import { fakeDesktopBridge } from "@context/desktop-bridge/fake";
+import { SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -276,5 +278,49 @@ describe("the section list is a list, not a stack of boxes", () => {
 
   test("a section that is not open carries no marker", () => {
     expect(find(pointer("storage"), "settings-marker-plugins")).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE TRAFFIC LIGHTS WERE SITTING ON THE WAY OUT.
+ *
+ * Reported against the shipped desktop shell, with a screenshot of this exact
+ * screen: the macOS close/minimise/zoom buttons drawn on top of the *Notes*
+ * control in this bar — *"some pages dont take the streetlights in
+ * consideration"*.
+ *
+ * `app/_layout.tsx` mounts `ShellTitleBand` above every route and that is
+ * enough for every route — but this surface is a `Modal`, which is its own
+ * root view on every platform, so nothing above it in the route tree pushes it
+ * down. It has to reserve the band itself, and being a `Modal` is not a detail
+ * that will go away: `Overlay`'s header keeps it deliberately, for the focus
+ * trap on iOS and Android.
+ */
+describe("the desktop shell's traffic lights", () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).desktop;
+  });
+
+  test("SETTINGS RESERVES THE BAND TOO, because a Modal is its own root", () => {
+    (globalThis as Record<string, unknown>).desktop = fakeDesktopBridge({
+      shell: { app: "Context", version: "1.0.0", platform: "macos" },
+    }).bridge;
+
+    const page = find(pointer(), "settings-overlay-panel")!;
+    const band = page.querySelector<HTMLElement>('[data-testid="shell-title-band"]');
+    expect(band).not.toBeNull();
+    expect(window.getComputedStyle(band!).height).toBe(`${SHELL_TITLE_BAND_PX}px`);
+    // Above the bar, in flow — so the bar starts below the buttons rather than
+    // under them. `compareDocumentPosition` rather than an index, because the
+    // bar is not this page's only child.
+    const bar = find(page, "settings-overlay-close")!;
+    expect(band!.compareDocumentPosition(bar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("...and an ordinary browser tab reserves nothing", () => {
+    const page = find(pointer(), "settings-overlay-panel")!;
+    expect(page.querySelector('[data-testid="shell-title-band"]')).toBeNull();
   });
 });
