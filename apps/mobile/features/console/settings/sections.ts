@@ -93,7 +93,16 @@ export const SETTINGS_SECTIONS = [
   },
   {
     key: "profile",
-    keywords: "name handle username email address capture mail me identity",
+    /*
+      The machine words are here because the machines are: "Your devices" was
+      a row of its own and is now a card at the foot of this section, so
+      somebody typing "mac" or "laptop" — on the way to revoking one they have
+      lost — has to land on the screen that now holds it. A haystack that
+      keeps a word for a row that no longer exists is worse than no word at
+      all: it returns a section that cannot answer.
+    */
+    keywords:
+      "name handle username email address capture mail me identity mac computer laptop machine device devices desktop revoke",
     label: "Profile",
     scope: "account",
     group: "Your account",
@@ -109,22 +118,6 @@ export const SETTINGS_SECTIONS = [
     scope: "account",
     group: "Your account",
     icon: "mailOpen",
-    personalOnly: false,
-  },
-  {
-    key: "devices",
-    /*
-      "This Mac, and what it's allowed to capture" was drawn inside
-      *workspace* settings, under `sources`, where a machine does not belong
-      — a device is the person's, not the context's, and every other member
-      of that workspace could see it too. Account-scoped, alongside the other
-      things that follow the person rather than whichever context is open.
-    */
-    keywords: "mac computer laptop machine device devices revoke capture desktop",
-    label: "Your devices",
-    scope: "account",
-    group: "Your account",
-    icon: "laptop",
     personalOnly: false,
   },
   {

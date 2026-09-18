@@ -93,6 +93,23 @@ describe("two scopes in one list", () => {
     }
   });
 
+  test("the machines are reachable from Profile, because the row went and the revoke did not", () => {
+    /*
+      A grant here lets a Mac capture into private notes. Losing the row is a
+      navigation change; losing the way to revoke one from a phone would be a
+      change to what this product promises (`CLAUDE.md`: never weaken
+      revocability). So: no `devices` section, and Profile answers for it.
+    */
+    const keys = settingsSectionsFor("personal").map((section) => section.key);
+    expect(keys).not.toContain("devices");
+    expect(isSettingsSection("devices")).toBe(false);
+    expect(
+      matchSettingsSections(settingsSectionsFor("personal"), "revoke laptop").map(
+        (section) => section.key,
+      ),
+    ).toEqual(["profile"]);
+  });
+
   test("and are recognisable without knowing the list", () => {
     expect(isAccountSection("apps")).toBe(true);
     expect(isAccountSection("storage")).toBe(false);
@@ -198,8 +215,14 @@ describe("searching the list", () => {
     ["public", "privacy"],
     ["hide", "privacy"],
     ["permissions", "privacy"],
-    ["mac", "devices"],
-    ["laptop", "devices"],
+    /*
+      The machine words, repointed rather than deleted — "Your devices" is a
+      card at the foot of Profile now. A word kept for a row that no longer
+      exists returns a section that cannot answer, which is worse than no word.
+    */
+    ["mac", "profile"],
+    ["laptop", "profile"],
+    ["revoke a mac", "profile"],
     ["dark mode", "appearance"],
     ["light", "appearance"],
     /*

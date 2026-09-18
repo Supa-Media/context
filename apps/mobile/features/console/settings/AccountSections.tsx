@@ -13,7 +13,7 @@ import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
 import { AppearancePanel } from "./panels/AppearancePanel";
-import { DevicesPanel } from "./panels/DevicesPanel";
+import { MachinesCard } from "./panels/MachinesCard";
 
 /**
  * The settings that belong to the person rather than to one context.
@@ -154,6 +154,18 @@ export function AccountSection({
           Only a personal workspace has an address mail can be sent to. A shared one has
           none at all.
         </Text>
+        {/*
+          The Macs, at the foot of the person they belong to.
+
+          "Your devices" was a row of its own in the index and is not one any
+          more — but the row was never the point, the Revoke button was. A
+          machine grant can capture into private notes, so somebody whose
+          laptop is gone has to be able to cut it off from the phone in their
+          hand, and this is the account-scoped screen they are already on.
+        */}
+        <View style={styles.spaced}>
+          <MachinesCard />
+        </View>
       </View>
     );
   }
@@ -206,10 +218,6 @@ export function AccountSection({
         </Card>
       </View>
     );
-  }
-
-  if (section === "devices") {
-    return <DevicesPanel />;
   }
 
   if (section === "appearance") {

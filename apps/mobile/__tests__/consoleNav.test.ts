@@ -188,6 +188,14 @@ describe("the route table", () => {
     expect(settingsFromQuery(["email", "storage"])).toBe("email");
   });
 
+  test("a stale ?settings=devices link opens Profile, not nothing", () => {
+    // "Your devices" stopped being a section and became a card at the foot of
+    // Profile. A link somebody kept — or an older build's redirect — still
+    // names it, and failing closed would answer somebody coming to revoke a
+    // lost Mac with no screen at all.
+    expect(settingsFromQuery("devices")).toBe("profile");
+  });
+
   test("a stale ?settings=sources link opens Email, not nothing", () => {
     // `sources` was the section's key before it split into Email, Calendar,
     // Chats and Meetings; Email absorbed exactly the content it used to hold.
