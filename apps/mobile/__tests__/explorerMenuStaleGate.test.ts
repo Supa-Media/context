@@ -76,6 +76,9 @@ function browser(canSetVisibility: boolean): FileBrowser {
   return {
     canEdit: true,
     submitForm: async () => ({ ok: true, message: "Sent." }),
+    loadImage: async () => null,
+    say: () => {},
+    storeImage: async () => ({ error: "no" }),
     contextId: "w1",
     loading: false,
     busy: false,

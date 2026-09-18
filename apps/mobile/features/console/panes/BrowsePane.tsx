@@ -1119,6 +1119,14 @@ export function BrowsePane({
         onUpdateFormResponse={files.updateFormResponse}
         onRetractFormResponse={files.retractFormResponse}
         /*
+          Images in the note: where the bytes come from, where a pasted one
+          goes, and where a refusal is said. All three from `files`, because the
+          note on screen is the one it already knows about — see `loadImage`.
+        */
+        onLoadImage={files.loadImage}
+        onStoreImage={files.storeImage}
+        onImageProblem={files.say}
+        /*
           What the note's own frontmatter cannot say. `visibility:` in a note
           is prose — `privacy.md` decides access — so the Properties panel
           shows the manifest's answer under that key rather than the file's,

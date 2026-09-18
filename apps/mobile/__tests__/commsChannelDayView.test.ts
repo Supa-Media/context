@@ -40,6 +40,9 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
   return {
     canEdit: false,
     submitForm: async () => ({ ok: true, message: "Sent." }),
+    loadImage: async () => null,
+    say: () => {},
+    storeImage: async () => ({ error: "no" }),
     contextId: "w1",
     loading: false,
     busy: false,

@@ -384,6 +384,14 @@ export interface FileBrowser {
    * happened and never of something three moves ago that no longer inverts.
    */
   toasts: readonly ToastSpec[];
+
+  /**
+   * Say something transient that no row command produced — a refused paste.
+   *
+   * Separate from `notice`, which is about the console's own state (no storage
+   * connected, a stale listing) and stays until it stops being true.
+   */
+  say(message: string): void;
   dismissToast: (id: string) => void;
 
   clipboard: Clipboard | null;
@@ -568,6 +576,24 @@ export interface FileBrowser {
    * there is a widget that has to phrase the failure itself.
    */
   submitForm(submission: FormSubmission): Promise<FormOutcome>;
+
+  /**
+   * The bytes behind an image the open note embeds, as an `<img>` src.
+   *
+   * `null` for every failure — missing, forbidden, or a store that is down —
+   * because the row draws the same absence for all three and there is nothing a
+   * reader can do with the difference. The note is the open one, read inside the
+   * implementation: an image borrows its visibility from the notes that
+   * reference it, so the pair (note, key) is the question, and a caller choosing
+   * the note would be choosing which note vouches for the image.
+   */
+  loadImage(target: string): Promise<string | null>;
+
+  /** Store a pasted image, and answer with the key to embed or why not. */
+  storeImage(image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }): Promise<{ target: string } | { error: string }>;
 
   /** Read the response note named by a form, subject to ordinary note visibility. */
   readFormResponses?: (responsesPath: string) => Promise<FormResponsesOutcome>;

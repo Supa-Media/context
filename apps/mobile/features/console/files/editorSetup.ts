@@ -41,6 +41,7 @@ import {
 import { MARKERS, toggleWrap, type MarkerName } from "./markdownFormat";
 import { editorCompletion } from "./linkComplete";
 import { formHost, type FormHostRef } from "./formBlock";
+import { imageBlock, type ImageHostRef } from "./imageBlock";
 import { noteLinks, type NoteLinkRef } from "./noteLinks";
 import { dictationExtension, insertDictated } from "./dictate";
 import type { EditorCommand } from "./webview/protocol";
@@ -543,9 +544,29 @@ export function editorExtensions(options: {
    * offers its own two sources, which is what it did before plugins existed.
    */
   pluginSuggest?: CompletionSource;
+  /**
+   * Where an image in this note comes from, and where a pasted one goes.
+   *
+   * Absent on a surface with no bucket behind it — the landing page's demo
+   * console — and a row then draws its own "this surface cannot load images"
+   * rather than an empty box, which is the same "an absent capability is
+   * reported, never faked" rule `forms` follows.
+   */
+  images?: ImageHostRef;
+  /** Where a refused paste is said out loud. Absent means silence, honestly. */
+  reportImage?: (message: string) => void;
 }): Extension[] {
-  const { editable, editableCompartment, handlers, insetBottom, links, forms, pluginSuggest } =
-    options;
+  const {
+    editable,
+    editableCompartment,
+    handlers,
+    insetBottom,
+    links,
+    forms,
+    pluginSuggest,
+    images,
+    reportImage,
+  } = options;
   return [
     markdownLanguage(),
     livePreview(),
@@ -583,6 +604,13 @@ export function editorExtensions(options: {
       — see `formHost`.
     */
     ...(forms === undefined ? [] : [formHost.of(forms)]),
+    /*
+      Images: the host a row reads its bytes from, plus the paste and drop
+      handlers that put one in the bucket. One extension so a surface cannot
+      end up able to draw an image and unable to accept one, or the reverse —
+      which is what a second argument here would have allowed.
+    */
+    ...(images === undefined ? [] : [imageBlock(images, reportImage ?? (() => {}))]),
     history(),
     EditorView.lineWrapping,
     placeholder(EDITOR_PLACEHOLDER),
@@ -696,6 +724,8 @@ export function editorStateFor(options: {
   /** See `editorExtensions`. The `WebView` guest passes one; the web half
    * builds its extensions directly and never comes through here. */
   pluginSuggest?: CompletionSource;
+  images?: ImageHostRef;
+  reportImage?: (message: string) => void;
 }): EditorState {
   return EditorState.create({
     doc: options.doc,

@@ -293,6 +293,9 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - One meeting is one credential, and on a Mac it is the machine's
 - The microphone is asked for just-in-time, and never a dialog that points at the wrong place
 - What is deliberately not built
+- The console reserves the space, the shell places the buttons
+- The band's other two payers, and the shell half finally wired
+- The band moves into the bar
 
 ## [Updating the Mac without shipping a Mac](./desktop-updates.md)
 

@@ -26,6 +26,7 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { onBucketWrite } from "./bucketWrites";
+import { dataUrlFor } from "./imageBytes";
 import {
   isServerRefusal,
   toFileError,
@@ -264,6 +265,16 @@ export function useFileBrowser(options: {
   const notePathsAction = useAction(api.functions.files.notePaths);
   const writeNote = useAction(api.functions.files.writeNote);
   const submitFormAction = useAction(api.functions.forms.submitForm);
+  const storeNoteImageAction = useAction(api.functions.files.storeNoteImage);
+  const readNoteImageAction = useAction(api.functions.files.readNoteImage);
+  /**
+   * Every image this session has already fetched, by workspace and key.
+   *
+   * A ref rather than state: nothing re-renders when it changes — the `<img>`
+   * that asked is handed the src directly — and a state update per image would
+   * re-render the whole browser once per picture in the note.
+   */
+  const imageCache = useRef(new Map<string, string>());
   const voteFormAction = useAction(api.functions.forms.voteForm);
   const updateSubmissionAction = useAction(api.functions.forms.updateSubmission);
   const retractSubmissionAction = useAction(api.functions.forms.retractSubmission);
@@ -345,6 +356,19 @@ export function useFileBrowser(options: {
     (id: string) => setToasts((current) => current.filter((toast) => toast.id !== id)),
     [],
   );
+
+  /**
+   * Say something transient that is nobody's operation.
+   *
+   * A refused paste is the first of these: it is not the result of a row
+   * command, so it has no undo and does not belong in the `notice` line, which
+   * is about the console's own state. `nextToastId` rather than the message for
+   * identity, for the reason that counter's own comment gives.
+   */
+  const say = useCallback((message: string) => {
+    nextToastId.current += 1;
+    setToasts([{ id: `say-${nextToastId.current}`, message }]);
+  }, []);
 
   /**
    * The generation counter and timer handle for the save in flight, **per
@@ -472,6 +496,122 @@ export function useFileBrowser(options: {
    * editors and above", "that response file cannot be read" — so it is passed
    * through rather than replaced with a generic one.
    */
+  /**
+   * The bytes behind an image the open note embeds.
+   *
+   * The note is read from `selectedPathRef` rather than taken from the widget,
+   * for the reason `submitForm` gives: the widget knows which *image* is being
+   * drawn and this knows which note is on screen. The server needs both, because
+   * an image borrows its visibility from the notes that reference it — a widget
+   * that carried a note path would be a caller choosing which note vouches for
+   * the image it is asking for.
+   *
+   * Cached on the key, forever, and that is safe because the key is a content
+   * hash: the same key is the same bytes, in this session and in every other.
+   * The cache is what makes a row survive a keystroke — `toDOM` runs again on
+   * every rebuild, and without it every character typed in a note with an image
+   * in it would be a round trip to the bucket.
+   *
+   * `null` for every failure, deliberately: a missing image, an image in a note
+   * this viewer cannot see, and a store that is down all draw the same absence,
+   * and the row says so in its own words rather than reporting a server error
+   * somebody reading a note can do nothing about.
+   */
+  const loadImage = useCallback(
+    async (target: string): Promise<string | null> => {
+      if (workspaceId === null) return null;
+      const notePath = selectedPathRef.current;
+      if (notePath === null) return null;
+      const cacheKey = `${workspaceId}|${target}`;
+      const cached = imageCache.current.get(cacheKey);
+      if (cached !== undefined) return cached;
+      try {
+        const read = await readNoteImageAction({ workspaceId, notePath, leaf: target });
+        const src = dataUrlFor(read.bytes, read.contentType);
+        imageCache.current.set(cacheKey, src);
+        return src;
+      } catch {
+        return null;
+      }
+    },
+    [workspaceId, readNoteImageAction],
+  );
+
+  /**
+   * Store a pasted or dropped image, and answer with the key to embed.
+   *
+   * The refusal is the server's sentence rather than a generic one — "a stored
+   * image must be at most 5000000 bytes", "you do not have write access" — for
+   * the same reason `submitForm` passes one through: somebody wrote those words
+   * for exactly this moment, and the editor has nothing better to say.
+   *
+   * The returned key is put in the cache as well, so the image somebody just
+   * pasted draws from the bytes already in hand instead of being read back out
+   * of the bucket a moment after it was written.
+   */
+  const storeImage = useCallback(
+    async (image: {
+      bytes: ArrayBuffer;
+      contentType: string;
+    }): Promise<{ target: string } | { error: string }> => {
+      if (workspaceId === null) return { error: "No context is open." };
+      /*
+        AN ENCRYPTED NOTE TAKES NO IMAGE, AND SAYS SO.
+
+        The note's text is encrypted on this device and the bytes of an image are
+        not: storing one beside it would put in the clear exactly what somebody
+        turned encryption on to keep out of it, in the same bucket, under a name
+        the note itself spells out. Encrypting attachments is real work —
+        `encryption.md` scopes it — and until it is done the honest answer is a
+        refusal a person can read, not a paste that quietly weakens the thing
+        they asked for.
+      */
+      if (editorRef.current.encrypted) {
+        return { error: "An encrypted note can’t hold an image yet." };
+      }
+      /*
+        WHICH NOTE THE EMBED IS ABOUT TO LAND IN.
+
+        An upload is a round trip, and the editor inserts the line when it comes
+        back. Open another note in that window — a click in the tree, a link
+        followed — and the insert would land in *that* note, which is an image
+        appearing in a document nobody pasted into. The editor cannot notice:
+        it is one view with notes swapped through it, and by then its state is
+        the new note's.
+
+        So the check is here, where the open note is already known, and it is
+        made after the write rather than before: the bytes are in the bucket
+        either way — content-addressed, so nothing is orphaned that a second
+        paste would not reuse — and what is refused is the *insert*.
+      */
+      const noteAtStart = selectedPathRef.current;
+      try {
+        const stored = await storeNoteImageAction({
+          workspaceId,
+          bytes: image.bytes,
+          contentType: image.contentType,
+        });
+        if (selectedPathRef.current !== noteAtStart) {
+          imageCache.current.set(
+            `${workspaceId}|${stored.leaf}`,
+            dataUrlFor(image.bytes, image.contentType),
+          );
+          return {
+            error: "That note closed before the image was stored. It is in your bucket.",
+          };
+        }
+        imageCache.current.set(
+          `${workspaceId}|${stored.leaf}`,
+          dataUrlFor(image.bytes, image.contentType),
+        );
+        return { target: stored.leaf };
+      } catch (error) {
+        return { error: toFileError(error).message };
+      }
+    },
+    [workspaceId, storeNoteImageAction],
+  );
+
   const submitForm = useCallback(
     async (submission: FormSubmission): Promise<FormOutcome> => {
       if (workspaceId === null) return { ok: false, message: "No context is open." };
@@ -3266,6 +3406,8 @@ export function useFileBrowser(options: {
     () => ({
       canEdit: options.canEdit,
       submitForm,
+      loadImage,
+      storeImage,
       readFormResponses,
       voteForm,
       updateFormResponse,
@@ -3316,6 +3458,7 @@ export function useFileBrowser(options: {
       notice,
       dismissNotice,
       toasts,
+      say,
       dismissToast,
       clipboard,
       copy: (path: string) => setClipboard(put("copy", path)),
@@ -3368,6 +3511,8 @@ export function useFileBrowser(options: {
     }),
     [
       submitForm,
+      loadImage,
+      storeImage,
       readFormResponses,
       voteForm,
       updateFormResponse,

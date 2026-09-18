@@ -5731,11 +5731,11 @@ those two destinations fails loudly. `consoleNav.test.ts` holds the aliases.
 
 ### A pasted image is a width in the note and a file in the bucket, and nothing else
 
-**Status: designed, not built.** This records the design settled in a UX
-exploration so the next session does not re-derive it differently. Every test
-named below is one that has to land *with* the implementation; none of them
-exist yet, and [`testing.md`](./testing.md)'s rule holds — until they run, this
-section is an argument, not a guard.
+**Built, and this section was rewritten when it was.** It began as a design
+recorded ahead of the work, with the tests it named still to be written. They
+exist now, and one part of the design did not survive contact: alignment, below,
+is a reversal of what the first version ruled out. What it got right is the part
+that decided everything else — what a Markdown file can carry honestly.
 
 **Pasting is two writes, in this order: the object, then the line.** `⌘V` in a
 note writes the image into the bucket and then writes one embed line at the
@@ -5746,8 +5746,17 @@ reads as broken to every client at once. The line is drawn immediately, before
 the upload completes, because the object's name is known before the bytes move
 (below), so the optimistic line is the final one rather than a guess.
 
+**The caret lands on the line *below* the image, and that is not a detail.**
+The first version left it after the embed — on the image's own line — and the
+reveal rule then did exactly what it exists to do: the line the selection is in
+shows its markup. So a paste ended with `![[paste-….png]]` on screen, drawn as a
+link, and the picture appeared only once somebody clicked elsewhere. Reported
+within a day of shipping, with a screenshot of a link. A blank line under the
+embed is written when there is not one already, which is where somebody would
+keep typing anyway.
+
 **The width goes in the pipe, and that is the load-bearing choice.**
-`![[paste-4b2c9f1a.png|480]]`, Obsidian's own grammar, which
+`![[attachments/2026/09/paste-4b2c9f1a.png|480]]`, Obsidian's own grammar, which
 [`links.ts`](../../packages/shared/src/links.ts) and `apps/mcp/src/links.js`
 already parse — `embed: true`, the target spanned so a rewrite replaces only
 the path. An `<img src="…" width="480">` would render in more places and is
@@ -5761,15 +5770,67 @@ takes. Which of the three link styles is written follows what the note already
 uses — a vault on `![alt|480](path)` keeps getting that — because non-negotiable
 #2 says user-authored keys and conventions are not ours to rewrite.
 
+**Several embeds on one line are a row, and that is the whole of side by side.**
+Not a convention of ours: an image is an inline node in CommonMark and in
+Obsidian, so `![[a.png|320]] ![[b.png|320]]` is two images beside each other in
+those readers as well as in this one. A row is therefore a *line*, dragging an
+image beside another is one line edit, and there is no gallery syntax to invent,
+parse or explain. The same fact settles moving: `⌥↑`/`⌥↓` already move a line, so
+an image inherits that and gets no verb of its own. A line that is *nothing but*
+embeds is a row; an image in the middle of a sentence stays part of the sentence,
+because resizing that by dragging would reflow somebody's paragraph.
+
+**Alignment is a directive comment, which reverses this section's first
+version.** That version ruled it out, on the grounds that "nothing in Markdown
+carries centred". The second half of that is still true and the conclusion was
+too strong: an **HTML comment** is carried by every Markdown file and rendered by
+no Markdown renderer, so `![[a.png|320]] <!-- context: align=center -->` is
+centred here, uncentred in Obsidian, and *never visible junk* anywhere. It is
+still in the file, which is the line this holds — metadata we understand goes in
+the Markdown, degrading to invisible, and never into a sidecar the Markdown does
+not contain. `left` writes no directive at all, because the absence of one is
+what a file written by anything else looks like and those two must not be
+different states; an unknown key inside a directive survives an alignment
+change, so an older console cannot silently drop what a newer one wrote.
+
+**The bytes go in the opaque store, and this reverses what shipped first.**
+The first version put pastes in a visible `attachments/<YYYY>/<MM>/` folder,
+argued from Obsidian: that app skips dot-folders, so an embed pointing into
+`.context/` draws there as a broken link. The owner reversed it the day it
+landed, and the reasons are better than the one it replaced — one image store
+rather than two, nothing new in the file tree, the listing stays the customer's
+own folders, and `IMAGE_PREFIX` is the prefix `read_image` already serves, so an
+agent can fetch an image somebody pasted. A visible folder could not have
+offered that without widening `imageRefFor`, which is a security-critical
+function.
+
+So a pasted image is `paste-<hash>.<ext>` under `IMAGE_PREFIX`, written through
+the `writeImage` that was already there, and the embed names the leaf —
+`![[paste-4b2c9f1a.png]]` — which is also what a person typing one by hand in
+another app would write. **What it costs is stated rather than hidden**: that
+embed does not resolve in Obsidian, because the bytes are in a folder Obsidian
+does not look in. Export is unaffected — `.context/` leaves with everything else
+— and a resolver on the Obsidian side, or a visible mirror of the store, is the
+change to make if that becomes the thing people trip over.
+
+**Reading one back is gated on the reference, which is the gateway's own rule.**
+An image has no row in `privacy.md` and cannot have one — non-negotiable #5 keeps
+`Scope` two-valued and about notes — so borrowed visibility is the only honest
+model. `readNoteImage` asks whether there is a note *this caller can see* that
+names this file, through the same `read` operation the editor uses, so `canSee`
+answers once, where it already answers. A visible folder is one whose keys a
+member can guess; this is what refuses the guess. Writing needs `editor`, because
+a paste is not a read.
+
 **The number is a cap, not a demand.** `|480` means "up to 480px", clamped to
 the reading measure, which is what makes one note correct on a 390pt phone and
 a wide window without a second number or a per-device override. Percentages are
-not available (Obsidian has no percentage), so the four chips are
-fractions of the measure — a quarter, a half, three quarters, Full — and what
-they write is the px that comes out, identical from every surface, so a width
-means the same thing wherever it was set. The drag snaps to quarters of the measure with
-`⌥` to ignore snapping, and aspect is locked because height is never written
-down: there is nowhere honest to keep it.
+not available (Obsidian has no percentage), so the four chips are fractions of
+the measure — a quarter, a half, three quarters, Full — and what they write is
+the px that comes out, identical from every surface, so a width means the same
+thing wherever it was set. The drag snaps to those quarters with `⌥` to ignore
+snapping, and aspect is locked because height is never written down: there is
+nowhere honest to keep it.
 
 **A resize is an ordinary edit, and takes #701's machinery unchanged.** It is a
 one-line edit op carrying `expectedEtag`, rebased only by `rebaseOp`, parked
@@ -5779,80 +5840,99 @@ re-applied to the other side's text, which is a second conflict path for a
 one-line change and is hereby dropped. Nothing about images reaches the bucket
 except through the paths an edit already uses.
 
-**Moving an image moves a line.** Drag the block and one line changes places
-between two others, with an insertion caret showing where it lands; `⌥↑` / `⌥↓`
-do it without a pointer, because it is a line and the editor already moves
-lines. Free positioning is **deliberately not built**, and this is the
-reversal rather than an omission: x, y, rotation, float, z-order and a crop box
-all need a store, the only store is the file, and the file has no room for
-them — so they would land in a shadow layout document beside every note, which
-is non-negotiable #3 ("plain files stay canonical") traded away for arrangement.
-The escape hatch already ships and is the honest one: paste into a **drawing**,
-where an `.excalidraw` file is a canvas format that carries coordinates because
-that is what it is for, and which embeds back into the note as one line.
-Alignment is absent for the same reason in miniature — nothing in Markdown
-carries "centred", so an image sits in the text column at the text's own left
-edge, here and in every other reader of the same file.
+**Moving an image moves a line.** Drag the grip and one line changes places
+between two others, with the insertion point taken from CodeMirror's own
+`posAtCoords` so a drop lands where the editor would put a caret. Dropped on
+another row, the two join — that is the side-by-side gesture, and it is one line
+edit. Free positioning is **deliberately not built**, and this is the reversal
+rather than an omission: x, y, rotation, float, z-order and a crop box all need a
+store, the only store is the file, and the file has no room for them — so they
+would land in a shadow layout document beside every note, which is non-negotiable
+#3 ("plain files stay canonical") traded away for arrangement. The escape hatch
+already ships and is the honest one: paste into a **drawing**, where an
+`.excalidraw` file is a canvas format that carries coordinates because that is
+what it is for, and which embeds back into the note as one line.
 
-**The object is named from its own content**: eight hex characters of the hash,
-at `attachments/<YYYY>/<MM>/` by default, with "beside the note" and a named
-folder as the other two settings, and a bucket that already has a convention
-keeping it. Hashing buys three things at once — the same paste in three notes is
-one object, a retried upload is idempotent rather than leaving `-1` behind, and
-a clipboard with no filename needs no invented one. It is **not** under
-`.context/`: an image is the customer's content, has to be visible in their
-bucket and has to leave with them, so it sits in a folder they can read, which
-is non-negotiable #1's exit promise applied to something that is not Markdown.
+**The object is named from its own content**: sixteen hex characters of SHA-256,
+at `attachments/<YYYY>/<MM>/` by default. Hashing buys three things at once — the
+same paste in three notes is one object, a retried upload is idempotent rather
+than leaving `-1` behind, and a clipboard with no filename needs no invented one.
+The key is derived by the server rather than supplied by the client, because a
+client-chosen path is a path to argue about, and `assertAttachmentPath` refuses
+whatever comes out of the derivation if that is ever changed carelessly.
 
 **Bytes are never inline and never remote.** No `data:` URI in the Markdown — it
-destroys `git diff`, `grep` and every reader's idea of a paragraph, and makes
-the note its own worst attachment — and no host of ours in the link, which is
-`share/markdown.ts`'s rule already: a remote image in a shared note is a
-tracking pixel that reports every read to whoever wrote it.
+destroys `git diff`, `grep` and every reader's idea of a paragraph — and no host
+of ours in the link, which is `share/markdown.ts`'s rule already: a remote image
+in a shared note is a tracking pixel that reports every read to whoever wrote it.
+Inside the `WebView` the bytes do cross as a `data:` URL, and that is the same
+rule rather than an exception to it: the guest holds no credentials and must not
+be handed a URL it could fetch, because a URL it could fetch is a URL a note
+could name.
 
 **Offline needs something the mirror does not have, and this says so rather
 than assuming it.** #696 is explicit that attachments are listed and never
-downloaded, and that stands: this design does not make the mirror fetch images.
-What a paste needs is the other direction — an **outbound staged blob**, keyed
-by the hash the device computed itself, which is exactly why the line can be
-written offline and still be correct when the bytes arrive. Until that staging
-exists, an offline paste is **refused in a sentence**, following #701's
-precedent for a folder op: refuse honestly rather than queue something that
-cannot be made right.
+downloaded, and that stands: this does not make the mirror fetch images. What a
+paste needs is the other direction — an **outbound staged blob**, keyed by the
+hash the device computed itself, which is exactly why the line could be written
+offline and still be correct when the bytes arrive. Until that staging exists, an
+offline paste is refused in a sentence, following #701's precedent for a folder
+op: refuse honestly rather than queue something that cannot be made right.
 
 **The rest of the product applies without special cases.** A `member` sees the
 image and no handles at all, because write is a separate grant from read and a
-greyed-out control is a worse way to say so. An encrypted note's attachment is
-encrypted with it, so the gateway cannot thumbnail it and does not pretend to.
-Through a folder share link the image is re-derived through the live
-`privacy.md` at `team` scope with no granted names, so an image only a private
-note embeds is **absent**, not merely unlinked. A paste over the size ceiling is
-offered a downscale with both numbers shown and never silently recompressed:
-the customer's bucket, the customer's bytes, the customer's bill.
+greyed-out control is a worse way to say so. Through a folder share link the
+image is re-derived through the live `privacy.md` at `team` scope with no granted
+names, so an image only a private note embeds is **absent**, not merely
+unlinked. A paste over the size ceiling is refused in the store's own words
+rather than silently recompressed: the customer's bucket, the customer's bytes,
+the customer's bill.
+
+**An encrypted note refuses a paste outright**, and that is a decision rather
+than a gap. Its text is encrypted on the device and an image's bytes are not, so
+storing one beside it would put in the clear exactly what somebody turned
+encryption on to keep out of it — in the same bucket, under a name the note
+itself spells out. Encrypting attachments is real work that
+[`encryption.md`](./encryption.md) scopes, and until it is done a refusal
+somebody can read beats a paste that quietly weakens what they asked for.
 
 **What a simplification of this costs.** Moving the width into an `<img>` tag
 buys wider rendering and loses every image the first time its note is renamed.
-Storing a position, an alignment or a crop box buys arrangement and costs the
-claim that the Markdown is the whole note. Making the width a percentage or a
-per-device value buys a nicer phone and costs "one file, read the same
-everywhere". Writing the line before the object buys nothing and trades a
-recoverable orphan for a broken note. Silently recompressing a large paste buys
-a smaller bucket and loses somebody's original. Queueing an offline paste
-without staged bytes buys a green checkmark and produces a note pointing at a
-file that never existed.
+Storing a position, an alignment as anything but a comment, or a crop box buys
+arrangement and costs the claim that the Markdown is the whole note. Making the
+width a percentage or a per-device value buys a nicer phone and costs "one file,
+read the same everywhere". Writing the line before the object trades a
+recoverable orphan for a broken note. Putting the bytes in a visible folder buys an embed that
+resolves in Obsidian and costs a second image store, a new folder in everybody's
+file tree, and an agent that cannot read what somebody pasted. Dropping the reference
+gate on reads buys one round trip and turns a visible folder into a way for a
+member to read what a private note holds.
 
-**The tests that must land with the implementation.** Parity first:
-`linkParity.test.ts` gains a width-bearing embed on both engines, and a
-rename-with-image case proving the target is rewritten and the `|480` survives.
-Then: a paste writes the object before the line (order asserted, not timing); a
-failed note write leaves an unreferenced object and no line; the same bytes
-pasted twice produce one key; a retried upload is idempotent; a width edit is an
-ordinary op carrying `expectedEtag` and is refused without one, like every other
-op in `queuedOpSender`; no written note ever contains `data:` or an absolute
-URL to our own host; a `member` role produces no resize affordance in the
-rendered editor; an encrypted note's image is never readable through the
-gateway; a folder share link omits an image a private note embeds, and omits it
-from the listing rather than serving a 403 that confirms it exists; an offline
-paste with no staging refuses and enqueues nothing. The last two are the ones to
-write first, because they are the two that are security claims rather than
-correctness ones.
+**The tests that hold it.** `imageLine.test.ts` (26 checks) is the grammar: a
+sentence with an image in it is not a row, an alias is not a width, `left`
+removes the directive, an unknown directive key survives an alignment change.
+`imageBlock.test.ts` (26) is every gesture as a planner — the reveal rule, the
+snapping and `⌥` turning it off, a drop onto a paragraph moving the line, a drop
+onto a row joining it, the blank-line arithmetic of moving a block, and base64
+byte for byte against the platform's own encoder. `pasteImage.test.ts` (8) is the derived
+name: a type the store cannot serve has no name at all, a hash that is not a
+hash is refused rather than producing a junk key, and every name it can produce
+round-trips through `writeImage`'s own leaf rule — a key that rule refuses is
+bytes nobody could ever get back out. `imageBrowser.test.ts` (5) is the console's side:
+the cache that keeps a keystroke from being a round trip per picture, a server
+refusal passed through in its own words, and an encrypted note refusing before
+the bytes leave the device. `webviewHost.test.ts` (6) is the bridge: every branch
+replies, a read-only note refuses before the sink is reached, junk base64 is
+refused rather than stored truncated. `files.test.ts` holds the reference gate —
+a `member` naming the private note gets the same `FILE_NOT_FOUND` as for a note
+that never existed, naming a visible note does not help, and the owner still
+reads it — and it was that file's own endpoint table that noticed the two new
+actions were missing from it. Sabotaged by disabling the reference check: two of
+those go red, which is the point of writing them.
+
+**What is not built, stated rather than implied.** An embed into `IMAGE_PREFIX`
+does not resolve in Obsidian, per the reversal above. Images are still not in the
+offline mirror, per #696 above.
+And there is no crop, which is the one on this list worth doing next: a crop that
+writes a new object needs no new numbers in the file, which is what made every
+other item here expensive.

@@ -20,17 +20,28 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const DIR = resolve(HERE, "../../../docs/design/desktop");
 const SHOTS = join(DIR, "shots");
 
-const NAMES = ["sign-in-mac-shell", "console-mac-shell", "console-no-shell"];
+/**
+ * Each surface in both palettes, and each at the width it is about: the
+ * narrowed window is the compact layout, which is the case the band still
+ * exists for.
+ */
+const SHOTS_TO_TAKE = ["light", "dark"].flatMap((scheme) => [
+  { name: `console-mac-shell-${scheme}`, width: 1280, height: 800 },
+  { name: `console-narrow-mac-shell-${scheme}`, width: 760, height: 800 },
+  { name: `sign-in-mac-shell-${scheme}`, width: 1280, height: 800 },
+  { name: `console-no-shell-${scheme}`, width: 1280, height: 800 },
+]);
 
 mkdirSync(SHOTS, { recursive: true });
 
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 
-for (const name of NAMES) {
+for (const { name, width, height } of SHOTS_TO_TAKE) {
+  const page = await browser.newPage({ viewport: { width, height } });
   const url = pathToFileURL(join(DIR, `${name}.html`)).toString();
   await page.goto(url);
   await page.screenshot({ path: join(SHOTS, `${name}.png`) });
+  await page.close();
   console.log(`wrote ${join("shots", `${name}.png`)}`);
 }
 

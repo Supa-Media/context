@@ -266,6 +266,30 @@ export type ToGuest =
    * failure `decodeCommand` exists to prevent for a `wrap`.
    */
   | { v: number; type: "suggest-pick-result"; token: string; text: string | null }
+  /**
+   * The bytes behind one image, as a `data:` URL, or `null` when there are none.
+   *
+   * A data URL rather than a path or an `http` address, and that is the whole
+   * design of this pair: the guest is a document with no credentials and no
+   * business making a request, and a URL it could fetch would be a URL a note
+   * could name. The host reads the bucket — through the action that checks who
+   * is asking — and hands over the bytes it already holds.
+   *
+   * Big, and knowingly so: base64 inflates by a third, so a 2MB screenshot
+   * crosses as ~2.7MB of string. The alternative is a local HTTP server or a
+   * custom scheme handler inside the `WebView`, which is a second surface to
+   * secure for a picture in a note. If this becomes a problem it is a
+   * measurement, not a guess: the store already caps one image at 5MB.
+   */
+  | { v: number; type: "image-loaded"; token: string; src: string | null }
+  /** The key a stored image landed at, or why it was refused. */
+  | {
+      v: number;
+      type: "image-stored";
+      token: string;
+      target?: string;
+      error?: string;
+    }
   | { v: number; type: "form-result"; token: string; ok: boolean; message: string }
   | {
       v: number;
@@ -382,6 +406,27 @@ export type ToHost =
       values: ReadonlyArray<{ field: string; value: string }>;
     }
   | { v: number; type: "form-responses"; token: string; responsesPath: string }
+  /**
+   * Ask the host for the bytes behind an image this note embeds.
+   *
+   * A request/reply pair like `form-submit`, with a token for the same reason: a
+   * note can hold several images and they load at once, so "the last reply is
+   * for the last request" is not true here.
+   */
+  | { v: number; type: "image-load"; token: string; target: string }
+  /**
+   * Store a pasted image. `bytes` is base64 — JSON is the only thing this
+   * bridge carries, and a `Uint8Array` through `JSON.stringify` is an object
+   * with numeric keys, which is the encoding bug this comment exists to prevent
+   * somebody rediscovering.
+   */
+  | {
+      v: number;
+      type: "image-store";
+      token: string;
+      bytes: string;
+      contentType: string;
+    }
   | {
       v: number;
       type: "form-vote";
@@ -451,6 +496,8 @@ export const TO_GUEST_TYPES: ReadonlySet<ToGuest["type"]> = new Set([
   "suggest",
   "suggest-result",
   "suggest-pick-result",
+  "image-loaded",
+  "image-stored",
 ] as const);
 
 export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
@@ -470,6 +517,8 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "form-retract",
   "suggest-ask",
   "suggest-pick",
+  "image-load",
+  "image-store",
 ] as const);
 
 /**

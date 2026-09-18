@@ -69,6 +69,7 @@ import type {
   FormSubmission,
   FormVote,
 } from "./formBlock";
+import type { ImageHostRef } from "./imageBlock";
 import { fonts, layout } from "../../design/tokens";
 import { useColors, type Colors } from "../../design/theme";
 
@@ -216,6 +217,20 @@ export interface LiveEditorProps {
   onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
   onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
   onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
+  /**
+   * The bytes behind an image this note embeds, as something an `<img>` takes.
+   *
+   * Absent where this surface has no bucket behind it, and a row then says so
+   * rather than drawing an empty frame.
+   */
+  onLoadImage?: (target: string) => Promise<string | null>;
+  /** Store a pasted or dropped image, and answer with the key to embed. */
+  onStoreImage?: (image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }) => Promise<{ target: string } | { error: string }>;
+  /** Say a refused paste out loud — a toast on this surface. */
+  onImageProblem?: (message: string) => void;
   /**
    * Ask the running plugins to complete the line being typed.
    *
@@ -476,6 +491,9 @@ export function LiveEditor({
   onVoteForm,
   onUpdateFormResponse,
   onRetractFormResponse,
+  onLoadImage,
+  onStoreImage,
+  onImageProblem,
   onSuggest,
   onPickSuggestion,
   onPreviewLinks,
@@ -521,6 +539,17 @@ export function LiveEditor({
     every render, so what is configured has to be an object the host writes
     into rather than the callback itself.
   */
+  /*
+    Images, on the same ref arrangement and for the same reason as forms: a row
+    widget is built once and kept across every transaction that does not change
+    its line, so a closure captured at build time would be loading bytes for
+    whichever note was open then.
+  */
+  const images = useRef<ImageHostRef>({ current: null }).current;
+  images.current =
+    onLoadImage === undefined || onStoreImage === undefined
+      ? null
+      : { load: (target) => onLoadImage(target), upload: (image) => onStoreImage(image) };
   const previews = useRef<PluginPreviewRef>({ previews: new Map(), note: null });
   previews.current.ask = onPreviewLinks;
   /*
@@ -662,6 +691,13 @@ export function LiveEditor({
           // is then not installed at all and links are plain text.
           links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
           forms,
+          /*
+            Images. Passed unconditionally: the ref is the thing that is empty
+            on a surface with no bucket, and the row reports that itself — the
+            same reason `pluginSuggest` is installed unconditionally below.
+          */
+          images,
+          ...(onImageProblem === undefined ? {} : { reportImage: onImageProblem }),
           /*
             A plugin's in-editor suggestions.
 

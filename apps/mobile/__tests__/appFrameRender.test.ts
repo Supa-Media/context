@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -49,6 +49,20 @@ const { layout } = require("../features/design/tokens") as typeof import("../fea
 const { bottomChromeHeight } =
   require("../features/app/bottomChrome") as typeof import("../features/app/bottomChrome");
 const { viewportHeight } = require("../features/design/css") as typeof import("../features/design/css");
+const { topChromeHoldsLights, setTopChromeHoldsLights } =
+  require("../features/app/topChrome") as typeof import("../features/app/topChrome");
+const { SHELL_TITLE_BAND_LEAD_PX } =
+  require("@context/desktop-bridge") as typeof import("@context/desktop-bridge");
+const { fakeDesktopBridge } =
+  require("@context/desktop-bridge/fake") as typeof import("@context/desktop-bridge/fake");
+// `StyleSheet.getSheet()` is react-native-web's, absent from the `react-native`
+// types this repo compiles against — the same read `shellTitleBand.test.ts`
+// documents, and for the same reason: jsdom's CSS engine does not know
+// `-webkit-app-region`, drops the declaration from the CSSOM, and answers `""`
+// to every computed-style read of it whether the rule is there or not.
+const { StyleSheet: RNStyleSheet } = require("react-native") as {
+  StyleSheet: { getSheet(): { textContent: string } };
+};
 
 /* -------------------------------------------------------------------------- */
 
@@ -1740,5 +1754,168 @@ describe("the tab slot belongs to the pointer layout", () => {
     act(() => frame.resize(390));
     expect(frame.find("tabs")).toBeNull();
     frame.unmount();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+/* the desktop shell's traffic lights, in the bar rather than above it         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which `-webkit-app-region` react-native-web actually gave this node, read
+ * out of the injected sheet.
+ *
+ * Its class names encode the style *key* and a hash of the value, so `drag`
+ * and `no-drag` both produce `r-WebkitAppRegion-<something>` and the prefix
+ * alone cannot tell them apart — which is the whole assertion here. The class
+ * on the node is looked up in the sheet and the declared value returned.
+ */
+function appRegionOf(node: HTMLElement): string | null {
+  const sheet = RNStyleSheet.getSheet().textContent;
+  for (const cls of Array.from(node.classList)) {
+    if (!cls.startsWith("r-WebkitAppRegion")) continue;
+    const found = sheet.match(new RegExp(`\\.${cls}\\s*\\{[^}]*-webkit-app-region:\\s*([a-z-]+)`));
+    if (found) return found[1];
+  }
+  return null;
+}
+
+function installMacShell(): void {
+  (globalThis as Record<string, unknown>).desktop = fakeDesktopBridge({
+    shell: { app: "Context", version: "1.0.0", platform: "macos" },
+  }).bridge;
+}
+
+function removeShell(): void {
+  delete (globalThis as Record<string, unknown>).desktop;
+}
+
+/**
+ * THE 45PT BAND ABOVE THE 45PT BAR.
+ *
+ * `docs/decisions/desktop.md`, "The band moves into the bar". Inside the shell
+ * the console drew an empty reservation strip on top of a top bar exactly as
+ * tall — 90pt of chrome before the first note, half of it blank, where the Mac
+ * apps this is compared to put the buttons *in* the bar.
+ *
+ * `shellTitleBand.test.ts` pins the rules and the band's own two components.
+ * What is only checkable here is the bar itself: that it leaves the room, that
+ * it becomes the window's handle, and that **every slot a route fills opts
+ * back out** — the failure this change was warned about, where a click on the
+ * context chip drags the window instead of opening the switcher.
+ */
+describe("the top bar holds the traffic lights", () => {
+  beforeEach(() => {
+    removeShell();
+    setTopChromeHoldsLights("appframe-render-test", false);
+  });
+
+  afterEach(() => {
+    removeShell();
+    setTopChromeHoldsLights("appframe-render-test", false);
+  });
+
+  test("a Mac shell at a pointer density: the bar leaves the room and takes the job", () => {
+    installMacShell();
+    const mounted = mountFrame(1400);
+
+    const bar = mounted.find("app-top-bar");
+    expect(bar).not.toBeNull();
+    expect(styleOf(bar!, "padding-left")).toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
+    expect(appRegionOf(bar!)).toBe("drag");
+    // ...and the band above the whole app is told to stand down.
+    expect(topChromeHoldsLights()).toBe(true);
+
+    mounted.unmount();
+  });
+
+  test("EVERY SLOT A ROUTE FILLS OPTS OUT OF THE DRAG", () => {
+    /*
+      The rule `docs/decisions/desktop.md` named as the thing this change
+      needed: with the bar a drag region, a control inside it moves the window
+      instead of activating unless it says otherwise. Asserted on the slots
+      rather than on the stubs inside them, because that is where the guard
+      lives — a route may put anything in these, and a guard on the contents
+      would hold only for the controls somebody remembered.
+    */
+    installMacShell();
+    const mounted = mountFrame(1400);
+
+    for (const testId of ["switcher", "tabs", "trailing"]) {
+      const stub = mounted.find(testId);
+      expect(stub).not.toBeNull();
+      const slot = stub!.parentElement as HTMLElement;
+      expect(appRegionOf(slot)).toBe("no-drag");
+    }
+
+    mounted.unmount();
+  });
+
+  test("...and what is left over is still the window's handle", () => {
+    // The bar's own background — the gaps between slots and the air above the
+    // tabs, which hang from its foot — is what a person grabs. If the bar
+    // itself ever stopped being `drag`, the top edge would be dead.
+    installMacShell();
+    const mounted = mountFrame(1400);
+    expect(appRegionOf(mounted.find("app-top-bar")!)).toBe("drag");
+    mounted.unmount();
+  });
+
+  test("a Mac shell at compact: the phone bar refuses the job, and says so", () => {
+    /*
+      `topBarCompact` is absolute, transparent and lying over the note. A
+      console window narrowed past `narrowBreakpoint` is this layout on a Mac,
+      so the band above the app has to come back — and it only can if the
+      frame stops claiming it.
+    */
+    installMacShell();
+    const mounted = mountFrame(390);
+
+    const bar = mounted.find("app-top-bar");
+    expect(styleOf(bar!, "padding-left")).not.toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
+    expect(appRegionOf(bar!)).toBeNull();
+    expect(topChromeHoldsLights()).toBe(false);
+
+    mounted.unmount();
+  });
+
+  test("NARROWING A SHELL WINDOW HANDS THE JOB BACK, AND WIDENING TAKES IT AGAIN", () => {
+    installMacShell();
+    const mounted = mountFrame(1400);
+    expect(topChromeHoldsLights()).toBe(true);
+
+    mounted.resize(390);
+    expect(topChromeHoldsLights()).toBe(false);
+    expect(appRegionOf(mounted.find("app-top-bar")!)).toBeNull();
+
+    mounted.resize(1400);
+    expect(topChromeHoldsLights()).toBe(true);
+    expect(styleOf(mounted.find("app-top-bar")!, "padding-left")).toBe(
+      `${SHELL_TITLE_BAND_LEAD_PX}px`,
+    );
+
+    mounted.unmount();
+  });
+
+  test("the frame leaving gives the job back, so the next route gets its band", () => {
+    installMacShell();
+    const mounted = mountFrame(1400);
+    expect(topChromeHoldsLights()).toBe(true);
+    mounted.unmount();
+    expect(topChromeHoldsLights()).toBe(false);
+  });
+
+  test("AN ORDINARY BROWSER TAB PAYS NOTHING — no lead, no drag region", () => {
+    // There are no buttons to clear and no window to drag. 84pt of leading
+    // inset here would be 84pt of nothing, on every desktop browser.
+    removeShell();
+    const mounted = mountFrame(1400);
+
+    const bar = mounted.find("app-top-bar");
+    expect(styleOf(bar!, "padding-left")).not.toBe(`${SHELL_TITLE_BAND_LEAD_PX}px`);
+    expect(appRegionOf(bar!)).toBeNull();
+    expect(topChromeHoldsLights()).toBe(false);
+
+    mounted.unmount();
   });
 });

@@ -68,3 +68,51 @@ export function shellTitleBandPx(
 ): number {
   return shouldShowShellTitleBand(platformOS, shellPlatform) ? bandPx : 0;
 }
+
+/**
+ * Whether the *root* band draws, given that a route below it may have taken
+ * the job.
+ *
+ * The platform gate above, and then one more question: has anything on screen
+ * said it holds the buttons itself? `topChrome.ts` is the handshake and its
+ * header is the argument; this is the half of it that is a rule rather than a
+ * store, here rather than inside the component for the reason stated at the
+ * top of this file.
+ *
+ * **Order matters, and only one way round is safe.** A route publishing "I
+ * hold them" on a platform that has no buttons at all must not be able to
+ * suppress anything, because there is nothing to suppress and the flag is the
+ * frame's opinion about a shell it may not be inside. So the platform gate is
+ * asked first and the flag can only ever take a band *away* — never put one
+ * where `shouldShowShellTitleBand` said there is none.
+ */
+export function shellBandDraws(
+  platformOS: string,
+  shellPlatform: string | null | undefined,
+  chromeHoldsLights: boolean,
+): boolean {
+  if (!shouldShowShellTitleBand(platformOS, shellPlatform)) return false;
+  return !chromeHoldsLights;
+}
+
+/**
+ * How much room a bar holding the buttons itself owes at its leading edge.
+ *
+ * Zero unless this really is a Mac inside the shell *and* the caller is the
+ * chrome that took the job — a bar that pays 84pt of leading inset in an
+ * ordinary browser tab is 84pt of nothing, and that is the failure this
+ * function exists to make impossible to write by hand at the call site.
+ *
+ * The same shape as `shellTitleBandPx` above, and for the same reason: the
+ * constant stays `@context/desktop-bridge`'s to change, and the rule stays
+ * testable without a bridge, a `Platform` mock or a rendered tree.
+ */
+export function shellLightsLeadPx(
+  platformOS: string,
+  shellPlatform: string | null | undefined,
+  chromeHoldsLights: boolean,
+  leadPx: number,
+): number {
+  if (!shouldShowShellTitleBand(platformOS, shellPlatform)) return 0;
+  return chromeHoldsLights ? leadPx : 0;
+}

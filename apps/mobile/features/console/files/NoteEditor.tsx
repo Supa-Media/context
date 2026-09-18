@@ -127,6 +127,9 @@ export function NoteEditor({
   onVoteForm,
   onUpdateFormResponse,
   onRetractFormResponse,
+  onLoadImage,
+  onStoreImage,
+  onImageProblem,
   encryption,
 }: {
   state: EditorState;
@@ -165,6 +168,15 @@ export function NoteEditor({
   onVoteForm?: (vote: FormVote) => Promise<FormOutcome>;
   onUpdateFormResponse?: (change: FormResponseUpdate) => Promise<FormOutcome>;
   onRetractFormResponse?: (change: FormResponseRetract) => Promise<FormOutcome>;
+  /** The bytes behind an image this note embeds. See `LiveEditorProps`. */
+  onLoadImage?: (target: string) => Promise<string | null>;
+  /** Store a pasted image and answer with the key to embed. */
+  onStoreImage?: (image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }) => Promise<{ target: string } | { error: string }>;
+  /** Say a refused paste out loud. */
+  onImageProblem?: (message: string) => void;
   /**
    * Who can read this note, as the access map answers it — a Properties row.
    *
@@ -784,6 +796,9 @@ export function NoteEditor({
             onVoteForm={onVoteForm}
             onUpdateFormResponse={onUpdateFormResponse}
             onRetractFormResponse={onRetractFormResponse}
+            onLoadImage={onLoadImage}
+            onStoreImage={onStoreImage}
+            onImageProblem={onImageProblem}
           />
           {pressed === null || onOpenLink === undefined ? null : (
             <Confirm

@@ -36,6 +36,7 @@ import {
 } from "../editorSetup";
 import type { NoteLinkRef } from "../noteLinks";
 import type { FormHostRef } from "../formBlock";
+import type { ImageHostRef } from "../imageBlock";
 import { pluginSuggestSource, type PluginSuggestRef } from "../pluginSuggest";
 import {
   PROTOCOL_VERSION,
@@ -294,6 +295,66 @@ export function mountGuest(
   let formToken = 0;
 
   /**
+   * The images this note is waiting on, and the pastes in flight.
+   *
+   * Same arrangement as the forms above, for the same reason: a note can hold
+   * several images and they all load at once, so each reply carries the token of
+   * its request. A row asks again on every rebuild, so the host is the thing
+   * that caches — the guest holds no bytes beyond the `<img>` that is showing
+   * them.
+   */
+  const pendingImages = new Map<string, (src: string | null) => void>();
+  const pendingStores = new Map<
+    string,
+    (outcome: { target: string } | { error: string }) => void
+  >();
+  let imageToken = 0;
+
+  /** Base64 for the bridge, chunked so a large paste cannot blow the stack. */
+  const base64Of = (bytes: ArrayBuffer): string => {
+    const view = new Uint8Array(bytes);
+    let binary = "";
+    const CHUNK = 0x8000;
+    for (let index = 0; index < view.length; index += CHUNK) {
+      binary += String.fromCharCode(...view.subarray(index, index + CHUNK));
+    }
+    return btoa(binary);
+  };
+
+  /**
+   * Images, over the bridge.
+   *
+   * `load` resolves to whatever the host says, `null` included: a host that
+   * cannot find the image is the same answer as a surface that has no bucket,
+   * and the row draws its own absence either way. Neither call times out, for
+   * the reason the forms above give — the host replies on every branch, and a
+   * host that does not is a bug in the host rather than something to paper over
+   * with a spinner that gives up.
+   */
+  const images: ImageHostRef = {
+    current: {
+      load: (target) =>
+        new Promise((resolve) => {
+          const token = `i${++imageToken}`;
+          pendingImages.set(token, resolve);
+          bridge.post({ v: PROTOCOL_VERSION, type: "image-load", token, target });
+        }),
+      upload: (image) =>
+        new Promise((resolve) => {
+          const token = `s${++imageToken}`;
+          pendingStores.set(token, resolve);
+          bridge.post({
+            v: PROTOCOL_VERSION,
+            type: "image-store",
+            token,
+            bytes: base64Of(image.bytes),
+            contentType: image.contentType,
+          });
+        }),
+    },
+  };
+
+  /**
    * Send one filled-in form to the host and wait for its answer.
    *
    * The promise is deliberately one that **can stay pending**: there is no
@@ -386,6 +447,7 @@ export function mountGuest(
       handlers,
       links,
       forms,
+      images,
       /*
         Always installed, never conditional. The source is the thing that reads
         `suggests` at call time; installing it only when a plugin happened to be
@@ -532,6 +594,24 @@ export function mountGuest(
         // again cannot be answered by this same entry.
         pendingForms.delete(message.token);
         settle?.({ ok: message.ok, message: message.message });
+        return;
+      }
+      case "image-loaded": {
+        const settle = pendingImages.get(message.token);
+        // Deleted before the callback runs, as `form-result` is and for the
+        // same reason.
+        pendingImages.delete(message.token);
+        settle?.(typeof message.src === "string" ? message.src : null);
+        return;
+      }
+      case "image-stored": {
+        const settle = pendingStores.get(message.token);
+        pendingStores.delete(message.token);
+        settle?.(
+          typeof message.target === "string"
+            ? { target: message.target }
+            : { error: message.error ?? "That image could not be stored." },
+        );
         return;
       }
       case "form-responses-result": {

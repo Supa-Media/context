@@ -111,6 +111,8 @@ export function LiveEditor({
   onRetractFormResponse,
   onSuggest,
   onPickSuggestion,
+  onLoadImage,
+  onStoreImage,
 }: LiveEditorProps) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -175,6 +177,8 @@ export function LiveEditor({
     onRetractFormResponse,
     onSuggest,
     onPickSuggestion,
+    onLoadImage,
+    onStoreImage,
   });
   handlers.current = {
     onChange,
@@ -192,6 +196,8 @@ export function LiveEditor({
     onRetractFormResponse,
     onSuggest,
     onPickSuggestion,
+    onLoadImage,
+    onStoreImage,
   };
 
   /**
@@ -302,6 +308,16 @@ export function LiveEditor({
           onRetractFormResponse: (change) =>
             handlers.current.onRetractFormResponse?.(change) ??
             Promise.resolve({ ok: false, message: "Deleting is unavailable here." }),
+          /*
+            Images, off the ref like every other sink here. `null` rather than a
+            message when this surface has no bucket: the row inside the guest
+            draws its own absence, and there is no button waiting on a sentence.
+          */
+          onLoadImage: (target) =>
+            handlers.current.onLoadImage?.(target) ?? Promise.resolve(null),
+          onStoreImage: (image) =>
+            handlers.current.onStoreImage?.(image) ??
+            Promise.resolve({ error: "Images can’t be added here." }),
           /*
             Off the ref for the reason every callback here is, and with a
             sharper consequence than most: `askSuggestions` is rebuilt whenever

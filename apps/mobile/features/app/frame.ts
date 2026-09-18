@@ -407,6 +407,32 @@ export function topBarLeadFor(density: Density): "switcher" | "account" {
 }
 
 /**
+ * Whether the top bar can hold the desktop shell's traffic lights itself,
+ * instead of an empty band above the whole app reserving room for them.
+ *
+ * A density question rather than a platform one — the platform half is
+ * `shellTitleBand.ts`'s and stays there. What is asked here is only whether
+ * the bar on screen at this width is the kind of object that can carry three
+ * OS buttons at its leading edge:
+ *
+ *  - `medium` and `wide` — yes. The bar is a real region with a surface of its
+ *    own, exactly `SHELL_TITLE_BAND_PX` tall, and its leading element is a
+ *    chip that can start 84pt in.
+ *  - `compact` — no, and this is the case the handshake exists for. The phone
+ *    bar is `position: "absolute"`, transparent, and lying *over* a document
+ *    that scrolls under it (see `topBarCompact`): buttons placed in it would
+ *    sit on the note. A console window narrowed past `narrowBreakpoint` is
+ *    this layout on a Mac, so it is reachable by dragging an edge and not
+ *    only by owning a phone.
+ *
+ * The frame publishes the answer through `topChrome.ts` and the root band
+ * stands down for it; nothing here knows or asks whether there is a shell.
+ */
+export function lightsInBarFor(density: Density): boolean {
+  return density !== "compact";
+}
+
+/**
  * How wide a document column is — the note's own measure, in points.
  *
  * `layout.readingMeasureEm` is a multiple of the note's type size rather than

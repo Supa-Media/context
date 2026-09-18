@@ -217,6 +217,7 @@ import {
   importVaultFiles,
   writeImage,
   readImage,
+  pasteImageLeaf,
 } from "./lib/fileOps";
 import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
 import {
@@ -339,6 +340,7 @@ const imageValidator = v.object({
   kind: v.literal("image"),
   bytes: v.bytes(),
 });
+
 
 const pluginVerdictValidator = v.union(
   v.literal("runs"),
@@ -4638,6 +4640,134 @@ function validateVaultImportPlan(args: {
  * completed batch numbers, so a closed tab can reselect the same vault and
  * avoid sending batches that already finished.
  */
+/* -------------------------------------------------------------------------- */
+/*                    a pasted image, in and back out again                    */
+/* -------------------------------------------------------------------------- */
+
+/** Sixteen hex characters of SHA-256, which is what names the object. */
+async function contentHash(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+}
+
+/**
+ * Store an image somebody pasted into a note.
+ *
+ * **Editor or owner**, because this writes to the bucket; `member` is read
+ * access and a paste is not a read. Nothing about the note is consulted: the
+ * caller may already write every note in this context, so gating the *image* on
+ * one particular note would be a check that refuses nothing and implies a
+ * guarantee this does not make.
+ *
+ * The name is ours to choose and not the caller's, which is the security half:
+ * a client-supplied leaf is a path to argue about, and this one is derived from
+ * the bytes. `writeImage` still applies the gateway's own leaf rule to whatever
+ * comes out, so a careless change to the derivation is refused rather than
+ * writing a key `read_image` could never name.
+ */
+export const storeNoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  },
+  returns: v.object({ leaf: v.string() }),
+  handler: async (ctx, args): Promise<{ leaf: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "editor" },
+    );
+    const leaf = pasteImageLeaf({
+      hash: await contentHash(args.bytes),
+      contentType: args.contentType,
+    });
+    await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "writeImage",
+        leaf,
+        bytes: args.bytes,
+        contentType: args.contentType,
+      },
+    });
+    return { leaf };
+  },
+});
+
+/**
+ * Read a pasted image back, for a note that references it.
+ *
+ * **The reference is the gate, and it is the gateway's own.** An image has no
+ * visibility of its own — it borrows the visibility of the notes that point at
+ * it — so the question this asks is the question `read_image` asks: is there a
+ * note *this caller can see* that names this file? The note is read through the
+ * same `read` operation the editor uses, so `canSee` and `privacy.md` answer
+ * exactly once, in the place they already answer for note text.
+ *
+ * A caller who can see no such note gets `FILE_NOT_FOUND` — the same error as
+ * for an image that was never written, so this cannot be used to learn that one
+ * exists. A `member` therefore cannot pull an image out of a private note by
+ * naming its leaf, which is the isolation case worth a test rather than a
+ * comment.
+ *
+ * Deliberately broad about what "references" means: any mention of the leaf
+ * anywhere in the note. These notes are edited in Obsidian, in rclone and by
+ * hand, and the failure mode of a strict rule ("must be a markdown embed") is an
+ * image that silently stops loading in the app after somebody reformatted a
+ * line.
+ */
+export const readNoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notePath: v.string(),
+    leaf: v.string(),
+  },
+  returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const note = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "read", path: args.notePath },
+    })) as Extract<OperationResult, { kind: "file" }>;
+    if (!note.text.includes(args.leaf)) {
+      throw new ConvexError({
+        code: "FILE_NOT_FOUND",
+        message: "No note you can see references that image.",
+      });
+    }
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readImage", leaf: args.leaf },
+    })) as Extract<OperationResult, { kind: "image" }>;
+    /*
+      The type comes from the extension rather than from the store, because an
+      adapter is not obliged to hand one back and a picture served as
+      `application/octet-stream` is a download rather than an image. The leaf has
+      already been through `readImage`'s own gate by this point, so the extension
+      here is one of the set.
+    */
+    const extension = args.leaf.slice(args.leaf.lastIndexOf(".") + 1).toLowerCase();
+    return {
+      bytes: result.bytes,
+      contentType: extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`,
+    };
+  },
+});
+
 export const startVaultImport = mutation({
   args: {
     workspaceId: v.id("workspaces"),

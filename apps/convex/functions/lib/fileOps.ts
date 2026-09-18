@@ -4627,6 +4627,52 @@ export async function readImage(store: FileStore, leaf: string): Promise<ArrayBu
   return await reader.arrayBuffer();
 }
 
+/* -------------------------------------------------------------------------- */
+/*                      an image somebody pasted into a note                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The leaf a pasted image is stored under, inside `IMAGE_PREFIX`.
+ *
+ * **It goes in the opaque store with everything else, and that reverses the
+ * first version of this feature**, which put pastes in a visible
+ * `attachments/<YYYY>/<MM>/` folder so the embed would resolve in Obsidian. The
+ * owner's call, and the reasons are good ones: one image store rather than two,
+ * nothing new in the listing, the file tree stays the customer's own folders,
+ * and `read_image` already serves this prefix — so an agent can fetch a pasted
+ * image, which the visible folder could not offer without widening
+ * `imageRefFor`. What it costs is stated rather than hidden: Obsidian skips
+ * dot-folders, so the embed draws as a broken link there until this product
+ * writes an Obsidian-side resolver or the file is exported.
+ *
+ * The name is the content hash, which buys the same three things it always did:
+ * the same paste in three notes is one object, a retried upload overwrites
+ * itself rather than leaving `-1` behind, and a clipboard with no filename needs
+ * no invented one. `paste-` in front so a person looking at the store can see
+ * where an object came from, and because `writeImage`'s leaf rule wants an
+ * alphanumeric first character.
+ */
+const PASTE_EXTENSIONS = new Map<string, string>([
+  ["image/png", "png"],
+  ["image/jpeg", "jpg"],
+  ["image/gif", "gif"],
+  ["image/webp", "webp"],
+  ["image/heic", "heic"],
+  ["image/heif", "heif"],
+]);
+
+export function pasteImageLeaf(options: { hash: string; contentType: string }): string {
+  const extension = PASTE_EXTENSIONS.get(options.contentType);
+  if (extension === undefined) {
+    throw new FileOpError("PATH_INVALID", "That is not an image type this store accepts.");
+  }
+  const hash = options.hash.toLowerCase().replace(/[^a-f0-9]/g, "").slice(0, 16);
+  if (hash.length < 8) {
+    throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
+  }
+  return `paste-${hash}.${extension}`;
+}
+
 /** One console search result: a path the caller may see, and lines from it. */
 export interface SearchHit {
   path: string;

@@ -51,6 +51,19 @@ import {
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { FormWidget, formFences, formHost } from "./formBlock";
 /*
+  Images are a separate module for the reason `formBlock.ts` is one: the grammar
+  and the gestures are testable without a tree, and this file is already the
+  longest in the console. What lands here is only the two things that have to be
+  decided in one place — which lines the reveal rule hides, and that a block
+  widget's range is nobody else's to decorate.
+*/
+import {
+  imageRowDecoration,
+  imageRows,
+  imageHost,
+  type ImageRow,
+} from "./imageBlock";
+/*
   The gateway's own inverse of what it writes into a response cell. Imported
   rather than reimplemented for the reason `formBlock.ts`'s header gives about
   the grammar: a second copy of this is a second answer that can disagree, and
@@ -2139,9 +2152,22 @@ export function decorationsFor(state: EditorState): DecorationSet {
     for forms.
   */
   const forms = formFences(state, frontEnd);
+  /*
+    A line that is nothing but image embeds is drawn as the images — see
+    `imageRows`. Third in the list of block replacements and under the same rule
+    as the other two: the passes below keep out of the range it swallows, and it
+    withdraws the moment the selection reaches the line, because a width you
+    cannot see is a width you cannot edit by hand.
+  */
+  const rows: ImageRow[] = imageRows(
+    state,
+    (range) => selectionTouches(range, selection),
+    frontEnd,
+  );
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
     forms.some((form) => pos >= form.from && pos < form.to) ||
+    rows.some((row) => pos >= row.from && pos < row.to) ||
     insideGrid(pos);
 
   /*
@@ -2232,6 +2258,18 @@ export function decorationsFor(state: EditorState): DecorationSet {
         widget: new FormWidget(form, host),
         block: true,
       }).range(form.from, form.to),
+    );
+  }
+
+  /*
+    The images. `editable` comes off the state's own `readOnly` facet rather
+    than from a second flag: a viewer who may not write the note gets the row
+    drawn and no handles at all, which is `editability`'s rule about a control
+    that would only ever fail.
+  */
+  for (const row of rows) {
+    hides.push(
+      imageRowDecoration(row, state.facet(imageHost), !state.readOnly).range(row.from, row.to),
     );
   }
 
@@ -3164,4 +3202,120 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 .cm-lp-form-broken-title { font-weight: 600; color: var(--lp-content); }
 .cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }
 .cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }
+/*
+  IMAGES IN A NOTE — a row, its resize handles and its alignment bar.
+
+  Two things here are not cosmetic. The handle is transparent until the row is
+  hovered or the button is focused, because an image with a permanent grab tab
+  on it reads as a form control rather than as a picture — and it is a real
+  button element, so focus-visible is what keeps it reachable without a pointer.
+  And the image itself is painted on the code wash rather than on nothing, so a
+  PNG with transparency has a ground in dark mode: an image keeps its own
+  background here, the same argument previewDocument makes.
+*/
+.cm-lp-images {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 10px 0;
+  position: relative;
+}
+.cm-lp-image {
+  position: relative;
+  margin: 0;
+  max-width: 100%;
+  min-width: 96px;
+  flex: 0 1 auto;
+}
+.cm-lp-image-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  background: var(--lp-code-bg);
+}
+.cm-lp-image-handle {
+  position: absolute;
+  right: -7px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--lp-link);
+  opacity: 0;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.cm-lp-images:hover .cm-lp-image-handle,
+.cm-lp-image-handle:focus-visible {
+  opacity: 1;
+}
+.cm-lp-image-bar {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  opacity: 0;
+}
+.cm-lp-images:hover .cm-lp-image-bar,
+.cm-lp-image-bar:focus-within {
+  opacity: 1;
+}
+.cm-lp-image-align {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+.cm-lp-image-align-on {
+  background: var(--lp-link);
+  border-color: var(--lp-link);
+}
+.cm-lp-image-grip {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--lp-code-bg);
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.cm-lp-images:hover .cm-lp-image-grip,
+.cm-lp-image-grip:focus-visible {
+  opacity: 1;
+}
+.cm-lp-image-moving {
+  opacity: 0.5;
+}
+/*
+  Where the line will land. Drawn in the scroller rather than in the row,
+  because the drop can be anywhere in the note and a caret parented to the image
+  would be clipped by it.
+*/
+.cm-lp-image-caret {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--lp-link);
+  pointer-events: none;
+}
+.cm-lp-image-missing {
+  display: block;
+  font-family: var(--lp-mono);
+  font-size: 0.85em;
+  color: var(--lp-muted);
+  padding: 6px 0;
+}
 `;
