@@ -211,6 +211,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A folder row says what differs, so `0-inbox` gets no count
 - "Move to…" is one dialog, and the other context is a destination rather than a mode
 - Settings is seven rows, and a row has to earn its place
+- A pasted image is a width in the note and a file in the bucket, and nothing else
 
 ## [Meetings](./meetings.md)
 
