@@ -126,7 +126,8 @@ describe("an error is recoverable without the credential", () => {
     expect(healed?.capabilities).toEqual({
       conditionalWrite: true,
       conditionalCreate: true,
-      conditionalDelete: false,
+      conditionalDelete: true,
+      serverSideCopy: true,
     });
   });
 

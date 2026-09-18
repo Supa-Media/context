@@ -191,7 +191,15 @@ function withProbedCapabilities(store, binding) {
   const declaredDelete = store?.capabilities?.conditionalDelete === true;
   const probedDelete = binding.capabilities?.conditionalDelete === true;
   const declaredCopy = store?.capabilities?.serverSideCopy === "same-store";
-  const probedCopy = binding.capabilities?.serverSideCopy === "same-store";
+  // `"same-store"` is the *probe's* vocabulary; the control plane stores a
+  // boolean (`capabilities.serverSideCopy`), because nothing yet distinguishes
+  // a second kind of copy. Accept both, or a row written by a control plane
+  // that speaks either one silently loses the capability — which is how this
+  // was found: the field was probed, never persisted, and read back as
+  // `undefined` for every binding on every provider since #374.
+  const probedCopy =
+    binding.capabilities?.serverSideCopy === "same-store" ||
+    binding.capabilities?.serverSideCopy === true;
   store.capabilities = {
     ...store.capabilities,
     conditionalWrite: declaredWrite && probedWrite,

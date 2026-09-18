@@ -159,6 +159,14 @@ export interface VerificationOutcome {
   conditionalWrite: boolean;
   conditionalCreate?: boolean;
   conditionalDelete?: boolean;
+  /**
+   * Whether the bucket enforced both preconditions of a same-store copy.
+   *
+   * Absent means the probe never got that far, never absent-means-false: the
+   * row's field is optional for the same reason and `sweepUnprobedCapabilities`
+   * is what fills it in for a binding older than the field.
+   */
+  serverSideCopy?: boolean;
   scaffolded: boolean;
   scaffoldReason: ScaffoldState;
   /**
@@ -295,6 +303,7 @@ export const verifyStorageBinding = internalAction({
     conditionalWrite: v.boolean(),
     conditionalCreate: v.optional(v.boolean()),
     conditionalDelete: v.optional(v.boolean()),
+    serverSideCopy: v.optional(v.boolean()),
     scaffolded: v.boolean(),
     scaffoldReason: v.string(),
     scaffoldMissing: v.optional(v.array(v.string())),
@@ -429,6 +438,7 @@ export const verifyStorageBinding = internalAction({
         conditionalWrite: summary.capabilities.conditionalWrite,
         conditionalCreate: summary.capabilities.conditionalCreate,
         conditionalDelete: summary.capabilities.conditionalDelete,
+        serverSideCopy: summary.capabilities.serverSideCopy,
         scaffolded: false,
         scaffoldReason: "not-attempted",
         error: redactSecrets(summary.error ?? "Verification failed.", secrets),
@@ -486,6 +496,7 @@ export const verifyStorageBinding = internalAction({
       conditionalWrite: summary.capabilities.conditionalWrite,
       conditionalCreate: summary.capabilities.conditionalCreate,
       conditionalDelete: summary.capabilities.conditionalDelete,
+      serverSideCopy: summary.capabilities.serverSideCopy,
       scaffolded,
       scaffoldReason,
       scaffoldMissing,
@@ -587,6 +598,7 @@ async function record(
         conditionalWrite: outcome.conditionalWrite,
         conditionalCreate: outcome.conditionalCreate ?? false,
         conditionalDelete: outcome.conditionalDelete ?? false,
+        serverSideCopy: outcome.serverSideCopy ?? false,
       },
       error,
       errorCode: outcome.errorCode,

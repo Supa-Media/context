@@ -91,14 +91,37 @@ const providerValidator = v.union(
  * failure mode a notes product cannot have.
  */
 function initialCapabilities(): StorageCapabilities {
-  return { conditionalWrite: false, conditionalCreate: false, conditionalDelete: false };
+  return {
+    conditionalWrite: false,
+    conditionalCreate: false,
+    conditionalDelete: false,
+    serverSideCopy: false,
+  };
 }
 
 export interface StorageCapabilities {
   conditionalWrite: boolean;
   conditionalCreate?: boolean;
   conditionalDelete?: boolean;
+  serverSideCopy?: boolean;
 }
+
+/**
+ * The capability object, once, for every validator that carries it.
+ *
+ * It was restated in four places — `recordVerification`, the sealed-row query,
+ * the gateway credential union (twice) and the console's binding view — and a
+ * field added to the schema and to three of the five is a field the gateway
+ * never sees, which is a silent capability loss rather than a type error.
+ * `serverSideCopy` was added as exactly that: probed since #374, in the schema
+ * from this change, and worth nothing until every hop below carries it.
+ */
+export const capabilitiesValidator = v.object({
+  conditionalWrite: v.boolean(),
+  conditionalCreate: v.optional(v.boolean()),
+  conditionalDelete: v.optional(v.boolean()),
+  serverSideCopy: v.optional(v.boolean()),
+});
 
 /** What the binding write returns. Named so the action can annotate itself. */
 export interface BindingResult {
@@ -831,11 +854,7 @@ export const recordVerification = internalMutation({
   args: {
     workspaceId: v.id("workspaces"),
     ok: v.boolean(),
-    capabilities: v.optional(v.object({
-      conditionalWrite: v.boolean(),
-      conditionalCreate: v.optional(v.boolean()),
-      conditionalDelete: v.optional(v.boolean()),
-    })),
+    capabilities: v.optional(capabilitiesValidator),
     error: v.optional(v.string()),
     /**
      * The machine-readable companion to `error`. See the schema's `errorCode`
@@ -1079,7 +1098,7 @@ export const getBindingRow = internalQuery({
       accessTokenExpiresAt: v.optional(v.number()),
       dropboxAccountId: v.optional(v.string()),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
   ),
@@ -1144,14 +1163,14 @@ export const getBindingForGateway = internalAction({
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
     v.object({
       provider: v.literal("dropbox"),
       accessToken: v.string(),
       rootPrefix: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
   ),
@@ -2164,7 +2183,7 @@ export const getStorageBinding = query({
        * console never caches the account it showed last.
        */
       dropboxAccountId: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
       lastVerifiedAt: v.optional(v.number()),
       lastError: v.optional(v.string()),
@@ -2502,6 +2521,118 @@ export const reverifyStorage = mutation({
     });
 
     return { queued: true, status: binding.status };
+  },
+});
+
+/** Bindings one sweep may re-probe. Matches the other sweeps in `crons.ts`. */
+export const CAPABILITY_SWEEP_BATCH = 20;
+
+/**
+ * Re-probe a binding that predates a capability field, so the field reaches it.
+ *
+ * ## The failure this repairs
+ *
+ * `capabilities` held one boolean until 2026-09-12. `conditionalCreate` and
+ * `conditionalDelete` were added that day as optional fields, and nothing went
+ * back for the rows that already existed. The gateway reads
+ * `declared && probed` (`store/factory.js`) and cannot distinguish "probed
+ * false" from "never asked", so it fails closed on both — correctly, and that
+ * rule is not what changes here. The consequence was that every binding older
+ * than that date reported no conditional delete, `moveSafetyRefusal` turned
+ * every `move_note`, `move_notes`, `move_folder` and cross-context move into a
+ * refusal quoting the storage provider, and the bucket underneath was R2,
+ * which has supported all of it the whole time. Nothing re-asked: there is no
+ * storage job in `crons.ts`, and `reverifyStorage` needs an owner to press a
+ * button for a fault they cannot see and would not guess at.
+ *
+ * ## Why this is a sweep and not a one-shot migration
+ *
+ * A one-shot repairs today's rows and leaves the next optional capability to
+ * be found by a customer again. The predicate is "any capability field this
+ * deployment knows about is absent from this row", so a field added tomorrow
+ * is backfilled by the same job without anybody remembering to write one.
+ * That is also why it is bounded and self-terminating: once every row carries
+ * every field it matches nothing, costs one indexless scan an hour, and stays
+ * quiet until the schema grows again.
+ *
+ * ## What `crons.ts` requires of a job that acts outside this database
+ *
+ * It holds no decision. Whether this binding may be probed at all, whether its
+ * credential still opens, and what the bucket actually enforces are re-asked
+ * by `verifyStorageBinding` at the moment it runs, against the row as it then
+ * stands — this only decides *when to look*, and it looks exactly once per
+ * row per missing field.
+ *
+ * It does reach a customer's bucket, and that is the part worth stating rather
+ * than filing quietly: `probeStore` writes and deletes objects under
+ * `.context/`, never note surface, and cleans up after itself. That is the
+ * same probe the owner's own reconnect runs. What it must never do is carry a
+ * `structure` argument — that would scaffold — so it passes none, which makes
+ * this a look-only verification.
+ *
+ * Restricted to `connected` rows: an `error` or `unverified` binding has an
+ * owner already being told to act, and re-probing a credential the provider
+ * has revoked on an hourly clock is noise against somebody else's endpoint.
+ *
+ * ## The scan is indexless, and that is a bound worth naming
+ *
+ * "Is a field absent" is not something an index answers, so this reads
+ * `storageBindings` — one row per workspace that has storage — and stops at
+ * the first `CAPABILITY_SWEEP_BATCH` matches. Once every row is repaired it
+ * matches nothing and reads the table in full, hourly, for nothing.
+ *
+ * That is affordable at this deployment's size and it is **not** affordable
+ * forever: a Convex transaction may read on the order of ten thousand
+ * documents, so a deployment past that many bindings turns this into an hourly
+ * error. It fails loudly rather than silently, which is the tolerable
+ * direction, and the remedy when it happens is to make the predicate indexed —
+ * a `capabilitiesProbedVersion` on the row, bumped when a capability is added,
+ * read through a range index — rather than to raise the batch. Stated here so
+ * the next person meets the limit as a decision instead of as an incident.
+ */
+export const sweepUnprobedCapabilities = internalMutation({
+  args: {},
+  returns: v.object({ queued: v.number() }),
+  handler: async (ctx): Promise<{ queued: number }> => {
+    const rows = await ctx.db
+      .query("storageBindings")
+      // Bounded, like every other sweep: a backlog drains over several runs
+      // rather than in one transaction big enough to hit a limit. The filter
+      // runs before the take, so a deployment whose first twenty rows are
+      // already repaired still reaches the twenty-first.
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("status"), "connected"),
+          q.or(
+            q.eq(q.field("capabilities.conditionalCreate"), undefined),
+            q.eq(q.field("capabilities.conditionalDelete"), undefined),
+            q.eq(q.field("capabilities.serverSideCopy"), undefined),
+          ),
+        ),
+      )
+      .take(CAPABILITY_SWEEP_BATCH);
+
+    for (const row of rows) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.functions.provisioning.verifyStorageBinding,
+        // No `actorUserId`: nobody asked for this one. No `structure`: a
+        // verification carrying one scaffolds, and this is a look.
+        { workspaceId: row.workspaceId },
+      );
+      // Audited with no actor, which is the honest record of a system action.
+      // `verifyStorageBinding` writes no audit of its own — the owner-facing
+      // `reverifyStorage` is what audits a probe somebody asked for — so
+      // without this the owner would find probe objects appearing and
+      // disappearing under `.context/` in a bucket they are told they own,
+      // with nothing in their trail that accounts for it.
+      await recordAudit(ctx, {
+        workspaceId: row.workspaceId,
+        action: "storage.capability_reprobe_queued",
+        details: { fromStatus: row.status },
+      });
+    }
+    return { queued: rows.length };
   },
 });
 

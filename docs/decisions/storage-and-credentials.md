@@ -902,6 +902,72 @@ rebind clear was written to prevent. `apps/mcp/test/storageLayout.test.mjs`
 `apps/convex/__tests__/storage.test.ts`, and two checks in
 `apps/mobile/__tests__/storageMigrationEntry.test.ts` fail.
 
+## The same absence, in the capability column, made after the rule was written
+
+`capabilities` is the section above happening a second time, in a column whose
+absence disables a feature rather than offering one — and it shipped *after*
+that argument was recorded, which is the part worth keeping.
+
+`storageBindings.capabilities` held `conditionalWrite` alone until 2026-09-12,
+when `conditionalCreate` and `conditionalDelete` joined it as optional fields
+and nothing went back for the rows that already existed. The gateway composes
+`declared && probed` (`store/factory.js`) and **must** fail closed on an
+unproven capability: a binding that claims conditional writes it does not have
+loses somebody's edit silently, which is the one failure a notes product cannot
+have. That rule is right and is not what was wrong. What was wrong is that
+absent and `false` arrived at it as the same value, so every binding older than
+the field reported no conditional delete, `moveSafetyRefusal` refused every
+move in those workspaces, and the buckets underneath were R2 — which has
+supported conditional delete throughout. A paying customer found it, not a
+test.
+
+Nothing re-asked, and that is the structural half. There was no storage job in
+`crons.ts`, and `reverifyStorage` is a button an owner presses; asking somebody
+to press it requires them to know a capability exists, to know their row is
+missing it, and to connect that to a refusal whose text names their storage
+provider. `serverSideCopy` was the same fault one step further along: probed
+since #374 and never in the schema at all, so no re-verification could have
+filled it in and every move paid a full read-and-write round trip.
+
+**The read stays fail-closed; the write grows a backfill.** This is the
+opposite resolution to the section above, and deliberately so. There the
+question was recorded separately from the answer because *asking* is a `get`
+that any bucket can survive. Here asking is a probe that writes, reads and
+deletes under `.context/` — real work against somebody's endpoint — so the
+gateway is not the place to do it, and an `undefined` it cannot resolve must
+stay a refusal. `sweepUnprobedCapabilities` answers the question where a
+credential is already open: hourly, bounded, `connected` rows only, carrying no
+`structure` so it cannot scaffold, and audited with no actor because a probe
+the customer did not ask for still belongs in the trail of a bucket they own.
+
+**Adding a capability is adding a backfill, and the predicate is what makes
+that automatic.** The sweep matches on *any* known capability field being
+absent, never on `conditionalDelete` by name, so the next field reaches
+existing rows without anybody remembering this section. Its scan is indexless
+— absence is not a thing an index answers — which is affordable at one row per
+workspace with storage and stops being affordable past roughly ten thousand of
+them, where a Convex transaction can no longer read the table and the job
+becomes an hourly error. That is the loud direction, and the remedy is an
+indexed `capabilitiesProbedVersion` rather than a larger batch.
+
+**A capability observed only as `false` is a capability untested.** The reason
+this survived ten days is that the S3 stub ignored `If-Match` on DELETE and did
+not serve `x-amz-copy-source`, so no test ever ran against a backend that
+*has* these — every assertion agreed the answer was `false` and none of them
+could tell why. A probe is a claim about a backend, so its test needs the
+honest backend as much as the lying one.
+
+**What a simplification costs.** Letting the gateway treat absent as "probably
+fine" trades a refusal anybody can see for a lost write nobody can, which is
+the trade this whole file exists to refuse. Dropping the sweep leaves the
+repair to a button pressed by owners who cannot know they need it. Narrowing
+its predicate to the fields that are missing today guarantees the next
+capability is found by a customer again. Restoring a stub that ignores write
+preconditions makes every capability test vacuous in the direction that works.
+`apps/convex/__tests__/capabilityBackfill.test.ts`, the capability assertions in
+`provisioning.test.ts` and `reverifyStorage.test.ts`, and the two legacy-binding
+checks in `apps/mcp/test/storeFactory.test.mjs` fail.
+
 ## A verification snapshot is never read as live state
 
 `scaffoldReason`, `scaffolded`, `scaffoldMissing`, `noteCount`,
