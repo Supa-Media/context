@@ -996,6 +996,16 @@ than off `decision.action === "render"`. Those were the same value until this
 landed and are now different questions: a subscription opened on an unconfirmed
 identity is refused by `requireAuth` anyway, and the layout should not be asking.
 
+**Every gate a cold start passes through takes the same escape, not only the
+console's.** A phone always launches on `/`, and `resolveRootRoute` sat in front
+of `(app)/_layout` with a bare `wait` on `isLoading` — so this whole section was
+unreachable from the launch it was written for, and the phone showed a blank
+ground however many times it was relaunched. Every test drove the console's gate
+directly, and on the web `/` is the landing page, so nothing saw it. `/` now
+reads the same remembered session and sends it to `/console`; the console's gate
+still decides what renders. A new gate on the launch path that waits on
+`isLoading` must take `rememberedSession` too, or it reintroduces this.
+
 What a simplification of any of it costs: dropping the offline condition puts a
 memory where a round trip was going to answer; dropping the "server always wins"
 ordering makes a rename take a reconnection to appear; dropping the sign-out
