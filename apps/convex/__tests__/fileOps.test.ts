@@ -1143,6 +1143,24 @@ describe("copying and duplicating", () => {
 /* -------------------------------------------------------------------------- */
 
 describe("archiving is the recoverable one", () => {
+  test("archiving a note that is private only because of its folder does not publish it to a shared archive", async () => {
+    const store = bucket();
+    // An owner who shares their archive so the team can see what was retired.
+    // Nothing about that choice should reach into a private folder.
+    await setFolderVisibility(store, {
+      path: "4-archive",
+      visibility: "team",
+      clearance: clearanceOf("private"),
+    });
+    const archived = await archivePath(store, {
+      path: "2-areas/health.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee(archived.paths[0]!, "team", manifest.rules, manifest.overrides)).toBe(false);
+  });
+
   test("the note moves into 4-archive with its original path preserved", async () => {
     const store = bucket();
     const result = await archivePath(store, {
