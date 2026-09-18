@@ -14,7 +14,7 @@ import { writeClipboard } from "../../design/clipboard";
 import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
 import { ExplorerDialogs } from "../files/Explorer";
 import { itemsFor, type MenuTarget } from "../files/menu";
-import { ancestorsOf, baseName } from "../files/paths";
+import { ancestorsOf, baseName, withoutSortPrefix } from "../files/paths";
 import type { FolderMenu } from "../files/FolderView";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
@@ -385,7 +385,12 @@ export function BrowsePane({
    */
   const openCrumbMenu = useCallback(
     (folder: string, anchor: { x: number; y: number }) =>
-      openFolderTarget({ kind: "crumb", folder }, baseName(folder) || contextLabel, anchor),
+      openFolderTarget(
+        { kind: "crumb", folder },
+        // Titled the way the crumb it opened from is drawn — see `crumbsFor`.
+        withoutSortPrefix(baseName(folder)) || contextLabel,
+        anchor,
+      ),
     [openFolderTarget, contextLabel],
   );
 
@@ -398,22 +403,23 @@ export function BrowsePane({
    */
   const folderMenuFor = useCallback(
     (folder: string): FolderMenu => ({
-      onRow: (entry, anchor) =>
-        openFolderTarget(
-          {
-            kind: "row",
-            // The listing's own default, so the row's marker — which is what
-            // `menu.ts` reads to decide which visibility is in force — is the
-            // same one the tree would have computed for it.
-            row: treeRowFor(entry, files.listings[folder]?.folderDefault ?? "private"),
-          },
-          baseName(entry.path),
+      onRow: (entry, anchor) => {
+        // The listing's own default, so the row's marker — which is what
+        // `menu.ts` reads to decide which visibility is in force — is the same
+        // one the tree would have computed for it.
+        const row = treeRowFor(entry, files.listings[folder]?.folderDefault ?? "private");
+        // Named the way the row it came out of is — see `openMenu` in
+        // `Explorer.tsx`, which titles the tree's own menu the same way.
+        return openFolderTarget(
+          { kind: "row", row },
+          withoutSortPrefix(baseName(entry.path)),
           anchor,
-        ),
+        );
+      },
       onBackground: (anchor) =>
         openFolderTarget(
           { kind: "background", folder },
-          baseName(folder) || contextLabel,
+          withoutSortPrefix(baseName(folder)) || contextLabel,
           anchor,
         ),
     }),

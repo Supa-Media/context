@@ -29,7 +29,7 @@ import { FileTree, type TreeDragHandlers } from "./FileTree";
 import { itemsFor, type MenuActionId, type MenuTarget } from "./menu";
 import { runMenuAction, type ActionContext, type Dialog } from "./actions";
 import { useRightClick } from "./rightClick";
-import { baseName, parentPath } from "./paths";
+import { baseName, parentPath, withoutSortPrefix } from "./paths";
 import { itemsFromListings, rank } from "./palette";
 import { buildTreeRows, findEntry, targetFolder, type TreeRow } from "./tree";
 import type { AccessMember, AccessRow, RemovalRoute } from "./access";
@@ -343,8 +343,11 @@ export function Explorer({
 
   /** What `FileTree` hands up: a row and where the pointer was. */
   const openMenu = useCallback(
+    // Named without its sort number, the way the row it came out of is: a menu
+    // headed `1-projects` over a row reading `projects` is a menu the reader
+    // has to match up to the thing they just pressed.
     (row: TreeRow, anchor: { x: number; y: number }) =>
-      openTarget({ kind: "row", row }, baseName(row.path), anchor),
+      openTarget({ kind: "row", row }, withoutSortPrefix(baseName(row.path)), anchor),
     [openTarget],
   );
 
@@ -964,7 +967,7 @@ export function ExplorerDialogs({
     case "move":
       return (
         <MovePicker
-          title={`Move ${baseName(dialog.path)}`}
+          title={`Move ${withoutSortPrefix(baseName(dialog.path))}`}
           description={sharesBreakingWarning(files.shares, dialog.path, "Moving") ?? undefined}
           folders={loadedFolders(files.listings).filter(
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),

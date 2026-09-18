@@ -1015,8 +1015,10 @@ describe("what a note follows is named, because a verb cannot carry it", () => {
       menu({ kind: "row", row: note("1-projects/plan.md") }, { inherited: "team" }),
       "visibility",
     );
+    // The folder is named the way its own row and crumb name it, sort number
+    // dropped — see `followDetail`.
     expect(find(submenu?.items ?? [], "visibilityFollow")?.detail).toBe(
-      "Currently team — from 1-projects.",
+      "Currently team — from projects.",
     );
   });
 
@@ -1036,7 +1038,7 @@ describe("what a note follows is named, because a verb cannot carry it", () => {
       "visibility",
     );
     expect(find(submenu?.items ?? [], "visibilityFollow")?.detail).toBe(
-      "Currently @design — from 1-projects.",
+      "Currently @design — from projects.",
     );
   });
 

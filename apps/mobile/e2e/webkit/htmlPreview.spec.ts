@@ -34,7 +34,7 @@ async function openArchitectureMap(page: import("@playwright/test").Page): Promi
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
   await page.getByTestId("folder-row").first().waitFor();
-  await tap(page, "2-areas, folder");
+  await tap(page, "areas, folder");
   await tap(page, "architecture-map");
   await page.getByTestId("breadcrumb-leaf").waitFor();
 }

@@ -461,8 +461,19 @@ describe("tab labels", () => {
 
   test("two open notes with the same name each get their folder", () => {
     const state = pinned("1-projects/notes.md", "2-areas/notes.md");
-    expect(tabLabel(state, "1-projects/notes.md")).toBe("1-projects/notes");
-    expect(tabLabel(state, "2-areas/notes.md")).toBe("2-areas/notes");
+    // The qualifier is trimmed too: it exists to say *which* `notes`, and the
+    // sort number is not the answer to that question.
+    expect(tabLabel(state, "1-projects/notes.md")).toBe("projects/notes");
+    expect(tabLabel(state, "2-areas/notes.md")).toBe("areas/notes");
+  });
+
+  test("a sort number is dropped, and the collision test sees the same name", () => {
+    // `1-plan.md` and `plan.md` both draw as `plan`, so both have to be
+    // qualified — a collision test running on the untrimmed name would have
+    // left two tabs labelled `plan` side by side.
+    const state = pinned("1-projects/1-plan.md", "2-areas/plan.md");
+    expect(tabLabel(state, "1-projects/1-plan.md")).toBe("projects/plan");
+    expect(tabLabel(state, "2-areas/plan.md")).toBe("areas/plan");
   });
 
   test("a drawing drops both of its extensions", () => {
@@ -478,8 +489,8 @@ describe("tab labels", () => {
     // this does: `plan.md` and `plan.excalidraw.md` in one strip are two tabs
     // called `plan`, and neither should be a coin toss.
     const state = pinned("1-projects/plan.md", "2-areas/plan.excalidraw.md");
-    expect(tabLabel(state, "1-projects/plan.md")).toBe("1-projects/plan");
-    expect(tabLabel(state, "2-areas/plan.excalidraw.md")).toBe("2-areas/plan");
+    expect(tabLabel(state, "1-projects/plan.md")).toBe("projects/plan");
+    expect(tabLabel(state, "2-areas/plan.excalidraw.md")).toBe("areas/plan");
   });
 });
 

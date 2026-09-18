@@ -197,6 +197,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A note may declare the mode it opens in, and the person still outranks it
 - The note is a measured column, and the demo note stopped faking one
 - The staff console is shaped for ten customers, and its figures count rows
+- A sort number is filing, so the console draws the name and keeps the number
 
 ## [Meetings](./meetings.md)
 

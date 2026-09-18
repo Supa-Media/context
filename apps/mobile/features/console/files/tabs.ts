@@ -38,7 +38,7 @@
 
 import { drawingName } from "@context/drawings";
 
-import { baseName, parentPath } from "./paths";
+import { baseName, parentPath, withoutSortPrefix } from "./paths";
 import type { FolderListing } from "./types";
 
 export interface Tab {
@@ -368,13 +368,23 @@ export function dirtyCount(state: TabsState): number {
  * trim `noteHeading` and `crumbsFor` make. Using it for the collision test too
  * is what keeps `plan.md` and `plan.excalidraw.md` from opening as two tabs
  * that look identical.
+ *
+ * `withoutSortPrefix` for the same reason and in the same two places. A sort
+ * number is filing rather than a name, so a tab drawn `1-plan` names the folder
+ * it sits in twice over — and the collision test has to make the same trim, or
+ * `1-plan.md` and `plan.md` open as two tabs both labelled `plan`. The folder
+ * that disambiguates them is trimmed too: the qualifier exists to say *which*
+ * `plan`, and `1-projects/plan` beside `2-areas/plan` answers that with
+ * `projects/plan` and `areas/plan`.
  */
 export function tabLabel(state: TabsState, path: string): string {
-  const name = drawingName(path);
-  const ambiguous = state.tabs.some((tab) => tab.path !== path && drawingName(tab.path) === name);
+  const name = withoutSortPrefix(drawingName(path));
+  const ambiguous = state.tabs.some(
+    (tab) => tab.path !== path && withoutSortPrefix(drawingName(tab.path)) === name,
+  );
   if (!ambiguous) return name;
   const folder = parentPath(path);
-  return folder === "" ? name : `${baseName(folder)}/${name}`;
+  return folder === "" ? name : `${withoutSortPrefix(baseName(folder))}/${name}`;
 }
 
 /**
