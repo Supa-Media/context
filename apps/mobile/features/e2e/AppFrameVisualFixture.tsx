@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useWindowDimensions } from "react-native";
 import { AppFrame, FrameIconButton } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
@@ -17,6 +18,7 @@ import { BrowsePane } from "../console/panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
 import { ShareDialog } from "../console/files/ShareDialog";
 import { NavBandProvider } from "../console/NavBand";
+import { densityFor } from "../app/frame";
 import type { ConsoleRoute } from "../console/nav";
 
 /**
@@ -97,6 +99,18 @@ export function AppFrameVisualFixture() {
     which is the console's standing rule and the state worth reviewing.
   */
   const [sharing, setSharing] = useState(false);
+  /*
+    THE PHONE'S TRAILING GROUP IS THE PHONE'S, AND THE BOARD HAS TO SAY SO.
+
+    `console/_layout` gates `topTrailing` on `phone`, because the pointer
+    layout already carries reading mode and Share in the note's own header.
+    This fixture passed the group at every width, so `App-Dark.dc.html`'s
+    title bar screenshotted an eye and a share icon that also sat 60pt below
+    them — a duplicate the product does not have, in the one corner of that
+    board a reviewer would check them in. A fixture that invents a defect is
+    the failure this file's own header names.
+  */
+  const phone = densityFor(useWindowDimensions().width) === "compact";
 
   return (
     /*
@@ -168,15 +182,17 @@ export function AppFrameVisualFixture() {
           and the marks.
         */
         topTrailing={
-          <>
-            <FrameIconButton label="Read this note" icon="eye" grouped onPress={() => {}} />
-            <FrameIconButton
-              label="Share this"
-              icon="share"
-              grouped
-              onPress={() => setSharing(true)}
-            />
-          </>
+          phone ? (
+            <>
+              <FrameIconButton label="Read this note" icon="eye" grouped onPress={() => {}} />
+              <FrameIconButton
+                label="Share this"
+                icon="share"
+                grouped
+                onPress={() => setSharing(true)}
+              />
+            </>
+          ) : undefined
         }
         accountSlot={
           <AccountBlock
