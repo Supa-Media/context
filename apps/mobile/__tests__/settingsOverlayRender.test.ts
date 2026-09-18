@@ -587,6 +587,78 @@ describe("every section names itself exactly once", () => {
 });
 
 /**
+ * Plugins is deprecated in the console, and the sweep above cannot see it.
+ *
+ * The demo console is deliberately a context that *has* plugins — five in its
+ * vault, one built-in switched off — so every assertion above draws the row and
+ * would go on drawing it if `SettingsOverlay` hard-coded the section back on.
+ * `pluginsExperiment.test.ts` proves the rule; this proves the wire, which is
+ * the half a pure test cannot reach: a real context that has never touched a
+ * plugin, rendered, with no row on its list.
+ */
+describe("the Plugins row is off a list that has no plugins behind it", () => {
+  /** The demo console with its three plugin views wound back to untouched. */
+  function untouched(): ConsoleData {
+    const data = demoData();
+    return {
+      ...data,
+      deleteAccount: async () => {},
+      invitations: [{ slug: "tomi", token: "invite-token" }],
+      plugins: { state: "idle" },
+      pluginInstalls: { state: "ready", installs: [], truncated: false, read: async () => {} },
+      contextPlugins:
+        data.contextPlugins.state === "ready"
+          ? {
+              ...data.contextPlugins,
+              // Every built-in back at its shipped default — on, and chosen by
+              // nobody. The row must not survive that.
+              plugins: data.contextPlugins.plugins.map((plugin) => ({
+                ...plugin,
+                enabled: plugin.defaultEnabled,
+              })),
+            }
+          : data.contextPlugins,
+    };
+  }
+
+  function list(data: ConsoleData): HTMLElement {
+    mount(() =>
+      createElement(SettingsOverlay, {
+        data,
+        section: "storage",
+        onSelect: () => {},
+        onDismiss: () => {},
+      }),
+    );
+    const host = document.body;
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    return host;
+  }
+
+  test("no row, while the rest of Your notes is untouched", () => {
+    const host = list(untouched());
+    expect(host.querySelector('[data-testid="settings-section-plugins"]')).toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-storage"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-search"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-advanced"]')).not.toBeNull();
+    expect(host.textContent ?? "").not.toContain("Plugins");
+  });
+
+  test("and it is there for the demo, which has five of them", () => {
+    // The other half of the same wire: this is not a component that stopped
+    // rendering the row, it is one that reads what the context has.
+    const data: ConsoleData = {
+      ...demoData(),
+      deleteAccount: async () => {},
+      invitations: [{ slug: "tomi", token: "invite-token" }],
+    };
+    expect(list(data).querySelector('[data-testid="settings-section-plugins"]')).not.toBeNull();
+  });
+});
+
+/**
  * A `SettingsOverlay` whose `data` is genuinely live.
  *
  * `overlay()` above snapshots `useDemoConsoleData()` **once** and hands that
