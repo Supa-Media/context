@@ -80,6 +80,16 @@ import {
 } from "./lib/ingestionStore";
 import { RESERVED_NAMES, normalizeName, validateName } from "./lib/names";
 import { consumeRateLimit } from "./lib/rateLimit";
+import {
+  /*
+    The capability object, from the one module that owns it — for the reason
+    `controlPlane.ts` imports it: this file held the third and fourth restated
+    copies, and the return validator of a credential route that refuses its own
+    answer is an outage, not a type error.
+  */
+  capabilitiesValidator,
+  type StorageCapabilities,
+} from "./storage";
 
 /**
  * How long a ticket is good for.
@@ -371,7 +381,7 @@ interface S3IngestionBinding {
   accessKeyId: string;
   secretAccessKey: string;
   forcePathStyle?: boolean;
-  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
+  capabilities: StorageCapabilities;
   status: string;
 }
 
@@ -381,7 +391,7 @@ interface DropboxIngestionBinding {
   provider: "dropbox";
   accessToken: string;
   rootPrefix?: string;
-  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
+  capabilities: StorageCapabilities;
   status: string;
 }
 
@@ -416,7 +426,7 @@ export const openIngestionBinding = internalAction({
       accessKeyId: v.string(),
       secretAccessKey: v.string(),
       forcePathStyle: v.optional(v.boolean()),
-      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
     v.object({
@@ -424,7 +434,7 @@ export const openIngestionBinding = internalAction({
       provider: v.literal("dropbox"),
       accessToken: v.string(),
       rootPrefix: v.optional(v.string()),
-      capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+      capabilities: capabilitiesValidator,
       status: v.string(),
     }),
   ),

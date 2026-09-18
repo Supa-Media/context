@@ -53,6 +53,22 @@ import {
 import { recordAudit } from "./lib/audit";
 import { D1_ACCOUNT_SECRET, D1_TOKEN_SECRET } from "./lib/d1";
 import { pinnedContextRow } from "./lib/pinnedContext";
+import {
+  /*
+    The capability object, from the one module that owns it.
+
+    #653 named this exact hazard — "a field added to the schema and to three of
+    the five is a field the gateway never sees" — and then left the gateway's
+    two copies restated here. `serverSideCopy` landed in the schema and in
+    `storage.ts`, so `getBindingForGateway` started returning it and this
+    file's `v.object` refused its own return value: every `POST
+    /gateway/binding` threw `ReturnsValidationError`, the gateway read that as
+    a control-plane failure, and every client was told `storage_unavailable`.
+    Importing the shape is what makes the next field impossible to miss.
+  */
+  capabilitiesValidator,
+  type StorageCapabilities,
+} from "./storage";
 import { getMembership } from "./lib/workspaceAuth";
 
 /** What a live grant resolves to. Shared by the session and binding routes. */
@@ -633,7 +649,7 @@ export interface S3GatewayBinding {
    * decide", which is what the gateway's `nativeStore` already passes through.
    */
   forcePathStyle?: boolean;
-  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
+  capabilities: StorageCapabilities;
   status: string;
 }
 
@@ -648,7 +664,7 @@ export interface DropboxGatewayBinding {
   provider: "dropbox";
   accessToken: string;
   rootPrefix?: string;
-  capabilities: { conditionalWrite: boolean; conditionalCreate?: boolean; conditionalDelete?: boolean };
+  capabilities: StorageCapabilities;
   status: string;
 }
 
@@ -772,7 +788,7 @@ const s3BindingValidator = v.object({
   accessKeyId: v.string(),
   secretAccessKey: v.string(),
   forcePathStyle: v.optional(v.boolean()),
-  capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+  capabilities: capabilitiesValidator,
   status: v.string(),
 });
 
@@ -782,7 +798,7 @@ const dropboxBindingValidator = v.object({
   provider: v.literal("dropbox"),
   accessToken: v.string(),
   rootPrefix: v.optional(v.string()),
-  capabilities: v.object({ conditionalWrite: v.boolean(), conditionalCreate: v.optional(v.boolean()), conditionalDelete: v.optional(v.boolean()) }),
+  capabilities: capabilitiesValidator,
   status: v.string(),
 });
 
