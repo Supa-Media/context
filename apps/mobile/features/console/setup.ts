@@ -19,7 +19,27 @@
  * **a starting layout**, or **the vault you already have** — drawn where the
  * person is rather than behind a URL they abandoned.
  *
- * ## Reading the bucket, not guessing at it
+ * ## The listing decides; the binding only ever narrows
+ *
+ * **`scaffoldReason` is a memory, not a fact.** It is written by exactly one
+ * thing — `verifyStorageBinding` — and it records what the verifier saw *when
+ * it last looked*. Nothing that writes notes updates it: not the gateway, not
+ * `write_note`, not email ingestion, not this console's own editor. So a
+ * context created empty, verified, and then filled by a connected AI client
+ * carries `empty` on its binding for ever, and the first version of this card
+ * believed it: it drew "This context is empty" over a workspace with folders
+ * and notes in it, and offered to scaffold one.
+ *
+ * So the live root listing decides. If it has anything in it, there is nothing
+ * to offer, whatever the binding remembers; and until it has been *read*, there
+ * is nothing to say either — `undefined` is "not loaded", and a card that
+ * flashes up in that gap is the same wrong claim, briefly.
+ *
+ * The binding is still read, and only ever to say *no*: it is what keeps the
+ * card away from a bucket the verifier found a context in, or has already
+ * scaffolded, or has never looked inside.
+ *
+ * ## Reading the binding, not guessing at it
  *
  * `scaffoldReason` is the verifier's own word for what it found
  * (`functions/provisioning.ts`), and only three of its values mean anything
@@ -70,6 +90,15 @@ export function contextSetupFor(options: {
   /** The binding: `undefined` while it loads, `null` when there is none. */
   storage: SetupStorage | null | undefined;
   /**
+   * The context's **root listing**, as the file browser has it — the live
+   * answer to "is there anything in this bucket".
+   *
+   * `undefined` means it has not been read yet, which is not emptiness. See
+   * the header: this is the field that decides, and the binding below can only
+   * narrow what it says.
+   */
+  root: { entries: readonly unknown[] } | undefined;
+  /**
    * The layout a flow last recorded for this context, when one did.
    *
    * Read for exactly one decision — whether a *half-written* layout is this
@@ -95,6 +124,19 @@ export function contextSetupFor(options: {
   const storage = options.storage;
   if (storage === null || storage === undefined) return { kind: "none" };
   if (storage.status !== "connected") return { kind: "none" };
+
+  /*
+    The live fact, and the one that outranks everything below.
+
+    Not read yet is not empty, and anything at all at the root means this
+    context is somebody's working workspace — which is the whole of what went
+    wrong the first time this shipped. An owner sees every entry (no privacy
+    rule hides a folder from them), so an empty listing here is emptiness
+    rather than a filtered view of it.
+  */
+  const root = options.root;
+  if (root === undefined) return { kind: "none" };
+  if (root.entries.length > 0) return { kind: "none" };
 
   if (storage.scaffoldReason === "empty") return { kind: "empty" };
   if (storage.scaffoldReason === "partial" || storage.scaffoldReason === "failed") {

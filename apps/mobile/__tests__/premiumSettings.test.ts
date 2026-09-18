@@ -630,6 +630,34 @@ describe("what this context is using", () => {
   test("absent and zero are different answers", () => {
     expect(usageLine(status({ notes: 0 }))).toContain("0 notes");
   });
+
+  /**
+   * THE SAME NUMBER, TWO INCHES APART, SAYING TWO DIFFERENT THINGS.
+   *
+   * `notes` comes from the walk `verifyStorageBinding` runs, and nothing that
+   * writes notes updates it. Settings → Storage prints it as "412 notes —
+   * counted 3 weeks ago"; this line printed it bare, as a present-tense fact
+   * about somebody's bucket, on the same screen. A context filled in by a
+   * connected AI client after it was verified reads "0 notes in this context"
+   * here while its tree is full.
+   */
+  test("says when the count was taken, as the storage row does", () => {
+    const now = Date.UTC(2026, 8, 18);
+    const line = usageLine(
+      status({ notes: 412, notesCountedAt: now - 21 * 24 * 60 * 60 * 1000 }),
+      now,
+    );
+    expect(line).toContain("412 notes");
+    expect(line).toMatch(/counted 21 days ago/i);
+  });
+
+  test("and claims no date when the control plane sent none", () => {
+    // Older deployments send the count without `notesCountedAt`. The line says
+    // what it knows and does not invent a freshness it cannot support.
+    const line = usageLine(status({ notes: 412 }));
+    expect(line).toContain("412 notes");
+    expect(line).not.toMatch(/counted/i);
+  });
 });
 
 describe("the renewal line", () => {
