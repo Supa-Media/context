@@ -49,6 +49,8 @@ import {
   queueRemoval as queueRemovalIn,
   retry,
   retryOp as retryOpIn,
+  localPathOf,
+  rebaseOp as rebaseOpIn,
   routesThroughQueue,
   serverPathOf,
   settle,
@@ -62,7 +64,7 @@ import { useReachability } from "./reachability";
 import type { CacheScope } from "./keys";
 import type { Reachability } from "./copy";
 import type { VisibilityTier } from "../console/visibility";
-import type { FolderListing, OpenNote } from "../console/files/types";
+import type { FolderListing, OpenNote, Visibility } from "../console/files/types";
 
 /**
  * The offline layer, as one object the file browser can hold.
@@ -225,6 +227,15 @@ export interface OfflineNotes {
   */
   /** The bucket's name for a note this device may have renamed. */
   serverPathOf: (path: string) => string;
+  /** Where the console shows a bucket path this device may have renamed. */
+  localPathOf: (path: string) => string;
+  /**
+   * A save of this note reached the bucket directly: its queued edit is done,
+   * and whatever was queued to happen to the note next follows the version the
+   * save produced. Not `dropQueued` — that lets a create go, and with it
+   * everything waiting on the create.
+   */
+  landedQueued: (path: string, etag: string) => void;
   /** Whether an action on this path has to go through the queue, even online. */
   routesThroughQueue: (path: string) => boolean;
   /** Whether the queue is holding this name — see `claimedPaths`. */
@@ -293,6 +304,12 @@ export function useOfflineNotes(options: {
   op?: (op: PendingOp) => Promise<OpOutcome>;
   /** Called for each op that landed, so the editor can follow a renamed note. */
   onOpDone?: (done: OpSent) => void;
+  /**
+   * The visibility a new note in this folder gets, as the console last listed
+   * it — for the badge of a note created offline, until a sync says. Absent,
+   * `private`: a guess never claims a note is shared.
+   */
+  folderDefaultFor?: (path: string) => Visibility;
 }): OfflineNotes {
   const { tier, workspaceId } = options;
   const reachability = useReachability();
@@ -350,6 +367,8 @@ export function useOfflineNotes(options: {
   opRef.current = options.op;
   const onOpDoneRef = useRef(options.onOpDone);
   onOpDoneRef.current = options.onOpDone;
+  const folderDefaultRef = useRef(options.folderDefaultFor);
+  folderDefaultRef.current = options.folderDefaultFor;
 
   const flush = useCallback(
     (next: Outbox) => {
@@ -534,6 +553,22 @@ export function useOfflineNotes(options: {
    * Without this the tree drawn from the mirror shows the note under its old
    * name, beside the new one, until the next sync prunes it.
    */
+  /** A note this device created, now in the bucket: into the mirror. See the drain. */
+  const rememberCreated = useCallback(
+    (note: OpenNote) => {
+      if (workspaceId === null || scope === null || !mine()) return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror === null) return;
+        const needed = await neededEtags(store, workspaceId);
+        if (!mine()) return;
+        await putMirroredNotes(mirror, epoch, scope, workspaceId, [note], needed, Date.now());
+      })().catch(() => {});
+    },
+    [mine, scope, store, workspaceId],
+  );
+
   const rememberOpDone = useCallback(
     (done: OpSent) => {
       if (workspaceId === null || scope === null || !mine()) return;
@@ -632,7 +667,29 @@ export function useOfflineNotes(options: {
         */
         for (const sent of report.sent) {
           const entry = current.writes.find((write) => write.path === sent.path);
-          if (entry !== undefined) rememberSent({ path: sent.path, text: entry.text, etag: sent.etag });
+          if (entry === undefined) continue;
+          if (sent.sentBaseEtag === null) {
+            /*
+              A note created offline is in the bucket now, and in nothing on
+              the device: the queue has let it go and the mirror never held it,
+              so the tree drawn offline would lose it until the next sync
+              fetched it. It goes into the mirror as what was written, drawn
+              with its folder's default for a badge — the next complete sync
+              replaces that with the server's own answer.
+            */
+            const visibility = folderDefaultRef.current?.(sent.path) ?? "private";
+            rememberCreated({
+              path: sent.path,
+              text: entry.text,
+              etag: sent.etag,
+              visibility,
+              inherited: visibility,
+              exception: false,
+              readOnly: false,
+            });
+            continue;
+          }
+          rememberSent({ path: sent.path, text: entry.text, etag: sent.etag });
         }
       })
       .catch(() => {
@@ -643,7 +700,7 @@ export function useOfflineNotes(options: {
       .finally(() => {
         draining.current = false;
       });
-  }, [commit, mine, rememberOpDone, rememberSent, workspaceId]);
+  }, [commit, mine, rememberCreated, rememberOpDone, rememberSent, workspaceId]);
 
   /** Empty the queue whenever we believe we can reach the bucket. */
   useEffect(() => {
@@ -840,6 +897,18 @@ export function useOfflineNotes(options: {
         commit(retry(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
 
       serverPathOf: (path) => serverPathOf(outboxRef.current, path),
+      localPathOf: (path) => localPathOf(outboxRef.current, path),
+      landedQueued: (path, etag) => {
+        const current = outboxRef.current;
+        const server = serverPathOf(current, path);
+        const write = find(current, server);
+        let next = settle(current, server);
+        const op = opsOf(next).find((one) => one.path === server);
+        if (write !== undefined && op !== undefined && (op.baseEtag === null || op.baseEtag === write.baseEtag)) {
+          next = rebaseOpIn(next, op.id, etag);
+        }
+        commit(next, true);
+      },
       routesThroughQueue: (path) => routesThroughQueue(outboxRef.current, path),
       claims: (path) => claimedPaths(outboxRef.current).has(path),
       pendingCreate: (path) => {

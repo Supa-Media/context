@@ -189,7 +189,13 @@ export function signOutWarning(
   const parts: string[] = [];
   if (waiting > 0) {
     parts.push(
-      `${plural(waiting, "note has", "notes have")} edits that have not reached your bucket. Signing out discards them.`,
+      /*
+        "Changes", not "edits": the queue holds renames, moves, deletes and new
+        folders too, and a sign-out throws those away exactly as it throws away
+        typing. A count that said "notes have edits" about a rename would be a
+        number the person could not match to anything they did.
+      */
+      `${plural(waiting, "change has", "changes have")} not reached your bucket. Signing out discards ${waiting === 1 ? "it" : "them"}.`,
     );
   }
   if (meetingAudio > 0) {

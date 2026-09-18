@@ -23,11 +23,14 @@ import {
   type PendingWrite,
 } from "../features/offline/outbox";
 import { MAX_ATTEMPTS, drainOutbox, type OpOutcome, type WriteOutcome } from "../features/offline/sync";
-import { getOutbox, putOutbox } from "../features/offline/cache";
+import { forgetEverything, getOutbox, putOutbox, waitingOnDevice } from "../features/offline/cache";
 import { memoryStore } from "../features/offline/memory";
 import { signOutWarning } from "../features/offline/copy";
 import { queuedOpSender, type OpActions } from "../features/console/files/queuedWrite";
 import { reconcile } from "../features/offline/useOfflineNotes";
+import { overlayKey, overlayListings } from "../features/offline/overlay";
+import { describeOp, pendingMarks } from "../features/console/files/pendingMarks";
+import type { FolderListing } from "../features/console/files/types";
 
 /**
  * Offline is more than saving: a note created, renamed, moved, archived or
@@ -420,6 +423,17 @@ describe("the queue on the device", () => {
     expect(opsOf(parsed)).toEqual([]);
   });
 
+  test("sign-out counts every queued op on the device, and then takes them with the rest", async () => {
+    const store = memoryStore();
+    let outbox = move(emptyOutbox(WS), "a.md", "b.md", "e1");
+    outbox = queueFolder(outbox, { id: id(), path: "trips", now: 5 })!;
+    await putOutbox(store, outbox);
+    expect(await waitingOnDevice(store, null)).toEqual({ pending: 2, conflicted: 0, rejected: 0 });
+    await forgetEverything(store);
+    expect(opsOf(await getOutbox(store, WS))).toEqual([]);
+    expect(await store.keys()).toEqual([]);
+  });
+
   test("sign-out counts a waiting rename as something it throws away", () => {
     const outbox = move(emptyOutbox(WS), "a.md", "b.md", "e1");
     expect(counts(outbox)).toEqual({ pending: 1, conflicted: 0, rejected: 0 });
@@ -459,5 +473,101 @@ describe("pressing things while a drain is on the wire", () => {
     const drained = await drainOutbox(snapshot, b.deps);
     const after = reconcile(snapshot, drained.outbox, drained.report, make);
     expect(opsOf(after)).toMatchObject([{ path: "c.md", state: "conflicted", attempts: 1 }]);
+  });
+});
+
+describe("the tree as this device has it", () => {
+  const folder = (path: string, entries: FolderListing["entries"], folderDefault: "private" | "team" = "team"): FolderListing => ({
+    path,
+    folderDefault,
+    entries,
+    truncated: false,
+    manifestUsable: true,
+  });
+  const file = (path: string, visibility: "private" | "team" = "team") => ({
+    kind: "file" as const,
+    path,
+    name: path.slice(path.lastIndexOf("/") + 1),
+    visibility,
+    inherited: "team" as const,
+    exception: visibility !== "team",
+    readOnly: false,
+  });
+  const listings = () => ({
+    "1-projects": folder("1-projects", [file("1-projects/pay.md", "private"), file("1-projects/plan.md")]),
+    "0-inbox": folder("0-inbox", [], "private"),
+  });
+
+  test("nothing queued is the bucket's listings, untouched", () => {
+    const bucket = listings();
+    expect(overlayListings(bucket, emptyOutbox(WS))).toBe(bucket);
+  });
+
+  test("a renamed note keeps its own entry — its exception too — under the new name", () => {
+    const outbox = move(emptyOutbox(WS), "1-projects/pay.md", "1-projects/wages.md", "e1");
+    const shown = overlayListings(listings(), outbox);
+    expect(shown["1-projects"]!.entries.map((one) => one.path)).toEqual(["1-projects/plan.md", "1-projects/wages.md"]);
+    expect(shown["1-projects"]!.entries[1]).toMatchObject({ visibility: "private", exception: true });
+  });
+
+  test("a note moved to another folder leaves one and appears in the other", () => {
+    const outbox = move(emptyOutbox(WS), "1-projects/plan.md", "0-inbox/plan.md", "e1");
+    const shown = overlayListings(listings(), outbox);
+    expect(shown["1-projects"]!.entries.map((one) => one.path)).toEqual(["1-projects/pay.md"]);
+    expect(shown["0-inbox"]!.entries.map((one) => one.path)).toEqual(["0-inbox/plan.md"]);
+  });
+
+  test("a parked rename is still drawn where the person put it", () => {
+    const outbox = move(emptyOutbox(WS), "1-projects/plan.md", "1-projects/plan-2026.md", "e1");
+    const parked: Outbox = {
+      ...outbox,
+      ops: opsOf(outbox).map((op) => ({ ...op, state: "conflicted" as const })),
+    };
+    const shown = overlayListings(listings(), parked);
+    expect(shown["1-projects"]!.entries.map((one) => one.path)).toContain("1-projects/plan-2026.md");
+  });
+
+  test("a new note is drawn with its folder's default, and a new folder with an empty listing", () => {
+    let outbox = edit(emptyOutbox(WS), "0-inbox/idea.md", "# Idea\n", null);
+    outbox = queueFolder(outbox, { id: id(), path: "0-inbox/trips", now: 9 })!;
+    const shown = overlayListings(listings(), outbox);
+    expect(shown["0-inbox"]!.entries.map((one) => [one.kind, one.path, one.visibility])).toEqual([
+      ["folder", "0-inbox/trips", "private"],
+      ["file", "0-inbox/idea.md", "private"],
+    ]);
+    expect(shown["0-inbox/trips"]!.entries).toEqual([]);
+  });
+
+  test("typing into a new note does not change what the tree depends on", () => {
+    const one = edit(emptyOutbox(WS), "0-inbox/idea.md", "# Idea\n", null);
+    const more = edit(one, "0-inbox/idea.md", "# Idea\n\nand more\n", null, 2_000);
+    expect(overlayKey(more)).toBe(overlayKey(one));
+  });
+});
+
+describe("what the sync sheet says", () => {
+  test("each op in plain language", () => {
+    expect(describeOp({ kind: "move", path: "1-projects/plan.md", to: "1-projects/plan-2026.md" })).toBe(
+      "Rename plan → plan-2026",
+    );
+    expect(describeOp({ kind: "move", path: "1-projects/plan.md", to: "2-areas/plan.md" })).toBe("Move plan → areas");
+    expect(describeOp({ kind: "trash", path: "0-inbox/old-notes.md" })).toBe("Delete old-notes");
+    expect(describeOp({ kind: "archive", path: "0-inbox/old-notes.md" })).toBe("Archive old-notes");
+    expect(describeOp({ kind: "folder", path: "2-areas/Trips" })).toBe("New folder: Trips");
+  });
+
+  test("a renamed note's edit is marked on the row the person sees, and a new note is called one", () => {
+    let outbox = move(emptyOutbox(WS), "plan.md", "plan-2026.md", "e1");
+    outbox = edit(outbox, "plan.md", "typed", "e1", 4_000);
+    outbox = edit(outbox, "0-inbox/Groceries.md", "# Groceries", null, 5_000);
+    const marks = pendingMarks(outbox.writes, {
+      ops: opsOf(outbox),
+      localPathOf: (path) => (path === "plan.md" ? "plan-2026.md" : path),
+      creates: new Set(["0-inbox/Groceries.md"]),
+    });
+    expect(marks.stateFor("plan-2026.md")).toBe("queued");
+    expect(marks.stateFor("plan.md")).toBeNull();
+    expect(marks.labelFor?.("0-inbox/Groceries.md")).toBe("New note: Groceries");
+    expect(marks.operations).toMatchObject([{ text: "Rename plan → plan-2026", mark: "queued", answers: [] }]);
   });
 });

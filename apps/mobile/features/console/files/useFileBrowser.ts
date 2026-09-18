@@ -63,6 +63,7 @@ import {
   baseName,
   describeMoveProblem,
   describeNameProblem,
+  displayName,
   displayPath,
   ensureMarkdown,
   joinPath,
@@ -77,8 +78,10 @@ import { holdAncestors, releaseAncestors } from "../../offline/mirrorHolds";
 import { useMirrorStatus } from "../../offline/mirrorStatus";
 import { restoreFor } from "../../offline/restore";
 import { type WriteOutcome } from "../../offline/sync";
-import { queuedWriteSender } from "./queuedWrite";
-import type { PendingWrite } from "../../offline/outbox";
+import { queuedOpSender, queuedWriteSender } from "./queuedWrite";
+import { localPathOf, opsOf, type PendingOp, type PendingWrite } from "../../offline/outbox";
+import { overlayListings, overlayKey } from "../../offline/overlay";
+import type { OpOutcome, OpSent } from "../../offline/sync";
 import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
 import { useConflictReview } from "./useConflictReview";
@@ -88,7 +91,7 @@ import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
 import type { AppliedPluginNoteWrite } from "../plugins/runtime";
-import { pendingMarks } from "./pendingMarks";
+import { describeOp, pendingMarks } from "./pendingMarks";
 
 /**
  * Where the draft for a note nobody is looking at actually is.
@@ -146,6 +149,37 @@ const TIMED_OUT_MESSAGE =
  * the two together is what told somebody a successful rename "did not work",
  * and the retry they were invited to make then failed on the duplicate name.
  */
+/**
+ * An operation that cannot wait for a connection, asked for without one — a
+ * duplicate, a paste, a visibility change. Said at once, because saying it
+ * after the operation timeout would be "we do not know" about a request that
+ * was never made.
+ */
+const NEEDS_CONNECTION =
+  "You are offline, so that was not done. It needs a connection — new notes, renames, moves, archiving and deleting are the things that can wait for one.";
+
+/** A name the offline queue is holding for something else. See `claimedPaths`. */
+function claimedMessage(name: string): string {
+  return `${name} has a change waiting to sync. Choose another name, or use this one once it has synced.`;
+}
+
+/** A folder operation asked for offline. See the offline section of `rename`. */
+const FOLDER_NEEDS_CONNECTION =
+  "Renaming, moving, archiving or deleting a folder needs a connection. A folder's notes can change on other devices while this one is offline, and there is no single version of a folder to check that against.";
+
+/** A note whose version this device does not hold. */
+const NOT_ON_DEVICE =
+  "This note is not on this device, so it cannot be changed offline. Open it once with a connection and try again.";
+
+/**
+ * Drawings are online-only to create. The drawing editor on a phone is never
+ * kept offline (`drawingOffline.ts`), and on the web it is kept only once a
+ * drawing has been opened online — so a drawing made offline could open as a
+ * picture nobody can draw in. A note can be made now.
+ */
+const DRAWING_NEEDS_CONNECTION =
+  "A new drawing needs a connection, because its editor may not be on this device yet. A note can be made offline.";
+
 const STALE_LISTING_MESSAGE =
   "That worked, but the file list did not reload. What you see may be out of date.";
 
@@ -250,7 +284,12 @@ export function useFileBrowser(options: {
   const resetPrivacyAction = useAction(api.functions.files.resetPrivacy);
   const updateStorageLayoutAction = useAction(api.functions.files.updateStorageLayout);
 
-  const [listings, setListings] = useState<Listings>({});
+  /*
+    What the bucket (or, offline, the mirror) listed. What the console *draws*
+    is `listings`, below: these with the offline queue's renames, deletes, new
+    notes and new folders laid over them (`overlay.ts`).
+  */
+  const [bucketListings, setListings] = useState<Listings>({});
   /**
    * Every note path the search index's docmap knows about for this context,
    * or `null` while there is nothing to answer from — no index yet, offline,
@@ -462,15 +501,67 @@ export function useFileBrowser(options: {
    */
   const onDrained = useCallback((result: { path: string; etag: string }) => {
     const current = editorRef.current;
-    if (current.path !== result.path) return;
+    /*
+      The bucket's path, or the name this device shows it under: an edit of a
+      note renamed here is sent to the note's old name, ahead of the rename,
+      and the editor holding it is open at the new one.
+    */
+    const shownAt = offlineRef.current.localPathOf(result.path);
+    if (current.path !== result.path && current.path !== shownAt) return;
     dispatch({ type: "queueSettled", etag: result.etag });
   }, []);
+
+  /**
+   * One queued rename, move, archive, delete or new folder — `queuedOpSender`,
+   * bound to the context on screen exactly as `sendQueued` is, and for the same
+   * reason: the background drain binds the same sender to each queue's own
+   * context, and one definition is one place for the version to be required.
+   */
+  const sendOpTo = useMemo(
+    () => queuedOpSender({ moveEntry, archiveEntry, trashEntry, createDirectory }),
+    [archiveEntry, createDirectory, moveEntry, trashEntry],
+  );
+  const sendQueuedOp = useCallback(
+    async (op: PendingOp): Promise<OpOutcome> => {
+      if (workspaceId === null) return { kind: "failed", message: "No context is open." };
+      return sendOpTo(workspaceId, op);
+    },
+    [sendOpTo, workspaceId],
+  );
+
+  /**
+   * A queued rename reached the bucket: the open note follows it onto the
+   * version the rename produced, so its next save is not a conflict with the
+   * person's own rename. Guarded in the reducer on the version the editor was
+   * holding (`rebased`).
+   */
+  const onOpDrained = useCallback((done: OpSent) => {
+    if (done.kind !== "move" || done.etag === undefined || done.to === undefined) return;
+    if (editorRef.current.path !== done.to) return;
+    dispatch({ type: "rebased", from: opFromEtag.current.get(done.id) ?? null, etag: done.etag });
+  }, []);
+  /*
+    The version each op was sent with, by id — what `rebased` compares the
+    editor against. Recorded as ops are sent rather than read off the queue,
+    because by the time `onOpDone` runs the drain has already settled the op.
+  */
+  const opFromEtag = useRef(new Map<string, string | null>());
+  const sendQueuedOpTracked = useCallback(
+    (op: PendingOp) => {
+      opFromEtag.current.set(op.id, op.baseEtag);
+      return sendQueuedOp(op);
+    },
+    [sendQueuedOp],
+  );
 
   const offline = useOfflineNotes({
     workspaceId,
     tier: options.tier,
     write: sendQueued,
     onWritten: onDrained,
+    op: sendQueuedOpTracked,
+    onOpDone: onOpDrained,
+    folderDefaultFor: (path) => listingsRef.current[parentPath(path)]?.folderDefault ?? "private",
   });
 
   /*
@@ -486,6 +577,25 @@ export function useFileBrowser(options: {
   */
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
+
+  /*
+    The listings the console draws: the bucket's, with the queue laid over.
+
+    Recomputed only when the queue's *shape* changes (`overlayKey` — which ops,
+    which creates), never on a keystroke into a queued note: every callback
+    below depends on `listings`, and rebuilding all of them per character is
+    the churn `consoleRenderLoop.test.ts` watches for.
+  */
+  const overlayShape = useRef<{ key: string; outbox: typeof offline.outbox } | null>(null);
+  const shapeKey = overlayKey(offline.outbox);
+  if (overlayShape.current === null || overlayShape.current.key !== shapeKey) {
+    overlayShape.current = { key: shapeKey, outbox: offline.outbox };
+  }
+  const shapedOutbox = overlayShape.current.outbox;
+  const listings = useMemo(
+    () => overlayListings(bucketListings, shapedOutbox),
+    [bucketListings, shapedOutbox],
+  );
   /** How much of this context is on the device — for `sync.mirror`. */
   const mirrorStatus = useMirrorStatus(workspaceId);
 
@@ -521,7 +631,9 @@ export function useFileBrowser(options: {
   const fetchNote = useCallback(
     async (path: string): Promise<OpenNote> => {
       if (workspaceId === null) throw new ConvexError({ code: "UNKNOWN", message: "No context." });
-      return readNote({ workspaceId, path });
+      // A note renamed here is still at its old name in the bucket.
+      const read = await readNote({ workspaceId, path: offlineRef.current.serverPathOf(path) });
+      return { ...read, path };
     },
     [readNote, workspaceId],
   );
@@ -619,7 +731,7 @@ export function useFileBrowser(options: {
   const conflict = useConflictReview({
     editor,
     fetchNote,
-    ancestor: offline.ancestorFor,
+    ancestor: (path, baseEtag) => offlineRef.current.ancestorFor(offlineRef.current.serverPathOf(path), baseEtag),
     // `unknown` is treated as online: the read is what finds out, and refusing
     // to try would leave a cold load stuck on "cannot be read" forever.
     online: offline.reachability !== "offline",
@@ -952,19 +1064,52 @@ export function useFileBrowser(options: {
       const mine = openRun.current;
       setOpening(path);
       try {
+        /*
+          A note created on this device and not yet sent has no copy anywhere
+          but the queue — not in the bucket, not in the mirror — so it is opened
+          from there, online or not. Asking the bucket for it would be a
+          refusal about a file that does not exist yet, and the editor would
+          close on the person's own new note.
+        */
+        const created = offline.pendingCreate(path);
+        if (created !== undefined) {
+          const folder = listingsRef.current[parentPath(path)];
+          const visibility = folder?.folderDefault ?? "private";
+          const unsent: OpenNote = {
+            path,
+            text: created.text,
+            etag: "",
+            visibility,
+            inherited: visibility,
+            exception: false,
+            readOnly: false,
+          };
+          const restored = restoreFor({ note: unsent, pending: created, draft: null });
+          if (openRun.current !== mine) return;
+          dispatch({ type: "opened", note: unsent, restored, unsent: true });
+          return;
+        }
+        /*
+          And a note renamed on this device is still at its old name in the
+          bucket until the rename is sent: it is read from there, and shown
+          here. `relabel` puts the name the person gave it back on whatever the
+          read returned.
+        */
+        const source = offline.serverPathOf(path);
+        const relabel = (read: OpenNote): OpenNote => (read.path === path ? read : { ...read, path });
         let note: OpenNote | null = null;
         let fromCache = false;
         let notice: string | undefined;
 
         if (offline.reachability === "offline") {
-          const cached = await offline.cachedNote(path);
+          const cached = await offline.cachedNote(source);
           if (cached !== null) {
-            note = cached.value;
+            note = relabel(cached.value);
             fromCache = true;
             notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
         } else {
-          const reading = readNote({ workspaceId, path });
+          const reading = readNote({ workspaceId, path: source });
           /*
             Online, the mirror answers first when the bucket is slow.
 
@@ -1003,18 +1148,19 @@ export function useFileBrowser(options: {
           });
           let early: OpenNote | null = null;
           if (quick.kind === "timeout" && openRun.current === mine) {
-            const copy = await offline.instantCopy(path);
+            const copy = await offline.instantCopy(source);
             const waiting =
               offline.pendingFor(path) !== undefined || (await offline.savedDraft(path)) !== null;
             if (copy !== null && !waiting && openRun.current === mine) {
-              early = copy.value;
-              dispatch({ type: "opened", note: copy.value, fromCache: true });
+              early = relabel(copy.value);
+              dispatch({ type: "opened", note: early, fromCache: true });
               settleOpening(path);
             }
           }
           try {
-            note = quick.kind === "value" ? quick.value : await reading;
-            offline.rememberNote(note);
+            const read = quick.kind === "value" ? quick.value : await reading;
+            offline.rememberNote(read);
+            note = relabel(read);
             if (early !== null) {
               if (openRun.current !== mine) return;
               const shown = editorRef.current;
@@ -1032,7 +1178,7 @@ export function useFileBrowser(options: {
               }
               return;
             }
-            const cached = isServerRefusal(error) ? null : await offline.cachedNote(path);
+            const cached = isServerRefusal(error) ? null : await offline.cachedNote(source);
             if (cached === null) {
               // Superseded: do not put a *different* request's failure into
               // the notice line, and do not close whatever is open now on its
@@ -1043,7 +1189,7 @@ export function useFileBrowser(options: {
               setNotice(toFileError(error).message);
               return;
             }
-            note = cached.value;
+            note = relabel(cached.value);
             fromCache = true;
             notice = cachedNotice({ cachedAt: cached.cachedAt, now: Date.now() });
           }
@@ -1275,6 +1421,20 @@ export function useFileBrowser(options: {
       }>,
     ): Promise<boolean> => {
       if (!options.canEdit || workspaceId === null) return false;
+      /*
+        Known offline, it is not sent at all. Every `work()` here awaits a
+        Convex action with no client-side timeout, so the alternative is
+        forty-five seconds of a disabled toolbar followed by "it may still have
+        gone through" — about something that certainly did not. The operations
+        that *can* wait for a connection (create, rename, move, archive,
+        delete, new folder) never reach here offline: they are queued by their
+        own callers. What does reach here offline is refused in a sentence.
+      */
+      if (offlineRef.current.reachability === "offline") {
+        setToasts([]);
+        setNotice(NEEDS_CONNECTION);
+        return false;
+      }
       operationRun.current += 1;
       const mine = operationRun.current;
       setBusy(true);
@@ -1387,15 +1547,26 @@ export function useFileBrowser(options: {
         that eventually goes is the same conflict-checked write this function
         would have made now.
       */
-      if (offline.reachability === "offline") {
+      /*
+        And a note renamed on this device goes through the queue even online:
+        the bucket still has it under its old name, so a write to the new one
+        would be a create beside it. Queued, it is sent to the old name ahead
+        of the rename — see `serverPathOf` — and the drain runs now.
+      */
+      const renamedHere = offline.serverPathOf(path) !== path;
+      if (offline.reachability === "offline" || renamedHere) {
         offline.queueSave({ path, text, baseEtag: expectedEtag });
         offline.forgetDraft(path);
         dispatch({
           type: "saveQueued",
-          message: offline.durable
-            ? "No connection, so this is written down on this device and will be sent when you are back."
-            : "No connection, so this is held for this session and will be sent when you are back. Closing the app loses it.",
+          message:
+            offline.reachability !== "offline"
+              ? "Waiting for the rename before it to reach your bucket."
+              : offline.durable
+                ? "No connection, so this is written down on this device and will be sent when you are back."
+                : "No connection, so this is held for this session and will be sent when you are back. Closing the app loses it.",
         });
+        if (offline.reachability !== "offline") offline.drain();
         return;
       }
 
@@ -1471,7 +1642,7 @@ export function useFileBrowser(options: {
             bucket with the *stale* base etag it was parked on, which raises the
             same conflict again about a decision that has already been made.
           */
-          offlineRef.current.dropQueued(path);
+          offlineRef.current.landedQueued(path, result.etag);
           /*
             The editor describes the note that is **open**, and with autosave
             this write is routinely for one that is not: leaving a note flushes
@@ -1673,10 +1844,12 @@ export function useFileBrowser(options: {
       const offline = offlineRef.current;
       const etag = conflictRef.current?.theirsEtag ?? current.conflictEtag ?? current.etag;
 
-      if (offline.reachability === "offline") {
+      if (offline.reachability === "offline" || offline.serverPathOf(path) !== path) {
         /*
           Nothing can be read or written now, so this is a decision about what
-          the queue holds rather than a write. `queueSave` takes the newer text
+          the queue holds rather than a write. (Online too, for a note renamed
+          on this device: its write goes to the old name, ahead of the rename,
+          so it is the queue's to send — `performSave` says the same.) `queueSave` takes the newer text
           (and cannot advance the base etag, by design), and `keepQueued`
           re-bases onto the version the conflict reported and puts it back in
           the queue — so what eventually drains is still a conditional write
@@ -1686,6 +1859,7 @@ export function useFileBrowser(options: {
         offline.keepQueued(path);
         dispatch({ type: "edited", text });
         dispatch({ type: "saveQueued", message: KEEP_MINE_OFFLINE });
+        if (offline.reachability !== "offline") offline.drain();
         return;
       }
 
@@ -1730,12 +1904,13 @@ export function useFileBrowser(options: {
     if (workspaceId === null || current.path === null) return;
     const path = current.path;
     const offline = offlineRef.current;
+    const source = offline.serverPathOf(path);
     offline.dropQueued(path);
     offline.forgetDraft(path);
-    readNote({ workspaceId, path })
+    readNote({ workspaceId, path: source })
       .then((note: OpenNote) => {
         offlineRef.current.rememberNote(note);
-        dispatch({ type: "reloaded", note });
+        dispatch({ type: "reloaded", note: { ...note, path } });
       })
       .catch((error: unknown) => setNotice(toFileError(error).message));
   }, [readNote, workspaceId]);
@@ -1865,12 +2040,173 @@ export function useFileBrowser(options: {
 
   const dismissNotice = useCallback(() => setNotice(null), []);
 
+  /* ---------------------- offline: more than saving ---------------------- */
+
+  /**
+   * Whether an operation on `path` goes into the queue rather than to the
+   * bucket: always offline, and online for a note the bucket does not have at
+   * that name yet (`routesThroughQueue`). Decided from the signal, never by
+   * trying and waiting — see `run`.
+   */
+  const viaQueue = useCallback(
+    (path: string) =>
+      offlineRef.current.reachability === "offline" || offlineRef.current.routesThroughQueue(path),
+    [],
+  );
+
+  /**
+   * The version of a note this device holds, for an op to be checked against:
+   * the open editor's if the note is open (what the person is looking at), the
+   * mirror's otherwise. `null` when it has neither — and then the op is refused
+   * locally rather than sent unchecked.
+   */
+  const deviceEtag = useCallback(async (path: string): Promise<string | null> => {
+    const shown = editorRef.current;
+    if (shown.path === path && shown.etag !== null) return shown.etag;
+    const offline = offlineRef.current;
+    const copy = await offline.cachedNote(offline.serverPathOf(path));
+    return copy?.value.etag ?? null;
+  }, []);
+
+  /** A toast for something queued, with its undo — or with none once it has gone. */
+  const queuedToast = useCallback((message: string, undo?: () => boolean, afterUndo?: () => void) => {
+    nextToastId.current += 1;
+    setToasts([
+      {
+        id: `queued-${nextToastId.current}`,
+        message,
+        ...(undo === undefined
+          ? {}
+          : {
+              undo: () => {
+                if (undo()) {
+                  afterUndo?.();
+                  return;
+                }
+                setNotice("That has already gone to your bucket, so it cannot be undone here.");
+              },
+            }),
+      },
+    ]);
+    // A drain that is possible now goes now — online, a note renamed or
+    // created here is queued only to keep its order.
+    if (offlineRef.current.reachability !== "offline") offlineRef.current.drain();
+  }, []);
+
+  /**
+   * Is this a folder, as the console draws it? The listing says when it knows,
+   * and the path's shape when it does not — a note is `.md` by construction.
+   */
+  const isFolderPath = useCallback(
+    (path: string) => {
+      const known = findEntry(listings, path);
+      return known === null ? !isMarkdown(path) : known.kind === "folder";
+    },
+    [listings],
+  );
+
+  /**
+   * Rename or move a note through the queue. Shared by `rename` and `move`,
+   * which differ only in where the note ends up and what the toast says.
+   */
+  const queueMoveOf = useCallback(
+    (path: string, to: string, message: string) => {
+      if (!options.canEdit) return;
+      const offline = offlineRef.current;
+      if (isFolderPath(path)) return setNotice(FOLDER_NEEDS_CONNECTION);
+      if (offline.claims(to) && offline.serverPathOf(path) !== to) {
+        return setNotice(claimedMessage(displayName(baseName(to))));
+      }
+      void (async () => {
+        // Anything the timer is holding for this note is queued first, under
+        // the name the bucket knows — so it is sent ahead of the rename.
+        autosave.flush(path);
+        const etag = await deviceEtag(path);
+        const queued = offlineRef.current.queueMove({ from: path, to, etag });
+        if (!queued.ok) {
+          setNotice(etag === null ? NOT_ON_DEVICE : claimedMessage(displayName(baseName(to))));
+          return;
+        }
+        const followed = selectedPathRef.current === path;
+        if (followed) select(to);
+        queuedToast(`${message} Waiting to sync.`, queued.undo, () => {
+          if (selectedPathRef.current === to) select(path);
+        });
+      })();
+    },
+    [autosave, deviceEtag, isFolderPath, options.canEdit, queuedToast, select],
+  );
+
+  /** Delete (to the trash) or archive a note through the queue. */
+  const queueRemovalOf = useCallback(
+    (path: string, kind: "trash" | "archive") => {
+      if (!options.canEdit) return;
+      if (isFolderPath(path)) return setNotice(FOLDER_NEEDS_CONNECTION);
+      void (async () => {
+        autosave.flush(path);
+        const etag = await deviceEtag(path);
+        const queued = offlineRef.current.queueRemoval({ kind, path, etag });
+        if (!queued.ok) {
+          setNotice(etag === null ? NOT_ON_DEVICE : claimedMessage(displayName(baseName(path))));
+          return;
+        }
+        if (selectedPathRef.current === path) {
+          setSelectedPath(null);
+          dispatch({ type: "closed" });
+        }
+        const name = displayName(baseName(path));
+        const dropped = queued.dropped;
+        if (dropped !== undefined) {
+          /*
+            A note created here and deleted before it was sent: nothing reaches
+            the bucket, and its text is gone from the device. The undo is the
+            only way back, so it is offered — putting the create back exactly as
+            it was, unless something has taken the name since.
+          */
+          nextToastId.current += 1;
+          setToasts([
+            {
+              id: `queued-${nextToastId.current}`,
+              message: `Deleted ${name}. It had not synced, so nothing was sent.`,
+              undo: () => offlineRef.current.restoreCreate(dropped),
+            },
+          ]);
+          return;
+        }
+        queuedToast(
+          kind === "trash" ? `Deleted ${name}. Waiting to sync.` : `Archived ${name}. Waiting to sync.`,
+          queued.undo,
+        );
+      })();
+    },
+    [autosave, deviceEtag, isFolderPath, options.canEdit, queuedToast],
+  );
+
   const createNote = useCallback(
     (folder: string, rawName: string) => {
       const name = ensureMarkdown(rawName);
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
       if (problem !== null) return setNotice(problem);
       const path = joinPath(folder, name);
+      /*
+        Offline, the note is made on the device and opened at once — the core
+        of taking notes offline. It is a queued create (`baseEtag: null`), so
+        what is eventually sent is the same `writeNote` with no `expectedEtag`
+        this function makes online, and the server's create refuses if a note
+        appeared at that name meanwhile: parked as a conflict, with nothing
+        overwritten. The name checks above are the same ones, against the
+        listings as drawn — the queue's own new notes included.
+      */
+      if (offlineRef.current.reachability === "offline") {
+        if (!options.canEdit || workspaceId === null) return;
+        if (isDrawingPath(name)) return setNotice(DRAWING_NEEDS_CONNECTION);
+        if (offlineRef.current.claims(path)) return setNotice(claimedMessage(displayName(name)));
+        const text = `# ${name.replace(/\.md$/i, "")}\n\n`;
+        offlineRef.current.queueSave({ path, text, baseEtag: null });
+        setExpanded((current) => (folder === "" ? current : new Set([...current, folder])));
+        select(path);
+        return;
+      }
       void run(async () => {
         /*
           A drawing is seeded as a drawing, whichever control got here.
@@ -1890,7 +2226,7 @@ export function useFileBrowser(options: {
         if (ok) select(path);
       });
     },
-    [listings, run, select, workspaceId, writeNote],
+    [listings, options.canEdit, run, select, workspaceId, writeNote],
   );
 
   /**
@@ -1913,13 +2249,27 @@ export function useFileBrowser(options: {
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
       if (problem !== null) return setNotice(problem);
       const path = joinPath(folder, name);
+      if (offlineRef.current.reachability === "offline") {
+        /*
+          The server makes a folder real by writing its README placeholder,
+          and this is that same call made later (`queueFolder`). Drawn now, as
+          an empty folder, so a note can be made in it straight away.
+        */
+        if (!options.canEdit || workspaceId === null) return;
+        if (offlineRef.current.claims(path)) return setNotice(claimedMessage(name));
+        const queued = offlineRef.current.queueFolder(path);
+        if (!queued.ok) return setNotice(claimedMessage(name));
+        setExpanded((current) => new Set([...current, path]));
+        queuedToast(`New folder ${withoutSortPrefix(name)}. Waiting to sync.`, queued.undo);
+        return;
+      }
       void run(async () => {
         await createDirectory({ workspaceId: workspaceId!, path });
         return { touched: [path, joinPath(path, "README.md")] };
       });
       setExpanded((current) => new Set([...current, path]));
     },
-    [createDirectory, listings, run, workspaceId],
+    [createDirectory, listings, options.canEdit, queuedToast, run, workspaceId],
   );
 
   const move = useCallback(
@@ -1932,6 +2282,7 @@ export function useFileBrowser(options: {
       if (problem !== null) return setNotice(problem);
       const to = joinPath(destinationFolder, path.slice(path.lastIndexOf("/") + 1));
       const from = parentPath(path);
+      if (viaQueue(path)) return queueMoveOf(path, to, `Moved to ${folderLabel(destinationFolder)}.`);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         return {
@@ -1954,7 +2305,7 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
       }
     },
-    [listings, moveEntry, run, selectedPath, workspaceId],
+    [listings, moveEntry, queueMoveOf, run, selectedPath, viaQueue, workspaceId],
   );
 
   /* ------------------------------------------------------------------ */
@@ -2098,6 +2449,7 @@ export function useFileBrowser(options: {
       if (problem !== null) return setNotice(problem);
       const to = joinPath(folder, name);
       const was = baseName(path);
+      if (viaQueue(path)) return queueMoveOf(path, to, `Renamed to ${name}.`);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         return {
@@ -2119,7 +2471,7 @@ export function useFileBrowser(options: {
         if (ok && selectedPath === path) select(to);
       });
     },
-    [listings, moveEntry, run, select, selectedPath, workspaceId],
+    [listings, moveEntry, queueMoveOf, run, select, selectedPath, viaQueue, workspaceId],
   );
 
   const duplicate = useCallback(
@@ -2134,6 +2486,7 @@ export function useFileBrowser(options: {
 
   const archive = useCallback(
     (path: string) => {
+      if (viaQueue(path)) return queueRemovalOf(path, "archive");
       void run(async () => {
         const result = await archiveEntry({ workspaceId: workspaceId!, path });
         return {
@@ -2165,11 +2518,12 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
       }
     },
-    [archiveEntry, moveEntry, run, selectedPath, workspaceId],
+    [archiveEntry, moveEntry, queueRemovalOf, run, selectedPath, viaQueue, workspaceId],
   );
 
   const destroy = useCallback(
     (path: string) => {
+      if (viaQueue(path)) return queueRemovalOf(path, "trash");
       void run(async () => {
         const result = await trashEntry({ workspaceId: workspaceId!, path });
         return {
@@ -2195,7 +2549,7 @@ export function useFileBrowser(options: {
         dispatch({ type: "closed" });
       }
     },
-    [restoreTrashEntry, run, selectedPath, trashEntry, workspaceId],
+    [queueRemovalOf, restoreTrashEntry, run, selectedPath, trashEntry, viaQueue, workspaceId],
   );
 
   const paste = useCallback(
@@ -2851,7 +3205,62 @@ export function useFileBrowser(options: {
     the queue itself so a keystroke that does not touch the queue does not hand
     every row a new selector.
   */
-  const pending = useMemo(() => pendingMarks(offline.outbox.writes), [offline.outbox]);
+  const pending = useMemo(
+    () =>
+      pendingMarks(offline.outbox.writes, {
+        ops: opsOf(offline.outbox),
+        localPathOf: (path) => localPathOf(offline.outbox, path),
+        creates: new Set(
+          offline.outbox.writes.filter((write) => write.baseEtag === null).map((write) => write.path),
+        ),
+      }),
+    [offline.outbox],
+  );
+
+  /*
+    A drain that sent a new note or an op changed what the bucket lists, and
+    the overlay stops drawing each thing the moment it leaves the queue — so the
+    folders it touched are read again, or a note created offline blinks out of
+    the tree until something else reloads it. Only those folders, and only ones
+    the browser holds or that certainly changed.
+  */
+  const lastDrain = offline.lastDrain;
+  useEffect(() => {
+    if (lastDrain === null) return;
+    const touched = [
+      ...lastDrain.sent.filter((sent) => sent.sentBaseEtag === null).map((sent) => sent.path),
+      ...lastDrain.ops.done.flatMap((done) => (done.to === undefined ? [done.path] : [done.path, done.to])),
+    ];
+    if (touched.length === 0) return;
+    void refresh(foldersToRefresh(touched, { loaded: Object.keys(listingsRef.current) })).catch(
+      reportRefreshFailure,
+    );
+  }, [lastDrain, refresh, reportRefreshFailure]);
+
+  /**
+   * A person's answer to a parked op, from the sync sheet. See `OpRow.answers`.
+   * The answers are the queue's; what this adds is the editor following a
+   * rename that was taken back, so the open note is not left at a name the
+   * note no longer has on this device.
+   */
+  const answerOp = useCallback(
+    (id: string, answer: "override" | "retry" | "discard") => {
+      const offline = offlineRef.current;
+      const op = opsOf(offline.outbox).find((one) => one.id === id);
+      if (op === undefined) return;
+      if (answer === "discard") {
+        offline.dropOp(id);
+        if (op.kind === "move" && op.to !== undefined && selectedPathRef.current === op.to) {
+          select(localPathOf({ ...offline.outbox, ops: opsOf(offline.outbox).filter((one) => one.id !== id) }, op.path));
+        }
+        return;
+      }
+      if (answer === "override") offline.overrideOp(id);
+      else offline.retryOp(id);
+      offline.drain();
+    },
+    [select],
+  );
 
   return useMemo(
     () => ({
@@ -2892,12 +3301,18 @@ export function useFileBrowser(options: {
         ready: offline.ready,
         durable: offline.durable,
         conditionalWrite: options.conditionalWrite,
-        stuckPaths: offline.outbox.writes
-          .filter((write) => write.state !== "pending")
-          .map((write) => write.path),
+        stuckPaths: [
+          ...offline.outbox.writes
+            .filter((write) => write.state !== "pending")
+            .map((write) => localPathOf(offline.outbox, write.path)),
+          ...opsOf(offline.outbox)
+            .filter((op) => op.state !== "pending")
+            .map((op) => describeOp(op)),
+        ],
         ...(mirrorStatus === undefined ? {} : { mirror: mirrorStatus }),
       },
       pending,
+      answerOp,
       notice,
       dismissNotice,
       toasts,
@@ -2994,6 +3409,7 @@ export function useFileBrowser(options: {
       offline.reachability,
       offline.ready,
       pending,
+      answerOp,
       options.canEdit,
       options.conditionalWrite,
       options.isOwner,

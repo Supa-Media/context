@@ -1207,6 +1207,7 @@ export default function ConsoleLayout() {
               data.files.select(path);
               setSyncOpen(false);
             }}
+            onAnswer={data.files.answerOp}
             onDismiss={closeSync}
           />
         ) : null}

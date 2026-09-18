@@ -220,6 +220,42 @@ describe("the sheet behind it", () => {
     expect(opened).toEqual([STUCK]);
   });
 
+  test("lists queued renames and deletes in plain language, and a parked one carries its answers", () => {
+    const base = { queuedAt: 1, updatedAt: 1, attempts: 0 };
+    const marks = pendingMarks([], {
+      ops: [
+        { ...base, id: "r1", kind: "move", path: "1-projects/plan.md", to: "1-projects/plan-2026.md", baseEtag: "e1", state: "pending" },
+        {
+          ...base,
+          id: "d1",
+          kind: "trash",
+          path: "0-inbox/old-notes.md",
+          baseEtag: "e2",
+          state: "conflicted",
+          conflict: { currentEtag: "e9", message: "That note changed somewhere else.", noticedAt: 1 },
+        },
+      ],
+    });
+    const answered: string[] = [];
+    const view = mount(
+      createElement(SyncSheet, {
+        sync: sync({ reachability: "offline", counts: { pending: 1, conflicted: 1, rejected: 0 } }),
+        save: null,
+        pending: marks,
+        onOpen: () => {},
+        onAnswer: (id, answer) => answered.push(`${id}:${answer}`),
+        onDismiss: () => {},
+      }),
+    );
+    expect(view.need("sync-section-waiting").textContent).toContain("Rename plan → plan-2026 · waiting to sync");
+    expect(view.need("sync-section-stuck").textContent).toContain("Delete old-notes · needs you");
+    // A waiting op has no buttons — it goes on its own.
+    expect(view.find("sync-op-r1-discard")).toBeNull();
+    view.click("sync-op-d1-override");
+    view.click("sync-op-d1-discard");
+    expect(answered).toEqual(["d1:override", "d1:discard"]);
+  });
+
   test("closes itself when there is nothing left to say", () => {
     let dismissed = 0;
     mount(

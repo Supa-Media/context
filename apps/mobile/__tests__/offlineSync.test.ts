@@ -624,7 +624,7 @@ describe("what the person is told", () => {
     // Sign-out wipes everything this feature holds, so this is the last moment
     // anybody can be told.
     expect(signOutWarning({ pending: 2, conflicted: 1, rejected: 0 })).toContain(
-      "3 notes have edits",
+      "3 changes have not reached",
     );
   });
 
@@ -636,7 +636,7 @@ describe("what the person is told", () => {
     expect(signOutWarning(zero, 2)).toContain("2 meetings' audio has not been transcribed yet");
     // Both, when both are waiting: neither sentence may crowd out the other.
     const both = signOutWarning({ pending: 1, conflicted: 0, rejected: 0 }, 1)!;
-    expect(both).toContain("1 note has edits");
+    expect(both).toContain("1 change has not reached");
     expect(both).toContain("1 meeting's audio");
   });
 
