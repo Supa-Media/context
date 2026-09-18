@@ -211,11 +211,18 @@ describe("a phone reaches the settings, not just a menu", () => {
 });
 
 describe("the account's own settings have a home", () => {
-  test("AI apps is reachable and is about apps, not this context", () => {
-    const text = overlay("apps").textContent ?? "";
+  test("the AI apps a person connected are the first block of Integrations", () => {
+    /*
+      Account-scoped content on a context-scoped page, deliberately: what
+      somebody wants from "Integrations" is everything talking to this context
+      without being typed into it, and an MCP client is the first of those.
+      The block keeps the sentence that says a connection reaches every
+      workspace its person is a live member of.
+    */
+    const text = overlay("integrations").textContent ?? "";
     expect(text).toContain("AI apps");
-    // No context badge and no binding health: an account section wearing a
-    // context chip would be naming a scope it is not in.
+    expect(text).toContain("every workspace");
+    // And it is not the storage screen wearing another name.
     expect(text).not.toContain("Your bucket, your credentials");
   });
 
@@ -312,11 +319,11 @@ describe("the search box", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const text = host.textContent ?? "";
-    // Email is where Gmail lives, and it is not the only row it could have
-    // been: a mailbox reaches a workspace through a Google account *or* through
-    // the forwarding address, which is why those are one section rather than
-    // two. What the box has to do is land on it from the word people type.
-    expect(text).toContain("Email");
+    // Integrations is where Gmail lives — the mailboxes we read, the
+    // forwarding address, the calendars and the chats, on one screen. What the
+    // box has to do is land on it from the word people actually type, which is
+    // never our word for the section.
+    expect(text).toContain("Integrations");
     expect(text).not.toContain("Delete account");
   });
 });
@@ -336,9 +343,7 @@ describe("the list is one press away, and it navigates", () => {
       "Storage",
       "Search",
       "Advanced",
-      "Email",
-      "Calendar",
-      "Chats",
+      "Integrations",
       "Meetings",
     ]) {
       expect(text).toContain(label);

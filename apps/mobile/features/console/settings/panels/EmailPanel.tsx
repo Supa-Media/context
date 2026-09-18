@@ -5,7 +5,7 @@ import { loadedFolders } from "../../files/browser";
 import { GoogleConnectionsCard } from "../../google/GoogleConnectionsCard";
 import { IngestionCard } from "../../ingestion/IngestionCard";
 import { selectedContext, type ConsoleData } from "../../types";
-import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
+import { SubHead, WorkspaceRefusalCard } from "./PanelHead";
 
 /**
  * Email: the mailboxes we read, and the address mail is forwarded to.
@@ -29,10 +29,8 @@ import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
  */
 export function EmailPanel({
   data,
-  sectioned,
 }: {
   data: ConsoleData;
-  sectioned: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
   const current = selectedContext(data);
@@ -41,11 +39,11 @@ export function EmailPanel({
 
   return (
     <>
-      <PanelHead section="email" sectioned={sectioned}>
+      <SubHead title="Email">
         {personal
           ? "Mail arrives two ways: a Google account whose mailbox we read, or anything forwarded to this workspace's own address. Both are here."
           : "A workspace has no address of its own, and nobody's mailbox is connected to one. Notes reach it when someone moves them here."}
-      </PanelHead>
+      </SubHead>
 
       {personal ? (
         <GoogleConnectionsCard

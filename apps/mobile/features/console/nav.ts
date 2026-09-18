@@ -409,7 +409,16 @@ export function settingsHref(slug: string, section?: SettingsSectionKey): string
  * all three.
  */
 const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
-  sources: "email",
+  /*
+    `sources` was the one section for mail, calendars and chats; it split into
+    four, `email` absorbed its content, and the four are one section again —
+    Integrations, which is where a link naming any of them belongs.
+  */
+  sources: "integrations",
+  email: "integrations",
+  calendar: "integrations",
+  chats: "integrations",
+  apps: "integrations",
   /*
     `devices` was a section and is now a card at the foot of Profile. A link
     somebody kept — or a redirect from an older build — still names it, and

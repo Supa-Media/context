@@ -35,7 +35,7 @@
 
 import type { IconName } from "../../design/components/Icon";
 
-export type SettingsGroup = "Your account" | "Integrations" | "Your notes";
+export type SettingsGroup = "Your account" | "Your notes";
 
 /**
  * Which of the two things a section belongs to.
@@ -101,15 +101,6 @@ export interface SettingsSectionSpec {
 }
 
 export const SETTINGS_SECTIONS = [
-  {
-    key: "apps",
-    keywords: "claude cursor chatgpt copilot app client connect endpoint address revoke disconnect mcp assistant",
-    label: "AI apps",
-    scope: "account",
-    group: "Your account",
-    icon: "grid",
-    personalOnly: false,
-  },
   {
     key: "profile",
     /*
@@ -213,32 +204,28 @@ export const SETTINGS_SECTIONS = [
     would be refused; it is wrong for the sentence that says why.
   */
   {
-    key: "email",
+    key: "integrations",
+    /*
+      Five haystacks in one. "AI apps", Email, Calendar and Chats were four
+      rows and a group heading, and the words people type for them are the
+      words for one question: what is plugged into this context.
+
+      The provider names matter more than our nouns here — nobody types
+      "integrations" looking for Gmail — so every brand somebody might arrive
+      with is in the list, and so are the two mechanisms that have no brand at
+      all: the forwarding address, and this Mac.
+    */
     keywords:
-      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google integration integrations sync",
+      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud",
     scope: "context",
-    label: "Email",
-    group: "Integrations",
-    icon: "mail",
-    personalOnly: false,
-  },
-  {
-    key: "calendar",
-    keywords: "calendar calendars ical events event schedule agenda appointments google integration integrations sync",
-    scope: "context",
-    label: "Calendar",
-    group: "Integrations",
-    icon: "calendar",
-    personalOnly: false,
-  },
-  {
-    key: "chats",
-    keywords:
-      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac icloud integration integrations sync",
-    scope: "context",
-    label: "Chats",
-    group: "Integrations",
-    icon: "chat",
+    label: "Integrations",
+    /*
+      Ungrouped with the other whole-context rows. The "Integrations" *group*
+      is gone: a heading and a single row beneath it reading "Integrations"
+      is the same word twice.
+    */
+    group: null,
+    icon: "grid",
     personalOnly: false,
   },
   {
@@ -247,7 +234,12 @@ export const SETTINGS_SECTIONS = [
       "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
     scope: "context",
     label: "Meetings",
-    group: "Integrations",
+    /*
+      Its own row, beside Integrations rather than inside it. It is the one
+      capture surface people open on purpose rather than configure once, and
+      the owner asked for it by name (2026-09-18, with Sayo).
+    */
+    group: null,
     icon: "mic",
     personalOnly: false,
   },
@@ -386,7 +378,7 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
  * most likely after: all three are already about reach rather than about one
  * bucket.
  */
-export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
+export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "profile";
 
 /**
  * The sections this context actually has, for this person, right now.
