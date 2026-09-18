@@ -88,7 +88,8 @@ import { tap } from "./helpers";
  * product puts it. Two presses at that width too — open the menu, then choose
  * — for the same reason the phone's corner takes two. All three land on the
  * same section: `openSettings()` with no argument answers a context's own
- * Overview whichever control called it.
+ * Workspace page whichever control called it — the section Overview became
+ * when the settings list was cut to seven rows.
  *
  * The account menu trigger is itself at rest when this file presses it —
  * nothing has opened a panel yet — so it is reached the same way `GEAR` was,
@@ -162,7 +163,7 @@ test("a phone opens settings on a section, and Back is the way to the list", asy
     asserted: the panel is up, and the list it was pushed over is not.
   */
   await expect(page.getByTestId("settings-overlay")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true })).toBeVisible();
   /*
     The identity block by its testID rather than by its words. Its second line
     is "Personal workspace · you're the owner" — kind and role in one sentence,

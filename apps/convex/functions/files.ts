@@ -180,7 +180,15 @@ import {
   type FileStore,
   clearVaultBatch,
   archivePath,
+  clearMovedSourceRules,
+  type ContextMoveExport,
+  type ContextMoveImport,
+  type ContextMoveObject,
   copyPath,
+  deleteMovedSources,
+  exportContextMoveBatch,
+  importContextMoveBatch,
+  listFolderPaths,
   createFolder,
   deletePath,
   duplicatePath,
@@ -632,6 +640,60 @@ const deletedValidator = v.object({
   paths: v.array(v.string()),
 });
 
+const folderPathsValidator = v.object({
+  kind: v.literal("folderPaths"),
+  folders: v.array(v.string()),
+  /** The walk hit a ceiling. The list is a floor, and the picker says so. */
+  truncated: v.boolean(),
+});
+
+const contextMoveExportedValidator = v.object({
+  kind: v.literal("contextMoveExported"),
+  objects: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    bytes: v.bytes(),
+    etag: v.string(),
+    sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+  })),
+  skipped: v.array(v.object({
+    path: v.string(),
+    reason: v.literal("encrypted"),
+  })),
+  remaining: v.boolean(),
+});
+
+const contextMoveLandedValidator = v.object({
+  kind: v.literal("contextMoveLanded"),
+  landed: v.array(v.object({
+    source: v.string(),
+    destination: v.string(),
+    etag: v.string(),
+  })),
+  /**
+   * Why the batch stopped short, when it did.
+   *
+   * Reported rather than thrown, because the sources of everything in `landed`
+   * still have to be removed — see `importContextMoveBatch`. A thrown error
+   * here would leave the same objects in both buckets with nothing recording
+   * which of them is the copy.
+   */
+  failure: v.union(
+    v.null(),
+    v.object({ destination: v.string(), code: v.string(), message: v.string() }),
+  ),
+});
+
+const contextMoveRemovedValidator = v.object({
+  kind: v.literal("contextMoveRemoved"),
+  deleted: v.array(v.string()),
+  conflicts: v.array(v.string()),
+});
+
+const contextMoveFinishedValidator = v.object({
+  kind: v.literal("contextMoveFinished"),
+});
+
 const visibilityResultValidator = v.object({
   kind: v.literal("visibility"),
   path: v.string(),
@@ -879,6 +941,11 @@ const operationResultValidator = v.union(
   writtenValidator,
   movedValidator,
   deletedValidator,
+  folderPathsValidator,
+  contextMoveExportedValidator,
+  contextMoveLandedValidator,
+  contextMoveRemovedValidator,
+  contextMoveFinishedValidator,
   visibilityResultValidator,
   folderCreatedValidator,
   privacyResetValidator,
@@ -1047,6 +1114,49 @@ const operationValidator = v.union(
   }),
   v.object({ kind: v.literal("move"), from: v.string(), to: v.string() }),
   v.object({ kind: v.literal("copy"), from: v.string(), to: v.string() }),
+  /*
+    THE THREE HALVES OF A MOVE INTO ANOTHER CONTEXT.
+
+    Three operations rather than one because they run against three different
+    buckets' worth of credential — export and delete against the source, import
+    against the destination — and `runFileOperation` opens exactly one. See the
+    section header in `lib/fileOps.ts`: keeping them apart is what stops a
+    cross-context move from needing a second credential barrier that holds two
+    customers' plaintext secrets at once.
+  */
+  /**
+   * Every folder this caller can see, for the "move into another context"
+   * picker. Read-only, `member` and above, and its own operation rather than a
+   * shape of `list` because it walks the whole bucket rather than one folder.
+   */
+  v.object({ kind: v.literal("folderPaths") }),
+  v.object({
+    kind: v.literal("contextMoveExport"),
+    from: v.string(),
+    to: v.string(),
+    skip: v.array(v.string()),
+  }),
+  v.object({
+    kind: v.literal("contextMoveImport"),
+    /** Set on the first batch only — see `importContextMoveBatch`. */
+    root: v.optional(v.string()),
+    objects: v.array(v.object({
+      source: v.string(),
+      destination: v.string(),
+      bytes: v.bytes(),
+      etag: v.string(),
+      sourceVisibility: v.union(v.literal("private"), v.literal("team")),
+    })),
+  }),
+  v.object({
+    kind: v.literal("contextMoveDelete"),
+    sources: v.array(v.object({ path: v.string(), etag: v.string() })),
+  }),
+  v.object({
+    kind: v.literal("contextMoveFinish"),
+    from: v.string(),
+    survivors: v.array(v.string()),
+  }),
   v.object({ kind: v.literal("duplicate"), path: v.string() }),
   v.object({ kind: v.literal("archive"), path: v.string() }),
   v.object({ kind: v.literal("trash"), path: v.string() }),
@@ -1162,6 +1272,11 @@ type FileOperation =
   | { kind: "createFolder"; path: string }
   | { kind: "move"; from: string; to: string }
   | { kind: "copy"; from: string; to: string }
+  | { kind: "folderPaths" }
+  | { kind: "contextMoveExport"; from: string; to: string; skip: string[] }
+  | { kind: "contextMoveImport"; objects: ContextMoveObject[]; root?: string }
+  | { kind: "contextMoveDelete"; sources: Array<{ path: string; etag: string }> }
+  | { kind: "contextMoveFinish"; from: string; survivors: string[] }
   | { kind: "duplicate"; path: string }
   | { kind: "archive"; path: string }
   | { kind: "trash"; path: string }
@@ -1341,6 +1456,11 @@ type OperationResult =
       forms: FormSeedResult;
     }
   | { kind: "moved"; from: string; to: string; paths: string[] }
+  | { kind: "folderPaths"; folders: string[]; truncated: boolean }
+  | ({ kind: "contextMoveExported" } & ContextMoveExport)
+  | ({ kind: "contextMoveLanded" } & ContextMoveImport)
+  | { kind: "contextMoveRemoved"; deleted: string[]; conflicts: string[] }
+  | { kind: "contextMoveFinished" }
   | { kind: "deleted"; paths: string[] }
   | {
       kind: "visibility";
@@ -3360,6 +3480,38 @@ export async function executeOperation(
         });
         return { kind: "moved", ...moved };
       }
+      case "folderPaths": {
+        const found = await listFolderPaths(store, { clearance });
+        return { kind: "folderPaths", ...found };
+      }
+      case "contextMoveExport": {
+        const exported = await exportContextMoveBatch(store, {
+          from: operation.from,
+          to: operation.to,
+          clearance,
+          skip: operation.skip,
+        });
+        return { kind: "contextMoveExported", ...exported };
+      }
+      case "contextMoveImport": {
+        const landed = await importContextMoveBatch(store, {
+          objects: operation.objects,
+          clearance,
+          ...(operation.root === undefined ? {} : { root: operation.root }),
+        });
+        return { kind: "contextMoveLanded", ...landed };
+      }
+      case "contextMoveDelete": {
+        const removed = await deleteMovedSources(store, { sources: operation.sources });
+        return { kind: "contextMoveRemoved", ...removed };
+      }
+      case "contextMoveFinish": {
+        await clearMovedSourceRules(store, {
+          from: operation.from,
+          survivors: operation.survivors,
+        });
+        return { kind: "contextMoveFinished" };
+      }
       case "copy": {
         const copied = await copyPath(store, {
           from: operation.from,
@@ -3841,6 +3993,42 @@ export const searchContext = action({
       });
     }
     return result;
+  },
+});
+
+/**
+ * Every folder this member's scope may see, for a destination picker.
+ *
+ * `member` and above, which is the read this already is — and deliberately
+ * NOT gated on being able to write here. The picker offers a context only
+ * where the mover is at least an `editor`, and that decision belongs where the
+ * list of contexts is, not to a folder listing: an action that refused a
+ * reader would also refuse every other honest use of "what folders are in
+ * @work", starting with the next one.
+ *
+ * Its own action rather than a shape of `listFiles`, because the walk is the
+ * point: one call, one credential, the whole tree. See `listFolderPaths`.
+ */
+export const folderPaths = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: folderPathsValidator,
+  handler: async (
+      ctx,
+      args,
+    ): Promise<Extract<OperationResult, { kind: "folderPaths" }>> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+      actorUserId,
+      workspaceId: args.workspaceId,
+      minimum: "member",
+    });
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "folderPaths" },
+    });
+    return result as Extract<OperationResult, { kind: "folderPaths" }>;
   },
 });
 

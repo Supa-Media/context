@@ -116,14 +116,14 @@ export function SettingsOverlay({
 
   const account = isAccountSection(active);
   /*
-    Overview opens by saying which context this is, in a block with the name
+    Workspace opens by saying which context this is, in a block with the name
     at 16.5pt and the kind and role beneath it. So the chrome around it says
     none of the three things it would otherwise say — the badge in the title
     bar, the scope line above the panel, and the health pill — because each
     would be a second, quieter copy of something the section is already the
     answer to.
   */
-  const namesItsOwnContext = active === "overview";
+  const namesItsOwnContext = active === "workspace";
 
   const list = (
     <SettingsList

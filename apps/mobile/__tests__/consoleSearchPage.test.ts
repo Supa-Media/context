@@ -289,7 +289,7 @@ describe("the scope", () => {
 });
 
 describe("the upsell, beside a search that worked", () => {
-  const href = (slug: string, target: "premium" | "search") =>
+  const href = (slug: string, target: "premium" | "storage") =>
     `/console/@${slug}/settings?settings=${target}`;
 
   test("every sentence says the context WAS searched", () => {
@@ -320,8 +320,8 @@ describe("the upsell, beside a search that worked", () => {
     // two can read differently. Sending "you have not paid" to a switch they
     // cannot throw wastes the one press they give us.
     expect(upsellTarget(context({ owner: true, fastSearch: "unavailable" }))).toBe("premium");
-    expect(upsellTarget(context({ owner: true, fastSearch: "off" }))).toBe("search");
-    expect(upsellTarget(context({ owner: true, fastSearch: "failed" }))).toBe("search");
+    expect(upsellTarget(context({ owner: true, fastSearch: "off" }))).toBe("storage");
+    expect(upsellTarget(context({ owner: true, fastSearch: "failed" }))).toBe("storage");
     expect(upsellMessage(context({ owner: true, fastSearch: "unavailable" }))).toContain(
       "Premium",
     );
@@ -358,8 +358,8 @@ describe("the upsell, beside a search that worked", () => {
     );
 
     const hrefFor = (slug: string) => rows.find((row) => row.slug === slug)?.href;
-    expect(hrefFor("mine-off")).toBe("/console/@mine-off/settings?settings=search");
-    expect(hrefFor("mine-failed")).toBe("/console/@mine-failed/settings?settings=search");
+    expect(hrefFor("mine-off")).toBe("/console/@mine-off/settings?settings=storage");
+    expect(hrefFor("mine-failed")).toBe("/console/@mine-failed/settings?settings=storage");
     expect(hrefFor("mine-unpaid")).toBe("/console/@mine-unpaid/settings?settings=premium");
     expect(hrefFor("mine-preparing")).toBeNull();
     expect(hrefFor("theirs-off")).toBeNull();

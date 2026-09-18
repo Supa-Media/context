@@ -1,7 +1,3 @@
-import { receivesMail } from "../ingestion/settings";
-import { privacyViewOf } from "../privacy/map";
-import { visibilityWord } from "../privacy/words";
-import { fastSearchPill } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
 import { pluginsPreview } from "../plugins/plugins";
 import type { ConsoleData } from "../types";
@@ -59,12 +55,6 @@ export function settingsPreview(
   data: ConsoleData,
 ): string | null {
   switch (key) {
-    case "apps":
-      // `clients` is `[]` while the workspace list is still in flight, which
-      // is not "no AI apps connected".
-      if (data.loading) return null;
-      return data.clients.length === 0 ? "None" : `${data.clients.length} active`;
-
     case "profile":
       return data.viewer.name;
 
@@ -75,80 +65,54 @@ export function settingsPreview(
       return pending === 0 ? null : `${pending} pending`;
     }
 
-    case "email": {
-      const mailboxes = data.googleConnections.filter(
-        (connection) => connection.gmail !== undefined,
-      ).length;
-      if (mailboxes > 0) return plural(mailboxes, "mailbox", "mailboxes");
-      if (receivesMail(data.ingestion)) return "Forwarding on";
+    case "integrations": {
       /*
-        And no "Not connected" from here, however tempting.
+        The AI apps, and nothing else on the row.
 
-        Mail reaches a workspace by two mechanisms and this row can only see one
-        and a half of them. `useLiveConsoleData` builds `googleConnections`
-        through `usable()`, which returns `undefined` for a query in flight
-        **and** for one that came back an error — so an empty list is three
-        different things, and only one of them is "no mailbox". Somebody with
-        Gmail connected would read "Not connected" on every load until that
-        subscription landed, and permanently if it failed.
+        Four counts — apps, mailboxes, calendars, chats — do not fit in a
+        right-aligned string, and summing them into "6 connected" would be a
+        number nobody can act on. The apps count is the one a person glancing
+        at the row is actually asking about, and it is the only one of the
+        four this module can state without qualification: `clients` is a
+        complete list once it has landed, while `googleConnections` comes back
+        empty for a query in flight, one that failed, and a genuinely
+        unconnected account alike — and Chats can only ever see half its own
+        mechanism, because this Mac's iMessages never reach `ConsoleData`.
+
+        So the blocks inside the panel keep their own claims, where each can
+        say what it does and does not know, and the row says the one thing
+        that is true on its own.
       */
-      return null;
+      if (data.loading) return null;
+      return data.clients.length === 0 ? "None" : `${data.clients.length} active`;
     }
 
-    case "calendar": {
-      const calendars = data.googleConnections.filter(
-        (connection) => connection.calendar !== undefined,
-      ).length;
-      return calendars === 0 ? null : plural(calendars, "calendar", "calendars");
-    }
+    case "sharing": {
+      /*
+        The members count, which is the one claim of the four that is about
+        this screen as a whole rather than about a block on it — and the one
+        somebody glancing at the row wants. Groups, links and the privacy
+        default are each an answer to a narrower question, and three of them
+        stacked in a right-aligned string is not a preview.
 
-    case "chats": {
-      // Half the mechanism — see the header. A count is honest; its absence
-      // is not, so zero says nothing rather than "Not connected".
-      const chats = data.googleConnections.filter(
-        (connection) => connection.chat !== undefined,
-      ).length;
-      return chats === 0 ? null : "Google Chat";
-    }
-
-    case "people": {
+        The same guards the members row had: `loading` and a failure are both
+        absences, and neither may be rendered as a number.
+      */
       const { members, loading, failure } = data.members;
       if (loading || failure !== null) return null;
       return members.length === 1 ? "Just you" : `${members.length} people`;
     }
 
-    case "groups": {
-      const { groups, loading, failure, actions } = data.groups;
-      if (actions === undefined || loading || failure !== undefined) return null;
-      return groups.length === 0 ? "None" : plural(groups.length, "group", "groups");
-    }
-
-    case "shares": {
-      const { shares, loading, failure, actions } = data.shares;
-      if (actions === undefined || loading || failure !== null) return null;
-      return shares.length === 0 ? "None" : plural(shares.length, "link", "links");
-    }
-
-    case "privacy": {
-      const view = privacyViewOf(data.files.listings, "");
-      // `loading` and `broken` are not a visibility, and the second is a
-      // banner's job rather than a row's.
-      if (view.state !== "ready") return null;
-      return `${visibilityWord(view.folderDefault)} by default`;
-    }
-
     case "storage":
-      // `null` in, `null` out, for both of the absences it covers.
+      /*
+        The binding, not the index. `null` in, `null` out, for both of the
+        absences it covers — and the index has no claim on this row even
+        though it is now a block on the screen: "R2 · notes-bucket" answers
+        where the notes are, which is what somebody reading the row wants, and
+        a second clause about the index would be the row trying to be the
+        panel.
+      */
       return storagePillLabel(data.storage);
-
-    case "search": {
-      const status = data.fastSearch.status;
-      if (status === null) return null;
-      // The same judgement the card's own chip makes, from the same function:
-      // `off` and `unavailable` are working states, and a label on a working
-      // state is a badge somebody clears by turning on a copy of their notes.
-      return fastSearchPill(status.state)?.label ?? null;
-    }
 
     case "plugins":
       /*
@@ -165,14 +129,9 @@ export function settingsPreview(
       to this switch is a compile error rather than a blank row nobody
       notices.
     */
-    case "overview":
+    case "workspace":
     case "premium":
     case "meetings":
-    case "advanced":
       return null;
   }
-}
-
-function plural(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`;
 }

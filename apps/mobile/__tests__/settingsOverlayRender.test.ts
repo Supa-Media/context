@@ -143,49 +143,63 @@ describe("a phone reaches the settings, not just a menu", () => {
   test("opens on the section, because that is what was asked for", () => {
     // The regression: `sidebar ?? children` with a sidebar always supplied
     // meant no section content was reachable below 880pt at all.
-    const text = overlay("search").textContent ?? "";
-    expect(text).toContain("Where this context");
-  });
-
-  test("one section at a time — search is not storage", () => {
-    const text = overlay("search").textContent ?? "";
-    expect(text).not.toContain("Your bucket, your credentials");
-  });
-
-  test("and storage is not search", () => {
     const text = overlay("storage").textContent ?? "";
     expect(text).toContain("Your bucket, your credentials");
-    expect(text).not.toContain("Where this context");
   });
 
-  test("overview answers which context this is before anything else", () => {
-    const text = overlay("overview").textContent ?? "";
-    expect(text).toContain("Overview");
+  test("one section at a time — storage is not the people screen", () => {
+    const text = overlay("storage").textContent ?? "";
+    expect(text).not.toContain("Write access is never implied by read");
+  });
+
+  test("and the index is a block on it, not a section of its own", () => {
+    // Search was the row below Storage, asking the same question one level
+    // down. An index is a derivative of the files it is built from.
+    // Mounted alone: `overlay()` appends to the same body, so a second mount
+    // in one test would be asserting against both screens at once.
+    const text = overlay("storage").textContent ?? "";
+    expect(text).toContain("Where this context");
+    expect(text).toContain("Fast search");
+  });
+
+  test("the workspace page answers which context this is before anything else", () => {
+    const text = overlay("workspace").textContent ?? "";
+    expect(text).toContain("Workspace");
     expect(text).toContain("Personal workspace");
   });
 
-  test("people is in the context's own settings, not an app-level pane", () => {
-    expect(overlay("people").textContent ?? "").toContain("People");
+  test("one screen answers who can see it, in four blocks", () => {
+    /*
+      People, Groups, Shared links and Privacy were four sections, so finding
+      out who could read a note meant visiting all four. The point of the
+      merge is that the whole answer is on one screen — so this asserts all of
+      it, not that a heading exists.
+    */
+    const text = overlay("sharing").textContent ?? "";
+    expect(text).toContain("People");
+    expect(text).toContain("Groups");
+    expect(text).toContain("Shared links");
+    expect(text).toContain("Privacy");
+    // The demo's own shared link, and the privacy block's live reading.
+    expect(text).toContain("1-projects/board-update.md");
+    expect(text).toContain("nothing here is indexed");
   });
 
-  test("shared links lists what the demo console has shared, revoke and all", () => {
+  test("and it is still the context's own settings, not an app-level pane", () => {
+    const text = overlay("sharing").textContent ?? "";
+    expect(text).not.toContain("Your bucket, your credentials");
+  });
+
+  test("the demo console cannot pretend to revoke a link", () => {
     // The demo has no `shares.actions`, so a real Revoke button must never
-    // appear here — only the arming label with nothing behind it would be a
-    // demo console pretending to act.
-    const host = overlay("shares");
-    const text = host.textContent ?? "";
-    expect(text).toContain("Shared links");
-    expect(text).toContain("1-projects/board-update.md");
+    // appear — only the arming label with nothing behind it would be a demo
+    // console pretending to act.
+    const host = overlay("sharing");
     expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
   });
 
-  test("shares is not people, and people is not shares", () => {
-    expect(overlay("people").textContent ?? "").not.toContain("Shared links");
-    expect(overlay("shares").textContent ?? "").not.toContain("Nobody has access");
-  });
-
-  test("advanced shows the audit trail and offers no key export in the demo", () => {
-    const host = overlay("advanced");
+  test("the audit trail is a block on it, and offers no key export in the demo", () => {
+    const host = overlay("workspace");
     const text = host.textContent ?? "";
     expect(text).toContain("Audit trail");
     expect(text).toContain("Encryption keys");
@@ -201,11 +215,18 @@ describe("a phone reaches the settings, not just a menu", () => {
 });
 
 describe("the account's own settings have a home", () => {
-  test("AI apps is reachable and is about apps, not this context", () => {
-    const text = overlay("apps").textContent ?? "";
+  test("the AI apps a person connected are the first block of Integrations", () => {
+    /*
+      Account-scoped content on a context-scoped page, deliberately: what
+      somebody wants from "Integrations" is everything talking to this context
+      without being typed into it, and an MCP client is the first of those.
+      The block keeps the sentence that says a connection reaches every
+      workspace its person is a live member of.
+    */
+    const text = overlay("integrations").textContent ?? "";
     expect(text).toContain("AI apps");
-    // No context badge and no binding health: an account section wearing a
-    // context chip would be naming a scope it is not in.
+    expect(text).toContain("every workspace");
+    // And it is not the storage screen wearing another name.
     expect(text).not.toContain("Your bucket, your credentials");
   });
 
@@ -287,7 +308,7 @@ describe("the account's own settings have a home", () => {
 
 describe("the search box", () => {
   test("narrows the list to what somebody typed", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -302,11 +323,11 @@ describe("the search box", () => {
       field.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const text = host.textContent ?? "";
-    // Email is where Gmail lives, and it is not the only row it could have
-    // been: a mailbox reaches a workspace through a Google account *or* through
-    // the forwarding address, which is why those are one section rather than
-    // two. What the box has to do is land on it from the word people type.
-    expect(text).toContain("Email");
+    // Integrations is where Gmail lives — the mailboxes we read, the
+    // forwarding address, the calendars and the chats, on one screen. What the
+    // box has to do is land on it from the word people actually type, which is
+    // never our word for the section.
+    expect(text).toContain("Integrations");
     expect(text).not.toContain("Delete account");
   });
 });
@@ -321,15 +342,10 @@ describe("the list is one press away, and it navigates", () => {
     });
     const text = host.textContent ?? "";
     for (const label of [
-      "Overview",
-      "People",
-      "Shared links",
+      "Workspace",
+      "Sharing & Access",
       "Storage",
-      "Search",
-      "Advanced",
-      "Email",
-      "Calendar",
-      "Chats",
+      "Integrations",
       "Meetings",
     ]) {
       expect(text).toContain(label);
@@ -342,12 +358,12 @@ describe("the list is one press away, and it navigates", () => {
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
-    const row = host.querySelector('[data-testid="settings-section-search"]');
+    const row = host.querySelector('[data-testid="settings-section-storage"]');
     expect(row).not.toBeNull();
     act(() => {
       (row as HTMLElement).click();
     });
-    expect(chosen).toEqual(["search"]);
+    expect(chosen).toEqual(["storage"]);
   });
 
   test("closing asks to close, rather than navigating", () => {
@@ -372,7 +388,7 @@ describe("the list is the context switcher too", () => {
     from a setting the person was already looking at the name of.
   */
   function list(onSwitchContext: (slug: string) => void) {
-    const host = overlay("overview", () => {}, () => {}, { onSwitchContext });
+    const host = overlay("workspace", () => {}, () => {}, { onSwitchContext });
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -435,7 +451,7 @@ describe("the list is the context switcher too", () => {
  */
 describe("a row says what it is set to", () => {
   test("Storage carries the bucket it is bound to, in the list", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -455,7 +471,7 @@ describe("a row says what it is set to", () => {
     // Meetings has no persisted state to report, by design — so the row must
     // not invent one. See `settingsPreview`'s header for the three absences
     // this protects.
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -475,7 +491,7 @@ describe("the contexts are a scope bar above the sections", () => {
   }
 
   test("every context comes before the first section row", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -521,11 +537,11 @@ describe("the section is named once", () => {
       seventy points of the first screenful spent restating a word already on
       it. The bar names where Back goes instead.
     */
-    const host = overlay("overview");
+    const host = overlay("workspace");
     const headings = Array.from(host.querySelectorAll('[role="heading"]')).map(
       (node) => node.textContent ?? "",
     );
-    expect(headings.filter((text) => text === "Overview")).toHaveLength(1);
+    expect(headings.filter((text) => text === "Workspace")).toHaveLength(1);
     expect(headings).not.toContain("Settings");
 
     // And the way back is named, not a bare chevron.
@@ -534,7 +550,7 @@ describe("the section is named once", () => {
   });
 
   test("the list screen is titled, because nothing under it is", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     act(() => {
       (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
     });
@@ -545,9 +561,9 @@ describe("the section is named once", () => {
   });
 });
 
-describe("Overview answers rather than listing properties", () => {
+describe("the workspace page answers rather than listing properties", () => {
   test("the bucket, whether it is working, and when anybody last checked", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     const strip = host.querySelector('[data-testid="overview-health"]');
     expect(strip).not.toBeNull();
     // The word the old title-bar pill carried, now beside the thing it is a
@@ -557,17 +573,17 @@ describe("Overview answers rather than listing properties", () => {
 
   test("each fact is the way into the section that changes it", () => {
     const chosen: string[] = [];
-    const host = overlay("overview", (next) => chosen.push(next));
-    const fact = host.querySelector('[data-testid="overview-fact-privacy"]');
+    const host = overlay("workspace", (next) => chosen.push(next));
+    const fact = host.querySelector('[data-testid="overview-fact-sharing"]');
     expect(fact).not.toBeNull();
     act(() => {
       (fact as HTMLElement).click();
     });
-    expect(chosen).toEqual(["privacy"]);
+    expect(chosen).toEqual(["sharing"]);
   });
 
   test("the role is a sentence about you, not a lower-cased enum", () => {
-    const host = overlay("overview");
+    const host = overlay("workspace");
     const identity = host.querySelector('[data-testid="overview-identity"]');
     expect(identity).not.toBeNull();
     const text = identity!.textContent ?? "";
@@ -659,12 +675,11 @@ describe("the Plugins row is off a list that has no plugins behind it", () => {
     return host;
   }
 
-  test("no row, while the rest of Your notes is untouched", () => {
+  test("no row, while the rest of the list is untouched", () => {
     const host = list(untouched());
     expect(host.querySelector('[data-testid="settings-section-plugins"]')).toBeNull();
     expect(host.querySelector('[data-testid="settings-section-storage"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="settings-section-search"]')).not.toBeNull();
-    expect(host.querySelector('[data-testid="settings-section-advanced"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-workspace"]')).not.toBeNull();
     expect(host.textContent ?? "").not.toContain("Plugins");
   });
 
@@ -728,7 +743,7 @@ function liveOverlay(section: SettingsSectionKey): {
  */
 describe("a section follows the context it belongs to, not the one beside it", () => {
   test("a shared link belongs to the context that has it, not the one beside it", () => {
-    const { host, data } = liveOverlay("shares");
+    const { host, data } = liveOverlay("sharing");
     // @seyi is selected first, by `useDemoConsoleData`'s own default.
     expect(host.textContent ?? "").toContain("1-projects/board-update.md");
     expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
@@ -743,7 +758,7 @@ describe("a section follows the context it belongs to, not the one beside it", (
   });
 
   test("an audit row belongs to the context that recorded it, not the one beside it", () => {
-    const { host, data } = liveOverlay("advanced");
+    const { host, data } = liveOverlay("workspace");
     expect(host.textContent ?? "").toContain("1-projects/board-update.md");
     expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");
 

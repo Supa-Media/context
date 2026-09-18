@@ -13,7 +13,7 @@ import { leading, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
-import { PanelHead } from "../settings/panels/PanelHead";
+import { PanelHead, SubHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { EmailPanel } from "../settings/panels/EmailPanel";
 import { CalendarPanel } from "../settings/panels/CalendarPanel";
@@ -24,6 +24,7 @@ import type { CheckoutOutcome } from "@context/shared";
 import { OverviewPanel } from "../settings/panels/OverviewPanel";
 import { PremiumPanel } from "../settings/panels/PremiumPanel";
 import { MembersSection } from "../members/MembersSection";
+import { ConnectedAppsCard } from "../settings/AccountSections";
 import { GroupsPanel } from "../settings/panels/GroupsPanel";
 import { PrivacyPanel } from "../settings/panels/PrivacyPanel";
 import { shareBackSuggestions } from "../members/members";
@@ -281,24 +282,54 @@ export function SettingsPane({
         </View>
       ) : null}
 
+      {/*
+        The index, under the bucket it is built from.
+
+        Search was a row of its own, one below Storage, and the two rows asked
+        the same question at two depths: where are my notes kept, and where is
+        the thing that finds them. An index is a disposable derivative of the
+        files — `CLAUDE.md` #3, rebuildable and never the only copy of
+        anything — so it belongs under them rather than beside them.
+
+        What it switches is still per context, which is why it is here at all
+        and not at app level: two workspaces can be answered from two
+        different places, and a switch above the context picker would claim
+        there is one setting for all of them.
+      */}
+      <SubHead title="Search">
+        Where this context&apos;s search is answered from. Your Markdown never moves:
+        the index is a copy that can be deleted and rebuilt, and it is off until an
+        owner turns it on.
+      </SubHead>
+      <FastSearchCard view={data.fastSearch} demo={data.demo} />
+
       </>
       ) : null}
 
-      {show("overview") ? (
+      {show("workspace") ? (
       <>
-      <PanelHead section="overview" sectioned={section !== undefined}>
+      {/*
+        What this context is, and the levers that act on the whole of it.
+
+        Overview was a row of its own above Premium, answering "which context
+        am I in, what am I in it, and is it working" — which is what you ask on
+        arrival, not something you navigate to. It heads this page instead
+        (owner's call, 2026-09-18, with Sayo: the overview is not needed).
+        Advanced follows it, because audit, key export and deleting the
+        workspace are the same subject at the other end: this context as a
+        whole, rather than what comes into it or who can see it.
+      */}
+      <PanelHead section="workspace" sectioned={section !== undefined}>
         {current?.kind === "shared"
           ? "A workspace several people share. It has no address of its own — only a personal one can be sent mail."
           : "One bucket, one set of privacy rules, one history."}
       </PanelHead>
-      {/*
-        The second half of that sentence used to be "— and every other workspace
-        or workspace can point somewhere else entirely", which explains the
-        tenancy model to somebody who is already inside one context looking at
-        their own bucket, and cost three lines at the top of the section
-        settings opens on.
-      */}
       <OverviewPanel data={data} onSelect={onSelect} />
+
+      <SubHead title="Advanced">
+        Background folder moves, audit trail, and key export. Most people never need this.
+      </SubHead>
+      <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>
       ) : null}
 
@@ -313,15 +344,42 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("people") ? (
+      {show("sharing") ? (
       <>
-      <PanelHead section="people" sectioned={section !== undefined}>
+      {/*
+        One screen for one question.
+
+        People, Groups, Shared links and Privacy were four rows under a heading
+        that asked "Who can see it" — which is one question, asked once, and
+        answered in four places a person had to visit in turn to find out what
+        the answer actually was. They are four blocks of one panel now, in
+        widening order: who is here, who is named as a set, what was handed out
+        one note at a time, and what the rules underneath all of it are.
+
+        Nothing about what any of them *decides* moved. `PrivacyPanel` still
+        reads the live manifest through the same pure modules, and the members,
+        groups and shares views are the same owner-gated shapes they were.
+      */}
+      <PanelHead section="sharing" sectioned={section !== undefined}>
+        Who can reach this context, what each of them may do, and what has been
+        handed out one link at a time. Nothing here is public — no setting on
+        this screen puts a note in front of somebody you have not named.
+      </PanelHead>
+
+      <SubHead title="People">
         Everyone who can reach this context, and what each of them may do. Write access
         is never implied by read — a role is granted, not inherited.
-      </PanelHead>
+      </SubHead>
       <MembersSection
         view={data.members}
         viewerRole={current?.role}
+        /*
+          The owner's paragraph about what having members hands over is the
+          Privacy block's sentence in older words — "mark it team" against the
+          two words that block is held to. One point, two voices, and no longer
+          a screen apart: Privacy keeps it, People stops repeating it.
+        */
+        showReachRule={false}
         /*
           Defensive because this pane is rendered from fixtures that carry only
           the half of `members` their own subject needs — the Dropbox screens
@@ -334,79 +392,75 @@ export function SettingsPane({
             : []
         }
       />
-      </>
-      ) : null}
 
-      {show("shares") ? (
-      <>
-      <PanelHead section="shares" sectioned={section !== undefined}>
+      <SubHead title="Groups">
+        A named set of people, so a folder rule can point at &quot;leads&quot; rather
+        than at three usernames you have to keep in step by hand.
+      </SubHead>
+      <GroupsPanel
+        view={data.groups}
+        members={data.members.members}
+        slug={current?.slug.replace(/^@/, "") ?? ""}
+      />
+
+      <SubHead title="Shared links">
         Every note you have handed to somebody outside this context, one link at a
         time — with a Revoke beside each.
-      </PanelHead>
+      </SubHead>
       <SharedLinksPanel view={data.shares} />
-      </>
-      ) : null}
 
       {/*
-        Its own file, and its own module beneath that. Privacy is the section
+        Its own file, and its own module beneath that. Privacy is the block
         whose every sentence is a claim about who can read somebody's notes, so
         the rows, the words and the one control all come from pure modules a
         test can drive — see `features/console/privacy/`.
       */}
-      {/*
-        Between People and Shared links, which is where it belongs: the three
-        answer "who is here", "who is named as a set", and "what did I hand
-        out one note at a time" in widening order.
-      */}
-      {show("groups") ? (
-      <>
-      <PanelHead section="groups" sectioned={section !== undefined}>
-        A named set of people, so a folder rule can point at "leads" rather
-        than at three usernames you have to keep in step by hand.
-      </PanelHead>
-      <GroupsPanel
-          view={data.groups}
-          members={data.members.members}
-        slug={current?.slug.replace(/^@/, "") ?? ""}
-      />
+      <PrivacyPanel data={data} />
       </>
       ) : null}
 
-      {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
-
+      {show("integrations") ? (
+      <>
       {/*
-        Four panels where there was one section, each in its own file.
+        Everything that talks to this context without being typed into it.
 
-        "Mail, calendar & chats" was one block because a Google *account*
-        carries Gmail, Calendar and Chat together — our plumbing, not
-        anybody's question. Each of these answers one question a person
-        actually has, and the bodies live under `settings/panels/` so this file
-        gains four `show()` branches rather than four screens of copy. See
-        `settings/sections.ts` for the argument.
+        It was five rows — AI apps, Email, Calendar, Chats — under a heading
+        nobody navigates by. The split was right about one thing and wrong
+        about the other: a person does ask "why isn't my mail here" rather than
+        "what does my Google account do", and that question is answered on one
+        page whatever number of mechanisms it takes. But five pages to ask five
+        versions of "what is plugged in" is the list Sayo called overwhelming.
+
+        AI apps leads, because an MCP client is the first thing most people
+        connect and the word they arrive with. It is account-scoped — a
+        connection reaches every workspace its person is a live member of — and
+        the block says so in its own sentence, which is what keeps an
+        account-wide fact on a context-scoped page from being a lie.
+
+        Meetings is deliberately *not* here. It is the one capture surface
+        people open on purpose rather than configure once, and Sayo asked for
+        it separately by name.
       */}
-      {show("email") ? <EmailPanel data={data} sectioned={section !== undefined} /> : null}
-      {show("calendar") ? <CalendarPanel data={data} sectioned={section !== undefined} /> : null}
-      {show("chats") ? <ChatsPanel data={data} sectioned={section !== undefined} /> : null}
+      <PanelHead section="integrations" sectioned={section !== undefined}>
+        Everything that fills this context without being typed into it: the AI
+        apps holding a grant, the mailboxes and calendars we read, and the chats.
+      </PanelHead>
+
+      <SubHead title="AI apps">
+        One address, added once per app. A connection reaches every workspace you
+        are a live member of, and each app can be cut off on its own without
+        touching the others.
+      </SubHead>
+      <ConnectedAppsCard data={data} />
+
+      <EmailPanel data={data} />
+      <CalendarPanel data={data} />
+      <ChatsPanel data={data} />
+      </>
+      ) : null}
+
       {show("meetings") ? <MeetingsPanel data={data} sectioned={section !== undefined} /> : null}
 
-      {show("search") ? (
-      <>
-      <PanelHead section="search" sectioned={section !== undefined}>
-        Where this context&apos;s search is answered from. Your Markdown never moves:
-        the index is a copy that can be deleted and rebuilt, and it is off until an
-        owner turns it on.
-      </PanelHead>
-
-      {/*
-        Under the same gear as storage and ingestion, and here rather than at
-        app level for the same reason this whole pane moved: what it switches
-        is per context. Two workspaces can be answered from two different places,
-        and a switch above the context picker would claim there is one setting
-        for all of them.
-      */}
-      <FastSearchCard view={data.fastSearch} demo={data.demo} />
-      </>
-      ) : null}
 
       {show("plugins") ? (
       <>
@@ -434,14 +488,6 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("advanced") ? (
-      <>
-      <PanelHead section="advanced" sectioned={section !== undefined}>
-        Background folder moves, audit trail, and key export. Most people never need this.
-      </PanelHead>
-      <AdvancedPanel view={data.advanced} demo={data.demo} />
-      </>
-      ) : null}
 
     </View>
   );

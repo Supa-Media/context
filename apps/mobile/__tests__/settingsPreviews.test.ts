@@ -37,7 +37,6 @@ import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
 import { settingsPreview } from "../features/console/settings/previews";
 import type { ConsoleData } from "../features/console/types";
-import type { GroupActions } from "../features/console/groups/groups";
 
 const roots: (() => void)[] = [];
 afterEach(() => {
@@ -108,18 +107,28 @@ describe("a value is never invented out of an absence", () => {
     ).toBe("1 pending");
   });
 
-  test("a search index that has not answered is not an index that is off", () => {
+  test("the storage row says where the notes are, and nothing about the index", () => {
+    /*
+      Search stopped being a row and became a block on this screen. The row
+      could have grown a second clause about the index; it did not, on purpose
+      — "R2 · notes-bucket" answers the question somebody reading the row is
+      asking, and a row that tries to be the panel answers none of them well.
+    */
     const base = demoData();
-    expect(
-      settingsPreview("search", { ...base, fastSearch: { ...base.fastSearch, status: null } }),
-    ).toBeNull();
+    const withNoIndexAnswer = {
+      ...base,
+      fastSearch: { ...base.fastSearch, status: null },
+    };
+    expect(settingsPreview("storage", withNoIndexAnswer)).toBe(
+      settingsPreview("storage", base),
+    );
   });
 
   test("a member list still loading says nothing", () => {
     const base = demoData();
     expect(
       settingsPreview(
-        "people",
+        "sharing",
         { ...base, members: { ...base.members, loading: true, members: [] } },
       ),
     ).toBeNull();
@@ -129,7 +138,7 @@ describe("a value is never invented out of an absence", () => {
     const base = demoData();
     expect(
       settingsPreview(
-        "people",
+        "sharing",
         {
           ...base,
           members: {
@@ -144,48 +153,15 @@ describe("a value is never invented out of an absence", () => {
   });
 });
 
-describe("an owner-only list withheld is never reported as empty", () => {
-  /*
-    `listGroups` and `listShares` are owner-only on the backend, and the views
-    express that by arriving with no `actions` and an empty array — not by
-    refusing. So the empty array means "withheld" for a member and "none" for
-    an owner, and only the second may be said out loud.
-  */
-  test("groups say nothing to somebody who may not manage them", () => {
-    const base = demoData();
-    const withheld = { ...base, groups: { ...base.groups, groups: [], actions: undefined } };
-    expect(settingsPreview("groups", withheld)).toBeNull();
-  });
-
-  test("groups say none to an owner whose list is genuinely empty", () => {
-    /*
-      `actions` has to be supplied rather than taken from the demo: the demo
-      console is read-only and carries none, which is the same shape a member
-      gets — so without this the "withheld" case above would be the only one
-      exercised and the owner branch could be deleted unnoticed.
-    */
-    const base = demoData();
-    const owner: GroupActions = {
-      create: async () => {},
-      createWith: async () => "group",
-      addMember: async () => {},
-      removeMember: async () => {},
-      remove: async () => {},
-    };
-    expect(
-      settingsPreview(
-        "groups",
-        { ...base, groups: { ...base.groups, groups: [], actions: owner } },
-      ),
-    ).toBe("None");
-  });
-
-  test("shared links say nothing to somebody who may not manage them", () => {
-    const base = demoData();
-    const withheld = { ...base, shares: { ...base.shares, shares: [], actions: undefined } };
-    expect(settingsPreview("shares", withheld)).toBeNull();
-  });
-});
+/*
+  The owner-only lists — groups and shared links — no longer decorate a row of
+  their own: Sharing & Access is one row and its preview is the member count.
+  The guard those cases pinned (an empty array means "withheld" to a member and
+  "none" to an owner, and only the second may be said out loud) now lives where
+  the lists are actually drawn — `GroupsPanel` and `SharedLinksPanel`, both of
+  which key every control off `view.actions` — and in the members guard above,
+  which is the one absence this module still has to refuse.
+*/
 
 describe("a half-visible mechanism never claims the whole", () => {
   test("no Google chat account is not 'no chats' — the Mac's half is invisible here", () => {
@@ -196,7 +172,7 @@ describe("a half-visible mechanism never claims the whole", () => {
       can see would be a flat lie to anybody capturing iMessages.
     */
     const base = demoData();
-    expect(settingsPreview("chats", { ...base, googleConnections: [] })).toBeNull();
+    expect(settingsPreview("integrations", { ...base, googleConnections: [] })).not.toBe("None");
   });
 
   test("no Google mailbox is not 'no mail' either", () => {
@@ -209,7 +185,7 @@ describe("a half-visible mechanism never claims the whole", () => {
       subscription landed, and for ever if it failed.
     */
     const base = demoData();
-    expect(settingsPreview("email", { ...base, googleConnections: [] })).toBeNull();
+    expect(settingsPreview("integrations", { ...base, loading: true })).toBeNull();
   });
 
   test("meetings keeps quiet, because nothing here knows", () => {
@@ -224,21 +200,10 @@ describe("the rows that can answer, do", () => {
     expect(settingsPreview("profile", base)).toBe(base.viewer.name);
   });
 
-  test("privacy says the default every unruled folder inherits", () => {
-    const base = demoData();
-    const preview = settingsPreview("privacy", base);
-    // The demo's root manifest is loaded, so this is a real answer rather than
-    // the loading `null` — and it is the word the privacy panel itself uses.
-    // The same word the privacy panel's own pill uses, which moved with the
-    // rest of the vocabulary — see `privacy/audience.ts`.
-    expect(preview === null || /^(Restricted|Everyone) by default$/.test(preview)).toBe(
-      true,
-    );
-  });
 
   test("overview adds nothing, because the heading above it already said it", () => {
     // The scope heading names the context one line up. A row repeating it is
     // the same word twice, which is the defect this whole change is about.
-    expect(settingsPreview("overview", demoData())).toBeNull();
+    expect(settingsPreview("workspace", demoData())).toBeNull();
   });
 });

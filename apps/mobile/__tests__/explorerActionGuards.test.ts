@@ -290,7 +290,21 @@ interface Calls {
  * and the security regression test it backed would have passed for the wrong
  * reason.
  */
-function browser(canEdit: boolean, calls: Calls): FileBrowser {
+function browser(
+  canEdit: boolean,
+  calls: Calls,
+  /**
+   * What the browser says about moving into another context.
+   *
+   * Absent is the ordinary console: one context, or somebody who does not own
+   * this one — `useFileBrowser` empties the list in both cases, which is what
+   * the dialog reads to decide whether the row of contexts exists at all.
+   */
+  elsewhere: {
+    moveDestinations?: FileBrowser["moveDestinations"];
+    destinationFolders?: FileBrowser["destinationFolders"];
+  } = {},
+): FileBrowser {
   const record =
     (name: string) =>
     (...args: unknown[]) => {
@@ -344,6 +358,12 @@ function browser(canEdit: boolean, calls: Calls): FileBrowser {
     createFolder: record("createFolder"),
     rename: record("rename"),
     move: record("move"),
+    moveDestinations: elsewhere.moveDestinations ?? [],
+    destinationFolders:
+      elsewhere.destinationFolders ?? (async () => ({ folders: [], truncated: false })),
+    moveToContext: record("moveToContext"),
+    contextMoves: [],
+    resumeContextMove: noop,
     duplicate: record("duplicate"),
     archive: record("archive"),
     destroy: record("destroy"),
@@ -787,7 +807,13 @@ describe("the storage migration control is not toolbar chrome", () => {
  * safe-area insets on the web build, so it needs `METRICS` for the reason given
  * there.
  */
-function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls } {
+function mountMoveDialog(
+  path: string,
+  elsewhere: {
+    moveDestinations?: FileBrowser["moveDestinations"];
+    destinationFolders?: FileBrowser["destinationFolders"];
+  } = {},
+): { container: HTMLElement; calls: Calls } {
   const calls: Calls = { entries: [], props: [] };
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -802,7 +828,7 @@ function mountMoveDialog(path: string): { container: HTMLElement; calls: Calls }
         SafeAreaProvider,
         { initialMetrics: METRICS },
         createElement(ExplorerDialogs, {
-          files: browser(true, calls),
+          files: browser(true, calls, elsewhere),
           dialog: { kind: "move", path },
           onClose: noop,
         }),
@@ -838,10 +864,15 @@ function offeredFolders(): string[] {
     .filter((label) => label === ROOT_LABEL || EVERY_FOLDER.has(label));
 }
 
-function press(label: string): void {
-  const node = [...document.body.querySelectorAll("[aria-label]")].find(
+/** The one node carrying this accessibility label, or `undefined`. */
+function labelled(label: string): Element | undefined {
+  return [...document.body.querySelectorAll("[aria-label]")].find(
     (candidate) => candidate.getAttribute("aria-label") === label,
   );
+}
+
+function press(label: string): void {
+  const node = labelled(label);
   expect(node).toBeDefined();
   act(() => {
     for (const type of ["mousedown", "mouseup", "click"]) {
@@ -849,6 +880,113 @@ function press(label: string): void {
     }
   });
 }
+
+/**
+ * MOVING INTO ANOTHER CONTEXT, FROM THE SAME DIALOG.
+ *
+ * One dialog rather than two, because it is one question — "where should this
+ * live?" — and the only new part of the answer is which context. What has to
+ * be true of it:
+ *
+ *  - **The row of contexts exists only where the browser offers one.** That
+ *    list is already gated on owning the context this is leaving (the server's
+ *    own rule, in `functions/contextMoves.ts`), and a dialog that drew the row
+ *    from anything else would be offering a destination every press of which
+ *    is refused.
+ *  - **`moveToContext`, never `move`.** They are different server actions with
+ *    different guarantees — one rewrites links and one cannot — and the dialog
+ *    is the thing that decides which. Confusing them would send a
+ *    cross-context move through an action that cannot cross.
+ *  - **A folder chosen in one context does not survive a switch to another.**
+ *    Two contexts can both have `work/`, so a stale selection is not an
+ *    invalid press that fails — it is a valid press that lands somewhere
+ *    nobody chose.
+ */
+describe("the move dialog's other contexts", () => {
+  const WORK = { id: "w-work", label: "@work", displayName: "Work" };
+
+  /** Flush the promise `destinationFolders` resolves with. */
+  async function settle(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  test("no contexts to move into means no row of contexts", () => {
+    mountMoveDialog("note.md");
+    expect(labelled("This context")).toBeUndefined();
+    expect(labelled("@work")).toBeUndefined();
+  });
+
+  test("choosing one lists its folders and moves into it", async () => {
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => ({ folders: ["archive", "clients"], truncated: false }),
+    });
+
+    press("@work");
+    await settle();
+
+    // Its folders, not this context's: `1-projects` and `2-areas` are here and
+    // must not be offered as somewhere in @work.
+    expect(labelled("clients")).toBeDefined();
+    expect(labelled("1-projects")).toBeUndefined();
+
+    press("clients");
+    press("Move to @work");
+    expect(dialog.calls.entries).toEqual([
+      { name: "moveToContext", args: ["note.md", "w-work", "clients"] },
+    ]);
+  });
+
+  test("switching back drops the folder that was chosen over there", async () => {
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => ({ folders: ["clients"], truncated: false }),
+    });
+
+    press("@work");
+    await settle();
+    press("clients");
+    press("This context");
+
+    // Nothing is armed: the button that would confirm is the local one again,
+    // and it has nothing selected to confirm.
+    press("Move here");
+    expect(dialog.calls.entries).toEqual([]);
+  });
+
+  test("a truncated list says so rather than reading as the whole context", async () => {
+    mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => ({ folders: ["clients"], truncated: true }),
+    });
+
+    press("@work");
+    await settle();
+
+    expect(document.body.textContent).toContain("Showing the first 1 folders");
+  });
+
+  test("a context whose folders cannot be read says so and offers nothing", async () => {
+    const dialog = mountMoveDialog("note.md", {
+      moveDestinations: [WORK],
+      destinationFolders: async () => {
+        throw new Error("nope");
+      },
+    });
+
+    press("@work");
+    await settle();
+
+    expect(document.body.textContent).toContain("could not be read");
+    // And no destination is offered, so there is nothing to press through to a
+    // move that would have been refused anyway.
+    expect(labelled("clients")).toBeUndefined();
+    expect(dialog.calls.entries).toEqual([]);
+  });
+});
 
 describe("the move dialog does not offer a folder itself or its own descendants", () => {
   test("a folder is offered every destination but itself and below it", () => {

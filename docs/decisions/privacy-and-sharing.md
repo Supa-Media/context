@@ -1389,3 +1389,60 @@ in, resolved live", which is one checkbox and re-widens silently as membership
 changes. This file's existing rule favours the first; whether that is the right
 trade for a person managing several clients is the owner's call, and it should
 be made before the scopes are minted rather than after they are in grants.
+
+### A note carried into another context lands at the narrower of the two ends
+
+A cross-context move is the one operation that takes a note out from under one
+`privacy.md` and puts it under a different one, written by a different owner,
+naming a different set of people. What it lands at is `landingVisibility`, and
+it is the **narrower** of two answers: what the note could be seen as where it
+came from, and what the folder it is arriving in already publishes.
+
+So `team` survives only when both ends already say `team`. A `team` note into a
+private-default folder lands private — the destination's own default wins. A
+`private` note into a team-default folder lands private too, with an exception
+written for it, and the exception is written to the manifest **before** the body
+is written to the bucket: a note put in place and narrowed a moment later is a
+note the destination's whole team could read for as long as the second write
+took, and forever if it never happened.
+
+**Which is why there is no "are you sure this becomes visible to them?" step.**
+There is nothing to confirm. The gateway's `move_note` refuses that second case
+instead, behind `confirm_team_publish`, and that is right for a tool call —
+an agent chose the destination and the person may never have seen it. It is
+wrong for a folder of mixed notes that somebody dragged somewhere on purpose:
+one checkbox cannot express per-note intent, and the safe reading of it is the
+one this rule already takes. The two engines therefore differ here deliberately,
+and the difference only ever runs in the safe direction.
+
+**A group rule does not travel.** `@supa-leads` names a group in the *source*
+workspace, resolved by the source's control plane; the destination resolves
+names in its own. A note pointed at a group lands `private` — carrying the
+string would write a rule the destination cannot resolve, which reaches nobody
+today and reaches the wrong people the day somebody there mints that name.
+
+**An encrypted note does not travel at all.** Its data key belongs to the
+workspace it was written in (`functions/encryptionKeys.ts`) and does not move
+with it, so its ciphertext in another context is a note nobody can ever open,
+including the person who moved it. It stays where it can still be read, and the
+move names it rather than swallowing it — "moved, except for three of them" is
+what stops somebody going looking in the other context for notes that are not
+there.
+
+**The source manifest forgets what it said about an empty subtree.** A folder
+rule whose folder is gone is not inert: the name comes back the day anything
+recreates that path — an ingestion alias filing into `1-projects/acme`, a note
+saved to the same place — carrying a visibility nobody chose for it. Rules
+covering something that stayed behind are kept, which is why the cleanup takes
+the survivors rather than assuming there are none.
+
+**What a "simplification" of this would cost.** Carrying the source's tier
+across unchanged publishes private notes to a set of people who were never
+chosen. Writing the body before the exception opens a window in which they are
+published anyway. Carrying a group name writes a rule that means something else
+on the other side. Carrying an encrypted note destroys it while reporting
+success. `apps/convex/__tests__/contextMove.test.ts` fails — "a private note
+landing in a team folder is written private first", "the exception is in the
+manifest before the body is in the bucket", "a note pointed at a group lands
+private, because the name means nothing there", and "an encrypted note stays in
+the context whose key can open it".

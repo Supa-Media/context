@@ -16,8 +16,6 @@
  *    rather than their question. Each of the four answers one question on one
  *    page, however many mechanisms that takes.
 
- *  - **Who can see it** — the people in this context. Previously three clicks
- *    away on an app-level pane that was not about this context at all.
  *  - **Your notes** — where they live and how they are found. Storage is here,
  *    near the bottom, because it is touched at setup and at a key rotation and
  *    then never again; a broken bucket still announces itself on the storage
@@ -33,11 +31,17 @@
 
 import type { IconName } from "../../design/components/Icon";
 
-export type SettingsGroup =
-  | "Your account"
-  | "Integrations"
-  | "Who can see it"
-  | "Your notes";
+/**
+ * The one heading left.
+ *
+ * There were four — "Your account", "Integrations", "Who can see it", "Your
+ * notes" — carrying the structure of a twenty-row list at 10.5pt in the
+ * faintest grey on the screen. Six context rows do not need to be sorted into
+ * buckets, and a heading over a single row repeats its name. What remains is
+ * the account/context split, which is a real difference in what a row acts on
+ * rather than a category somebody has to learn.
+ */
+export type SettingsGroup = "Your account";
 
 /**
  * Which of the two things a section belongs to.
@@ -104,15 +108,6 @@ export interface SettingsSectionSpec {
 
 export const SETTINGS_SECTIONS = [
   {
-    key: "apps",
-    keywords: "claude cursor chatgpt copilot app client connect endpoint address revoke disconnect mcp assistant",
-    label: "AI apps",
-    scope: "account",
-    group: "Your account",
-    icon: "grid",
-    personalOnly: false,
-  },
-  {
     key: "profile",
     /*
       The machine words are here because the machines are: "Your devices" was
@@ -151,16 +146,86 @@ export const SETTINGS_SECTIONS = [
     pendingOnly: true,
   },
   {
-    key: "overview",
-    keywords: "about which role kind name health status",
-    scope: "context",
-    label: "Overview",
+    key: "workspace",
     /*
-      Ungrouped and first: it answers "which context am I in, what am I in it,
-      and is it working" before any of the three questions the groups ask.
+      Overview's words and Advanced's, in one haystack.
+
+      The deletion words are half of it and they are the reason the Advanced
+      row was rewritten before it was merged: "delete this workspace" has been
+      at the bottom of that screen since it shipped, and none of the words
+      somebody types on the way to it were in any section's vocabulary. They
+      stay here, and `workspace` stays deliberately out of Profile's haystack,
+      so that deleting one shared workspace and closing an account remain two
+      searches with two answers.
+    */
+    keywords:
+      "about which role kind name health status workspace context audit history log trail export key keys encryption rotate activity delete remove destroy retire unwanted clutter",
+    scope: "context",
+    label: "Workspace",
+    /*
+      First among the context rows: it answers which context this is before
+      any of the rows below it are worth reading.
     */
     group: null,
     icon: "info",
+    personalOnly: false,
+  },
+  {
+    key: "storage",
+    /*
+      The index's words are here because the index is: Search was the row
+      below this one, asking the same question one level down — where are my
+      notes kept, and where is the thing that finds them. An index is a
+      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
+      this screen rather than a row beside it, and "rebuild index" has to land
+      here or it lands nowhere.
+    */
+    keywords:
+      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild",
+    scope: "context",
+    label: "Storage",
+    group: null,
+    icon: "drive",
+    personalOnly: false,
+  },
+  {
+    key: "integrations",
+    /*
+      Five haystacks in one. "AI apps", Email, Calendar and Chats were four
+      rows and a group heading, and the words people type for them are the
+      words for one question: what is plugged into this context.
+
+      The provider names matter more than our nouns here — nobody types
+      "integrations" looking for Gmail — so every brand somebody might arrive
+      with is in the list, and so are the two mechanisms that have no brand at
+      all: the forwarding address, and this Mac.
+    */
+    keywords:
+      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud",
+    scope: "context",
+    label: "Integrations",
+    /*
+      Ungrouped with the other whole-context rows. The "Integrations" *group*
+      is gone: a heading and a single row beneath it reading "Integrations"
+      is the same word twice.
+    */
+    group: null,
+    icon: "grid",
+    personalOnly: false,
+  },
+  {
+    key: "meetings",
+    keywords:
+      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
+    scope: "context",
+    label: "Meetings",
+    /*
+      Its own row, beside Integrations rather than inside it. It is the one
+      capture surface people open on purpose rather than configure once, and
+      the owner asked for it by name (2026-09-18, with Sayo).
+    */
+    group: null,
+    icon: "mic",
     personalOnly: false,
   },
   {
@@ -215,117 +280,40 @@ export const SETTINGS_SECTIONS = [
     would be refused; it is wrong for the sentence that says why.
   */
   {
-    key: "email",
+    key: "sharing",
+    /*
+      Four haystacks in one, and the union is the point rather than a tidy-up.
+
+      People, Groups, Shared links and Privacy were four rows under a heading
+      that asked one question — "who can see it" — and a person with that
+      question had to guess which of the four answered it. The words they type
+      are the same words whichever half of the answer they are after: "who can
+      see", "revoke", "share", "permissions", "public".
+
+      "public" and "secret" are in here and in no copy anywhere on the screen,
+      deliberately: somebody asking "is any of this public?" is asking a real
+      question, and the answer — that no setting here puts a note in front of
+      anybody the owner has not named — is exactly what this section exists to
+      give them. A word nobody can search for is an answer nobody finds.
+    */
     keywords:
-      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google integration integrations sync",
+      /*
+        "who can see it" is spelled out because it used to be the *group
+        heading* above these four rows, and `matchSettingsSections` searches
+        label, group and keywords together — so deleting the heading silently
+        took the most natural phrasing of the question with it. It is the one
+        string here that is a whole sentence, and that is why.
+      */
+      "who can see it members people invite team access role owner editor share colleague add remove group groups everyone some set named leads folder link links shared revoke has sent unlisted anyone token url private public visible hide hidden secret permissions default privacy manifest",
     scope: "context",
-    label: "Email",
-    group: "Integrations",
-    icon: "mail",
-    personalOnly: false,
-  },
-  {
-    key: "calendar",
-    keywords: "calendar calendars ical events event schedule agenda appointments google integration integrations sync",
-    scope: "context",
-    label: "Calendar",
-    group: "Integrations",
-    icon: "calendar",
-    personalOnly: false,
-  },
-  {
-    key: "chats",
-    keywords:
-      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac icloud integration integrations sync",
-    scope: "context",
-    label: "Chats",
-    group: "Integrations",
-    icon: "chat",
-    personalOnly: false,
-  },
-  {
-    key: "meetings",
-    keywords:
-      "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
-    scope: "context",
-    label: "Meetings",
-    group: "Integrations",
-    icon: "mic",
-    personalOnly: false,
-  },
-  {
-    key: "people",
-    keywords: "members invite team who access role owner editor share colleague add remove",
-    scope: "context",
-    label: "People",
-    group: "Who can see it",
+    label: "Sharing & Access",
+    /*
+      Ungrouped, with Overview and Premium. A heading reading "Who can see it"
+      over a single row called "Sharing & Access" is the same sentence twice,
+      and the group existed to hold the four rows this replaces.
+    */
+    group: null,
     icon: "people",
-    personalOnly: false,
-  },
-  {
-    key: "groups",
-    /*
-      What people type when they have already done the thing a group is for:
-      handed the same two people the same folder twice. "team" and "everyone"
-      are in here because somebody looking for a way to share with *some* of
-      the workspace searches the words for all of it first.
-    */
-    keywords: "group groups team everyone some people set named leads owners folder share who",
-    scope: "context",
-    label: "Groups",
-    group: "Who can see it",
-    icon: "group",
-    personalOnly: false,
-  },
-  {
-    key: "shares",
-    /*
-      "revoke" also lives on `apps`'s keywords, for revoking a connected AI app
-      — both are real destinations for the word, and `matchSettingsSections`
-      requiring every word to match rather than picking one winner is exactly
-      what lets it return both.
-    */
-    keywords: "link links shared share revoke who has it sent unlisted anyone token url",
-    scope: "context",
-    label: "Shared links",
-    group: "Who can see it",
-    icon: "share",
-    personalOnly: false,
-  },
-  {
-    key: "privacy",
-    /*
-      What people type when they are worried, which is rarely the word on the
-      row. "public" and "secret" are in this haystack and in no copy anywhere
-      in the section, deliberately: somebody asking "is any of this public?"
-      is asking a real question, and the answer — that no setting here puts a
-      note in front of anybody the owner has not named — is exactly what this
-      section exists to give them. A word nobody can search for is an answer
-      nobody finds.
-    */
-    keywords: "private public who can see visible hide hidden secret share permissions access folder default privacy manifest",
-    scope: "context",
-    label: "Privacy",
-    group: "Who can see it",
-    icon: "lock",
-    personalOnly: false,
-  },
-  {
-    key: "storage",
-    keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup",
-    scope: "context",
-    label: "Storage",
-    group: "Your notes",
-    icon: "drive",
-    personalOnly: false,
-  },
-  {
-    key: "search",
-    keywords: "find index fast lookup rebuild",
-    scope: "context",
-    label: "Search",
-    group: "Your notes",
-    icon: "search",
     personalOnly: false,
   },
   {
@@ -348,33 +336,10 @@ export const SETTINGS_SECTIONS = [
     keywords: "obsidian plugin plugins vault dataview templater excalidraw community addon extension compatible",
     scope: "context",
     label: "Plugins",
-    group: "Your notes",
+    group: null,
     icon: "plugin",
     personalOnly: false,
     experimental: true,
-  },
-  {
-    key: "advanced",
-    /*
-      The deletion words are half this haystack, and they are the reason it was
-      rewritten. "Delete this workspace" has lived at the bottom of this
-      section since it shipped, and none of the words somebody types on the way
-      to it — delete, remove, the noun *workspace* itself — were in any
-      section's vocabulary. So "delete workspace" matched nothing at all, and
-      the bare "delete" matched exactly one row: **Sign out & delete**. Somebody
-      who wanted one workspace off their list was handed the control that
-      closes their whole account, which is the worst wrong answer this box can
-      give. The privacy row above states the rule this broke — a word nobody
-      can search for is an answer nobody finds — and a destructive control is
-      where it costs the most.
-    */
-    keywords:
-      "audit history log trail export key keys encryption rotate activity delete remove workspace destroy retire unwanted clutter",
-    scope: "context",
-    label: "Advanced",
-    group: "Your notes",
-    icon: "sliders",
-    personalOnly: false,
   },
 ] as const;
 
@@ -399,7 +364,7 @@ export function isExperimentalSection(
 }
 
 /** The section a URL with no `?settings=` value, or an unknown one, opens. */
-export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
+export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "workspace";
 
 /**
  * Where settings opens when there is no context on screen — Map, Connections,
@@ -408,7 +373,7 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
  * most likely after: all three are already about reach rather than about one
  * bucket.
  */
-export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
+export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "profile";
 
 /**
  * The sections this context actually has, for this person, right now.

@@ -4758,3 +4758,132 @@ is planned fits the room it was planned for, at every width" — the sweep, whic
 is the one that catches a character-width estimate drifting narrow — and "every
 workspace has a name a screen reader can read", which is the rule that killed an
 icon-only rail once already.
+
+### "Move to…" is one dialog, and the other context is a destination rather than a mode
+
+A person who owns two contexts thinks "this belongs in @work", not "this belongs
+in a different tenancy". So the destination picker gained a row of contexts
+above its folder list, rather than a second command beside `Move to…`. Where
+there is nowhere else to send anything — one context, or somebody who is only an
+editor of this one — the row is **absent**, not a single disabled option: the
+same rule the rest of this console follows, argued in the header of `menu.ts`.
+
+Three things about that dialog are decisions rather than mechanics.
+
+**The list of contexts is the client-side gate, and it is gated on ownership of
+the context being left.** `useFileBrowser` empties it unless `isOwner`, because
+moving something *out* removes it from everybody who could read it there — the
+server's own rule in `functions/contextMoves.ts`. The console never offers a
+destination whose press would be refused, and it never re-derives the rule from
+anything else.
+
+**Choosing another context asks it for its folders, once.** A console only ever
+holds the tree of the context it is standing in, and walking another one a
+`listFiles` at a time would be one bucket credential opened per folder. One
+`folderPaths` action walks it inside the single call that already has the store
+open, bounded, and says so when it hit the ceiling rather than presenting a
+floor as a total — #25's shape. A folder chosen in one context is dropped when
+the person switches to another, because two contexts can both have `work/` and a
+stale selection is not an invalid press that fails, it is a valid press that
+lands somewhere nobody chose.
+
+**It is the one file operation that reports itself in a sentence.** Everything
+else in this console finishes inside the press and reports itself by the tree
+changing while somebody watches. A cross-context move can still be running
+minutes later, in a scheduled action, with nothing on this device involved — so
+it gets a line in the notice band that says what is happening, says that closing
+the console does not stop it, and settles into something a person can act on: a
+count, a list of what stayed behind and why, or a failure with "Finish the move"
+rather than "Try again" — because everything already carried stays carried, and
+resuming is not a re-run. A finished move is dismissible and a running one is
+not, because a Dismiss that would be ignored is worse than no Dismiss.
+
+**What a "simplification" of this would cost.** A second top-level command
+splits one question into two and makes the cross-context case feel like a
+different product. Drawing the context row from `canEdit` offers an editor a
+control that is always refused. Keeping the chosen folder across a context
+switch files something into the wrong context silently. Reporting a move only as
+a toast loses the outcome for every move longer than eight seconds, which is all
+the ones that needed reporting. `apps/mobile/__tests__/contextMoveBrowser.test.ts`,
+`contextMoveNotice.test.ts`, and the "move dialog's other contexts" block in
+`explorerActionGuards.test.ts` fail.
+### Settings is seven rows, and a row has to earn its place
+
+Twenty rows under four headings, each holding one word. Sayo, looking at it on
+a call on 2026-09-18: *"I'm looking at the settings page right now. I'm
+overwhelmed, bro."* That is the whole brief, and the rest of this entry is what
+was done with it and what a reversal would cost.
+
+**A row is a navigation, and a navigation is a question the reader has to
+answer before they can ask theirs.** Twenty of them cannot be scanned, only
+read, so the list was demanding a decision — *which of these twenty is my
+question in?* — from somebody who had arrived with exactly one. The four group
+headings were the first attempt at that problem and they made it worse: 10.5pt
+in the faintest grey on the screen, carrying the whole of the structure.
+
+Seven rows now, in the order the questions get asked:
+
+    Profile · Workspace · Storage · Integrations · Meetings · Premium ·
+    Sharing & Access
+
+plus **Invitations**, which is present only while an invitation is pending.
+
+**The four rules the collapse followed.**
+
+1. **A merge is only worth it where the rows answered one question.** People,
+   Groups, Shared links and Privacy all answered "who can see this", so they
+   are four blocks of Sharing & Access. AI apps, Email, Calendar and Chats all
+   answered "what is plugged in", so they are Integrations. Meetings stayed a
+   row of its own because it is the one capture surface people open on purpose
+   rather than configure once — the owner asked for it by name on the same
+   call.
+2. **Nothing is deleted with its row.** "Your devices" lost its row and its
+   Revoke button became a card at the foot of Profile: a machine grant can
+   capture into private notes, and this app is the only client that can cut one
+   off. `CLAUDE.md` — never weaken revocability — is the rule, and the sections
+   test is what fails if a later edit takes the card out too. Search is a block
+   on Storage, Advanced a block on Workspace, Overview the *head* of Workspace.
+3. **The keywords move with the content, always.** `matchSettingsSections`
+   requires every typed word to match something, so a haystack that keeps a
+   word for a row that no longer exists returns a section that cannot answer —
+   worse than no match at all. "dark mode" reaches Profile, "rebuild index"
+   reaches Storage, "who can see it" reaches Sharing & Access. That last one is
+   spelled out as a whole sentence because it used to be the *group heading*,
+   which the matcher searched alongside the keywords.
+4. **Every retired `?settings=` value aliases rather than failing closed.**
+   Twelve of them, in `RENAMED_SETTINGS_SECTIONS` — never in the catalogue, so
+   they appear in no list and in no search result, which is what keeps an alias
+   from being a second name for a section.
+
+**What a row still costs, and the two things that removed one.** Appearance was
+a Light/Dark/Follow-device picker with a stored choice behind it, a
+module-level store to keep the panel and the provider agreeing, a synchronous
+peek on web, an async read on native, and the launch image held up until that
+read landed — all so one pinned value could arrive before the first frame.
+Nobody asked to pin the app against their own system setting. The picker went
+and the machinery went with it, because a stored value no surface can change is
+a setting somebody is locked into. "Sign out & delete" was a row for two
+buttons somebody presses once or never, and pairing them put the control that
+ends a *session* on the only screen that can end an *account*.
+
+**What a simplification of this costs.** The tempting one is to keep merging:
+Meetings into Integrations, Premium into Workspace, Invitations into a
+permanent row. Each takes back a distinction somebody on that call named —
+meetings is a surface, not a configuration; Premium is about the account
+paying; a row that says "None" on every load is a badge people learn to skip.
+The other tempting one is to bring a heading back the first time a page feels
+long: a heading over one row repeats its name, and four of them are what made
+twenty rows unreadable.
+
+**The tests that fail if it is reversed.** `settingsSections.test.ts`: "seven
+rows, and one of them only when it has something to say" (the literal list),
+"the list reads in the order somebody asks the questions", "one question, one
+row: sharing answers all four of the old ones", "appearance is a sentence on
+Profile, not a section of its own", "signing out is a control on Profile, not a
+row of its own", "invitations is a row only while one is waiting", "the
+machines are reachable from Profile, because the row went and the revoke did
+not", and "deleting a workspace and deleting an account are not the same
+search" — which is asserted by exact equality, so a keyword edit that merges
+those two destinations fails loudly. `consoleNav.test.ts` holds the aliases.
+`settingsOverlayRender.test.ts` sweeps every section for exactly one
+`role="heading"`, which is what stops a merged panel from growing a second one.

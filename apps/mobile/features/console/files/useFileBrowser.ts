@@ -26,7 +26,13 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { onBucketWrite } from "./bucketWrites";
-import { isServerRefusal, toFileError, type FileBrowser } from "./browser";
+import {
+  isServerRefusal,
+  toFileError,
+  type ContextMoveProgress,
+  type FileBrowser,
+  type MoveDestination,
+} from "./browser";
 import type {
   FormOutcome,
   FormResponsesOutcome,
@@ -191,6 +197,17 @@ export function useFileBrowser(options: {
    * treats as "do not claim either way".
    */
   conditionalWrite?: boolean;
+  /**
+   * The other contexts this person could move something into.
+   *
+   * Passed in rather than queried here, because the console already holds the
+   * list — `listMyWorkspaces`, one subscription — and a second one would be a
+   * second answer that can disagree with the rail. Filtered to what the
+   * *destination* side needs (`editor` and above there); whether the **source**
+   * side allows a move at all is `isOwner`, and this hook applies that itself
+   * rather than trusting the caller to have done both.
+   */
+  destinations?: readonly MoveDestination[];
 }): FileBrowser {
   const workspaceId = options.workspaceId as Id<"workspaces"> | null;
   const slug = options.slug ?? null;
@@ -206,6 +223,9 @@ export function useFileBrowser(options: {
   const retractSubmissionAction = useAction(api.functions.forms.retractSubmission);
   const createDirectory = useAction(api.functions.files.createDirectory);
   const moveEntry = useAction(api.functions.files.moveEntry);
+  const folderPathsAction = useAction(api.functions.files.folderPaths);
+  const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
+  const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
   const copyEntry = useAction(api.functions.files.copyEntry);
   const duplicateEntry = useAction(api.functions.files.duplicateEntry);
   const archiveEntry = useAction(api.functions.files.archiveEntry);
@@ -1841,6 +1861,139 @@ export function useFileBrowser(options: {
     [listings, moveEntry, run, selectedPath, workspaceId],
   );
 
+  /* ------------------------------------------------------------------ */
+  /*                     moving into another context                      */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Whose contexts this person may send something to.
+   *
+   * Gated on owning the context they are standing in, which is the *source*
+   * half of the rule `functions/contextMoves.ts` enforces. The caller has
+   * already filtered the list by what they may write at the far end.
+   */
+  const moveDestinations = useMemo(
+    () =>
+      options.isOwner === true
+        ? (options.destinations ?? []).filter((destination) => destination.id !== workspaceId)
+        : [],
+    [options.destinations, options.isOwner, workspaceId],
+  );
+
+  const destinationFolders = useCallback(
+    async (contextId: string) => {
+      const answer = await folderPathsAction({ workspaceId: contextId as Id<"workspaces"> });
+      return { folders: answer.folders, truncated: answer.truncated };
+    },
+    [folderPathsAction],
+  );
+
+  /**
+   * The moves out of this context, as the dialog and the pane read them.
+   *
+   * Owner-only on the server too, so this subscribes only where the rail
+   * already says they own it — a query that would be refused is a permanent
+   * error state on every paint.
+   */
+  const moveRows = useQuery(
+    api.functions.contextMoves.listContextMoves,
+    options.isOwner === true && workspaceId !== null ? { workspaceId } : "skip",
+  );
+
+  const contextMoves: readonly ContextMoveProgress[] = useMemo(() => {
+    const named = new Map((options.destinations ?? []).map((one) => [one.id, one.label]));
+    return (moveRows ?? []).map((row) => ({
+      id: row.moveId,
+      from: row.from,
+      to: row.to,
+      // The id is a poor label and a deliberate one: a context this person can
+      // no longer see must not have its name re-printed from a stale row.
+      destination: named.get(row.destinationWorkspaceId) ?? row.destinationWorkspaceId,
+      status: row.status,
+      objects: row.movedObjects,
+      skipped: row.skipped,
+      ...(row.error === undefined ? {} : { error: row.error }),
+    }));
+  }, [moveRows, options.destinations]);
+
+  /*
+    A MOVE THAT FINISHED SOMEWHERE ELSE STILL HAS TO SHOW UP HERE.
+
+    Every other operation reloads the tree inside `run`, because it is over by
+    the time `run` returns. This one is not: the press starts a job, the last
+    batch lands seconds or minutes later in a scheduled action, and nothing on
+    this device is waiting on it. Without this the folder it came out of keeps
+    drawing notes the bucket no longer has, until something else happens to
+    reload it.
+
+    Keyed on the transition rather than on the row, so a completed move sitting
+    in the list for its day does not re-refresh on every paint.
+  */
+  const settledMoves = useRef(new Set<string>());
+  useEffect(() => {
+    const done = contextMoves.filter((move) => move.status !== "moving");
+    const fresh = done.filter((move) => !settledMoves.current.has(move.id));
+    for (const move of done) settledMoves.current.add(move.id);
+    if (fresh.length === 0) return;
+    for (const move of fresh) {
+      // `cascadeFrom` as well as the parent, because what moved was often a
+      // folder: its own listing and every loaded listing beneath it describe a
+      // subtree that is not there any more. The parent alone takes the row out
+      // of the tree and leaves those behind, which is the state a reopened
+      // breadcrumb draws from.
+      void refresh(
+        foldersToRefresh([move.from], {
+          cascadeFrom: move.from,
+          loaded: Object.keys(listingsRef.current),
+        }),
+      );
+    }
+  }, [contextMoves, refresh]);
+
+  const moveToContext = useCallback(
+    (path: string, contextId: string, destinationFolder: string) => {
+      const destination = moveDestinations.find((one) => one.id === contextId);
+      if (destination === undefined) {
+        return setNotice("You can only move things into a context you can write to.");
+      }
+      const to = joinPath(destinationFolder, baseName(path));
+      void run(async () => {
+        await startContextMoveAction({
+          sourceWorkspaceId: workspaceId!,
+          from: path,
+          destinationWorkspaceId: contextId as Id<"workspaces">,
+          to,
+        });
+        return {
+          touched: [path],
+          /*
+            The present tense is the honest one. `startContextMove` returns as
+            soon as the job exists; nothing has crossed yet, and a folder of a
+            few thousand notes will still be crossing when this toast is gone.
+            `contextMoves` is what says when it is done — and no `undo`,
+            because the inverse of a move that is still running is not a move.
+          */
+          message: `Moving to ${destination.label}…`,
+        };
+      });
+      if (selectedPath === path) {
+        setSelectedPath(null);
+        dispatch({ type: "closed" });
+      }
+    },
+    [moveDestinations, run, selectedPath, startContextMoveAction, workspaceId],
+  );
+
+  const resumeContextMove = useCallback(
+    (id: string) => {
+      void run(async () => {
+        await resumeContextMoveAction({ moveId: id as Id<"contextMoves"> });
+        return { touched: [], message: "Picking the move back up…" };
+      });
+    },
+    [resumeContextMoveAction, run],
+  );
+
   const rename = useCallback(
     (path: string, rawName: string) => {
       const folder = parentPath(path);
@@ -2653,6 +2806,11 @@ export function useFileBrowser(options: {
       createFolder,
       rename,
       move,
+      moveDestinations,
+      destinationFolders,
+      moveToContext,
+      contextMoves,
+      resumeContextMove,
       duplicate,
       archive,
       destroy,
@@ -2717,6 +2875,11 @@ export function useFileBrowser(options: {
       listings,
       loading,
       move,
+      moveDestinations,
+      destinationFolders,
+      moveToContext,
+      contextMoves,
+      resumeContextMove,
       notice,
       offline.counts,
       offline.durable,

@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A migration pass is walked in waves, and an unchanged object is read twice
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
+- A move between two contexts is three calls, not one function holding two keys
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -82,6 +83,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - `index.md` is opened by name, because no folder rule reaches the root
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
+- A note carried into another context lands at the narrower of the two ends
 
 ## [Per-note encryption](./encryption.md)
 
@@ -201,6 +203,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
 - A folder row says what differs, so `0-inbox` gets no count
+- "Move to…" is one dialog, and the other context is a destination rather than a mode
+- Settings is seven rows, and a row has to earn its place
 
 ## [Meetings](./meetings.md)
 

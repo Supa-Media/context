@@ -752,7 +752,33 @@ export function useLiveConsoleData(): ConsoleData {
     slug: selected?.slug,
   });
 
+  /*
+    THE CONTEXTS SOMETHING COULD BE MOVED INTO.
+
+    Built from the list the rail already draws rather than from a query of its
+    own, and filtered on the *destination* half of the rule: a move lands as an
+    ordinary write, so `editor` or `owner` there. The **source** half — owning
+    the context it is leaving — is applied inside `useFileBrowser`, which is
+    the one place that knows which context this browser is standing in.
+
+    The pinned context is excluded by the role filter and would be by intent
+    anyway: it is somebody else's docs, read-only, and nobody put this person
+    in it.
+  */
+  const moveDestinations = useMemo(
+    () =>
+      contexts
+        .filter((context) => context.role === "owner" || context.role === "editor")
+        .map((context) => ({
+          id: context.id,
+          label: atName(context.slug),
+          displayName: context.displayName,
+        })),
+    [contexts],
+  );
+
   const files = useFileBrowser({
+    destinations: moveDestinations,
     slug: selected?.slug,
     workspaceId: selectedContextId,
     canEdit,
