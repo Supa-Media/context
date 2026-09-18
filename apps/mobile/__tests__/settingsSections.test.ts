@@ -51,26 +51,49 @@ describe("which sections a context has", () => {
 });
 
 describe("the order and the grouping", () => {
-  test("what comes in is asked before where it is kept", () => {
-    const keys = SETTINGS_SECTIONS.map((section) => section.key);
-    expect(keys.indexOf("integrations")).toBeLessThan(keys.indexOf("storage"));
-    expect(keys.indexOf("meetings")).toBeLessThan(keys.indexOf("storage"));
+  test("the list reads in the order somebody asks the questions", () => {
+    /*
+      Seven rows, and the order is the argument: who you are, which context
+      this is, where its notes are kept, what fills them, what records a
+      meeting into them, what it costs, and who else can see it. Storage moved
+      up when Search became a block on it — it is where notes live, not a
+      footnote — and Premium sits above Sharing because it is about the
+      context as a whole.
+    */
+    const keys: readonly string[] = SETTINGS_SECTIONS.map((section) => section.key);
+    const rank = (key: string) => keys.indexOf(key);
+    expect(rank("profile")).toBeLessThan(rank("workspace"));
+    expect(rank("workspace")).toBeLessThan(rank("storage"));
+    expect(rank("storage")).toBeLessThan(rank("integrations"));
+    expect(rank("integrations")).toBeLessThan(rank("meetings"));
+    expect(rank("meetings")).toBeLessThan(rank("premium"));
+    expect(rank("premium")).toBeLessThan(rank("sharing"));
+  });
+
+  test("seven rows, and one of them only when it has something to say", () => {
+    // The whole of the change: twenty rows under four headings became seven
+    // under none. `plugins` is deprecated behind `shown` and `invitations`
+    // appears only while an invitation is pending.
+    expect(settingsSectionsFor("personal").map((section) => section.key)).toEqual([
+      "profile",
+      "workspace",
+      "storage",
+      "integrations",
+      "meetings",
+      "premium",
+      "sharing",
+    ]);
+    expect(
+      settingsSectionsFor("personal", { invitations: true }).map((section) => section.key),
+    ).toHaveLength(8);
   });
 
   test("every section sits under a heading somebody can answer", () => {
-    // The headings are the whole point of the regrouping: a person who does
-    // not know what a bucket is can still tell which third of the list their
-    // question is in.
     for (const section of SETTINGS_SECTIONS) {
-      // `null` is the ungrouped head of the list — Overview, which answers
-      // "which context is this" before any of the three questions below it.
-      expect([
-        null,
-        "Your account",
-        "Integrations",
-        "Who can see it",
-        "Your notes",
-      ]).toContain(section.group);
+      // One heading left: the account/context split, which is a difference in
+      // what a row acts on rather than a category to learn. Every context row
+      // is ungrouped.
+      expect([null, "Your account"]).toContain(section.group);
     }
   });
 
@@ -254,19 +277,19 @@ describe("searching the list", () => {
     ["revoke a link", "sharing"],
     ["members", "sharing"],
     ["groups", "sharing"],
-    ["audit log", "advanced"],
-    ["export keys", "advanced"],
+    ["audit log", "workspace"],
+    ["export keys", "workspace"],
     /*
       The four somebody types when they are done with a workspace. Every one of
       them matched *nothing* before: "delete this workspace" has been at the
-      bottom of Advanced since it shipped and none of its own words were in any
-      haystack. The bare "delete" is the one that was actively wrong rather than
+      bottom of that screen since it shipped and none of its own words were in
+      any haystack. The bare "delete" is the one that was actively wrong rather than
       merely missing — see below.
     */
-    ["delete workspace", "advanced"],
-    ["remove workspace", "advanced"],
-    ["delete this workspace", "advanced"],
-    ["destroy a workspace", "advanced"],
+    ["delete workspace", "workspace"],
+    ["remove workspace", "workspace"],
+    ["delete this workspace", "workspace"],
+    ["destroy a workspace", "workspace"],
 
     /*
       The four somebody types when they are worried. "public" is the one that
@@ -351,7 +374,7 @@ describe("searching the list", () => {
     const keysFor = (query: string) =>
       matchSettingsSections(all, query).map((section) => section.key);
 
-    expect(keysFor("delete workspace")).toEqual(["advanced"]);
+    expect(keysFor("delete workspace")).toEqual(["workspace"]);
     expect(keysFor("delete my account")).toEqual(["profile"]);
     // A personal workspace goes with the account it belongs to — the sentence
     // `deletionBlockedReason` gives for refusing it in Advanced — so the noun
@@ -362,7 +385,7 @@ describe("searching the list", () => {
     // The bare verb is ambiguous and should say so by offering both, rather
     // than silently picking the more destructive one. That is what it did
     // before: "delete" matched the account row alone.
-    expect(keysFor("delete")).toEqual(expect.arrayContaining(["profile", "advanced"]));
+    expect(keysFor("delete")).toEqual(expect.arrayContaining(["profile", "workspace"]));
   });
 
   test("a section is always findable by the words on its own row", () => {

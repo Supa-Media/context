@@ -108,7 +108,7 @@ describe("a context that has never touched a plugin", () => {
     }).map((section) => section.key);
     expect(keys).not.toContain("plugins");
     // The rest of the list is untouched: this is one row, not a group.
-    expect(keys).toEqual(expect.arrayContaining(["storage", "advanced"]));
+    expect(keys).toEqual(expect.arrayContaining(["workspace", "storage"]));
   });
 });
 
@@ -287,7 +287,8 @@ describe("the section is hidden, not deleted", () => {
     // And in its old place: after Storage — which is where Search's index
     // block now lives too — and before Advanced.
     expect(shown.indexOf("storage")).toBeLessThan(shown.indexOf("plugins"));
-    expect(shown.indexOf("plugins")).toBeLessThan(shown.indexOf("advanced"));
+    // Advanced is a block on Workspace now, so "before Advanced" is "last".
+    expect(shown.indexOf("plugins")).toBe(shown.length - 1);
   });
 
   test("it is findable by name once it is back", () => {

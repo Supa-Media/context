@@ -204,6 +204,6 @@ describe("the rows that can answer, do", () => {
   test("overview adds nothing, because the heading above it already said it", () => {
     // The scope heading names the context one line up. A row repeating it is
     // the same word twice, which is the defect this whole change is about.
-    expect(settingsPreview("overview", demoData())).toBeNull();
+    expect(settingsPreview("workspace", demoData())).toBeNull();
   });
 });

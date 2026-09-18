@@ -306,21 +306,30 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("overview") ? (
+      {show("workspace") ? (
       <>
-      <PanelHead section="overview" sectioned={section !== undefined}>
+      {/*
+        What this context is, and the levers that act on the whole of it.
+
+        Overview was a row of its own above Premium, answering "which context
+        am I in, what am I in it, and is it working" — which is what you ask on
+        arrival, not something you navigate to. It heads this page instead
+        (owner's call, 2026-09-18, with Sayo: the overview is not needed).
+        Advanced follows it, because audit, key export and deleting the
+        workspace are the same subject at the other end: this context as a
+        whole, rather than what comes into it or who can see it.
+      */}
+      <PanelHead section="workspace" sectioned={section !== undefined}>
         {current?.kind === "shared"
           ? "A workspace several people share. It has no address of its own — only a personal one can be sent mail."
           : "One bucket, one set of privacy rules, one history."}
       </PanelHead>
-      {/*
-        The second half of that sentence used to be "— and every other workspace
-        or workspace can point somewhere else entirely", which explains the
-        tenancy model to somebody who is already inside one context looking at
-        their own bucket, and cost three lines at the top of the section
-        settings opens on.
-      */}
       <OverviewPanel data={data} onSelect={onSelect} />
+
+      <SubHead title="Advanced">
+        Background folder moves, audit trail, and key export. Most people never need this.
+      </SubHead>
+      <AdvancedPanel view={data.advanced} demo={data.demo} />
       </>
       ) : null}
 
@@ -479,14 +488,6 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("advanced") ? (
-      <>
-      <PanelHead section="advanced" sectioned={section !== undefined}>
-        Background folder moves, audit trail, and key export. Most people never need this.
-      </PanelHead>
-      <AdvancedPanel view={data.advanced} demo={data.demo} />
-      </>
-      ) : null}
 
     </View>
   );
