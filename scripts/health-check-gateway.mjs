@@ -62,8 +62,29 @@
  * silently stopped matching anything reports a healthy service forever.
  */
 
-/** The public endpoint this product documents. Not an account identifier. */
-const DEFAULT_ORIGIN = "https://context.lc";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The gateway's own origin — NOT the apex.
+ *
+ * `context.lc` is the console: `infra/router` sends everything there to the
+ * Expo web app except `/api/auth/*` and `/og/card.png`, and never rewrites a
+ * path. The MCP gateway is a different Worker on `mcp.context.lc`, which is
+ * deliberately not attached to the router so customer storage credentials do
+ * not travel one hop further than they have to.
+ *
+ * This file shipped pointing at the apex, and the first live run reported the
+ * Expo document as "body is not JSON" and `POST /mcp` as a 404 — read, for a
+ * few minutes, as the gateway having lost its routing. It was the monitor
+ * pointed at the wrong host. A false red is not the cheap direction to fail in:
+ * a monitor that cries wolf every fifteen minutes is one nobody reads on the
+ * morning it is right.
+ *
+ * Neither host is an account identifier; both are in the README and in every
+ * client's network tab.
+ */
+const DEFAULT_ORIGIN = "https://mcp.context.lc";
 
 /** Per-request ceiling. A gateway that needs longer than this is not well. */
 const TIMEOUT_MS = 15_000;
@@ -238,6 +259,41 @@ async function runProbe(origin, spec) {
 
 /* --------------------------------- self-test ------------------------------ */
 
+/**
+ * The monitor's target must be the origin the gateway is actually deployed on.
+ *
+ * This is the guard for the mistake that shipped: `DEFAULT_ORIGIN` pointed at
+ * the console apex, every probe failed, and the failure read like an outage.
+ * Nothing tied the two together, so nothing could notice. Now the deployment
+ * config is the source of truth and a drift in either direction is a red CI
+ * run rather than a red production monitor.
+ *
+ * `wrangler.toml` is parsed for exactly one key rather than with a TOML
+ * library, because the gateway is a zero-dependency Worker and this script is
+ * plain Node by the same rule.
+ */
+function checkDefaultOriginMatchesDeployment() {
+  const config = fileURLToPath(new URL("../apps/mcp/wrangler.toml", import.meta.url));
+  let text;
+  try {
+    text = readFileSync(config, "utf8");
+  } catch {
+    // Absent is a failure, not a pass: a renamed config must not silently
+    // retire the one assertion tying this file to the deployment.
+    return [`cannot read ${config} to confirm the probe's default origin`];
+  }
+  const match = text.match(/^\s*PUBLIC_ORIGIN\s*=\s*"([^"]+)"/m);
+  if (!match) return ["`PUBLIC_ORIGIN` is not set in apps/mcp/wrangler.toml"];
+  const declared = match[1].replace(/\/+$/, "");
+  if (declared !== DEFAULT_ORIGIN) {
+    return [
+      `DEFAULT_ORIGIN is ${DEFAULT_ORIGIN} but the gateway declares ` +
+        `PUBLIC_ORIGIN ${declared} — the monitor is watching the wrong host`,
+    ];
+  }
+  return [];
+}
+
 /** Minimal stand-in for the one header the probes read. */
 function headersOf(object = {}) {
   return new Headers(object);
@@ -389,6 +445,16 @@ function selfTest() {
   );
 
   let failures = 0;
+
+  const drift = checkDefaultOriginMatchesDeployment();
+  if (drift.length === 0) {
+    console.log("  ok   the probe's default origin is the deployed gateway");
+  } else {
+    failures += 1;
+    console.error("  FAIL the probe's default origin is the deployed gateway");
+    for (const problem of drift) console.error(`       ${problem}`);
+  }
+
   for (const { label, results, want, matching } of cases) {
     const problems = evaluate(results);
     const enough = want === 0 ? problems.length === 0 : problems.length >= want;
@@ -404,10 +470,10 @@ function selfTest() {
   }
 
   if (failures > 0) {
-    console.error(`\n${failures} of ${cases.length} self-test cases failed.`);
+    console.error(`\n${failures} of ${cases.length + 1} self-test cases failed.`);
     process.exit(1);
   }
-  console.log(`\nAll ${cases.length} self-test cases held.`);
+  console.log(`\nAll ${cases.length + 1} self-test cases held.`);
 }
 
 /* ----------------------------------- main --------------------------------- */
