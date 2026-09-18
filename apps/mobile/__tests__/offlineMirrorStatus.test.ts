@@ -162,3 +162,71 @@ describe("the sentence", () => {
     }
   });
 });
+
+describe("where it is drawn", () => {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  const { withMirrorSegment, mirrorSheetSection } =
+    require("../features/offline/mirrorCopy") as typeof import("../features/offline/mirrorCopy");
+  const { compactSync, statusSegments } =
+    require("../features/console/files/status") as typeof import("../features/console/files/status");
+  const { connectionLine } =
+    require("../features/offline/copy") as typeof import("../features/offline/copy");
+  const { emptyEditor } =
+    require("../features/console/files/editor") as typeof import("../features/console/files/editor");
+  /* eslint-enable @typescript-eslint/no-require-imports */
+
+  const zero = { pending: 0, conflicted: 0, rejected: 0 };
+  const synced: MirrorStatus = { state: "synced", notes: 12, bytes: 1, lastSyncedAt: NOW };
+  const partial: MirrorStatus = {
+    state: "partial",
+    notes: 10,
+    bytes: 1,
+    lastSyncedAt: NOW,
+    remaining: 2,
+    truncatedReason: "interrupted",
+  };
+
+  test("a synced phone grows no pill", () => {
+    const sync = { reachability: "online" as const, counts: zero, durable: true, mirror: synced };
+    expect(compactSync(sync, null)).toBeNull();
+  });
+
+  test("the strip carries it quietly at the end, or beside Offline when it matters", () => {
+    const quiet = withMirrorSegment(
+      statusSegments({
+        editor: emptyEditor,
+        storageLabel: null,
+        now: NOW,
+        sync: { reachability: "online", counts: zero, durable: true, mirror: synced },
+      }),
+      { reachability: "online", counts: zero, durable: true, mirror: synced },
+      NOW,
+    );
+    expect(quiet.at(-1)).toMatchObject({ id: "mirror", tone: "quiet", text: "12 notes offline" });
+
+    const offlineSync = { reachability: "offline" as const, counts: zero, durable: true, mirror: partial };
+    const loud = withMirrorSegment(
+      statusSegments({ editor: emptyEditor, storageLabel: null, now: NOW, sync: offlineSync }),
+      offlineSync,
+      NOW,
+    );
+    expect(loud.map((segment) => segment.id).slice(0, 2)).toEqual(["connection", "mirror"]);
+    expect(loud[1]!.tone).toBe("warn");
+  });
+
+  test("the phone's sheet has the line, and nothing without a status", () => {
+    expect(
+      mirrorSheetSection({ reachability: "offline", counts: zero, durable: true, mirror: partial }, NOW),
+    ).toEqual([expect.objectContaining({ id: "mirror", tone: "warn", paths: [] })]);
+    expect(mirrorSheetSection({ reachability: "offline", counts: zero, durable: true }, NOW)).toEqual(
+      [],
+    );
+  });
+
+  test("offline says every note is here only when every note is", () => {
+    const whole = connectionLine({ reachability: "offline", counts: zero, durable: true, mirror: synced });
+    expect(whole?.detail).toContain("Every note in this context is on this device");
+    const part = connectionLine({ reachability: "offline", counts: zero, durable: true, mirror: partial });
+    expect(part?.detail).toContain("notes you have opened before");
+  });
+});

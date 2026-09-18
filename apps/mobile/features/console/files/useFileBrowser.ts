@@ -74,6 +74,7 @@ import {
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
 import { holdAncestors, releaseAncestors } from "../../offline/mirrorHolds";
+import { useMirrorStatus } from "../../offline/mirrorStatus";
 import { restoreFor } from "../../offline/restore";
 import { type WriteOutcome } from "../../offline/sync";
 import { queuedWriteSender } from "./queuedWrite";
@@ -477,6 +478,8 @@ export function useFileBrowser(options: {
   */
   const offlineRef = useRef(offline);
   offlineRef.current = offline;
+  /** How much of this context is on the device — for `sync.mirror`. */
+  const mirrorStatus = useMirrorStatus(workspaceId);
 
   /*
     The open note's version, held for the mirror's ancestor rule.
@@ -2820,6 +2823,7 @@ export function useFileBrowser(options: {
         stuckPaths: offline.outbox.writes
           .filter((write) => write.state !== "pending")
           .map((write) => write.path),
+        ...(mirrorStatus === undefined ? {} : { mirror: mirrorStatus }),
       },
       pending,
       notice,
@@ -2911,6 +2915,7 @@ export function useFileBrowser(options: {
       contextMoves,
       resumeContextMove,
       notice,
+      mirrorStatus,
       offline.counts,
       offline.durable,
       offline.outbox,

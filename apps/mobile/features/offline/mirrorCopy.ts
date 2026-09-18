@@ -1,4 +1,6 @@
 import type { MirrorStatus } from "./mirrorStatus";
+import type { SyncFacts } from "./copy";
+import type { StatusSegment, SyncSheetSection } from "../console/files/status";
 import { formatCount } from "../console/format";
 import { formatBytes } from "../console/files/paths";
 import { relativeTime } from "../console/files/status";
@@ -126,4 +128,42 @@ export function mirrorLine(
         tone,
       };
   }
+}
+
+/**
+ * The mirror as a segment of the desktop strip, placed by what it says.
+ *
+ * `warn` sits with the connection and the queue at the front, because it is
+ * the same kind of fact — whether what is on screen can be trusted right now;
+ * `quiet` sits at the end of the leading group, as one more measurement. A
+ * separate step after `statusSegments` rather than a line inside it, so the
+ * strip's own ordering rules stay `status.ts`'s and this file only adds to
+ * them.
+ */
+export function withMirrorSegment(
+  segments: readonly StatusSegment[],
+  sync: SyncFacts | undefined,
+  now: number,
+): (StatusSegment | (Omit<StatusSegment, "id"> & { id: "mirror" }))[] {
+  if (sync?.mirror === undefined) return [...segments];
+  const line = mirrorLine(sync.mirror, { now, offline: sync.reachability === "offline" });
+  const segment = {
+    id: "mirror" as const,
+    text: line.short,
+    tone: line.tone,
+    detail: `${line.text}. ${line.detail}`,
+  };
+  if (line.tone === "quiet") return [...segments, segment];
+  let at = 0;
+  segments.forEach((existing, index) => {
+    if (existing.id === "connection" || existing.id === "queue") at = index + 1;
+  });
+  return [...segments.slice(0, at), segment, ...segments.slice(at)];
+}
+
+/** The mirror's block in the phone's sync sheet, or nothing without a status. */
+export function mirrorSheetSection(sync: SyncFacts | undefined, now: number): SyncSheetSection[] {
+  if (sync?.mirror === undefined) return [];
+  const line = mirrorLine(sync.mirror, { now, offline: sync.reachability === "offline" });
+  return [{ id: "mirror", text: line.text, tone: line.tone, detail: line.detail, paths: [] }];
 }
