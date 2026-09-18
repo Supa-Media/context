@@ -1381,7 +1381,7 @@ export function BrowsePane({
             openGroups:
               data.groups?.actions === undefined || onOpenSettings === undefined
                 ? undefined
-                : () => onOpenSettings("groups"),
+                : () => onOpenSettings("sharing"),
           })}
           /*
             Only when the editor is actually holding this note — the same

@@ -13,7 +13,7 @@ import { leading, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
-import { PanelHead } from "../settings/panels/PanelHead";
+import { PanelHead, SubHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
 import { EmailPanel } from "../settings/panels/EmailPanel";
 import { CalendarPanel } from "../settings/panels/CalendarPanel";
@@ -313,15 +313,42 @@ export function SettingsPane({
       </>
       ) : null}
 
-      {show("people") ? (
+      {show("sharing") ? (
       <>
-      <PanelHead section="people" sectioned={section !== undefined}>
+      {/*
+        One screen for one question.
+
+        People, Groups, Shared links and Privacy were four rows under a heading
+        that asked "Who can see it" — which is one question, asked once, and
+        answered in four places a person had to visit in turn to find out what
+        the answer actually was. They are four blocks of one panel now, in
+        widening order: who is here, who is named as a set, what was handed out
+        one note at a time, and what the rules underneath all of it are.
+
+        Nothing about what any of them *decides* moved. `PrivacyPanel` still
+        reads the live manifest through the same pure modules, and the members,
+        groups and shares views are the same owner-gated shapes they were.
+      */}
+      <PanelHead section="sharing" sectioned={section !== undefined}>
+        Who can reach this context, what each of them may do, and what has been
+        handed out one link at a time. Nothing here is public — no setting on
+        this screen puts a note in front of somebody you have not named.
+      </PanelHead>
+
+      <SubHead title="People">
         Everyone who can reach this context, and what each of them may do. Write access
         is never implied by read — a role is granted, not inherited.
-      </PanelHead>
+      </SubHead>
       <MembersSection
         view={data.members}
         viewerRole={current?.role}
+        /*
+          The owner's paragraph about what having members hands over is the
+          Privacy block's sentence in older words — "mark it team" against the
+          two words that block is held to. One point, two voices, and no longer
+          a screen apart: Privacy keeps it, People stops repeating it.
+        */
+        showReachRule={false}
         /*
           Defensive because this pane is rendered from fixtures that carry only
           the half of `members` their own subject needs — the Dropbox screens
@@ -334,45 +361,32 @@ export function SettingsPane({
             : []
         }
       />
-      </>
-      ) : null}
 
-      {show("shares") ? (
-      <>
-      <PanelHead section="shares" sectioned={section !== undefined}>
+      <SubHead title="Groups">
+        A named set of people, so a folder rule can point at &quot;leads&quot; rather
+        than at three usernames you have to keep in step by hand.
+      </SubHead>
+      <GroupsPanel
+        view={data.groups}
+        members={data.members.members}
+        slug={current?.slug.replace(/^@/, "") ?? ""}
+      />
+
+      <SubHead title="Shared links">
         Every note you have handed to somebody outside this context, one link at a
         time — with a Revoke beside each.
-      </PanelHead>
+      </SubHead>
       <SharedLinksPanel view={data.shares} />
-      </>
-      ) : null}
 
       {/*
-        Its own file, and its own module beneath that. Privacy is the section
+        Its own file, and its own module beneath that. Privacy is the block
         whose every sentence is a claim about who can read somebody's notes, so
         the rows, the words and the one control all come from pure modules a
         test can drive — see `features/console/privacy/`.
       */}
-      {/*
-        Between People and Shared links, which is where it belongs: the three
-        answer "who is here", "who is named as a set", and "what did I hand
-        out one note at a time" in widening order.
-      */}
-      {show("groups") ? (
-      <>
-      <PanelHead section="groups" sectioned={section !== undefined}>
-        A named set of people, so a folder rule can point at "leads" rather
-        than at three usernames you have to keep in step by hand.
-      </PanelHead>
-      <GroupsPanel
-          view={data.groups}
-          members={data.members.members}
-        slug={current?.slug.replace(/^@/, "") ?? ""}
-      />
+      <PrivacyPanel data={data} />
       </>
       ) : null}
-
-      {show("privacy") ? <PrivacyPanel data={data} inline={section === undefined} /> : null}
 
       {/*
         Four panels where there was one section, each in its own file.

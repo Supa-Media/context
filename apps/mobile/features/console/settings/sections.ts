@@ -16,8 +16,10 @@
  *    rather than their question. Each of the four answers one question on one
  *    page, however many mechanisms that takes.
 
- *  - **Who can see it** — the people in this context. Previously three clicks
- *    away on an app-level pane that was not about this context at all.
+ *  - **Sharing & Access** — who can reach this context and through what. One
+ *    section rather than the four it used to be (People, Groups, Shared
+ *    links, Privacy): that was one question answered in four places, and a
+ *    person had to visit each to find out what the answer was.
  *  - **Your notes** — where they live and how they are found. Storage is here,
  *    near the bottom, because it is touched at setup and at a key rotation and
  *    then never again; a broken bucket still announces itself on the storage
@@ -33,11 +35,7 @@
 
 import type { IconName } from "../../design/components/Icon";
 
-export type SettingsGroup =
-  | "Your account"
-  | "Integrations"
-  | "Who can see it"
-  | "Your notes";
+export type SettingsGroup = "Your account" | "Integrations" | "Your notes";
 
 /**
  * Which of the two things a section belongs to.
@@ -254,60 +252,40 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
-    key: "people",
-    keywords: "members invite team who access role owner editor share colleague add remove",
+    key: "sharing",
+    /*
+      Four haystacks in one, and the union is the point rather than a tidy-up.
+
+      People, Groups, Shared links and Privacy were four rows under a heading
+      that asked one question — "who can see it" — and a person with that
+      question had to guess which of the four answered it. The words they type
+      are the same words whichever half of the answer they are after: "who can
+      see", "revoke", "share", "permissions", "public".
+
+      "public" and "secret" are in here and in no copy anywhere on the screen,
+      deliberately: somebody asking "is any of this public?" is asking a real
+      question, and the answer — that no setting here puts a note in front of
+      anybody the owner has not named — is exactly what this section exists to
+      give them. A word nobody can search for is an answer nobody finds.
+    */
+    keywords:
+      /*
+        "who can see it" is spelled out because it used to be the *group
+        heading* above these four rows, and `matchSettingsSections` searches
+        label, group and keywords together — so deleting the heading silently
+        took the most natural phrasing of the question with it. It is the one
+        string here that is a whole sentence, and that is why.
+      */
+      "who can see it members people invite team access role owner editor share colleague add remove group groups everyone some set named leads folder link links shared revoke has sent unlisted anyone token url private public visible hide hidden secret permissions default privacy manifest",
     scope: "context",
-    label: "People",
-    group: "Who can see it",
+    label: "Sharing & Access",
+    /*
+      Ungrouped, with Overview and Premium. A heading reading "Who can see it"
+      over a single row called "Sharing & Access" is the same sentence twice,
+      and the group existed to hold the four rows this replaces.
+    */
+    group: null,
     icon: "people",
-    personalOnly: false,
-  },
-  {
-    key: "groups",
-    /*
-      What people type when they have already done the thing a group is for:
-      handed the same two people the same folder twice. "team" and "everyone"
-      are in here because somebody looking for a way to share with *some* of
-      the workspace searches the words for all of it first.
-    */
-    keywords: "group groups team everyone some people set named leads owners folder share who",
-    scope: "context",
-    label: "Groups",
-    group: "Who can see it",
-    icon: "group",
-    personalOnly: false,
-  },
-  {
-    key: "shares",
-    /*
-      "revoke" also lives on `apps`'s keywords, for revoking a connected AI app
-      — both are real destinations for the word, and `matchSettingsSections`
-      requiring every word to match rather than picking one winner is exactly
-      what lets it return both.
-    */
-    keywords: "link links shared share revoke who has it sent unlisted anyone token url",
-    scope: "context",
-    label: "Shared links",
-    group: "Who can see it",
-    icon: "share",
-    personalOnly: false,
-  },
-  {
-    key: "privacy",
-    /*
-      What people type when they are worried, which is rarely the word on the
-      row. "public" and "secret" are in this haystack and in no copy anywhere
-      in the section, deliberately: somebody asking "is any of this public?"
-      is asking a real question, and the answer — that no setting here puts a
-      note in front of anybody the owner has not named — is exactly what this
-      section exists to give them. A word nobody can search for is an answer
-      nobody finds.
-    */
-    keywords: "private public who can see visible hide hidden secret share permissions access folder default privacy manifest",
-    scope: "context",
-    label: "Privacy",
-    group: "Who can see it",
-    icon: "lock",
     personalOnly: false,
   },
   {
