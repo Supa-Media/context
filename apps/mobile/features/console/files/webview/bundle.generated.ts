@@ -28,7 +28,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/webview/guest.ts": "455484b612816f6fae58aad4cb2ce8ae70eb2acb6478743a9855dfa78fc7b7f5",
   "apps/mobile/features/console/files/webview/protocol.ts": "0daf93752ed95839297474fb2ab74cee40e93a19bae211ab1410ffd24bbdaff9",
   "apps/mobile/features/console/files/webview/styles.ts": "9c2269df3795d6df5d3f2bdbcc5115b22f7fb0d0c891dc01f7aed0637300e9f3",
-  "apps/mobile/features/voice/dictation.ts": "76f71733ef68bb5fe3630de209d1b703a3a887bc254203607a2c64f862f4d710",
+  "apps/mobile/features/voice/dictation.ts": "57cf14dc00e534eb3a93022294f7f3d5f1b256ad82724be4d23e8b40adc42b64",
   "packages/shared/src/links.ts": "0c9cdadea3905d11d1f6d5ad12e142c6e481ead8dbaacd488be5aa0815a978c1"
 };
 
