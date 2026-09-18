@@ -61,6 +61,7 @@ import {
   imageRowDecoration,
   imageRows,
   imageHost,
+  imageSelection,
   type ImageRow,
 } from "./imageBlock";
 /*
@@ -2159,11 +2160,14 @@ export function decorationsFor(state: EditorState): DecorationSet {
     withdraws the moment the selection reaches the line, because a width you
     cannot see is a width you cannot edit by hand.
   */
-  const rows: ImageRow[] = imageRows(
-    state,
-    (range) => selectionTouches(range, selection),
-    frontEnd,
-  );
+  /*
+    Images do not follow the reveal rule, which is the one exception in this
+    file and is argued in `imageRows`: the markup of an image is a filename
+    nobody types, and clicking a picture to have it turn back into
+    `![[paste-….png]]` was reported as "really weird" the day it shipped. The
+    toolbar on the selected image is what replaced it.
+  */
+  const rows: ImageRow[] = imageRows(state, frontEnd);
   const insidePreview = (pos: number): boolean =>
     previews.some((preview) => pos >= preview.from && pos < preview.to) ||
     forms.some((form) => pos >= form.from && pos < form.to) ||
@@ -2269,7 +2273,12 @@ export function decorationsFor(state: EditorState): DecorationSet {
   */
   for (const row of rows) {
     hides.push(
-      imageRowDecoration(row, state.facet(imageHost), !state.readOnly).range(row.from, row.to),
+      imageRowDecoration(
+        row,
+        state.facet(imageHost),
+        !state.readOnly,
+        state.field(imageSelection, false) ?? null,
+      ).range(row.from, row.to),
     );
   }
 
@@ -3203,15 +3212,14 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
 .cm-lp-form-broken-why { font-family: var(--lp-mono); font-size: 0.85em; margin-top: 4px; }
 .cm-lp-form-hint { font-size: 0.85em; margin-top: 6px; }
 /*
-  IMAGES IN A NOTE — a row, its resize handles and its alignment bar.
+  IMAGES IN A NOTE — the row, the selected image, and its bar.
 
-  Two things here are not cosmetic. The handle is transparent until the row is
-  hovered or the button is focused, because an image with a permanent grab tab
-  on it reads as a form control rather than as a picture — and it is a real
-  button element, so focus-visible is what keeps it reachable without a pointer.
-  And the image itself is painted on the code wash rather than on nothing, so a
-  PNG with transparency has a ground in dark mode: an image keeps its own
-  background here, the same argument previewDocument makes.
+  Two things here are not cosmetic. The controls appear on the SELECTED image
+  only, because a picture wearing permanent furniture reads as a form control
+  rather than as a picture; and they are real buttons, so focus-visible keeps
+  them reachable without a pointer. The image is painted on the code wash rather
+  than on nothing, so a PNG with transparency has a ground in dark mode — an
+  image keeps its own background here, the same argument previewDocument makes.
 */
 .cm-lp-images {
   display: flex;
@@ -3227,6 +3235,7 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   max-width: 100%;
   min-width: 96px;
   flex: 0 1 auto;
+  cursor: default;
 }
 .cm-lp-image-img {
   display: block;
@@ -3235,65 +3244,147 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   border-radius: 8px;
   background: var(--lp-code-bg);
 }
+.cm-lp-image-on .cm-lp-image-img {
+  outline: 2px solid var(--lp-link);
+  outline-offset: 3px;
+}
+/* The handles: four corners and two sides, all of them width. */
 .cm-lp-image-handle {
   position: absolute;
-  right: -7px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 36px;
+  width: 11px;
+  height: 11px;
   padding: 0;
   border: 0;
-  border-radius: 4px;
+  border-radius: 3px;
   background: var(--lp-link);
-  opacity: 0;
-  cursor: ew-resize;
   touch-action: none;
 }
-.cm-lp-images:hover .cm-lp-image-handle,
-.cm-lp-image-handle:focus-visible {
-  opacity: 1;
-}
-.cm-lp-image-bar {
-  display: flex;
-  gap: 4px;
-  align-self: flex-start;
-  opacity: 0;
-}
-.cm-lp-images:hover .cm-lp-image-bar,
-.cm-lp-image-bar:focus-within {
-  opacity: 1;
-}
-.cm-lp-image-align {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid var(--lp-line-strong);
+.cm-lp-image-handle-nw { left: -8px; top: -8px; cursor: nwse-resize; }
+.cm-lp-image-handle-ne { right: -8px; top: -8px; cursor: nesw-resize; }
+.cm-lp-image-handle-sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
+.cm-lp-image-handle-se { right: -8px; bottom: -8px; cursor: nwse-resize; }
+.cm-lp-image-handle-w { left: -8px; top: calc(50% - 5px); cursor: ew-resize; }
+.cm-lp-image-handle-e { right: -8px; top: calc(50% - 5px); cursor: ew-resize; }
+/* The size, as the file will hold it. */
+.cm-lp-image-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  padding: 3px 7px;
   border-radius: 5px;
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  color: var(--lp-content);
+  background: var(--lp-code-bg);
+}
+/*
+  The bar floats above the image it belongs to, which is where the hand already
+  is. It is absolutely positioned so it cannot change the row's height and make
+  the note jump as an image is selected and deselected.
+*/
+.cm-lp-image-bar {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 12px);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 9px;
+  background: var(--lp-code-bg);
+  white-space: nowrap;
+}
+.cm-lp-image-chip,
+.cm-lp-image-tool {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
+  color: var(--lp-muted);
+  font-family: inherit;
+  font-size: 12px;
   cursor: pointer;
 }
-.cm-lp-image-align-on {
+.cm-lp-image-chip-on,
+.cm-lp-image-tool-on {
   background: var(--lp-link);
-  border-color: var(--lp-link);
+  color: var(--lp-code-bg);
+  font-weight: 600;
 }
+.cm-lp-image-tool-text {
+  color: var(--lp-content);
+}
+.cm-lp-image-remove {
+  color: var(--lp-heading);
+}
+.cm-lp-image-divider {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--lp-line-strong);
+}
+/* Alt text, in a field that opens under the bar and closes when it is done. */
+.cm-lp-image-alt {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  z-index: 2;
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 9px;
+  background: var(--lp-code-bg);
+}
+.cm-lp-image-alt-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lp-muted);
+}
+.cm-lp-image-alt-field {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--lp-content);
+  background: transparent;
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 7px;
+  padding: 8px 10px;
+}
+.cm-lp-image-alt-hint {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--lp-muted);
+}
+/* Drag this to move the image; six dots, because a bare square read as nothing. */
 .cm-lp-image-grip {
   position: absolute;
-  left: 6px;
-  top: 6px;
-  width: 22px;
-  height: 22px;
+  left: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
   border-radius: 6px;
+  color: var(--lp-muted);
   background: var(--lp-code-bg);
-  opacity: 0;
   cursor: grab;
   touch-action: none;
-}
-.cm-lp-images:hover .cm-lp-image-grip,
-.cm-lp-image-grip:focus-visible {
-  opacity: 1;
 }
 .cm-lp-image-moving {
   opacity: 0.5;

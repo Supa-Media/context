@@ -258,6 +258,53 @@ export function lineWithWidth(
   );
 }
 
+/** The same embed, pointing at a different file, keeping its width and alt. */
+export function withTarget(image: ImageRef, target: string): string {
+  if (image.form === "inline") {
+    const label = image.width === null ? image.alt : `${image.alt}|${image.width}`;
+    return `![${label}](${target})`;
+  }
+  return withWidth({ ...image, target }, image.width);
+}
+
+/** The same embed with different alt text. `""` removes the alias entirely. */
+export function withAlt(image: ImageRef, alt: string): string {
+  return withWidth({ ...image, alt: alt.trim() }, image.width);
+}
+
+/** `text` with image `index` pointing somewhere else. */
+export function lineWithTarget(text: string, index: number, target: string): string {
+  const line = parseImageLine(text);
+  const image = line?.images[index];
+  if (line === null || image === undefined) return text;
+  return text.slice(0, image.from) + withTarget(image, target) + text.slice(image.to);
+}
+
+/** `text` with image `index` given alt text. */
+export function lineWithAlt(text: string, index: number, alt: string): string {
+  const line = parseImageLine(text);
+  const image = line?.images[index];
+  if (line === null || image === undefined) return text;
+  return text.slice(0, image.from) + withAlt(image, alt) + text.slice(image.to);
+}
+
+/**
+ * `text` with image `index` taken out, or `null` when that was the last one and
+ * the whole line should go.
+ *
+ * `null` rather than an empty string, because "the line is now empty" and "the
+ * line now holds one image" are different edits — one deletes a block and the
+ * other rewrites a line — and the caller is the only thing that knows how to do
+ * the first without leaving a blank line behind.
+ */
+export function lineWithout(text: string, index: number): string | null {
+  const line = parseImageLine(text);
+  const image = line?.images[index];
+  if (line === null || image === undefined) return text;
+  const rest = (text.slice(0, image.from) + text.slice(image.to)).trim();
+  return rest === "" || parseImageLine(rest) === null ? null : rest;
+}
+
 /**
  * `text` with its alignment set.
  *

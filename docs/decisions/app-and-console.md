@@ -5746,6 +5746,29 @@ reads as broken to every client at once. The line is drawn immediately, before
 the upload completes, because the object's name is known before the bytes move
 (below), so the optimistic line is the final one rather than a guess.
 
+**An image does not reveal its markup, which is this editor's one exception.**
+Everywhere else in `livePreview.ts` the line the selection is in shows its
+syntax, because you cannot edit syntax you cannot see. An image is where that
+stops being true: the markup is a filename nobody types by hand, and clicking a
+picture to have it turn into `![[paste-971e….png]]` was reported as "really
+weird" the day it shipped — which it is. What replaces it is a **toolbar on the
+selected image**: width chips, the three alignments as drawn icons, alt text,
+Replace and Remove, plus corner handles and a grip. Every edit the line can
+carry is a control on the picture, so nothing is lost by never showing the text.
+The line is still ordinary text to everything else — a selection deletes it,
+undo undoes it, another editor shows the embed — and `atomicRanges` keeps the
+caret from walking into a row it cannot see. The selection lives in a
+`StateField` rather than in the widget, because a widget is rebuilt on every
+transaction and a selection kept inside one would be lost by the first resize it
+was used for.
+
+**The paste reads `DataTransfer.files`, and `items` only when that is empty.**
+Reading both and de-duplicating by identity looks obviously right and is wrong:
+`getAsFile()` mints a new `File` object on every call, so a browser that fills
+both lists — Chrome, for one — handed back the same screenshot twice, it was
+uploaded twice, and the note got two embeds of one image. Reported as "images
+paste twice" within a day.
+
 **The caret lands on the line *below* the image, and that is not a detail.**
 The first version left it after the embed — on the image's own line — and the
 reveal rule then did exactly what it exists to do: the line the selection is in
@@ -5911,7 +5934,10 @@ member to read what a private note holds.
 **The tests that hold it.** `imageLine.test.ts` (26 checks) is the grammar: a
 sentence with an image in it is not a row, an alias is not a width, `left`
 removes the directive, an unknown directive key survives an alignment change.
-`imageBlock.test.ts` (26) is every gesture as a planner — the reveal rule, the
+`imageBlock.test.ts` (44) is every gesture as a planner — the row that stays
+drawn wherever the selection is, what the toolbar writes (alt into the alias
+slot, Replace keeping the width, Remove taking the line rather than leaving a
+blank one), the clipboard pair where both lists hold the same image, the
 snapping and `⌥` turning it off, a drop onto a paragraph moving the line, a drop
 onto a row joining it, the blank-line arithmetic of moving a block, and base64
 byte for byte against the platform's own encoder. `pasteImage.test.ts` (8) is the derived

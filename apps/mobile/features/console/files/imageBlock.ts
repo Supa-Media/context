@@ -40,6 +40,10 @@
 
 import {
   Facet,
+  MapMode,
+  RangeSet,
+  StateEffect,
+  StateField,
   type EditorState,
   type Extension,
   type TransactionSpec,
@@ -51,7 +55,10 @@ import {
   embedFor,
   joinRows,
   lineWithAlign,
+  lineWithAlt,
+  lineWithTarget,
   lineWithWidth,
+  lineWithout,
   parseImageLine,
   type ImageAlign,
   type ImageLine,
@@ -136,32 +143,70 @@ export function inCode(state: EditorState, pos: number): boolean {
 }
 
 /**
- * The rows to draw: every line that is nothing but embeds, minus the one the
- * selection is in and minus anything inside code.
+ * The rows to draw: every line that is nothing but embeds, minus anything
+ * inside code.
  *
- * `selection` is passed in rather than read here so the caller can hand over
- * the same reveal ranges every other pass in `livePreview.ts` uses — two
- * definitions of "the selection touches this" is how half a document ends up
- * half revealed.
+ * **There is no reveal rule here, and that is a deliberate exception to this
+ * editor's central one.** Everywhere else, the line the selection is in shows
+ * its markup, because you cannot edit syntax you cannot see. An image is where
+ * that stops being true: the markup is a filename nobody types by hand, and
+ * clicking a picture to have it turn into `![[paste-971e….png]]` was reported
+ * as "really weird" the first day it shipped — which it is. What replaces it is
+ * the toolbar: select the image and every edit the line can carry — width,
+ * alignment, alt text, replace, remove — is a control on the image itself.
+ *
+ * The line is still ordinary text to everything else: a selection over it
+ * deletes it, undo undoes it, and a note opened in any other editor shows the
+ * embed. What is gone is only the *accidental* reveal.
  */
-export function imageRows(
-  state: EditorState,
-  touched: (range: { from: number; to: number }) => boolean,
-  frontEnd = 0,
-): ImageRow[] {
+export function imageRows(state: EditorState, frontEnd = 0): ImageRow[] {
   const rows: ImageRow[] = [];
-  for (let pos = frontEnd; pos <= state.doc.length;) {
+  for (let pos = frontEnd; pos <= state.doc.length; ) {
     const line = state.doc.lineAt(pos);
     pos = line.to + 1;
     if (!line.text.includes("![")) continue;
     const parsed = parseImageLine(line.text);
     if (parsed === null) continue;
-    if (touched({ from: line.from, to: line.to })) continue;
     if (inCode(state, line.from + 1)) continue;
     rows.push({ from: line.from, to: line.to, text: line.text, line: parsed });
     if (line.to >= state.doc.length) break;
   }
   return rows;
+}
+
+/** Which image is selected: the line it is on, and which one along that line. */
+export interface ImagePick {
+  from: number;
+  index: number;
+}
+
+/** Select an image, or `null` for none. */
+export const selectImage = StateEffect.define<ImagePick | null>();
+
+/**
+ * The selected image, which is editor state rather than DOM state.
+ *
+ * In the field rather than in the widget, because a widget is rebuilt on every
+ * transaction: a selection kept inside one would be lost by the first resize it
+ * was used for. Mapped through changes so the toolbar stays on the image while
+ * its own line is being rewritten, and dropped when that line goes.
+ */
+export const imageSelection = StateField.define<ImagePick | null>({
+  create: () => null,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(selectImage)) return effect.value;
+    }
+    if (value === null || !transaction.docChanged) return value;
+    const from = transaction.changes.mapPos(value.from, -1, MapMode.TrackDel);
+    return from === null ? null : { from, index: value.index };
+  },
+});
+
+/** The selected image on this row, if the selection is on this row at all. */
+function pickFor(pick: ImagePick | null, row: ImageRow): number | null {
+  if (pick === null || pick.from !== row.from) return null;
+  return pick.index < row.line.images.length ? pick.index : null;
 }
 
 /**
@@ -353,19 +398,29 @@ export function planInsert(
  */
 export function imageFilesFrom(data: DataTransfer | null): File[] {
   if (data === null) return [];
-  const files: File[] = [];
-  const keep = (file: File | null): void => {
-    if (file === null) return;
-    if (!file.type.startsWith("image/")) return;
-    if (files.includes(file)) return;
-    files.push(file);
-  };
-  for (const file of Array.from(data.files ?? [])) keep(file);
-  for (const item of Array.from(data.items ?? [])) {
-    if (item.kind !== "file") continue;
-    keep(item.getAsFile());
-  }
-  return files;
+  const images = (list: readonly (File | null)[]): File[] =>
+    list.filter((file): file is File => file !== null && file.type.startsWith("image/"));
+  /*
+    `files` FIRST, AND ONLY ITS ANSWER WHEN IT HAS ONE.
+
+    Both lists describe the same clipboard, and the first version of this read
+    both and de-duplicated by identity — which is wrong, because
+    `DataTransferItem.getAsFile()` mints a NEW `File` object on every call. So a
+    browser that fills both (Chrome, for one) handed back the same screenshot
+    twice, it was uploaded twice, and the note got two embeds of one image.
+    Reported as "images paste twice", with a screenshot of the duplicate.
+
+    `items` is still read, because an older WebKit and some applications leave
+    `files` empty and put the image only there — but as a fallback, never as a
+    second source to merge.
+  */
+  const direct = images(Array.from(data.files ?? []));
+  if (direct.length > 0) return direct;
+  return images(
+    Array.from(data.items ?? [])
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile()),
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -378,13 +433,40 @@ const ALIGN_STYLE: Record<ImageAlign, string> = {
   right: "flex-end",
 };
 
+/* -------------------------------------------------------------------------- */
+/*                                 the widget                                 */
+/* -------------------------------------------------------------------------- */
+
+/** An icon, drawn rather than named: three lines, aligned. */
+function alignIcon(align: ImageAlign): SVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 16 12");
+  svg.setAttribute("width", "16");
+  svg.setAttribute("height", "12");
+  svg.setAttribute("aria-hidden", "true");
+  const widths = [16, 10, 16];
+  widths.forEach((width, row) => {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    const x = align === "left" ? 0 : align === "right" ? 16 - width : (16 - width) / 2;
+    line.setAttribute("x", String(x));
+    line.setAttribute("y", String(row * 4.5));
+    line.setAttribute("width", String(width));
+    line.setAttribute("height", "2");
+    line.setAttribute("rx", "1");
+    line.setAttribute("fill", "currentColor");
+    svg.append(line);
+  });
+  return svg;
+}
+
 /**
- * A row of images, drawn.
+ * A row of images, drawn, with the selected one wearing its controls.
  *
- * `eq` compares the line's text, which is load-bearing rather than an
- * optimisation for the reason `HtmlPreviewWidget.eq` gives: the decoration set
- * is rebuilt on every keystroke, and a widget that called itself new each time
- * would tear down its `<img>` elements and reload the bytes under the reader.
+ * `eq` compares the line's text **and which image is selected**, which is
+ * load-bearing rather than an optimisation for the reason `HtmlPreviewWidget.eq`
+ * gives: the decoration set is rebuilt on every keystroke and cursor move, and a
+ * widget that called itself new each time would tear down its `<img>` elements
+ * and reload the bytes under the reader.
  */
 export class ImageRowWidget extends WidgetType {
   /*
@@ -393,20 +475,23 @@ export class ImageRowWidget extends WidgetType {
     `WidgetTile.of` reads to decide whether to put `contenteditable="false"` on
     the widget's DOM. A field of that name is an assignment to it, so the
     constructor threw `Cannot set property editable of #<WidgetType> which has
-    only a getter` and took the whole note screen down with it. Renaming the
-    field is the fix; answering that getter honestly — a replaced block is not
-    editable DOM — is the behaviour it was quietly about to break.
+    only a getter` and took the whole note screen down with it.
   */
   constructor(
     private readonly row: ImageRow,
     private readonly host: ImageHostRef | null,
     private readonly canEdit: boolean,
+    private readonly selected: number | null,
   ) {
     super();
   }
 
   eq(other: ImageRowWidget): boolean {
-    return other.row.text === this.row.text && other.canEdit === this.canEdit;
+    return (
+      other.row.text === this.row.text &&
+      other.canEdit === this.canEdit &&
+      other.selected === this.selected
+    );
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -414,11 +499,8 @@ export class ImageRowWidget extends WidgetType {
     wrap.className = "cm-lp-images";
     wrap.style.justifyContent = ALIGN_STYLE[this.row.line.align];
     this.row.line.images.forEach((image, index) => {
-      wrap.append(
-        this.drawImage(view, image.target, image.alt, image.width, index),
-      );
+      wrap.append(this.drawImage(view, image.target, image.alt, image.width, index));
     });
-    if (this.canEdit) wrap.append(this.drawAlignBar(view));
     return wrap;
   }
 
@@ -429,17 +511,18 @@ export class ImageRowWidget extends WidgetType {
     width: number | null,
     index: number,
   ): HTMLElement {
+    const chosen = this.selected === index;
     const figure = document.createElement("figure");
-    figure.className = "cm-lp-image";
+    figure.className = chosen ? "cm-lp-image cm-lp-image-on" : "cm-lp-image";
     if (width !== null) figure.style.width = `${width}px`;
 
     const img = document.createElement("img");
     img.className = "cm-lp-image-img";
     /*
-      The alt text is the note's own, and an image with none says so rather
-      than being announced as an unlabelled graphic: a screen reader reading
-      "image" is worse than one reading the file's name, which is at least what
-      the writer chose to call it.
+      The alt text is the note's own, and an image with none says so rather than
+      being announced as an unlabelled graphic: a screen reader reading "image"
+      is worse than one reading the file's name, which is at least what the
+      writer chose to call it.
     */
     img.alt = alt === "" ? target : alt;
     img.draggable = false;
@@ -463,8 +546,24 @@ export class ImageRowWidget extends WidgetType {
         });
     }
 
-    if (this.canEdit) {
-      figure.append(this.drawHandle(view, index, width));
+    /*
+      Selecting is a press on the image, and it is the only thing a press does:
+      `preventDefault` keeps CodeMirror from putting a caret under it, which is
+      what used to turn the picture back into `![[paste-….png]]`.
+    */
+    figure.addEventListener("pointerdown", (event) => {
+      if (!this.canEdit) return;
+      if ((event.target as HTMLElement).closest(".cm-lp-image-bar") !== null) return;
+      event.preventDefault();
+      view.dispatch({ effects: selectImage.of({ from: this.row.from, index }) });
+    });
+
+    if (this.canEdit && chosen) {
+      figure.append(this.drawBar(view, index, width, alt));
+      for (const corner of ["nw", "ne", "sw", "se", "w", "e"] as const) {
+        figure.append(this.drawHandle(view, index, width, corner));
+      }
+      figure.append(this.drawBadge(img, width));
       figure.append(this.drawGrip(view, index));
     }
     return figure;
@@ -477,72 +576,117 @@ export class ImageRowWidget extends WidgetType {
     return note;
   }
 
+  /** The size, as the file will hold it: the badge in the artifact's corner. */
+  private drawBadge(img: HTMLImageElement, width: number | null): HTMLElement {
+    const badge = document.createElement("span");
+    badge.className = "cm-lp-image-badge";
+    const say = (): void => {
+      const shown = width ?? Math.round(img.getBoundingClientRect().width);
+      const ratio = img.naturalWidth > 0 ? img.naturalHeight / img.naturalWidth : 0;
+      badge.textContent =
+        ratio > 0 ? `${shown} × ${Math.round(shown * ratio)}` : `${shown}px`;
+    };
+    say();
+    // The natural size is unknown until the bytes are decoded, so the badge
+    // says what it knows now and the rest when it knows it.
+    img.addEventListener("load", say);
+    return badge;
+  }
+
   /**
-   * The resize handle: a real `<button>`, so a keyboard reaches it.
+   * The bar: every edit the line can carry, on the image it belongs to.
    *
-   * Arrow keys move the width 8px, with shift 32px — the same pair the drag
-   * snaps to, and the reason the handle is a button rather than a styled div is
-   * that a pointer is not the only way people edit a note.
+   * This is what replaced the reveal rule. The width chips are fractions of the
+   * reading measure — the fast path — and the handles are the exact one; the
+   * three alignment buttons are drawn icons rather than letters, because the
+   * first version shipped three empty squares; and Remove takes the image out
+   * of the note while leaving the object in the bucket, which is what its own
+   * decision says.
    */
-  private drawHandle(
+  private drawBar(
     view: EditorView,
     index: number,
     width: number | null,
+    alt: string,
   ): HTMLElement {
-    const handle = document.createElement("button");
-    handle.type = "button";
-    handle.className = "cm-lp-image-handle";
-    handle.setAttribute("aria-label", "Resize image");
-    handle.addEventListener("pointerdown", (event) => {
-      // Never a selection: see the header. A press that placed the caret would
-      // reveal the markup and take this button out of the document mid-drag.
-      event.preventDefault();
-      event.stopPropagation();
-      const measure = this.measureOf(view);
-      const startWidth = width ?? this.naturalWidth(handle, measure);
-      const startX = event.clientX;
-      const move = (moveEvent: PointerEvent) => {
-        const next = widthFromDrag({
-          startWidth,
-          deltaX: moveEvent.clientX - startX,
-          measure,
-          precise: moveEvent.altKey,
-        });
-        this.dispatch(
-          view,
-          planResize(view.state, this.rowNow(view), index, next),
-        );
-      };
-      const end = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", end);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", end);
-    });
-    handle.addEventListener("keydown", (event) => {
-      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
-      event.preventDefault();
-      const measure = this.measureOf(view);
-      const step =
-        (event.shiftKey ? 32 : 8) * (event.key === "ArrowRight" ? 1 : -1);
-      const current = width ?? this.naturalWidth(handle, measure);
-      this.dispatch(
-        view,
-        planResize(
-          view.state,
-          this.rowNow(view),
-          index,
-          widthFromDrag({
-            startWidth: current,
-            deltaX: step,
-            measure,
-            precise: true,
-          }),
-        ),
+    const bar = document.createElement("div");
+    bar.className = "cm-lp-image-bar";
+    const measure = this.measureOf(view);
+
+    const press = (element: HTMLElement, run: () => void): void => {
+      element.addEventListener("pointerdown", (event) => {
+        // Never a caret, and never a lost selection: the bar belongs to the
+        // image it is on, and a press on it must not put the cursor in the note.
+        event.preventDefault();
+        event.stopPropagation();
+        run();
+      });
+    };
+
+    const chip = (label: string, fraction: number): HTMLButtonElement => {
+      const target = Math.round(measure * fraction);
+      const button = document.createElement("button");
+      button.type = "button";
+      const on = width !== null && Math.abs(width - target) <= 2;
+      button.className = on ? "cm-lp-image-chip cm-lp-image-chip-on" : "cm-lp-image-chip";
+      button.textContent = label;
+      button.setAttribute("aria-pressed", String(on));
+      button.setAttribute("aria-label", `${label} — ${target} pixels wide`);
+      press(button, () =>
+        this.dispatch(view, planResize(view.state, this.rowNow(view), index, target)),
       );
-    });
-    return handle;
+      return button;
+    };
+
+    bar.append(chip("S", WIDTH_STEPS[0]));
+    bar.append(chip("M", WIDTH_STEPS[1]));
+    bar.append(chip("L", WIDTH_STEPS[2]));
+    bar.append(chip("Full", WIDTH_STEPS[3]));
+    bar.append(this.divider());
+
+    for (const align of ["left", "center", "right"] as const) {
+      const button = document.createElement("button");
+      button.type = "button";
+      const on = this.row.line.align === align;
+      button.className = on ? "cm-lp-image-tool cm-lp-image-tool-on" : "cm-lp-image-tool";
+      button.setAttribute(
+        "aria-label",
+        align === "center" ? "Centre" : `Align ${align}`,
+      );
+      button.setAttribute("aria-pressed", String(on));
+      button.append(alignIcon(align));
+      press(button, () =>
+        this.dispatch(view, planAlign(view.state, this.rowNow(view), align)),
+      );
+      bar.append(button);
+    }
+    bar.append(this.divider());
+
+    const altButton = document.createElement("button");
+    altButton.type = "button";
+    altButton.className = "cm-lp-image-tool cm-lp-image-tool-text";
+    altButton.textContent = "Alt";
+    altButton.setAttribute("aria-label", "Alt text");
+    press(altButton, () => this.askAlt(view, index, alt));
+    bar.append(altButton);
+
+    const replace = document.createElement("button");
+    replace.type = "button";
+    replace.className = "cm-lp-image-tool cm-lp-image-tool-text";
+    replace.textContent = "Replace";
+    replace.setAttribute("aria-label", "Replace this image");
+    press(replace, () => this.askReplacement(view, index));
+    bar.append(replace);
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "cm-lp-image-tool cm-lp-image-tool-text cm-lp-image-remove";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label", "Remove this image from the note");
+    press(remove, () => this.remove(view, index));
+    bar.append(remove);
+
+    return bar;
   }
 
   /**
@@ -550,18 +694,40 @@ export class ImageRowWidget extends WidgetType {
    *
    * Two outcomes, decided by `planDrop` from where the pointer let go — beside
    * the images already on another line, or on a line of its own between two
-   * blocks. Both are one line edit, because a row is a line.
+   * blocks. Both are one line edit, because a row is a line. The insertion point
+   * is `posAtCoords`, CodeMirror's own answer to "what is under this pointer",
+   * so a drop lands where the editor itself would put a caret.
    *
-   * The insertion point is `posAtCoords`, CodeMirror's own answer to "what is
-   * under this pointer", so a drop lands where the editor itself would put a
-   * caret. `null` from it — a pointer outside the content — is a cancelled drag
-   * rather than a guess at the nearest line.
+   * On the selected image only, like every other control here, and drawn as six
+   * dots rather than as a bare square — the first version shipped unlabelled
+   * boxes and they read as nothing at all.
    */
   private drawGrip(view: EditorView, index: number): HTMLElement {
     const grip = document.createElement("button");
     grip.type = "button";
     grip.className = "cm-lp-image-grip";
     grip.setAttribute("aria-label", "Move image");
+    const dots = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    dots.setAttribute("viewBox", "0 0 12 18");
+    dots.setAttribute("width", "12");
+    dots.setAttribute("height", "18");
+    dots.setAttribute("aria-hidden", "true");
+    for (const [x, y] of [
+      [3, 3],
+      [9, 3],
+      [3, 9],
+      [9, 9],
+      [3, 15],
+      [9, 15],
+    ]) {
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("cx", String(x));
+      dot.setAttribute("cy", String(y));
+      dot.setAttribute("r", "1.6");
+      dot.setAttribute("fill", "currentColor");
+      dots.append(dot);
+    }
+    grip.append(dots);
     grip.addEventListener("pointerdown", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -576,9 +742,6 @@ export class ImageRowWidget extends WidgetType {
           caret.remove();
           return;
         }
-        // Drawn at the top of the line under the pointer, which is where the
-        // line would land — a caret somewhere else is a promise the drop does
-        // not keep.
         const line = view.state.doc.lineAt(at);
         const box = view.coordsAtPos(line.from);
         if (box === null) return;
@@ -593,51 +756,164 @@ export class ImageRowWidget extends WidgetType {
         figure?.classList.remove("cm-lp-image-moving");
         if (at === null) return;
         this.dispatch(view, planDrop(view.state, this.rowNow(view), index, at));
+        view.dispatch({ effects: selectImage.of(null) });
       };
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", end);
     });
     /*
-      The keyboard equivalent is not here and does not need to be: `⌥↑` / `⌥↓`
-      move the line, which CodeMirror's own `defaultKeymap` already binds, and
-      the line is the unit. A second implementation of "move a block" for images
-      alone would be a second answer to the same question.
+      The keyboard equivalent is not here and does not need to be: ⌥↑ / ⌥↓ move
+      the line, which CodeMirror's own defaultKeymap already binds, and the line
+      is the unit.
     */
     return grip;
   }
 
-  /** Left, centre, right — the only three positions the file can carry. */
-  private drawAlignBar(view: EditorView): HTMLElement {
-    const bar = document.createElement("div");
-    bar.className = "cm-lp-image-bar";
-    const options: Array<{ align: ImageAlign; label: string }> = [
-      { align: "left", label: "Align left" },
-      { align: "center", label: "Centre" },
-      { align: "right", label: "Align right" },
-    ];
-    for (const option of options) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className =
-        option.align === this.row.line.align
-          ? "cm-lp-image-align cm-lp-image-align-on"
-          : "cm-lp-image-align";
-      button.setAttribute("aria-label", option.label);
-      button.setAttribute(
-        "aria-pressed",
-        String(option.align === this.row.line.align),
-      );
-      button.addEventListener("pointerdown", (event) => {
+  private divider(): HTMLElement {
+    const line = document.createElement("span");
+    line.className = "cm-lp-image-divider";
+    return line;
+  }
+
+  /**
+   * Alt text, in a field that opens under the bar.
+   *
+   * Drawn here rather than kept in the widget's own state, because the widget
+   * is rebuilt on every transaction: a panel remembered in a field would blink
+   * out on the first keystroke somewhere else in the note. It is torn down when
+   * it is committed or dismissed, which is the whole of its lifetime.
+   */
+  private askAlt(view: EditorView, index: number, current: string): void {
+    const figure = view.dom.querySelector(".cm-lp-image-on");
+    if (figure === null || figure.querySelector(".cm-lp-image-alt") !== null) return;
+    const panel = document.createElement("div");
+    panel.className = "cm-lp-image-alt";
+    const label = document.createElement("label");
+    label.textContent = "Alt text";
+    label.className = "cm-lp-image-alt-label";
+    const field = document.createElement("input");
+    field.type = "text";
+    field.value = current;
+    field.className = "cm-lp-image-alt-field";
+    label.append(field);
+    panel.append(label);
+    const hint = document.createElement("span");
+    hint.className = "cm-lp-image-alt-hint";
+    hint.textContent = "Read aloud, searchable, and what a reader that cannot fetch the file shows.";
+    panel.append(hint);
+    figure.append(panel);
+    field.focus();
+    const commit = (): void => {
+      const value = field.value;
+      panel.remove();
+      this.dispatch(view, planAlt(view.state, this.rowNow(view), index, value));
+    };
+    field.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
         event.preventDefault();
-        event.stopPropagation();
+        commit();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        panel.remove();
+      }
+    });
+    field.addEventListener("blur", commit);
+  }
+
+  /** Replace: the same line, a different object, every other note untouched. */
+  private askReplacement(view: EditorView, index: number): void {
+    const host = this.host?.current ?? null;
+    if (host === null) return;
+    const picker = document.createElement("input");
+    picker.type = "file";
+    picker.accept = "image/*";
+    picker.style.display = "none";
+    picker.addEventListener("change", () => {
+      const file = picker.files?.[0] ?? null;
+      picker.remove();
+      if (file === null) return;
+      void (async () => {
+        const stored = await host.upload({
+          bytes: await file.arrayBuffer(),
+          contentType: file.type,
+        });
+        if ("error" in stored) return;
         this.dispatch(
           view,
-          planAlign(view.state, this.rowNow(view), option.align),
+          planReplace(view.state, this.rowNow(view), index, stored.target),
         );
-      });
-      bar.append(button);
-    }
-    return bar;
+      })();
+    });
+    view.dom.append(picker);
+    picker.click();
+  }
+
+  /** Remove: the line, or one image of it, and never the object in the bucket. */
+  private remove(view: EditorView, index: number): void {
+    this.dispatch(view, planRemove(view.state, this.rowNow(view), index));
+    view.dispatch({ effects: selectImage.of(null) });
+  }
+
+  /**
+   * A resize handle. Six of them, and all six change the width only.
+   *
+   * Aspect is locked because height is never written down, so a corner and a
+   * side do the same thing — what differs is which way the drag reads, and the
+   * cursor over each says so.
+   */
+  private drawHandle(
+    view: EditorView,
+    index: number,
+    width: number | null,
+    corner: "nw" | "ne" | "sw" | "se" | "w" | "e",
+  ): HTMLElement {
+    const handle = document.createElement("button");
+    handle.type = "button";
+    handle.className = `cm-lp-image-handle cm-lp-image-handle-${corner}`;
+    handle.setAttribute("aria-label", "Resize image");
+    const leftward = corner === "nw" || corner === "sw" || corner === "w";
+    handle.addEventListener("pointerdown", (event) => {
+      // Never a selection: a press that placed the caret would take this button
+      // out of the document mid-drag.
+      event.preventDefault();
+      event.stopPropagation();
+      const measure = this.measureOf(view);
+      const startWidth = width ?? this.shownWidth(handle, measure);
+      const startX = event.clientX;
+      const move = (moveEvent: PointerEvent) => {
+        const delta = (moveEvent.clientX - startX) * (leftward ? -1 : 1);
+        const next = widthFromDrag({
+          startWidth,
+          deltaX: delta,
+          measure,
+          precise: moveEvent.altKey,
+        });
+        this.dispatch(view, planResize(view.state, this.rowNow(view), index, next));
+      };
+      const end = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+    });
+    handle.addEventListener("keydown", (event) => {
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      event.preventDefault();
+      const measure = this.measureOf(view);
+      const step = (event.shiftKey ? 32 : 8) * (event.key === "ArrowRight" ? 1 : -1);
+      const current = width ?? this.shownWidth(handle, measure);
+      this.dispatch(
+        view,
+        planResize(
+          view.state,
+          this.rowNow(view),
+          index,
+          widthFromDrag({ startWidth: current, deltaX: step, measure, precise: true }),
+        ),
+      );
+    });
+    return handle;
   }
 
   /**
@@ -672,22 +948,58 @@ export class ImageRowWidget extends WidgetType {
   }
 
   /** An image with no width in the file starts its first drag from what it is. */
-  private naturalWidth(handle: HTMLElement, measure: number): number {
+  private shownWidth(handle: HTMLElement, measure: number): number {
     const figure = handle.parentElement;
     const shown = figure?.getBoundingClientRect().width ?? 0;
     return shown > MIN_IMAGE_WIDTH ? Math.round(shown) : measure;
   }
 
   /*
-    True for the pointer events the controls handle, so a press on a handle is
-    never also a click into the line. False for everything else, so clicking
-    the image itself still places the caret and still reveals the markup —
-    which is the escape hatch that keeps this editor one where you can always
-    reach the text.
+    True for the pointer and key events the controls handle, so a press on the
+    image or on a control is never also a click into the line. The widget is
+    not editable DOM and nothing inside it is text of the note.
   */
   ignoreEvent(event: Event): boolean {
     return event.type === "pointerdown" || event.type === "keydown";
   }
+}
+
+/** Set alt text on image `index` of `row`. */
+export function planAlt(
+  state: EditorState,
+  row: ImageRow,
+  index: number,
+  alt: string,
+): TransactionSpec | null {
+  return replaceLine(state, row, lineWithAlt(row.text, index, alt));
+}
+
+/** Point image `index` of `row` at another object. */
+export function planReplace(
+  state: EditorState,
+  row: ImageRow,
+  index: number,
+  target: string,
+): TransactionSpec | null {
+  return replaceLine(state, row, lineWithTarget(row.text, index, target));
+}
+
+/**
+ * Take image `index` out of the note.
+ *
+ * The last image on a line takes the line with it — a blank line where a
+ * picture was is a gap somebody has to tidy by hand — and the **object stays in
+ * the bucket** either way: deleting a paragraph should not delete somebody's
+ * screenshot, and the unreferenced sweep offers it by name later.
+ */
+export function planRemove(
+  state: EditorState,
+  row: ImageRow,
+  index: number,
+): TransactionSpec | null {
+  const rest = lineWithout(row.text, index);
+  if (rest === null) return { changes: { ...cutBlock(state, row.from), insert: "" } };
+  return replaceLine(state, row, rest);
 }
 
 /** The decoration a row becomes: a block widget over the whole line. */
@@ -695,9 +1007,10 @@ export function imageRowDecoration(
   row: ImageRow,
   host: ImageHostRef | null,
   editable: boolean,
+  pick: ImagePick | null,
 ): Decoration {
   return Decoration.replace({
-    widget: new ImageRowWidget(row, host, editable),
+    widget: new ImageRowWidget(row, host, editable, pickFor(pick, row)),
     block: true,
   });
 }
@@ -734,20 +1047,53 @@ export function handleImageDrop(
   return true;
 }
 
-/** Paste, drop and the styles, as one extension. */
+/**
+ * Everything the editor needs for images: the host, the selection, the atomic
+ * ranges that keep a caret out of a drawn row, and paste and drop.
+ */
 export function imageBlock(
   host: ImageHostRef,
   report: (message: string) => void,
 ): Extension {
   return [
     imageHost.of(host),
+    imageSelection,
+    /*
+      A drawn row is one object rather than a run of characters: without this,
+      arrowing along a line of images walks an invisible caret through markup
+      that is not on screen, which is the failure the reveal rule used to hide.
+      With it, the caret steps over the row and a selection takes the whole
+      thing — so Backspace still deletes an image, which is the one editing
+      gesture the toolbar does not own.
+    */
+    EditorView.atomicRanges.of((view) =>
+      RangeSet.of(
+        imageRows(view.state).map((row) => ({
+          from: row.from,
+          to: row.to,
+          value: Decoration.mark({}),
+        })),
+        true,
+      ),
+    ),
     EditorView.domEventHandlers({
-      paste: (event, view) =>
-        handleImageDrop(view, event.clipboardData, report),
+      paste: (event, view) => handleImageDrop(view, event.clipboardData, report),
       drop: (event, view) => {
         const took = handleImageDrop(view, event.dataTransfer, report);
         if (took) event.preventDefault();
         return took;
+      },
+      /*
+        A press anywhere that is not an image puts the selection down. The
+        widget's own handler has already stopped the event for a press on one,
+        so this only ever sees the rest of the note.
+      */
+      mousedown: (event, view) => {
+        if (view.state.field(imageSelection, false) == null) return false;
+        const target = event.target as HTMLElement | null;
+        if (target?.closest(".cm-lp-images") !== null && target !== null) return false;
+        view.dispatch({ effects: selectImage.of(null) });
+        return false;
       },
     }),
   ];
