@@ -30,6 +30,7 @@ import type {
 import { NoteAccessory } from "./NoteAccessory";
 import { VoiceButton } from "../../voice/VoiceButton";
 import { useVoiceHost } from "../../voice/VoiceHost";
+import { agentPage, consoleRoute } from "../../agent/page";
 import type { Visibility } from "./types";
 
 /**
@@ -1095,6 +1096,29 @@ export function NoteEditor({
             this closes; see `VoiceButton` for which of them stays and why.
           */
           barMicrophone={compact && !barUp}
+          /*
+            Built here because this is the only place holding both halves: the
+            console's voice host knows the context, and `state` is the editor
+            itself — which is what knows whether the draft has diverged from
+            the file. It carries references and never the note's text; see
+            `features/agent/page.ts` for why that is a security property and
+            not a size optimisation.
+          */
+          place={agentPage({
+            context: voice.page.context,
+            editor: state,
+            route: consoleRoute(voice.page.context),
+            /*
+              False rather than read from the meetings store, because it is
+              structurally false here: `VoiceButton` returns `null` for the
+              whole of a meeting — there is one microphone and the meeting has
+              it — so the conversation this feeds cannot be on screen while one
+              runs. The field exists for the surfaces that will reach the agent
+              from somewhere other than this control.
+            */
+            meetingLive: false,
+            query: null,
+          })}
           onRecordMeeting={voice.onRecordMeeting}
         />
       )}

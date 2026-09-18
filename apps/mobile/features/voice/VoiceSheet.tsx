@@ -60,6 +60,24 @@ export const MEETING_TITLE = "Record a meeting";
 export const MEETING_SUB =
   "A new note you can type in while it runs. You will be asked where it goes.";
 
+export const AGENT_TITLE = "Ask your context";
+/**
+ * Why the agent row says what it reads with rather than what it can do.
+ *
+ * "Ask questions about your notes" is the obvious sub, and it is the wrong
+ * one: it describes a capability somebody already assumed and says nothing
+ * about the thing they cannot see, which is *what reaches the model*. The two
+ * rows above this one both spend their sub on exactly that — where the words
+ * land, what happens to the audio — because this sheet is the one surface
+ * where those facts are disclosed before anything opens.
+ *
+ * So this says the agent holds a grant of its own. That is the fact that makes
+ * it revocable in the same place as every other client, makes its reads obey
+ * `privacy.md`, and puts them in the audit trail under its own name.
+ */
+export const AGENT_SUB =
+  "A conversation about what you have written. It reads through a grant of its own, so the same privacy rules apply and every read is in your audit trail.";
+
 export function VoiceSheet({
   audience,
   refusal,
@@ -67,6 +85,7 @@ export function VoiceSheet({
   compact,
   onDictate,
   onRecordMeeting,
+  onAskAgent,
   onCancel,
 }: {
   /** Who can read the open note, or `null` when dictation is not on offer. */
@@ -78,6 +97,19 @@ export function VoiceSheet({
   compact: boolean;
   onDictate: () => void;
   onRecordMeeting: () => void;
+  /**
+   * Opens the conversation, or `null` where there is no context behind this
+   * sheet to have a conversation about — the fixtures and the landing page's
+   * demo console. The row is then not drawn at all.
+   *
+   * Not drawn rather than drawn-and-inert, which is the opposite of what the
+   * dictate row does above, and deliberately: that row's refusal is a sentence
+   * somebody can act on ("open a note first"). There is no equivalent sentence
+   * here, because the surface simply is not part of the product — and a row
+   * that is drawn and does nothing is a refusal wearing none of the words that
+   * would explain it.
+   */
+  onAskAgent: (() => void) | null;
   onCancel: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
@@ -165,6 +197,32 @@ export function VoiceSheet({
               <Text variant="rowSub">{MEETING_SUB}</Text>
             </View>
           </PressRow>
+
+          {/*
+            Third, and offered unconditionally — unlike the dictate row above
+            it, which needs a writable note for words to land in. A question has
+            no destination, so "open a note first" would be a refusal with
+            nothing behind it: somebody looking at a folder can perfectly well
+            ask what is in it.
+          */}
+          {onAskAgent === null ? null : (
+          <PressRow
+            onPress={onAskAgent}
+            accessibilityLabel={AGENT_TITLE}
+            testID="voice-sheet-agent"
+            radius={radii.control}
+            style={styles.row}
+            hoverStyle={styles.rowHovered}
+          >
+            <View style={styles.glyph}>
+              <Icon name="chat" size={17} />
+            </View>
+            <View style={styles.rowBody}>
+              <Text variant="rowTitle">{AGENT_TITLE}</Text>
+              <Text variant="rowSub">{AGENT_SUB}</Text>
+            </View>
+          </PressRow>
+          )}
 
           <Text variant="foot" style={styles.disclosure} testID="voice-sheet-disclosure">
             {DICTATION_SENTENCE}
