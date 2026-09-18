@@ -61,12 +61,25 @@ function emptyContextConsole(over: {
   scaffoldReason?: string;
   status?: string;
   structureTemplate?: string;
+  /** What the root listing holds. `undefined` leaves it unread. */
+  rootEntries?: Array<Record<string, unknown>> | undefined;
+  rootUnread?: boolean;
 } = {}): ConsoleData {
   const files = {
     canEdit: true,
     loading: false,
     busy: false,
-    listings: {},
+    listings: over.rootUnread === true
+      ? {}
+      : {
+          "": {
+            path: "",
+            folderDefault: "private",
+            entries: over.rootEntries ?? [],
+            truncated: false,
+            manifestUsable: true,
+          },
+        },
     expanded: new Set<string>(),
     toggleFolder: () => {},
     collapseAll: () => {},
@@ -146,6 +159,18 @@ function mount(
       act(() => root.unmount());
       container.remove();
     },
+  };
+}
+
+/** A folder row as the browser hands one over. */
+function folder(name: string): Record<string, unknown> {
+  return {
+    kind: "folder",
+    path: name,
+    name,
+    visibility: "private",
+    inherited: "private",
+    exception: false,
   };
 }
 
@@ -242,6 +267,38 @@ describe("every other context sees nothing", () => {
     */
     const { container, unmount } = mount(
       emptyContextConsole({ scaffoldReason: "partial", structureTemplate: "custom" }),
+      () => {},
+    );
+    expect(find(container, "console-setup-prompt")).toBeNull();
+    unmount();
+  });
+
+  test("a context whose notes arrived after it was verified", () => {
+    /*
+      THE ONE THIS CARD SHIPPED BROKEN.
+
+      Created empty, verified empty, then filled through a connected AI client
+      — which writes notes and never touches `scaffoldReason`. The binding
+      still says `empty`, the bucket has folders and notes in it, and the card
+      announced "This context is empty" above somebody's open note.
+    */
+    const { container, unmount } = mount(
+      emptyContextConsole({
+        scaffoldReason: "empty",
+        rootEntries: [folder("1-projects"), folder("2-areas")],
+      }),
+      () => {},
+    );
+    expect(find(container, "console-setup-prompt")).toBeNull();
+    unmount();
+  });
+
+  test("and a context whose listing has not been read yet", () => {
+    // Not loaded is not empty. A card in that gap is the same wrong claim,
+    // briefly — which on a deep link into a note is the whole of what somebody
+    // sees while the tree loads.
+    const { container, unmount } = mount(
+      emptyContextConsole({ scaffoldReason: "empty", rootUnread: true }),
       () => {},
     );
     expect(find(container, "console-setup-prompt")).toBeNull();

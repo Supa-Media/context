@@ -462,6 +462,16 @@ export function BrowsePane({
   const setup = contextSetupFor({
     role: current?.role,
     storage: data.storage,
+    /*
+      The listing in front of the person, not the binding's memory of one.
+
+      `scaffoldReason` is written only by verification, so a context filled in
+      by a connected AI client still carries `empty` — which is how the first
+      version of this card came to announce "This context is empty" over a
+      workspace full of notes. The root listing is the live answer and
+      `contextSetupFor` treats an unread one as silence.
+    */
+    root: files.listings[""],
     structureTemplate: current?.structureTemplate,
   });
   /*
