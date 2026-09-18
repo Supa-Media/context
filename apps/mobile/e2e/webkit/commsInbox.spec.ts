@@ -44,7 +44,7 @@ async function openContextRoot(page: import("@playwright/test").Page): Promise<v
 
 test("Inbox lists every connected channel, most recently active first", async ({ page }) => {
   await openContextRoot(page);
-  await tap(page, "0-inbox, folder");
+  await tap(page, "inbox, folder");
 
   await expect(page.getByTestId("inbox-row")).toHaveCount(3);
   await expect(page.getByText("Google Chat", { exact: true })).toBeVisible();
@@ -56,7 +56,7 @@ test("Inbox lists every connected channel, most recently active first", async ({
 
 test("a channel's days, and a day's messages grouped by thread", async ({ page }) => {
   await openContextRoot(page);
-  await tap(page, "0-inbox, folder");
+  await tap(page, "inbox, folder");
   await tap(page, "name-at-example-com, last active 2026-09-07");
 
   // The Channel view: both of the mailbox's days, newest first, and the
@@ -87,7 +87,7 @@ test("following a contact's activity link scrolls the channel-day to that messag
   page,
 }) => {
   await openContextRoot(page);
-  await tap(page, "0-inbox, folder");
+  await tap(page, "inbox, folder");
   await tap(page, "Contacts, last active 2026-09-07");
 
   // The generic folder listing — Contacts is not a channel view of its own,

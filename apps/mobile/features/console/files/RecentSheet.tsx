@@ -6,7 +6,7 @@ import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
-import { baseName, displayName, parentPath } from "./paths";
+import { baseName, displayName, displayPath, parentPath } from "./paths";
 
 /**
  * Where you have been in this context, on a phone.
@@ -48,10 +48,16 @@ import { baseName, displayName, parentPath } from "./paths";
  * the middle button, the row menu and the room; `TabStrip.tsx` keeps all of it.
  */
 
-/** Where it lives, in words. The root is a place, so it gets a name. */
+/**
+ * Where it lives, in words. The root is a place, so it gets a name.
+ *
+ * `displayPath`, because this line sits directly under a title that has just
+ * dropped its own sort number: `plan` over `1-projects` is one row naming one
+ * folder two ways. Nothing navigates by this string — the row carries `path`.
+ */
 function folderLabel(path: string): string {
   const folder = parentPath(path);
-  return folder === "" ? "in your context root" : folder;
+  return folder === "" ? "in your context root" : displayPath(folder);
 }
 
 /**

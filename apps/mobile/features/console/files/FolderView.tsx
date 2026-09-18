@@ -89,7 +89,7 @@ import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor, noteColumnWidth } from "../../app/frame";
-import { baseName, displayName } from "./paths";
+import { baseName, displayName, withoutSortPrefix } from "./paths";
 import { useRightClick } from "./rightClick";
 import { listedEntries } from "./tree";
 import { isGroupVisibility } from "./types";
@@ -220,10 +220,15 @@ export function FolderView({
           of its own content — rather than under a `FOLDER` eyebrow. The route
           already said which folder you asked for, so the eyebrow was labelling
           the obvious in the space where the first row should be.
+
+          `withoutSortPrefix` and not `displayName`: this is a folder, so the
+          sort number goes and the extension rule must not, or a folder somebody
+          called `notes.md` would be titled `notes` on its own page while every
+          row and crumb naming it says `notes.md`.
         */}
         <View style={styles.head}>
           <Text variant="noteTitle" role="heading" aria-level={2} style={styles.title}>
-            {baseName(entry.path) || contextLabel}
+            {withoutSortPrefix(baseName(entry.path)) || contextLabel}
           </Text>
         </View>
 

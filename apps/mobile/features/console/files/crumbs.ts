@@ -11,10 +11,13 @@
  *
  * ## The leaf is part of the path
  *
- * `1-projects/october-trip.md` is `1-projects / october-trip`, not
- * `1-projects`. The argument for stopping at the ancestors was that the note
- * names itself inside the document — an inline title, or a folder page's
- * heading — so the trailing segment says the same words twice.
+ * `1-projects/october-trip.md` is `projects / october-trip`, not `projects`.
+ * (The sort number is filing rather than a name — `withoutSortPrefix` drops it
+ * from every segment here for the reason it is dropped from every row. See "A
+ * sort number is filing" in `docs/decisions/app-and-console.md`.) The argument
+ * for stopping at the ancestors was that the note names itself inside the
+ * document — an inline title, or a folder page's heading — so the trailing
+ * segment says the same words twice.
  *
  * That rule is real and it was applied to the wrong element. Both of those
  * names are **inside the scroller**: they are gone as soon as somebody reads
@@ -63,6 +66,7 @@
  */
 
 import { drawingName } from "@context/drawings";
+import { withoutSortPrefix } from "./paths";
 
 /** One element of the path line. */
 export type Crumb =
@@ -108,7 +112,11 @@ export function crumbsFor(
 
   const folders: Extract<Crumb, { kind: "folder" }>[] = segments.slice(0, -1).map((segment, index) => ({
     kind: "folder",
-    label: segment,
+    // The same trim the tree row and the folder's own heading make, so the
+    // band and the listing it came from cannot come to disagree about what a
+    // folder is called. **Only the label**: `path` below is the segment as it
+    // is on disk, and it is what pressing the crumb asks the bucket for.
+    label: withoutSortPrefix(segment),
     // Its own listing, not its parent's. Built from `segments` rather than by
     // slicing `path`, so a doubled slash cannot leak into a path we then ask
     // somebody's bucket for.
@@ -133,5 +141,5 @@ export function crumbsFor(
  * holding the note, which is every listing.
  */
 function stripMarkdown(name: string): string {
-  return drawingName(name);
+  return withoutSortPrefix(drawingName(name));
 }

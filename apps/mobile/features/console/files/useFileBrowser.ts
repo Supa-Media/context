@@ -57,11 +57,13 @@ import {
   baseName,
   describeMoveProblem,
   describeNameProblem,
+  displayPath,
   ensureMarkdown,
   joinPath,
   mergeLinkPaths,
   parentPath,
   isMarkdown,
+  withoutSortPrefix,
 } from "./paths";
 import { raceTimeout } from "../storage/timeout";
 import { useOfflineNotes } from "../../offline/useOfflineNotes";
@@ -134,10 +136,18 @@ const STALE_LISTING_MESSAGE =
  *
  * The root is `""`, and "Moved to ." is not a sentence. Every other place that
  * has to name the root spells it out too — the move picker's `detail`, the new
- * note dialog's description — so this says the same thing they do.
+ * note dialog's description — so this says the same thing they do about *that*.
+ *
+ * It says something different about the folders below it, and deliberately:
+ * `displayPath` drops their sort numbers, because this is a sentence somebody
+ * reads about a move that has already happened, and it should name the folder
+ * the way the tree, the crumb and the folder's own heading just named it. The
+ * picker keeps the real keys, which is the opposite decision for the opposite
+ * reason — there the string is a destination being chosen, not a place being
+ * reported.
  */
 function folderLabel(folder: string): string {
-  return folder === "" ? "the root of your context" : folder;
+  return folder === "" ? "the root of your context" : displayPath(folder);
 }
 
 type Listings = Record<string, FolderListing | undefined>;
@@ -1879,7 +1889,12 @@ export function useFileBrowser(options: {
         const result = await archiveEntry({ workspaceId: workspaceId!, path });
         return {
           touched: [path, result.to],
-          message: `Archived ${baseName(path)}.`,
+          // Without its sort number, the way the row somebody just acted on
+          // was drawn — that row is gone from the listing by the time they
+          // read this. (`rename`'s own `was`, above, keeps the whole name on
+          // disk: that message is the undo of a rename, so the name it will
+          // put back is exactly the point.)
+          message: `Archived ${withoutSortPrefix(baseName(path))}.`,
           // The inverse is a move, not an "unarchive": `archiveEntry` puts the
           // file under a timestamped folder in `4-archive/`, so the way back is
           // to move it out of there to where it was. `restoreTargetFor` reads
@@ -1910,7 +1925,7 @@ export function useFileBrowser(options: {
         const result = await trashEntry({ workspaceId: workspaceId!, path });
         return {
           touched: [path, result.to],
-          message: `Moved ${baseName(path)} to trash.`,
+          message: `Moved ${withoutSortPrefix(baseName(path))} to trash.`,
           undo: () => {
             void run(async () => {
               await restoreTrashEntry({

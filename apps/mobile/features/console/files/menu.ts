@@ -38,7 +38,7 @@
 
 import { describeBinding, type Command } from "../../design/keymap";
 import type { Clipboard } from "./clipboard";
-import { baseName, parentPath, restoreTargetFor } from "./paths";
+import { baseName, parentPath, restoreTargetFor, withoutSortPrefix } from "./paths";
 import type { TreeRow } from "./tree";
 import type { Visibility } from "./types";
 
@@ -399,11 +399,14 @@ export function canPasteInto(clipboard: Clipboard, folder: string): boolean {
  * product where `team` means named people is the only question that matters.
  *
  * The root folder is the context, and is called that rather than being given
- * `baseName("")`'s empty string.
+ * `baseName("")`'s empty string. The folder is named the way its row and its
+ * crumb name it — `withoutSortPrefix` — because a sentence that says "from
+ * 1-projects" about a folder drawn `projects` is asking the reader to work out
+ * that those are the same folder.
  */
 function followDetail(path: string, inherited: Visibility): string {
   const folder = parentPath(path);
-  return `Currently ${inherited} — from ${folder === "" ? "this context" : baseName(folder)}.`;
+  return `Currently ${inherited} — from ${folder === "" ? "this context" : withoutSortPrefix(baseName(folder))}.`;
 }
 
 function visibilityGroup(

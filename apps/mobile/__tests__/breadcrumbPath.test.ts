@@ -66,7 +66,7 @@ describe("the path of the place you are in", () => {
    * SABOTAGE: restored `segments.slice(0, -1)` as the whole answer. Fails here.
    */
   test("a note is the last segment, not the folder above it", () => {
-    expect(labels("1-projects/october-trip.md")).toEqual(["1-projects", "october-trip"]);
+    expect(labels("1-projects/october-trip.md")).toEqual(["projects", "october-trip"]);
   });
 
   /**
@@ -82,7 +82,45 @@ describe("the path of the place you are in", () => {
 
   /** The extension is filing, not a name. `noteHeading` strips it too. */
   test("the leaf drops .md, and only at the end", () => {
-    expect(labels("1-projects/notes.md/deep.md")).toEqual(["1-projects", "notes.md", "deep"]);
+    expect(labels("1-projects/notes.md/deep.md")).toEqual(["projects", "notes.md", "deep"]);
+  });
+
+  /**
+   * The sort number is filing too — the same rule the tree row, the tab and
+   * the folder's own heading make, so one folder is not two names on one
+   * screen. It applies to every segment, folder and leaf alike.
+   *
+   * SABOTAGE: dropped `withoutSortPrefix` from the folder map. Fails here.
+   */
+  test("every segment drops its sort number, and only what the rule allows", () => {
+    expect(labels("1-projects/2-planning/3-trip.md")).toEqual([
+      "projects",
+      "planning",
+      "trip",
+    ]);
+    // A date is not a sort number — see `SORT_PREFIX`. The archive's own
+    // timestamped folder is the one this would break worst: the crumb would
+    // name a folder that does not exist.
+    expect(labels("4-archive/2026-08-26T09-14-02-113Z/1-projects/foo.md")).toEqual([
+      "archive",
+      "2026-08-26T09-14-02-113Z",
+      "projects",
+      "foo",
+    ]);
+  });
+
+  /**
+   * What the crumb *presses* is untouched by any of it. A label that leaked
+   * into `path` would ask somebody's bucket for a folder called `projects`
+   * that is not there — the empty listing being the *kind* answer, and a
+   * created-on-write `projects/` beside `1-projects/` the unkind one.
+   */
+  test("no trim reaches the path a segment opens", () => {
+    expect(crumbsFor("1-projects/2-planning/3-trip.md").map((crumb) => crumb.path)).toEqual([
+      "1-projects",
+      "1-projects/2-planning",
+      "1-projects/2-planning/3-trip.md",
+    ]);
   });
 
   /**
@@ -91,8 +129,8 @@ describe("the path of the place you are in", () => {
    * and that heading scrolls away exactly like a note's inline title does.
    */
   test("a folder you are standing in is the last segment too", () => {
-    expect(labels("3-resources/books")).toEqual(["3-resources", "books"]);
-    expect(labels("1-projects")).toEqual(["1-projects"]);
+    expect(labels("3-resources/books")).toEqual(["resources", "books"]);
+    expect(labels("1-projects")).toEqual(["projects"]);
   });
 
   /**
@@ -105,7 +143,7 @@ describe("the path of the place you are in", () => {
   });
 
   test("a leading or doubled slash does not invent an empty segment", () => {
-    expect(labels("1-projects//trip.md")).toEqual(["1-projects", "trip"]);
+    expect(labels("1-projects//trip.md")).toEqual(["projects", "trip"]);
   });
 
   /** What a folder segment presses to: its own listing, not its parent's. */
@@ -156,14 +194,16 @@ describe("what a title does to the last segment", () => {
    */
   test("a title replaces the filename, and nothing else", () => {
     expect(labels("0-inbox/3efac11d4eead8832e5b1236.md", { title: "Airbnb, October" })).toEqual([
-      "0-inbox",
+      "inbox",
       "Airbnb, October",
     ]);
   });
 
   test("a title is never applied to a folder segment", () => {
     const crumbs = crumbsFor("0-inbox/note.md", { title: "Something" });
-    expect(crumbs[0]).toEqual({ kind: "folder", label: "0-inbox", path: "0-inbox" });
+    // The label is trimmed and the path is not — see "no trim reaches the path
+    // a segment opens" above.
+    expect(crumbs[0]).toEqual({ kind: "folder", label: "inbox", path: "0-inbox" });
   });
 
   /*
@@ -176,7 +216,7 @@ describe("what a title does to the last segment", () => {
   */
   test("the leaf drops .excalidraw.md whole", () => {
     expect(labels("4-resources/engineering/request-path.excalidraw.md")).toEqual([
-      "4-resources",
+      "resources",
       "engineering",
       "request-path",
     ]);
