@@ -1,7 +1,7 @@
 import { loadedFolders } from "../../files/browser";
 import { GoogleConnectionsCard } from "../../google/GoogleConnectionsCard";
 import { selectedContext, type ConsoleData } from "../../types";
-import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
+import { SubHead, WorkspaceRefusalCard } from "./PanelHead";
 
 /**
  * Calendar: which calendars we read, and where each day's events are filed.
@@ -20,21 +20,19 @@ import { PanelHead, WorkspaceRefusalCard } from "./PanelHead";
  */
 export function CalendarPanel({
   data,
-  sectioned,
 }: {
   data: ConsoleData;
-  sectioned: boolean;
 }) {
   const current = selectedContext(data);
   const personal = current?.kind === "personal";
 
   return (
     <>
-      <PanelHead section="calendar" sectioned={sectioned}>
+      <SubHead title="Calendar">
         {personal
           ? "Which calendars this workspace reads, and the daily note each day's events are written into."
           : "Calendars are read into a personal workspace, not into a shared one — a meeting invitation names the people in it, and a shared bucket is a different audience."}
-      </PanelHead>
+      </SubHead>
 
       {personal ? (
         <GoogleConnectionsCard

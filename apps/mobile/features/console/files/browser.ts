@@ -84,6 +84,44 @@ export interface SearchAnswer {
   reducedRecallNotes: string[];
 }
 
+/** Another context something can be moved into, as the picker prints it. */
+export interface MoveDestination {
+  id: string;
+  /** The addressable name, with its `@`. */
+  label: string;
+  displayName: string;
+}
+
+/**
+ * A move out of this context, while it runs and for a while after.
+ *
+ * A move between contexts is the one file operation the console does not
+ * finish inside the press: the bytes cross a tenancy boundary a batch at a
+ * time, and a folder can be arbitrarily large. So it reports rather than
+ * blocks — `objects` climbs, and `status` settles on something a person can
+ * act on.
+ */
+export interface ContextMoveProgress {
+  id: string;
+  from: string;
+  to: string;
+  /** Where it is going, as `@name`. The id where the name is not known. */
+  destination: string;
+  status: "moving" | "complete" | "failed";
+  /** Notes and files landed at the other end and removed from this one. */
+  objects: number;
+  /**
+   * What stayed behind, and why it had to.
+   *
+   * Today that is one reason — a note encrypted to this context's key, whose
+   * ciphertext elsewhere is a note nobody could ever open. Reported rather
+   * than swallowed: "moved, except for three of them" is a fact the person
+   * needs before they go looking in the other context.
+   */
+  skipped: readonly { path: string; reason: "encrypted" }[];
+  error?: string;
+}
+
 export interface FileBrowser {
   /**
    * Whether this console may change anything.
@@ -368,6 +406,41 @@ export interface FileBrowser {
   createFolder: (folder: string, name: string) => void;
   rename: (path: string, name: string) => void;
   move: (path: string, destinationFolder: string) => void;
+  /**
+   * The other contexts this person may move something into.
+   *
+   * Empty unless they **own** this one, because taking something out of a
+   * context removes it from everybody who could read it there — see
+   * `functions/contextMoves.ts`. The server refuses it regardless of what this
+   * list says; the list is what keeps the dialog from offering a destination
+   * that will be refused.
+   */
+  moveDestinations: readonly MoveDestination[];
+  /**
+   * The folders of another context, for the destination picker.
+   *
+   * A promise rather than a field, because it is a bucket walk in a context
+   * this console is not standing in: fetching every destination's folders up
+   * front would open a credential per context on every render of a menu.
+   * Resolves to a floor when the walk hit a ceiling, and says so.
+   */
+  destinationFolders: (contextId: string) => Promise<{
+    folders: readonly string[];
+    truncated: boolean;
+  }>;
+  /**
+   * Start a move into another context.
+   *
+   * Deliberately not a shape of `move`. It reaches a different server action,
+   * it cannot rewrite links, it cannot be undone from a toast, and it does not
+   * finish inside the press — four differences that a caller has to know about,
+   * and an optional `contextId` on `move` would hide every one of them.
+   */
+  moveToContext: (path: string, contextId: string, destinationFolder: string) => void;
+  /** Moves out of this context that are running, or finished recently. */
+  contextMoves: readonly ContextMoveProgress[];
+  /** Pick a stopped move back up. Everything already carried stays carried. */
+  resumeContextMove: (id: string) => void;
   duplicate: (path: string) => void;
   archive: (path: string) => void;
   /** Recoverable delete: moves the entry into the archive-backed trash and offers Undo. */

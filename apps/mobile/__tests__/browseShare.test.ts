@@ -211,6 +211,10 @@ function dataWith(over: Partial<FileBrowser> = {}, entry: Partial<FolderListing[
     revokeShare: () => {},
     setSharePreviewTitle: () => {},
     ...over,
+  // No move into another context is running. `BrowsePane` reads this on
+  // every render, so a fixture without it crashes the pane rather than
+  // failing the assertion the test was written for.
+  contextMoves: [],
   } as unknown as FileBrowser;
 
   const data = {

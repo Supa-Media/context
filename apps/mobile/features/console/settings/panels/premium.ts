@@ -658,7 +658,17 @@ export function earlyTesterPriceNote(state: PremiumState): string | null {
  * so that promise never ends up inside a currency formatter, where no test
  * about promises would think to look for it.
  */
-export function formatPrice(status: PremiumStatus): string {
+export function formatPrice(
+  /*
+    The three fields a price is, not the whole status.
+
+    Widened for the landing page, which has no `PremiumStatus` to hand — it is
+    a static page with no query behind it — and would otherwise have had to
+    either fake one or grow a second formatter. A second formatter is how `$5`
+    ends up typed into a marketing page and left there when the constant moves.
+  */
+  status: Pick<PremiumStatus, "priceCents" | "currency" | "interval">,
+): string {
   const amount = status.priceCents / 100;
   const rendered =
     status.currency.toLowerCase() === "usd"

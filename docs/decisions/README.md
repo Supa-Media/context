@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A migration pass is walked in waves, and an unchanged object is read twice
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
+- A move between two contexts is three calls, not one function holding two keys
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -82,6 +83,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - `index.md` is opened by name, because no folder rule reaches the root
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
+- A note carried into another context lands at the narrower of the two ends
 
 ## [Per-note encryption](./encryption.md)
 
@@ -183,6 +185,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail is one list, with the personal workspace pinned to the top
 - The rail folds into the switcher, and the column it occupied goes to the note
+- The workspaces come back as a row at the foot of the tree, not as a column
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
@@ -200,6 +203,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
 - A folder row says what differs, so `0-inbox` gets no count
+- "Move to…" is one dialog, and the other context is a destination rather than a mode
 
 ## [Meetings](./meetings.md)
 

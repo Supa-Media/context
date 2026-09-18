@@ -409,7 +409,16 @@ export function settingsHref(slug: string, section?: SettingsSectionKey): string
  * all three.
  */
 const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
-  sources: "email",
+  /*
+    `sources` was the one section for mail, calendars and chats; it split into
+    four, `email` absorbed its content, and the four are one section again —
+    Integrations, which is where a link naming any of them belongs.
+  */
+  sources: "integrations",
+  email: "integrations",
+  calendar: "integrations",
+  chats: "integrations",
+  apps: "integrations",
   /*
     `devices` was a section and is now a card at the foot of Profile. A link
     somebody kept — or a redirect from an older build — still names it, and
@@ -429,6 +438,20 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
     an account both belong to.
   */
   account: "profile",
+  /*
+    The four that became Sharing & Access. Each was a section people linked to
+    — a shared link's own screen most of all — and each is a block on one
+    screen now.
+  */
+  /*
+    `search` is a block on Storage now — an index is a derivative of the files
+    it is built from, so it lives under them.
+  */
+  search: "storage",
+  people: "sharing",
+  groups: "sharing",
+  shares: "sharing",
+  privacy: "sharing",
 };
 
 export function settingsFromQuery(

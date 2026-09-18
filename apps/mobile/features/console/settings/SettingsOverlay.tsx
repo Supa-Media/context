@@ -83,13 +83,23 @@ export function SettingsOverlay({
   /*
     Plugins is deprecated in the console and absent unless this context is
     already using them, or the build turned the experiment on — the two
-    reasons `showPluginsSection` holds together. Computed here rather than in
-    `settingsSectionsFor` because it is a fact about `data`, and the catalogue
-    is a pure list that has never seen a console.
+    reasons `showPluginsSection` holds together. Invitations is absent unless
+    somebody is actually waiting for an answer: `data.invitations` is
+    `undefined` until the query lands and `[]` when nothing is pending, and
+    the row is absent for both. Both are computed here rather than in
+    `settingsSectionsFor` because both are facts about `data`, and the
+    catalogue is a pure list that has never seen a console.
+
+    `?settings=invitations` with none waiting therefore falls back to the
+    default section through `active` below, the same way a section this
+    context does not have already does.
   */
   const sections = settingsSectionsFor(
     current?.kind === "personal" || current?.kind === "shared" ? current.kind : null,
-    { plugins: showPluginsSection(data) },
+    {
+      plugins: showPluginsSection(data),
+      invitations: (data.invitations?.length ?? 0) > 0,
+    },
   );
 
   /*

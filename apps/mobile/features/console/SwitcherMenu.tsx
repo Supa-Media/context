@@ -78,6 +78,7 @@ export function SwitcherMenu({
   onOpenSettings,
   onLeaveContext,
   onSignOut,
+  trigger = "chip",
 }: {
   data: ConsoleData;
   label: string;
@@ -106,10 +107,25 @@ export function SwitcherMenu({
    */
   onLeaveContext?: () => void;
   onSignOut?: () => void;
+  /**
+   * What opens the menu.
+   *
+   * `"chip"` is the title bar's: the mark, the name and a chevron, which is the
+   * control this component was written as. `"chevron"` is the same menu with the
+   * name taken off, for `ContextFootRow` — that row spells the workspaces out
+   * along itself, so a trigger repeating the current one would be the third
+   * place the same name appears inside one panel.
+   *
+   * A prop rather than a second component, because the list behind it is the
+   * part that must not fork: every row in it is conditional on something, and
+   * two copies is how one of them ends up with a condition the other lost.
+   */
+  trigger?: "chip" | "chevron";
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
+  const chevronOnly = trigger === "chevron";
 
   /*
     The same call the rail makes, with the same two offers, so the list and
@@ -218,18 +234,20 @@ export function SwitcherMenu({
     <>
       <Pressable
         role="button"
-        accessibilityLabel="Switch workspace"
-        testID="frame-switcher"
+        accessibilityLabel={chevronOnly ? "All workspaces" : "Switch workspace"}
+        testID={chevronOnly ? "context-foot-switcher" : "frame-switcher"}
         onPress={(event) => {
           const { pageX, pageY } = event.nativeEvent;
           setAnchor({ x: pageX, y: pageY });
         }}
-        style={styles.chip}
+        style={chevronOnly ? styles.chevronTrigger : styles.chip}
       >
-        <WorkspaceMark label={label} tone={tone} />
-        <Text variant="wsSwitch" numberOfLines={1}>
-          {label}
-        </Text>
+        {chevronOnly ? null : <WorkspaceMark label={label} tone={tone} />}
+        {chevronOnly ? null : (
+          <Text variant="wsSwitch" numberOfLines={1}>
+            {label}
+          </Text>
+        )}
         {/*
           A chevron, which is what a disclosure control shows.
 
@@ -291,6 +309,22 @@ const makeStyles = (colors: Colors) =>
       borderRadius: radii.sm,
       backgroundColor: colors.chipFill,
       minWidth: 0,
+    },
+    /**
+     * The same disclosure mark on its own, at the end of `ContextFootRow`.
+     *
+     * 24 square because that is what the marks beside it on that row are: a
+     * trigger a couple of points smaller than the things it is lined up with
+     * reads as a misalignment rather than as a quieter control.
+     */
+    chevronTrigger: {
+      width: 24,
+      height: 24,
+      flexShrink: 0,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: radii.sm,
+      backgroundColor: colors.chipFill,
     },
     /** Chrome's grey, not a label's — see `chromeMuted`. */
     chevron: { opacity: 0.9 },

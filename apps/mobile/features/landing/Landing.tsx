@@ -33,6 +33,7 @@ import { useDemoConsoleData } from "../console/useDemoConsoleData";
 import { StageBackdrop } from "../design/components/StageBackdrop";
 import { ContinuityDemo } from "./ContinuityDemo";
 import { HeroWindow } from "./HeroWindow";
+import { Pricing } from "./Pricing";
 import { Sections } from "./Sections";
 import {
   ALSO_ON_PHONE,
@@ -354,6 +355,18 @@ export function Landing() {
             visitor met a transcript before learning what the product was.
           */}
           <Sections />
+
+          {/*
+            Pricing after the assurances and before the demo.
+
+            The order is the same argument the block above makes: what you do,
+            then what you keep, then what it costs — a price read before the
+            guarantees is a number with nothing to weigh it against, and
+            `Landing-Sections.dc.html` puts the cards under the assurances for
+            that reason. The demo follows, because a visitor who has decided
+            still wants to see it work.
+          */}
+          <Pricing onPress={() => router.push(landingCtaHref(auth))} />
 
           <ContinuityDemo />
 

@@ -219,17 +219,18 @@ function WayOut({
 /**
  * The three facts that say what a context *is*.
  *
- * Storage, privacy and membership: where the notes are, who can see them, and
- * who is in here. Search and the capture sources are settings *about* a
- * context rather than descriptions of one, and Premium is a question about
- * the account paying for it.
+ * Storage and sharing: where the notes are, and who can see them. Those were
+ * three facts — storage, privacy, membership — until privacy and membership
+ * became two blocks of one section, and a fact row per block would be this
+ * panel deciding the other screen's shape for it. Search and the capture
+ * sources are settings *about* a context rather than descriptions of one, and
+ * Premium is a question about the account paying for it.
  */
-const FACTS: readonly SettingsSectionKey[] = ["storage", "privacy", "people"];
+const FACTS: readonly SettingsSectionKey[] = ["storage", "sharing"];
 
 const FACT_ICONS: Record<string, IconName> = {
   storage: "drive",
-  privacy: "lock",
-  people: "people",
+  sharing: "people",
 };
 
 function HealthStrip({

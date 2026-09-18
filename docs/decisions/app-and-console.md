@@ -4665,3 +4665,145 @@ deliberate: this is a decision not to draw something, and a guard against
 drawing it would be a test asserting the absence of a feature nobody has.
 `FolderView.tsx`'s own comment on the exception mark is what a future reader
 hits first, and it now says the slot is for exceptions and names this.
+## The workspaces come back as a row at the foot of the tree, not as a column
+
+The owner, looking at the console:
+
+> Right now, it's not super visible — all the workspaces that someone's in,
+> you got to click on it and drop down… I just want to explore some different
+> UX/UI designs for that, because we want people to be able to switch more
+> quickly.
+
+The switcher menu is two presses, and the worse half of that is not the count:
+it is **invisible at rest**. Nothing on the screen says a second workspace
+exists, so nothing reminds anybody that it does. An account with four contexts
+looked exactly like an account with one.
+
+Five directions were drawn to scale and the owner picked one: **the context you
+are in, spelled out, and the ones you were in last beside it, along the foot of
+the file tree**. `features/console/foot.ts` is the rule and
+`ContextFootRow.tsx` is the drawing.
+
+### Why this one, and what the other four cost
+
+- **A dock of full-width rows** at the foot of the same panel. Same zero cost in
+  width, reads at a glance, and runs out at five or six workspaces — at which
+  point it is a scrolling list inside a panel that already has one.
+- **A pinned pill strip at the top of the panel** — the phone's `ContextStrip`
+  on a second surface, which is the cheapest thing to build and the worst thing
+  to use: 260 points fits about two pills, so the third workspace is behind a
+  horizontal scroll, and a scroll gesture on a pointer is the most expensive way
+  to reach something that was supposed to be one click away.
+- **A 52pt icon gutter**, Slack's answer. It works, it scales to a dozen, and it
+  is a column — which is the thing "The rail folds into the switcher, and the
+  column it occupied goes to the note" spent 216 points buying back. 52 is less
+  than 216 and it is the same trade in the same direction.
+- **Tabs in the title bar**. Fastest to read, and it borrows a meaning it does
+  not have: a tab is an open document you can close, a workspace is neither, and
+  the title bar already draws note tabs two inches away.
+
+### What the row costs, and where it is paid
+
+**The panel is resizable, so the row is a function of its width.** The owner's
+second and third instructions are the specification:
+
+> when people extend it, we should be able to accommodate more space and maybe
+> even show some of the workspace name if we have enough space
+
+> if someone only has two workspaces and they're able to comfortably fit on that
+> bottom panel without it being too crowded, then why not?
+
+So `footPlan` takes the measured width and the real names and decides between
+two shapes: **named pills** when every name on the row is whole, **marks** when
+they are not. Nothing is ellipsised, which is `ContextStrip`'s rule — "two
+contexts that look identical, on the one control whose entire job is telling
+them apart" — with one stated exception: in the marks shape the *current*
+context's label may shrink, because it is the third copy of that name on the
+screen (the breadcrumb and the title bar's chip are the other two) and
+budgeting it whole made the entire row disappear at the 200pt floor.
+
+**Three recents, whatever the width.** Extra width buys names, not a fourth
+workspace. A row that grew towards a dozen marks is the rail coming back at the
+bottom of the panel, and everything beyond the third is behind the chevron —
+which is `SwitcherMenu` itself, mounted with `trigger="chevron"` rather than
+reimplemented, so the claim offer, "New workspace" and Leave keep their single
+set of conditions.
+
+**The title bar's chip stays.** It is redundant on Browse and it is not
+redundant anywhere else: the explorer column is only rendered while browsing, so
+demoting the chip to a label would leave Map, Connections, Search and Settings
+with no switcher, no Settings row and no sign-out at a pointer density. Removing
+it is a separate change that has to give those panes somewhere else to put it.
+
+**No ⌘1–⌘9.** The obvious keyboard half of this row is already spent:
+`keymap.ts` gives those nine chords to the note tabs, and `keymap.test.ts`
+allows a command exactly one chord. Inventing ⌃1–9 for workspaces would be a
+second digit row meaning a second thing, which is how a keyboard layout stops
+being learnable. Left undone rather than done badly.
+
+**What a simplification costs.** Dropping the width measurement and always
+drawing marks is the tempting one, and it takes the owner's actual request back
+out: the two-workspace account that fits comfortably is exactly the case the
+names were asked for. Dropping the shape rule the other way — always names,
+ellipsised to fit — is the defect `ContextStrip` already argued.
+
+**The tests that fail if it is reversed.** `contextFootRow.test.ts`: "no row
+where there is nowhere to go" (one workspace draws no band), "most recently
+visited first, and never alphabetical", "the pinned context is held last", "three
+at most, whatever the width" (asserted as the literal 3, because a test that
+reads `RECENT_SLOTS` agrees with whatever `RECENT_SLOTS` becomes), "two short
+workspaces are named at the resting width", "dragging the panel open buys the
+names", "the floor still holds all three, however long the current name", "what
+is planned fits the room it was planned for, at every width" — the sweep, which
+is the one that catches a character-width estimate drifting narrow — and "every
+workspace has a name a screen reader can read", which is the rule that killed an
+icon-only rail once already.
+
+### "Move to…" is one dialog, and the other context is a destination rather than a mode
+
+A person who owns two contexts thinks "this belongs in @work", not "this belongs
+in a different tenancy". So the destination picker gained a row of contexts
+above its folder list, rather than a second command beside `Move to…`. Where
+there is nowhere else to send anything — one context, or somebody who is only an
+editor of this one — the row is **absent**, not a single disabled option: the
+same rule the rest of this console follows, argued in the header of `menu.ts`.
+
+Three things about that dialog are decisions rather than mechanics.
+
+**The list of contexts is the client-side gate, and it is gated on ownership of
+the context being left.** `useFileBrowser` empties it unless `isOwner`, because
+moving something *out* removes it from everybody who could read it there — the
+server's own rule in `functions/contextMoves.ts`. The console never offers a
+destination whose press would be refused, and it never re-derives the rule from
+anything else.
+
+**Choosing another context asks it for its folders, once.** A console only ever
+holds the tree of the context it is standing in, and walking another one a
+`listFiles` at a time would be one bucket credential opened per folder. One
+`folderPaths` action walks it inside the single call that already has the store
+open, bounded, and says so when it hit the ceiling rather than presenting a
+floor as a total — #25's shape. A folder chosen in one context is dropped when
+the person switches to another, because two contexts can both have `work/` and a
+stale selection is not an invalid press that fails, it is a valid press that
+lands somewhere nobody chose.
+
+**It is the one file operation that reports itself in a sentence.** Everything
+else in this console finishes inside the press and reports itself by the tree
+changing while somebody watches. A cross-context move can still be running
+minutes later, in a scheduled action, with nothing on this device involved — so
+it gets a line in the notice band that says what is happening, says that closing
+the console does not stop it, and settles into something a person can act on: a
+count, a list of what stayed behind and why, or a failure with "Finish the move"
+rather than "Try again" — because everything already carried stays carried, and
+resuming is not a re-run. A finished move is dismissible and a running one is
+not, because a Dismiss that would be ignored is worse than no Dismiss.
+
+**What a "simplification" of this would cost.** A second top-level command
+splits one question into two and makes the cross-context case feel like a
+different product. Drawing the context row from `canEdit` offers an editor a
+control that is always refused. Keeping the chosen folder across a context
+switch files something into the wrong context silently. Reporting a move only as
+a toast loses the outcome for every move longer than eight seconds, which is all
+the ones that needed reporting. `apps/mobile/__tests__/contextMoveBrowser.test.ts`,
+`contextMoveNotice.test.ts`, and the "move dialog's other contexts" block in
+`explorerActionGuards.test.ts` fail.

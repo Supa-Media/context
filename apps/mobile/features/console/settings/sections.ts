@@ -16,8 +16,10 @@
  *    rather than their question. Each of the four answers one question on one
  *    page, however many mechanisms that takes.
 
- *  - **Who can see it** — the people in this context. Previously three clicks
- *    away on an app-level pane that was not about this context at all.
+ *  - **Sharing & Access** — who can reach this context and through what. One
+ *    section rather than the four it used to be (People, Groups, Shared
+ *    links, Privacy): that was one question answered in four places, and a
+ *    person had to visit each to find out what the answer was.
  *  - **Your notes** — where they live and how they are found. Storage is here,
  *    near the bottom, because it is touched at setup and at a key rotation and
  *    then never again; a broken bucket still announces itself on the storage
@@ -33,11 +35,7 @@
 
 import type { IconName } from "../../design/components/Icon";
 
-export type SettingsGroup =
-  | "Your account"
-  | "Integrations"
-  | "Who can see it"
-  | "Your notes";
+export type SettingsGroup = "Your account" | "Your notes";
 
 /**
  * Which of the two things a section belongs to.
@@ -89,18 +87,20 @@ export interface SettingsSectionSpec {
    * their way out. `plugins/experiment.ts` holds the argument.
    */
   experimental?: boolean;
+  /**
+   * Absent unless something is actually waiting.
+   *
+   * The second shape of "absent, not disabled", and the one the first could
+   * not express: `personalOnly` asks what a *context* is, and this asks what
+   * is true for the person right now. Invitations is the row it exists for —
+   * most people have none most of the time, and a permanent row reading
+   * "None" is a badge somebody learns to skip past on the way to the rows
+   * that do change.
+   */
+  pendingOnly?: boolean;
 }
 
 export const SETTINGS_SECTIONS = [
-  {
-    key: "apps",
-    keywords: "claude cursor chatgpt copilot app client connect endpoint address revoke disconnect mcp assistant",
-    label: "AI apps",
-    scope: "account",
-    group: "Your account",
-    icon: "grid",
-    personalOnly: false,
-  },
   {
     key: "profile",
     /*
@@ -129,6 +129,15 @@ export const SETTINGS_SECTIONS = [
     group: "Your account",
     icon: "mailOpen",
     personalOnly: false,
+    /*
+      Only while somebody is actually waiting for an answer. The row's own
+      preview already refused to say "None" on every load — `previews.ts`:
+      "the resting state of this row … is a badge people learn to ignore" —
+      and this is that argument carried one step further: if the row has
+      nothing to say in its resting state, the resting state should not have
+      a row.
+    */
+    pendingOnly: true,
   },
   {
     key: "overview",
@@ -195,32 +204,28 @@ export const SETTINGS_SECTIONS = [
     would be refused; it is wrong for the sentence that says why.
   */
   {
-    key: "email",
+    key: "integrations",
+    /*
+      Five haystacks in one. "AI apps", Email, Calendar and Chats were four
+      rows and a group heading, and the words people type for them are the
+      words for one question: what is plugged into this context.
+
+      The provider names matter more than our nouns here — nobody types
+      "integrations" looking for Gmail — so every brand somebody might arrive
+      with is in the list, and so are the two mechanisms that have no brand at
+      all: the forwarding address, and this Mac.
+    */
     keywords:
-      "email gmail mailbox inbox forward forwarding address capture ingestion sender allowed attachment spam mail google integration integrations sync",
+      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud",
     scope: "context",
-    label: "Email",
-    group: "Integrations",
-    icon: "mail",
-    personalOnly: false,
-  },
-  {
-    key: "calendar",
-    keywords: "calendar calendars ical events event schedule agenda appointments google integration integrations sync",
-    scope: "context",
-    label: "Calendar",
-    group: "Integrations",
-    icon: "calendar",
-    personalOnly: false,
-  },
-  {
-    key: "chats",
-    keywords:
-      "chat chats imessage messages texts sms google spaces dm direct conversation threads mac icloud integration integrations sync",
-    scope: "context",
-    label: "Chats",
-    group: "Integrations",
-    icon: "chat",
+    label: "Integrations",
+    /*
+      Ungrouped with the other whole-context rows. The "Integrations" *group*
+      is gone: a heading and a single row beneath it reading "Integrations"
+      is the same word twice.
+    */
+    group: null,
+    icon: "grid",
     personalOnly: false,
   },
   {
@@ -229,83 +234,68 @@ export const SETTINGS_SECTIONS = [
       "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",
     scope: "context",
     label: "Meetings",
-    group: "Integrations",
+    /*
+      Its own row, beside Integrations rather than inside it. It is the one
+      capture surface people open on purpose rather than configure once, and
+      the owner asked for it by name (2026-09-18, with Sayo).
+    */
+    group: null,
     icon: "mic",
     personalOnly: false,
   },
   {
-    key: "people",
-    keywords: "members invite team who access role owner editor share colleague add remove",
+    key: "sharing",
+    /*
+      Four haystacks in one, and the union is the point rather than a tidy-up.
+
+      People, Groups, Shared links and Privacy were four rows under a heading
+      that asked one question — "who can see it" — and a person with that
+      question had to guess which of the four answered it. The words they type
+      are the same words whichever half of the answer they are after: "who can
+      see", "revoke", "share", "permissions", "public".
+
+      "public" and "secret" are in here and in no copy anywhere on the screen,
+      deliberately: somebody asking "is any of this public?" is asking a real
+      question, and the answer — that no setting here puts a note in front of
+      anybody the owner has not named — is exactly what this section exists to
+      give them. A word nobody can search for is an answer nobody finds.
+    */
+    keywords:
+      /*
+        "who can see it" is spelled out because it used to be the *group
+        heading* above these four rows, and `matchSettingsSections` searches
+        label, group and keywords together — so deleting the heading silently
+        took the most natural phrasing of the question with it. It is the one
+        string here that is a whole sentence, and that is why.
+      */
+      "who can see it members people invite team access role owner editor share colleague add remove group groups everyone some set named leads folder link links shared revoke has sent unlisted anyone token url private public visible hide hidden secret permissions default privacy manifest",
     scope: "context",
-    label: "People",
-    group: "Who can see it",
+    label: "Sharing & Access",
+    /*
+      Ungrouped, with Overview and Premium. A heading reading "Who can see it"
+      over a single row called "Sharing & Access" is the same sentence twice,
+      and the group existed to hold the four rows this replaces.
+    */
+    group: null,
     icon: "people",
     personalOnly: false,
   },
   {
-    key: "groups",
-    /*
-      What people type when they have already done the thing a group is for:
-      handed the same two people the same folder twice. "team" and "everyone"
-      are in here because somebody looking for a way to share with *some* of
-      the workspace searches the words for all of it first.
-    */
-    keywords: "group groups team everyone some people set named leads owners folder share who",
-    scope: "context",
-    label: "Groups",
-    group: "Who can see it",
-    icon: "group",
-    personalOnly: false,
-  },
-  {
-    key: "shares",
-    /*
-      "revoke" also lives on `apps`'s keywords, for revoking a connected AI app
-      — both are real destinations for the word, and `matchSettingsSections`
-      requiring every word to match rather than picking one winner is exactly
-      what lets it return both.
-    */
-    keywords: "link links shared share revoke who has it sent unlisted anyone token url",
-    scope: "context",
-    label: "Shared links",
-    group: "Who can see it",
-    icon: "share",
-    personalOnly: false,
-  },
-  {
-    key: "privacy",
-    /*
-      What people type when they are worried, which is rarely the word on the
-      row. "public" and "secret" are in this haystack and in no copy anywhere
-      in the section, deliberately: somebody asking "is any of this public?"
-      is asking a real question, and the answer — that no setting here puts a
-      note in front of anybody the owner has not named — is exactly what this
-      section exists to give them. A word nobody can search for is an answer
-      nobody finds.
-    */
-    keywords: "private public who can see visible hide hidden secret share permissions access folder default privacy manifest",
-    scope: "context",
-    label: "Privacy",
-    group: "Who can see it",
-    icon: "lock",
-    personalOnly: false,
-  },
-  {
     key: "storage",
-    keywords: "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup",
+    /*
+      The index's words are here because the index is: Search was the row
+      below this one, asking the same question one level down — where are my
+      notes kept, and where is the thing that finds them. An index is a
+      disposable derivative of the files (`CLAUDE.md` #3), so it is a block on
+      this screen rather than a row beside it, and "rebuild index" has to land
+      here or it lands nowhere.
+    */
+    keywords:
+      "bucket r2 s3 dropbox key credentials connect disconnect where files kept backup search find index fast lookup rebuild",
     scope: "context",
     label: "Storage",
     group: "Your notes",
     icon: "drive",
-    personalOnly: false,
-  },
-  {
-    key: "search",
-    keywords: "find index fast lookup rebuild",
-    scope: "context",
-    label: "Search",
-    group: "Your notes",
-    icon: "search",
     personalOnly: false,
   },
   {
@@ -388,13 +378,13 @@ export const DEFAULT_SETTINGS_SECTION: SettingsSectionKey = "overview";
  * most likely after: all three are already about reach rather than about one
  * bucket.
  */
-export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
+export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "profile";
 
 /**
- * The sections this context actually has.
+ * The sections this context actually has, for this person, right now.
  *
  * `kind` decides nothing today and is kept because it will. Only a personal
- * personal workspace has an address mail can be sent to — but Email, Calendar, Chats and
+ * workspace has an address mail can be sent to — but Email, Calendar, Chats and
  * Meetings are all *listed* for a workspace, because each carries the sentence
  * saying why it cannot do that here, and a section removed takes its
  * explanation with it. `personalOnly` is the switch for a section that would
@@ -402,20 +392,41 @@ export const DEFAULT_ACCOUNT_SETTINGS_SECTION: SettingsSectionKey = "apps";
  *
  * `shown` is the other axis, and it belongs to the caller rather than to this
  * file on purpose: whether Plugins is on the list depends on what that context
- * has installed and on how the app was built, neither of which a pure
- * catalogue can see. A key left out of `shown` stays hidden, so an
- * `experimental` row is absent until somebody wires it on — the fail-closed
- * direction, and the one a half-finished deprecation should land on.
+ * has installed and on how the app was built, and whether Invitations is on it
+ * depends on whether anybody has invited this person — none of which a pure
+ * catalogue can see. A key left out of `shown` stays hidden, so both an
+ * `experimental` row and a `pendingOnly` one are absent until somebody wires
+ * them on: the fail-closed direction, and the one a half-finished deprecation
+ * should land on.
+ *
+ * For Invitations the caller hands over `(data.invitations?.length ?? 0) > 0`,
+ * and the `??` is load-bearing rather than defensive: `undefined` is the list
+ * still in flight and is **not** zero (`ConsoleData.invitations`, and
+ * `previews.ts` on the same field). Both hide the row, for different reasons —
+ * nothing is waiting, or nothing is known yet — and only one of them would be
+ * wrong to state out loud, so neither is stated: the row simply arrives when
+ * there is something in it.
  */
 export function settingsSectionsFor(
   kind: "personal" | "shared" | null | undefined,
   shown: Partial<Record<SettingsSectionKey, boolean>> = {},
 ): readonly SettingsSectionSpec[] {
-  return SETTINGS_SECTIONS.filter((section) => {
+  return SETTINGS_SECTIONS.filter((entry) => {
+    /*
+      Widened deliberately: the catalogue is `as const`, so each entry's type
+      knows only the keys that entry happens to spell out and `pendingOnly` is
+      absent from every row but one. Reading it through the interface is what
+      makes an optional field optional here rather than a compile error.
+    */
+    const section: SettingsSectionSpec = entry;
     // Deprecated in the console, and absent before anything else is asked: a
     // section nobody may see is not made visible by the kind of context it is
     // in. See `plugins/experiment.ts`.
     if (isExperimentalSection(section) && shown[section.key] !== true) return false;
+    // And the row that has nothing in it until somebody is waiting for an
+    // answer. Same shape, different question: one asks what the product
+    // offers, this asks what is true for this person right now.
+    if (section.pendingOnly === true && shown[section.key] !== true) return false;
     // Account sections belong to the person, not to whichever context they
     // happen to have open, so a context's kind never removes one.
     if (section.scope === "account") return true;

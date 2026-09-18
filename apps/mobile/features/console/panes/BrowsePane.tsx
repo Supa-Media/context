@@ -19,6 +19,7 @@ import type { FolderMenu } from "../files/FolderView";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
+import { contextMoveNotices } from "../files/contextMoveNotice";
 import { EncryptionAdvancedSection } from "../encryption/EncryptionAdvancedSection";
 import { useNoteEncryption } from "../encryption/useNoteEncryption";
 import { useNoteLockPropagation } from "../encryption/lockPropagation";
@@ -555,12 +556,32 @@ export function BrowsePane({
     construction in `tierSentence` rather than by a check here; see its comment.
   */
   const tierNote = tierSentence(current?.role);
+
+  /*
+    MOVES INTO ANOTHER CONTEXT, WHICH FINISH AFTER THE PRESS THAT STARTED THEM.
+
+    Every other operation reports itself by the tree changing while somebody
+    watches. This one can still be running minutes later, in a scheduled action
+    on a server, with nothing on this device involved — so it gets a line here,
+    in the band that already holds "something is happening and it is yours to
+    know about".
+
+    Dismissal is local and per move, and only for a finished one: see
+    `contextMoveNotices`.
+  */
+  const [dismissedMoves, setDismissedMoves] = useState<ReadonlySet<string>>(new Set());
+  const moveNotices = useMemo(
+    () => contextMoveNotices(files.contextMoves, dismissedMoves),
+    [files.contextMoves, dismissedMoves],
+  );
+
   const hasNotice =
     tierNote !== null ||
     setupPromptVisible(setup) ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
+    moveNotices.length > 0 ||
     storageMigration.visible ||
     (files.readOnlyReason !== undefined && !files.canEdit);
 
@@ -692,6 +713,40 @@ export function BrowsePane({
           ) : null}
         </View>
       ) : null}
+
+      {moveNotices.map((move) => (
+        <View
+          key={move.id}
+          style={[styles.notice, move.tone === "warn" && styles.noticeWarn]}
+          testID={`browse-context-move-${move.id}`}
+        >
+          <Text
+            variant="hint"
+            style={move.tone === "warn" ? styles.noticeWarnText : undefined}
+          >
+            {move.text}
+          </Text>
+          {move.resumable ? (
+            <Button
+              label="Finish the move"
+              onPress={() => files.resumeContextMove(move.id)}
+              disabled={files.busy}
+              style={styles.dismiss}
+              testID={`browse-context-move-resume-${move.id}`}
+            />
+          ) : null}
+          {move.dismissible ? (
+            <Button
+              label="Dismiss"
+              onPress={() =>
+                setDismissedMoves((current) => new Set([...current, move.id]))
+              }
+              style={styles.dismiss}
+              testID={`browse-context-move-dismiss-${move.id}`}
+            />
+          ) : null}
+        </View>
+      ))}
 
       {files.notice !== null ? (
         <View style={[styles.notice, styles.noticeWarn]}>
@@ -894,6 +949,50 @@ export function BrowsePane({
     ((path: string) => {
       files.select(path);
     });
+
+  /**
+   * Whether whatever `openDocument` is about to draw brings its own scroller.
+   *
+   * ## Why the pane has to answer this
+   *
+   * A phone puts the whole region in one scroller and every document rides it.
+   * A pointer layout cannot: `NoteEditor` owns a scroller *because* it does —
+   * `NoteAccessory` is positioned against the bottom of the region and inside a
+   * scroll container would ride away with the content — and a scroller nested
+   * in a scroller is two scrollbars and a wheel event that goes to the wrong
+   * one. So the pointer branch supplies a page scroller only where the document
+   * does not have one, and that is a question only this file can answer,
+   * because this file is where the branch that picks the document lives.
+   *
+   * ## What it was before
+   *
+   * `<View style={styles.body}>{openDocument}</View>`, for everything. A note
+   * was fine and so was a conflict; **a folder listing, the Inbox, a channel
+   * and a contact page had no scroller at all** — and neither did anything
+   * above them, so there was nothing on the screen that could scroll. Measured
+   * in Chromium at 1440×900 on a fifty-row `4-archive`: the last row laid out
+   * at y≈1850, and walking up from it to the document found no ancestor with a
+   * scrolling overflow. The rows past the fold were drawn and simply
+   * unreachable — no scrollbar, no wheel, no keyboard, and no hint that the
+   * listing went on. Reported 2026-09-18 against exactly that folder.
+   *
+   * ## Why it is one expression and not a flag per branch
+   *
+   * It is derived from the same two values the chain below switches on, in the
+   * same order, so the two cannot drift into disagreeing about which surface is
+   * on screen. Read it against `openDocument`:
+   *
+   *  - no selection — the empty state, or the phone's landing listing: neither
+   *    scrolls itself;
+   *  - a comms route — `ChannelDayView` owns a scroller (it scrolls to the
+   *    anchored message on open, which is the whole reason it has one); the
+   *    Inbox, a channel and a contact page do not;
+   *  - otherwise a file — `ConflictResolver` and `NoteEditor` both own one, and
+   *    they are the only two things a `file` selection can draw.
+   */
+  const documentOwnsScroller =
+    selected !== null &&
+    (commsRoute === null ? selected.kind === "file" : commsRoute.kind === "channel-day");
 
   const openDocument =
     selected === null ? (
@@ -1381,7 +1480,7 @@ export function BrowsePane({
             openGroups:
               data.groups?.actions === undefined || onOpenSettings === undefined
                 ? undefined
-                : () => onOpenSettings("groups"),
+                : () => onOpenSettings("sharing"),
           })}
           /*
             Only when the editor is actually holding this note — the same
@@ -1520,10 +1619,34 @@ export function BrowsePane({
             <View style={styles.bodyCompact}>{openDocument}</View>
           </ScrollView>
         </ScreenViewport>
-      ) : (
+      ) : documentOwnsScroller ? (
         <>
           {notices}
           <View style={styles.body}>{openDocument}</View>
+        </>
+      ) : (
+        /*
+          The pointer layout's page scroller, for the documents that do not
+          bring one — see `documentOwnsScroller` for which and why.
+
+          The padding is the content container's rather than the box's, for the
+          same reason the phone's scroller pays its chrome in content padding: a
+          scroller inset by its parent has a hard edge and a track that floats
+          away from the pane. `flexGrow: 1` on the content keeps a short page
+          filling the region, which is what `FolderView`'s own `flexGrow`
+          needs — its right-click background is the whole area, not a strip
+          under the last row, and a content container that hugged its children
+          would shrink that target to the height of the listing.
+        */
+        <>
+          {notices}
+          <ScrollView
+            style={styles.page}
+            contentContainerStyle={styles.pageContent}
+            testID="document-scroll"
+          >
+            {openDocument}
+          </ScrollView>
         </>
       )}
 
@@ -1648,6 +1771,18 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   noteHeadCompact: { paddingRight: layout.readingMargin },
   crumb: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
   body: { flex: 1, minHeight: 0, padding: space.x4 },
+  /**
+   * The pointer layout's page scroller, and its content.
+   *
+   * `body`'s padding without `body`: the box fills the region and the padding
+   * goes on what scrolls inside it, so the scrollbar rides the edge of the pane
+   * rather than being inset 16pt from it. `flexGrow: 1` rather than `flex: 1`,
+   * because a flex child of a content container has nothing to fill — the same
+   * distinction `bodyCompact` records — and what is wanted here is a floor, not
+   * a cap: the page is at least the region tall and longer when its content is.
+   */
+  page: { flex: 1, minHeight: 0 },
+  pageContent: { flexGrow: 1, padding: space.x4 },
   /**
    * The phone's page scroller: full-bleed, with the chrome paid for in content
    * padding at the call site rather than in a shorter viewport here.

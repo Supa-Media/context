@@ -29,15 +29,15 @@ import {
 } from "../features/console/settings/sections";
 
 describe("which sections a context has", () => {
-  test("both kinds get all four communications sections", () => {
-    // The capture *address* is personal-only and each panel gates its own
+  test("both kinds get the capture sections", () => {
+    // The capture *address* is personal-only and each block gates its own
     // controls, but the sentence explaining why a workspace cannot connect
     // Gmail lives in the same block — hiding the section would take the
     // explanation with it. "Absent, not disabled" is right for a control that
     // would be refused and wrong for the sentence that says why.
     for (const kind of ["personal", "shared"] as const) {
       const keys = settingsSectionsFor(kind).map((section) => section.key);
-      for (const key of ["email", "calendar", "chats", "meetings"]) {
+      for (const key of ["integrations", "meetings"]) {
         expect(keys).toContain(key);
       }
     }
@@ -53,7 +53,7 @@ describe("which sections a context has", () => {
 describe("the order and the grouping", () => {
   test("what comes in is asked before where it is kept", () => {
     const keys = SETTINGS_SECTIONS.map((section) => section.key);
-    expect(keys.indexOf("email")).toBeLessThan(keys.indexOf("storage"));
+    expect(keys.indexOf("integrations")).toBeLessThan(keys.indexOf("storage"));
     expect(keys.indexOf("meetings")).toBeLessThan(keys.indexOf("storage"));
   });
 
@@ -88,9 +88,44 @@ describe("two scopes in one list", () => {
     // personal workspace and a context still loading all keep them.
     for (const kind of ["personal", "shared", null] as const) {
       const keys = settingsSectionsFor(kind).map((section) => section.key);
-      expect(keys).toContain("apps");
       expect(keys).toContain("profile");
     }
+  });
+
+  test("one question, one row: sharing answers all four of the old ones", () => {
+    /*
+      People, Groups, Shared links and Privacy asked one question — who can see
+      it — and answered it in four places, so somebody had to visit all four to
+      know. The merge is only worth anything if every word that used to reach
+      one of them still reaches the screen that now holds it.
+    */
+    const all = settingsSectionsFor("personal");
+    const keys = all.map((section) => section.key);
+    for (const gone of ["people", "groups", "shares", "privacy"]) {
+      expect(keys).not.toContain(gone);
+      expect(isSettingsSection(gone)).toBe(false);
+    }
+    for (const query of ["who can see", "members", "role", "group", "link", "revoke a link", "public", "permissions"]) {
+      expect(matchSettingsSections(all, query).map((s) => s.key)).toContain("sharing");
+    }
+  });
+
+  test("invitations is a row only while one is waiting", () => {
+    /*
+      Three states, two of them absent and for different reasons: nothing
+      pending, and nothing known yet. `undefined` is the list in flight and is
+      not zero — the distinction `ConsoleData.invitations` and `previews.ts`
+      both keep — but neither is a row, because neither has anything in it.
+    */
+    const keysWhen = (waiting: boolean | undefined) =>
+      settingsSectionsFor("personal", { invitations: waiting }).map((section) => section.key);
+
+    expect(keysWhen(undefined)).not.toContain("invitations");
+    expect(keysWhen(false)).not.toContain("invitations");
+    expect(keysWhen(true)).toContain("invitations");
+    // And with no `shown` at all, which is every caller that does not know:
+    // fail closed, the direction the deprecated rows already land on.
+    expect(settingsSectionsFor("personal").map((s) => s.key)).not.toContain("invitations");
   });
 
   test("signing out is a control on Profile, not a row of its own", () => {
@@ -138,7 +173,7 @@ describe("two scopes in one list", () => {
   });
 
   test("and are recognisable without knowing the list", () => {
-    expect(isAccountSection("apps")).toBe(true);
+    expect(isAccountSection("profile")).toBe(true);
     expect(isAccountSection("storage")).toBe(false);
   });
 
@@ -153,9 +188,9 @@ describe("searching the list", () => {
     // The whole point: nobody types "sources" looking for Gmail, and nobody
     // types "account" meaning cancel.
     const all = settingsSectionsFor("personal");
-    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("email");
+    expect(matchSettingsSections(all, "gmail").map((s) => s.key)).toContain("integrations");
     expect(matchSettingsSections(all, "bucket").map((s) => s.key)).toContain("storage");
-    expect(matchSettingsSections(all, "cursor").map((s) => s.key)).toContain("apps");
+    expect(matchSettingsSections(all, "cursor").map((s) => s.key)).toContain("integrations");
   });
 
   test("every word has to match, so two words narrow", () => {
@@ -197,26 +232,28 @@ describe("searching the list", () => {
   test.each([
     ["sign out", "profile"],
     ["delete my account", "profile"],
-    ["gmail", "email"],
-    ["mailbox", "email"],
-    ["forward", "email"],
-    ["imessage", "chats"],
-    ["messages", "chats"],
-    ["calendar", "calendar"],
-    ["ical", "calendar"],
-    ["schedule", "calendar"],
+    ["gmail", "integrations"],
+    ["mailbox", "integrations"],
+    ["forward", "integrations"],
+    ["imessage", "integrations"],
+    ["messages", "integrations"],
+    ["calendar", "integrations"],
+    ["ical", "integrations"],
+    ["schedule", "integrations"],
     ["zoom", "meetings"],
     ["recording", "meetings"],
     ["transcript", "meetings"],
-    ["invite", "invitations"],
-    ["claude", "apps"],
-    ["revoke", "apps"],
+    ["claude", "integrations"],
+    ["revoke", "integrations"],
     ["username", "profile"],
     ["dropbox", "storage"],
-    ["rebuild index", "search"],
-    ["who can see", "people"],
-    ["shared link", "shares"],
-    ["revoke a link", "shares"],
+    ["rebuild index", "storage"],
+    ["fast search", "storage"],
+    ["who can see", "sharing"],
+    ["shared link", "sharing"],
+    ["revoke a link", "sharing"],
+    ["members", "sharing"],
+    ["groups", "sharing"],
     ["audit log", "advanced"],
     ["export keys", "advanced"],
     /*
@@ -236,12 +273,14 @@ describe("searching the list", () => {
       matters most and the one our own vocabulary would never have caught: the
       product has no public tier, so the word appears in no label and in no
       copy — and a person asking "is any of this public?" is asking the
-      question this section exists to answer.
+      question this section exists to answer. All four land on Sharing &
+      Access now, which is the whole answer rather than the quarter of it
+      Privacy used to be.
     */
-    ["private", "privacy"],
-    ["public", "privacy"],
-    ["hide", "privacy"],
-    ["permissions", "privacy"],
+    ["private", "sharing"],
+    ["public", "sharing"],
+    ["hide", "sharing"],
+    ["permissions", "sharing"],
     /*
       The machine words, repointed rather than deleted — "Your devices" is a
       card at the foot of Profile now. A word kept for a row that no longer
@@ -274,6 +313,26 @@ describe("searching the list", () => {
       (section) => section.key,
     );
     expect(hits).toContain(key);
+  });
+
+  test("and 'invite' opens Invitations, but only while one is waiting", () => {
+    // Off the table above because it is the one query whose answer depends on
+    // the person rather than the context: with nothing pending there is no
+    // row, so there is nothing for the box to return either.
+    const waiting = settingsSectionsFor("personal", { invitations: true });
+    expect(matchSettingsSections(waiting, "invite").map((s) => s.key)).toContain(
+      "invitations",
+    );
+    /*
+      With nothing pending the word still has a destination — Sharing &
+      Access, where you invite somebody — and that is the point: the box goes on answering,
+      it just cannot offer a screen whose only content would be "Nothing
+      pending".
+    */
+    const none = settingsSectionsFor("personal", { invitations: false });
+    const hits = matchSettingsSections(none, "invite").map((s) => s.key);
+    expect(hits).not.toContain("invitations");
+    expect(hits).toEqual(["sharing"]);
   });
 
   /*
@@ -332,7 +391,11 @@ describe("the panel is headed by the row that opened it", () => {
 describe("reading a section out of a URL", () => {
   test("only names we have", () => {
     expect(isSettingsSection("storage")).toBe(true);
-    expect(isSettingsSection("email")).toBe(true);
+    expect(isSettingsSection("integrations")).toBe(true);
+    // The four rows Integrations replaced: a URL still carrying one is an
+    // alias's job (`nav.ts`), never a section this list admits to having.
+    expect(isSettingsSection("email")).toBe(false);
+    expect(isSettingsSection("apps")).toBe(false);
     // The section this one replaced. A URL still carrying it must fail the
     // check and fall back to the default, not open a blank panel.
     expect(isSettingsSection("sources")).toBe(false);

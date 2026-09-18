@@ -54,67 +54,6 @@ export function AccountSection({
     (context) => context.kind === "personal" && context.role === "owner",
   );
 
-  if (section === "apps") {
-    return (
-      <View>
-        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
-          {settingsSectionLabel("apps")}
-        </Text>
-        <Text variant="paneSub" style={styles.sub}>
-          One address, added once per app. A connection reaches every workspace
-          you are a live member of, and each app can be cut off on its own
-          without touching the others.
-        </Text>
-
-        <Card>
-          <Text variant="eyebrow" style={styles.eyebrow}>
-            Your address
-          </Text>
-          <CopyField
-            value={data.endpoint}
-            label="Copy your address"
-            testID="settings-endpoint"
-          />
-        </Card>
-
-        {/*
-          The same endpoint the one-click rows install, so the sentence above
-          and the buttons below cannot disagree. `ConnectionsPane` computes a
-          per-context URL for these; this section is account-scoped, where the
-          bare address is the honest one — a connection reaches every context
-          its person is a live member of, and the named URLs only choose where
-          a client starts.
-        */}
-        <View style={styles.spaced}>
-          <ConnectClients endpoint={data.endpoint} clients={data.clients} />
-        </View>
-
-        <Card style={styles.spaced}>
-          <Row>
-            <Grow>
-              <Text variant="rowTitle">Connected</Text>
-            </Grow>
-            <Pill tone="neutral">{`${data.clients.length} active`}</Pill>
-          </Row>
-          {data.clients.length === 0 ? (
-            <Row divided>
-              <Grow>
-                <Text variant="rowSub">
-                  {data.loading
-                    ? "Loading…"
-                    : "No AI apps yet. Paste the address above into one and sign in."}
-                </Text>
-              </Grow>
-            </Row>
-          ) : null}
-          {data.clients.map((client) => (
-            <ClientRow key={client.id} client={client} />
-          ))}
-        </Card>
-      </View>
-    );
-  }
-
   if (section === "invitations") {
     const invitations = data.invitations ?? [];
     return (
@@ -282,6 +221,73 @@ export function AccountSection({
           </View>
         ) : null}
       </View>
+  );
+}
+
+/**
+ * The AI apps holding a grant, and the address you paste into one.
+ *
+ * Extracted from the account scope, where it was a section of its own called
+ * "AI apps", and drawn as the first block of Integrations — because that is
+ * the word people arrive with. What a person wants from that screen is
+ * everything that talks to this context without being typed into it, and an
+ * MCP client is the first of those, not a different kind of thing.
+ *
+ * **It is still account-scoped and the copy still says so.** A connection
+ * reaches every workspace its person is a live member of, so the address here
+ * is the bare one rather than a per-context URL, and the sentence above it is
+ * the one that was already there. Drawing an account-wide fact on a
+ * context-scoped page is only a lie if the page keeps quiet about it.
+ */
+export function ConnectedAppsCard({ data }: { data: ConsoleData }) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <View>
+      <Card>
+        <Text variant="eyebrow" style={styles.eyebrow}>
+          Your address
+        </Text>
+        <CopyField
+          value={data.endpoint}
+          label="Copy your address"
+          testID="settings-endpoint"
+        />
+      </Card>
+
+      {/*
+        The same endpoint the one-click rows install, so the sentence above and
+        the buttons below cannot disagree. `ConnectionsPane` computes a
+        per-context URL for these; the bare address is the honest one here — a
+        connection reaches every context its person is a live member of, and
+        the named URLs only choose where a client starts.
+      */}
+      <View style={styles.spaced}>
+        <ConnectClients endpoint={data.endpoint} clients={data.clients} />
+      </View>
+
+      <Card style={styles.spaced}>
+        <Row>
+          <Grow>
+            <Text variant="rowTitle">Connected</Text>
+          </Grow>
+          <Pill tone="neutral">{`${data.clients.length} active`}</Pill>
+        </Row>
+        {data.clients.length === 0 ? (
+          <Row divided>
+            <Grow>
+              <Text variant="rowSub">
+                {data.loading
+                  ? "Loading…"
+                  : "No AI apps yet. Paste the address above into one and sign in."}
+              </Text>
+            </Grow>
+          </Row>
+        ) : null}
+        {data.clients.map((client) => (
+          <ClientRow key={client.id} client={client} />
+        ))}
+      </Card>
+    </View>
   );
 }
 

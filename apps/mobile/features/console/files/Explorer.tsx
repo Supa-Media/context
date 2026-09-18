@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon, type IconName } from "../../design/components/Icon";
@@ -98,8 +98,19 @@ export function Explorer({
   onOpenPinned,
   onOverlayChange,
   access,
+  workspaces,
 }: {
   files: FileBrowser;
+  /**
+   * The workspace row that ends the column — `ContextFootRow`.
+   *
+   * A slot rather than something this component builds, for the same reason the
+   * `vault` slot that used to sit here was one: the row needs the context list,
+   * the recently-visited log and the router, none of which this component has
+   * or should acquire. `undefined` where there is nowhere to switch to, and the
+   * column then ends at the counts line exactly as it did before.
+   */
+  workspaces?: ReactNode;
   /** Handed straight to the share dialog. See `ExplorerDialogs`. */
   access?: {
     members: readonly AccessMember[];
@@ -756,6 +767,18 @@ export function Explorer({
         </Text>
       </View>
 
+      {/*
+        Under the counts rather than over them, and that is the order of the two
+        scopes rather than a preference. The counts line is about *this tree*:
+        how much of the context you are in has been read. The row below it is
+        about which context that is and which others you can reach — a wider
+        fact, and the widest fact in a column reads as its footer. Reversed, the
+        counts line would sit between two pieces of navigation and read as a
+        caption on the workspace above it, which is a sentence about the wrong
+        thing.
+      */}
+      {workspaces}
+
       {refusal !== null ? (
         <View style={styles.refusal}>
           <Text variant="hint" style={styles.refusalText}>
@@ -973,10 +996,25 @@ export function ExplorerDialogs({
             (folder) => dialog.path !== folder && !folder.startsWith(`${dialog.path}/`),
           )}
           currentFolder={parentPath(dialog.path)}
+          /*
+            Only offered where the browser says so, which is: this person owns
+            the context the thing is leaving, and the far end is one they can
+            write. Both halves are the server's rule — see
+            `functions/contextMoves.ts` — and re-deciding either of them here
+            would be a second answer that can drift from the one that is
+            actually enforced.
+
+            A folder is not filtered out of the far context's list the way it
+            is out of this one, because it cannot be its own ancestor there:
+            the two paths are in different buckets.
+          */
+          destinations={files.moveDestinations}
+          loadDestinationFolders={files.destinationFolders}
           onCancel={onClose}
-          onConfirm={(folder) => {
+          onConfirm={(folder, contextId) => {
             onClose();
-            files.move(dialog.path, folder);
+            if (contextId === null) files.move(dialog.path, folder);
+            else files.moveToContext(dialog.path, contextId, folder);
           }}
         />
       );
