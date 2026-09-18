@@ -12,7 +12,7 @@
  * removed from three other surfaces after an editor used it.
  */
 
-import { describeOpenLink } from "../features/console/files/shares";
+import { describeLinkReach, describeOpenLink } from "../features/console/files/shares";
 import { describe, expect, test } from "@jest/globals";
 import { capabilitiesForRole, canSetVisibility, canShare } from "../features/console/capabilities";
 import {
@@ -370,5 +370,38 @@ describe("what an open link is said to reach", () => {
       expect(describeOpenLink(kind)).toContain("cannot take back a copy");
       expect(describeOpenLink(kind)).toContain("no account, no sign-in");
     }
+  });
+});
+
+describe("what the links section says a link is the subject of", () => {
+  /**
+   * The design canvas's own footnote says a link "never publishes a folder".
+   * `CLAUDE.md`'s fifth non-negotiable says the opposite half — "A link covers
+   * one note, or one folder and the subtree beneath it" — so drawing the
+   * canvas's sentence would have this dialog denying, in prose, the thing the
+   * control above it does. These are the assertions that keep the narrower
+   * claim narrow rather than the picture's claim pretty.
+   */
+  test("it does not deny folder links, which the product has", () => {
+    const said = describeLinkReach();
+    expect(said).not.toContain("never publishes a folder");
+    expect(said).toContain("one folder");
+  });
+
+  test("it names the narrowing a folder link performs", () => {
+    // A folder link re-derives every path through the live `privacy.md`, so it
+    // publishes what the folder already published to the workspace and never
+    // more. Said here because the dangerous misreading is the other one.
+    expect(describeLinkReach()).toContain("already read beneath it");
+  });
+
+  test("the whole context is never the subject of one", () => {
+    expect(describeLinkReach()).toContain("never your whole context");
+  });
+
+  test("no setting publishes a context, and nothing is indexed", () => {
+    const said = describeLinkReach();
+    expect(said).toContain("No setting anywhere publishes a context");
+    expect(said).toContain("nothing here is indexed");
   });
 });

@@ -53,11 +53,21 @@
  */
 
 import { useState, type ReactNode } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { Button } from "../../design/components/Button";
+import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { fonts, pointerType as t, radii } from "../../design/tokens";
+import { fonts, leading, pointerType as t, radii, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { densityFor } from "../../app/frame";
 import { baseName } from "./paths";
 import {
   accessRows,
@@ -80,6 +90,7 @@ import {
   describePersonalShare,
   describePreviewTitle,
   describeShareRow,
+  describeLinkReach,
   describeTeamLink,
   shareUrlFor,
   sharesFor,
@@ -247,6 +258,27 @@ export function ShareDialog({
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
+  /*
+    `densityFor` rather than a width of this file's own, for the reason
+    `Menu.web.tsx` gives at length: the width at which a popover becomes a
+    sheet is the width at which the app stops being a pointer layout, and it is
+    one threshold named once. This is console code, so it says the console's
+    name for it.
+  */
+  const view = useWindowDimensions();
+  const compact = densityFor(view.width) === "compact";
+  /*
+    HOW TALL THE SHEET MAY GROW, WHICH IS NOT 460.
+
+    `body`'s fixed ceiling was written for a centred card with a 20pt gutter
+    above and below it, and as a bottom sheet on an 844pt phone it left the
+    links section — the half `Phone-Share.dc.html` is a picture of — below the
+    fold with 250pt of scrim doing nothing above it. A sheet is measured
+    against the screen it comes up from, so it is measured against the screen:
+    roughly two thirds, which leaves the note it is about visible behind the
+    scrim rather than covering the whole phone.
+  */
+  const bodyCeiling = Math.round(view.height * 0.66);
   const [recipient, setRecipient] = useState("");
   /**
    * What went wrong with the last copy, or `null`.
@@ -376,18 +408,41 @@ export function ShareDialog({
 
   return (
     <Modal transparent animationType="fade" onRequestClose={onClose} visible>
-      <Pressable style={styles.scrim} accessibilityLabel="Close" onPress={onClose}>
+      <Pressable
+        style={[styles.scrim, compact && styles.scrimSheet]}
+        accessibilityLabel="Close"
+        onPress={onClose}
+      >
         <Pressable
-          style={styles.card}
+          style={[styles.card, compact && styles.sheet]}
           onPress={() => {}}
           accessibilityLabel={`Share ${baseName(path)}`}
         >
+          {/*
+            A SHEET ON A PHONE, A CARD EVERYWHERE ELSE.
+
+            `Phone-Share.dc.html` draws this anchored to the bottom edge with a
+            grab handle — which is what every other modal surface on this phone
+            already is (`Menu.web.tsx` draws a bottom sheet below
+            `layout.narrowBreakpoint`, and `RecentSheet` is one), and what this
+            dialog alone was not. A centred card on a 390pt screen is a card
+            that arrives from nowhere and sits under the thumb's reach, with
+            its own scrim gap either side of it doing nothing.
+
+            The handle is drawn and inert: it is the affordance that says
+            "this came up from the bottom, it goes back down", and this sheet
+            is dismissed by the scrim and by Done rather than by a drag. A
+            handle that can be dragged is a gesture to build, not a rectangle;
+            what it must not be is absent, because then the sheet reads as a
+            panel that has always been there.
+          */}
+          {compact ? <View style={styles.handle} aria-hidden /> : null}
           <Text variant="paneTitle" role="heading" aria-level={2}>
             Share “{baseName(path)}”
           </Text>
 
           <ScrollView
-            style={styles.body}
+            style={[styles.body, compact && { maxHeight: bodyCeiling }]}
             contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
           >
@@ -613,11 +668,29 @@ export function ShareDialog({
                       name={baseName(path)}
                       onSet={onSetScope}
                       context={context}
+                      compact={compact}
                     />
                   )}
-                  <Text variant="paneSub">
-                    {audienceDetail(access.visibility, context)}
-                  </Text>
+                  {/*
+                    SAID ONCE.
+
+                    The detail line under the control answers "who can read
+                    it" for whichever position is in force — which is the only
+                    way a segmented control CAN answer it, because a segment
+                    is a word with nowhere to put a sentence. The phone's rows
+                    each carry their own, so on that surface this line is the
+                    same sentence a second time, four points under the first.
+
+                    The source line stays on both: which rule this came from —
+                    this note's own, or the folder's — is the half no list of
+                    positions can show, and it is the difference between "this
+                    is fine" and "wait, that folder?".
+                  */}
+                  {compact ? null : (
+                    <Text variant="paneSub">
+                      {audienceDetail(access.visibility, context)}
+                    </Text>
+                  )}
                   <Text variant="meta" style={styles.accessReason}>
                     {audienceSource(access.exception, entryKind)}
                   </Text>
@@ -785,6 +858,17 @@ export function ShareDialog({
                   </View>
                 </View>
               )}
+
+              {/*
+                The section's closing line — what a link is the subject of,
+                and what nothing here is. `shares.ts` holds the wording and
+                records why it is NOT the canvas's: the board says a link
+                "never publishes a folder", which stopped being true when a
+                folder link arrived.
+              */}
+              <Text variant="meta" style={styles.linkNote} testID="share-link-reach">
+                {describeLinkReach()}
+              </Text>
             </View>
 
             {advanced !== undefined ? (
@@ -805,6 +889,22 @@ export function ShareDialog({
 }
 
 /**
+ * A glyph per position, for the phone's rows.
+ *
+ * `lock` / `people` / `globe` are the three marks this icon set already owns
+ * for exactly these ideas — `lock` is what the top bar's padlock was, and
+ * `globe` is what it turned into on its third press. The set is not extended
+ * for this: a landing page inventing its own line art is the drift
+ * `Sections.tsx` refuses, and a dialog doing it would be the same drift closer
+ * to home.
+ */
+const POSITION_ICON: Record<NoteScope, "lock" | "people" | "globe"> = {
+  private: "lock",
+  team: "people",
+  anyone: "globe",
+};
+
+/**
  * The three positions, named, with the dangerous one confirmed.
  *
  * Two positions for a folder — `createLinkShare` is note-only, so a third would
@@ -822,6 +922,7 @@ function AudienceControl({
   name,
   onSet,
   context,
+  compact = false,
 }: {
   scope: NoteScope;
   canOpenLink: boolean;
@@ -829,8 +930,14 @@ function AudienceControl({
   onSet: (from: NoteScope, to: NoteScope) => void;
   /** Whose context this is, so the middle position can carry its name. */
   context: AudienceContext;
+  /**
+   * The phone, where the three positions are a grouped list rather than a
+   * segmented control. See the rows below.
+   */
+  compact?: boolean;
 }) {
   const styles = useThemedStyles(makeStyles);
+  const colors = useColors();
   const [confirming, setConfirming] = useState(false);
   const labels = scopeLabels(context);
 
@@ -838,36 +945,90 @@ function AudienceControl({
     ? ["private", "team", "anyone"]
     : ["private", "team"];
 
+  /* One handler, two presentations — the decision is identical either way. */
+  const pick = (position: NoteScope, on: boolean) => {
+    if (on) return;
+    if (position === "anyone") {
+      setConfirming(true);
+      return;
+    }
+    setConfirming(false);
+    onSet(scope, position);
+  };
+
   return (
     <View style={styles.audienceWrap}>
-      <View style={styles.audience} role="radiogroup" testID="share-audience">
-        {positions.map((position) => {
-          const on = position === scope;
-          return (
-            <Pressable
-              key={position}
-              style={[styles.segment, on && styles.segmentOn]}
-              role="radio"
-              aria-checked={on}
-              accessibilityLabel={labels[position].label}
-              testID={`share-audience-${position}`}
-              onPress={() => {
-                if (on) return;
-                if (position === "anyone") {
-                  setConfirming(true);
-                  return;
-                }
-                setConfirming(false);
-                onSet(scope, position);
-              }}
-            >
-              <Text variant="meta" style={on ? styles.segmentTextOn : styles.segmentText}>
-                {labels[position].label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
+      {compact ? (
+        /*
+          A GROUPED LIST ON A PHONE, A SEGMENTED CONTROL EVERYWHERE ELSE.
+
+          `Phone-Share.dc.html` draws the positions as 56pt rows in a card —
+          icon, name, what it means, and a tick on the one in force — and the
+          reason is not that it looks nicer. The segmented control divides the
+          sheet's width by three: at 390pt that is a 110pt target 7pt tall
+          carrying a label with nowhere for its `detail` to go, so the two
+          lines under the control had to say who can read it for whichever
+          position happened to be current. A row has room to say it per
+          position, which is the difference between reading the answer and
+          selecting an option to find out.
+
+          The same three positions, the same `scopeLabels`, the same handler.
+          Only the shape forks — `frame.ts`'s rule, that neither surface is the
+          other one degraded.
+        */
+        <View style={styles.positions} role="radiogroup" testID="share-audience">
+          {positions.map((position, index) => {
+            const on = position === scope;
+            return (
+              <Pressable
+                key={position}
+                style={[styles.position, index > 0 && styles.positionRuled]}
+                role="radio"
+                aria-checked={on}
+                accessibilityLabel={labels[position].label}
+                testID={`share-audience-${position}`}
+                onPress={() => pick(position, on)}
+              >
+                <Icon
+                  name={POSITION_ICON[position]}
+                  size={18}
+                  color={on ? colors.text : colors.muted}
+                />
+                <View style={styles.positionMain}>
+                  <Text style={on ? styles.positionName : styles.positionNameOff}>
+                    {labels[position].label}
+                  </Text>
+                  <Text variant="meta" style={styles.positionDetail}>
+                    {labels[position].detail}
+                  </Text>
+                </View>
+                {on ? <Icon name="check" size={18} color={colors.accent} /> : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : (
+        <View style={styles.audience} role="radiogroup" testID="share-audience">
+          {positions.map((position) => {
+            const on = position === scope;
+            return (
+              <Pressable
+                key={position}
+                style={[styles.segment, on && styles.segmentOn]}
+                role="radio"
+                aria-checked={on}
+                accessibilityLabel={labels[position].label}
+                testID={`share-audience-${position}`}
+                onPress={() => pick(position, on)}
+              >
+                <Text variant="meta" style={on ? styles.segmentTextOn : styles.segmentText}>
+                  {labels[position].label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      )}
 
       {/*
         No detail line under the control.
@@ -1120,6 +1281,55 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   segmentOn: { backgroundColor: colors.surface },
   segmentText: { color: colors.muted },
   segmentTextOn: { color: colors.text },
+
+  /* ---------------------------------------------------------------- *
+   * The phone's grouped list. See `AudienceControl`.
+   * ---------------------------------------------------------------- */
+  positions: {
+    borderRadius: radii.sheet,
+    backgroundColor: colors.well,
+    overflow: "hidden",
+  },
+  /*
+    56, which is the row height this phone already uses for a grouped list and
+    is comfortably past the 44 a thumb needs. The segmented control it replaces
+    was 7pt of padding around an 11pt label.
+  */
+  position: {
+    minHeight: 56,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  /*
+    Inset from the icon rather than from the card edge — the rule separates the
+    rows' CONTENT, and a full-bleed one reads as the end of the card.
+  */
+  positionRuled: { borderTopWidth: 1, borderTopColor: colors.line, marginLeft: 16 },
+  positionMain: { flexGrow: 1, flexShrink: 1, minWidth: 0, gap: 1 },
+  /*
+    `touchType.ui`, and the reason is `Text`'s own `railTouch`: this list is
+    how the decision gets made on a phone, and a decision is read at the size
+    the screen is read at rather than at a 216pt column's supporting-label
+    size. The position not in force is dimmed rather than drawn smaller.
+  */
+  positionName: {
+    fontFamily: fonts.body,
+    fontSize: touchType.ui,
+    lineHeight: leading(touchType.ui, 1.4),
+    fontWeight: "500",
+    color: colors.text,
+  },
+  positionNameOff: {
+    fontFamily: fonts.body,
+    fontSize: touchType.ui,
+    lineHeight: leading(touchType.ui, 1.4),
+    fontWeight: "500",
+    color: colors.text2,
+  },
+  positionDetail: { color: colors.muted },
   confirm: {
     gap: 8,
     padding: 10,
@@ -1167,6 +1377,32 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 20,
+  },
+  /** The sheet is at the bottom, and pays no gutter it would only waste. */
+  scrimSheet: { justifyContent: "flex-end", padding: 0 },
+  /**
+   * The phone's sheet: full width, top corners only, and `radii.sheet` for
+   * them — the token documented as "a grouped list card, and the drawer's
+   * trailing corners", which is the family every other surface that comes up
+   * from an edge on this phone already uses.
+   */
+  sheet: {
+    maxWidth: undefined,
+    borderRadius: 0,
+    borderTopLeftRadius: radii.sheet,
+    borderTopRightRadius: radii.sheet,
+    borderWidth: 0,
+    paddingTop: 10,
+    paddingBottom: 34,
+  },
+  /** The grab handle. Drawn, inert — see its use site. */
+  handle: {
+    width: 36,
+    height: 4,
+    alignSelf: "center",
+    marginBottom: 14,
+    borderRadius: radii.pill,
+    backgroundColor: colors.lineStrong,
   },
   card: {
     width: "100%",
