@@ -164,24 +164,34 @@ describe("a phone reaches the settings, not just a menu", () => {
     expect(text).toContain("Personal workspace");
   });
 
-  test("people is in the context's own settings, not an app-level pane", () => {
-    expect(overlay("people").textContent ?? "").toContain("People");
-  });
-
-  test("shared links lists what the demo console has shared, revoke and all", () => {
-    // The demo has no `shares.actions`, so a real Revoke button must never
-    // appear here — only the arming label with nothing behind it would be a
-    // demo console pretending to act.
-    const host = overlay("shares");
-    const text = host.textContent ?? "";
+  test("one screen answers who can see it, in four blocks", () => {
+    /*
+      People, Groups, Shared links and Privacy were four sections, so finding
+      out who could read a note meant visiting all four. The point of the
+      merge is that the whole answer is on one screen — so this asserts all of
+      it, not that a heading exists.
+    */
+    const text = overlay("sharing").textContent ?? "";
+    expect(text).toContain("People");
+    expect(text).toContain("Groups");
     expect(text).toContain("Shared links");
+    expect(text).toContain("Privacy");
+    // The demo's own shared link, and the privacy block's live reading.
     expect(text).toContain("1-projects/board-update.md");
-    expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
+    expect(text).toContain("nothing here is indexed");
   });
 
-  test("shares is not people, and people is not shares", () => {
-    expect(overlay("people").textContent ?? "").not.toContain("Shared links");
-    expect(overlay("shares").textContent ?? "").not.toContain("Nobody has access");
+  test("and it is still the context's own settings, not an app-level pane", () => {
+    const text = overlay("sharing").textContent ?? "";
+    expect(text).not.toContain("Your bucket, your credentials");
+  });
+
+  test("the demo console cannot pretend to revoke a link", () => {
+    // The demo has no `shares.actions`, so a real Revoke button must never
+    // appear — only the arming label with nothing behind it would be a demo
+    // console pretending to act.
+    const host = overlay("sharing");
+    expect(host.querySelector('[data-testid^="share-revoke-"]')).toBeNull();
   });
 
   test("advanced shows the audit trail and offers no key export in the demo", () => {
@@ -322,8 +332,7 @@ describe("the list is one press away, and it navigates", () => {
     const text = host.textContent ?? "";
     for (const label of [
       "Overview",
-      "People",
-      "Shared links",
+      "Sharing & Access",
       "Storage",
       "Search",
       "Advanced",
@@ -558,12 +567,12 @@ describe("Overview answers rather than listing properties", () => {
   test("each fact is the way into the section that changes it", () => {
     const chosen: string[] = [];
     const host = overlay("overview", (next) => chosen.push(next));
-    const fact = host.querySelector('[data-testid="overview-fact-privacy"]');
+    const fact = host.querySelector('[data-testid="overview-fact-sharing"]');
     expect(fact).not.toBeNull();
     act(() => {
       (fact as HTMLElement).click();
     });
-    expect(chosen).toEqual(["privacy"]);
+    expect(chosen).toEqual(["sharing"]);
   });
 
   test("the role is a sentence about you, not a lower-cased enum", () => {
@@ -728,7 +737,7 @@ function liveOverlay(section: SettingsSectionKey): {
  */
 describe("a section follows the context it belongs to, not the one beside it", () => {
   test("a shared link belongs to the context that has it, not the one beside it", () => {
-    const { host, data } = liveOverlay("shares");
+    const { host, data } = liveOverlay("sharing");
     // @seyi is selected first, by `useDemoConsoleData`'s own default.
     expect(host.textContent ?? "").toContain("1-projects/board-update.md");
     expect(host.textContent ?? "").not.toContain("1-projects/roadmap.md");

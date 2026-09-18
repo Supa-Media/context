@@ -1,6 +1,4 @@
 import { receivesMail } from "../ingestion/settings";
-import { privacyViewOf } from "../privacy/map";
-import { visibilityWord } from "../privacy/words";
 import { fastSearchPill } from "../search/fastSearch";
 import { storagePillLabel } from "../storage/pill";
 import { pluginsPreview } from "../plugins/plugins";
@@ -111,30 +109,20 @@ export function settingsPreview(
       return chats === 0 ? null : "Google Chat";
     }
 
-    case "people": {
+    case "sharing": {
+      /*
+        The members count, which is the one claim of the four that is about
+        this screen as a whole rather than about a block on it — and the one
+        somebody glancing at the row wants. Groups, links and the privacy
+        default are each an answer to a narrower question, and three of them
+        stacked in a right-aligned string is not a preview.
+
+        The same guards the members row had: `loading` and a failure are both
+        absences, and neither may be rendered as a number.
+      */
       const { members, loading, failure } = data.members;
       if (loading || failure !== null) return null;
       return members.length === 1 ? "Just you" : `${members.length} people`;
-    }
-
-    case "groups": {
-      const { groups, loading, failure, actions } = data.groups;
-      if (actions === undefined || loading || failure !== undefined) return null;
-      return groups.length === 0 ? "None" : plural(groups.length, "group", "groups");
-    }
-
-    case "shares": {
-      const { shares, loading, failure, actions } = data.shares;
-      if (actions === undefined || loading || failure !== null) return null;
-      return shares.length === 0 ? "None" : plural(shares.length, "link", "links");
-    }
-
-    case "privacy": {
-      const view = privacyViewOf(data.files.listings, "");
-      // `loading` and `broken` are not a visibility, and the second is a
-      // banner's job rather than a row's.
-      if (view.state !== "ready") return null;
-      return `${visibilityWord(view.folderDefault)} by default`;
     }
 
     case "storage":

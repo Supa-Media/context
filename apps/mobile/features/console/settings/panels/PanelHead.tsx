@@ -65,6 +65,42 @@ export function PanelHead({
 }
 
 /**
+ * A block *inside* a panel, which is not a section and has no key.
+ *
+ * Settings has sections that hold several blocks now — Sharing & Access is
+ * People, Groups, Shared links and Privacy on one screen — and those four
+ * names are no longer rows in the catalogue, so `settingsSectionLabel` cannot
+ * supply them and should not be made to: it answers "what is this section
+ * called", and these are not sections.
+ *
+ * The rule `PanelHead` exists to keep is intact. A *section's* name is still
+ * never a literal, because a section still has exactly one `PanelHead` above
+ * it reading the one list. What is written by hand here is the name of a
+ * block that only exists inside one panel, which is the only place it can
+ * drift from — and an eyebrow rather than a heading, so the screen keeps the
+ * single `role="heading"` the overlay's own sweep pins.
+ */
+export function SubHead({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  const styles = useThemedStyles(makeStyles);
+  return (
+    <>
+      <Text variant="eyebrow" style={styles.headLater}>
+        {title}
+      </Text>
+      <Text variant="paneSub" style={styles.sub}>
+        {children}
+      </Text>
+    </>
+  );
+}
+
+/**
  * Why this context cannot do the thing the panel is named after.
  *
  * A shared workspace is not a personal one: it has no capture address, and nobody's

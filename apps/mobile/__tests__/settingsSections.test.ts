@@ -93,6 +93,24 @@ describe("two scopes in one list", () => {
     }
   });
 
+  test("one question, one row: sharing answers all four of the old ones", () => {
+    /*
+      People, Groups, Shared links and Privacy asked one question — who can see
+      it — and answered it in four places, so somebody had to visit all four to
+      know. The merge is only worth anything if every word that used to reach
+      one of them still reaches the screen that now holds it.
+    */
+    const all = settingsSectionsFor("personal");
+    const keys = all.map((section) => section.key);
+    for (const gone of ["people", "groups", "shares", "privacy"]) {
+      expect(keys).not.toContain(gone);
+      expect(isSettingsSection(gone)).toBe(false);
+    }
+    for (const query of ["who can see", "members", "role", "group", "link", "revoke a link", "public", "permissions"]) {
+      expect(matchSettingsSections(all, query).map((s) => s.key)).toContain("sharing");
+    }
+  });
+
   test("invitations is a row only while one is waiting", () => {
     /*
       Three states, two of them absent and for different reasons: nothing
@@ -231,9 +249,11 @@ describe("searching the list", () => {
     ["username", "profile"],
     ["dropbox", "storage"],
     ["rebuild index", "search"],
-    ["who can see", "people"],
-    ["shared link", "shares"],
-    ["revoke a link", "shares"],
+    ["who can see", "sharing"],
+    ["shared link", "sharing"],
+    ["revoke a link", "sharing"],
+    ["members", "sharing"],
+    ["groups", "sharing"],
     ["audit log", "advanced"],
     ["export keys", "advanced"],
     /*
@@ -253,12 +273,14 @@ describe("searching the list", () => {
       matters most and the one our own vocabulary would never have caught: the
       product has no public tier, so the word appears in no label and in no
       copy — and a person asking "is any of this public?" is asking the
-      question this section exists to answer.
+      question this section exists to answer. All four land on Sharing &
+      Access now, which is the whole answer rather than the quarter of it
+      Privacy used to be.
     */
-    ["private", "privacy"],
-    ["public", "privacy"],
-    ["hide", "privacy"],
-    ["permissions", "privacy"],
+    ["private", "sharing"],
+    ["public", "sharing"],
+    ["hide", "sharing"],
+    ["permissions", "sharing"],
     /*
       The machine words, repointed rather than deleted — "Your devices" is a
       card at the foot of Profile now. A word kept for a row that no longer
@@ -302,15 +324,15 @@ describe("searching the list", () => {
       "invitations",
     );
     /*
-      With nothing pending the word still has a destination — People, where
-      you invite somebody — and that is the point: the box goes on answering,
+      With nothing pending the word still has a destination — Sharing &
+      Access, where you invite somebody — and that is the point: the box goes on answering,
       it just cannot offer a screen whose only content would be "Nothing
       pending".
     */
     const none = settingsSectionsFor("personal", { invitations: false });
     const hits = matchSettingsSections(none, "invite").map((s) => s.key);
     expect(hits).not.toContain("invitations");
-    expect(hits).toEqual(["people"]);
+    expect(hits).toEqual(["sharing"]);
   });
 
   /*
