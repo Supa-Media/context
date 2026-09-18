@@ -214,6 +214,29 @@ export const SETTINGS_SECTIONS = [
     personalOnly: false,
   },
   {
+    key: "model",
+    /*
+      Nobody types "model" looking for this either. They type the brand they
+      have an account with, or the thing they are trying to do — "ai", "agent",
+      "ask", "chat" — and the API-key words for the person who arrived here
+      from the connect screen with a key already on their clipboard.
+    */
+    keywords:
+      "model models ai agent assistant ask chat claude anthropic openai gpt chatgpt api key apikey token credential provider byok bring your own key llm ollama local",
+    scope: "context",
+    label: "Model",
+    /*
+      Its own row rather than a card under Integrations, and the difference is
+      what the row acts on: everything in Integrations is something reading
+      *into* this context, and this is the one thing that spends money on the
+      person's own account. A credential that bills somebody is not an
+      integration card.
+    */
+    group: null,
+    icon: "sparkle",
+    personalOnly: false,
+  },
+  {
     key: "meetings",
     keywords:
       "meeting meetings recording record transcript zoom call huddle audio microphone notes mac desktop integration integrations sync",

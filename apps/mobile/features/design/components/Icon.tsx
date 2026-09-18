@@ -381,6 +381,15 @@ export const ICON_NAMES = [
    * peers, and a plugin is not a peer of the vault it runs against.
    */
   "plugin",
+  /**
+   * The Model row: a big four-point star with a small one beside it.
+   *
+   * Two crossed bars is `plus`, which this set already uses for "add". The
+   * second, smaller star is what makes this a different mark rather than a
+   * bigger one — and the pair is the glyph every product in this decade uses
+   * for a model, so it needs no caption on a row that has none.
+   */
+  "sparkle",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -1307,6 +1316,21 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
         rect("b", u, w, c, { x0: 0.54, y0: 0.12, x1: 0.88, y1: 0.46, radius: 0.1 }),
         rect("c", u, w, c, { x0: 0.12, y0: 0.54, x1: 0.46, y1: 0.88, radius: 0.1 }),
         rect("d", u, w, c, { x0: 0.54, y0: 0.54, x1: 0.88, y1: 0.88, radius: 0.1 }),
+      ];
+
+    case "sparkle":
+      /*
+        Two stars, four bars. The large one is off-centre so the small one has
+        somewhere to sit without the pair reading as a single lopsided plus,
+        and the small one's bars are a third of the length rather than a half —
+        at 20pt a half-length second star is two marks of nearly one size,
+        which reads as a mistake.
+      */
+      return [
+        bar("bigV", u, w, c, { cx: 0.42, cy: 0.42, length: 0.54, angle: 90 }),
+        bar("bigH", u, w, c, { cx: 0.42, cy: 0.42, length: 0.54 }),
+        bar("smallV", u, w, c, { cx: 0.78, cy: 0.76, length: 0.26, angle: 90 }),
+        bar("smallH", u, w, c, { cx: 0.78, cy: 0.76, length: 0.26 }),
       ];
 
     case "plugin":

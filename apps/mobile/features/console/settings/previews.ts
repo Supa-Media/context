@@ -131,6 +131,15 @@ export function settingsPreview(
     */
     case "workspace":
     case "premium":
+    /*
+      `model` is silent for `premium`'s reason exactly: the answer — whether
+      this context has a model account connected — lives in a Convex query
+      inside its own panel rather than on `ConsoleData`, and hoisting it would
+      add a query to every console load to decorate one row. A trade worth
+      making on purpose if the row ever needs it, and not as a side effect of
+      adding the section.
+    */
+    case "model":
     case "meetings":
       return null;
   }
