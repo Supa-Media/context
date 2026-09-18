@@ -1660,8 +1660,10 @@ Archive's destination is decided by the server's privacy rules, so an archived
 note simply leaves the tree offline and reappears in the archive after the
 next sync. A rename that lands and was dropped mid-flight is answered by
 queueing the rename back; a delete that landed cannot be taken back from here
-and is not pretended to have been. Two web tabs hold separate live queues over
-one store, as before. And all of it runs in tests against fakes: the queued
+and is not pretended to have been. Offline search reads the mirror, so a note
+created offline is not found by it until the create has landed and been
+mirrored, and a note renamed offline is found under its old name until then.
+Two web tabs hold separate live queues over one store, as before. And all of it runs in tests against fakes: the queued
 create, rename and delete on a real phone going through a tunnel is unverified
 until somebody does it.
 

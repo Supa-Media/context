@@ -1540,7 +1540,7 @@ type OperationResult =
        */
       forms: FormSeedResult;
     }
-  | { kind: "moved"; from: string; to: string; paths: string[] }
+  | { kind: "moved"; from: string; to: string; paths: string[]; etag?: string }
   | { kind: "folderPaths"; folders: string[]; truncated: boolean }
   | ({ kind: "contextMoveExported" } & ContextMoveExport)
   | ({ kind: "contextMoveLanded" } & ContextMoveImport)
