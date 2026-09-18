@@ -47,13 +47,65 @@ function context(over: Partial<DestinationContext> = {}): DestinationContext {
 }
 
 const ENGINE = { engineAvailable: true, unavailable: "no engine here" };
-const OPEN = { noteOpen: true, writable: true, path: "1-projects/weekly-sync.md" };
+const OPEN = {
+  noteOpen: true,
+  writable: true,
+  path: "1-projects/weekly-sync.md",
+  // A note whose own visibility is `private`. Every case below that does not
+  // say otherwise is about one, which is what "only you" was always meant to
+  // describe — the workspace being personal never established it.
+  noteVisibility: "private" as const,
+};
 
 describe("who can hear this", () => {
   test("a note in your own workspace is only yours", () => {
     const offer = offerDictation({ ...ENGINE, ...OPEN, context: context() });
     expect(offer.refusal).toBeNull();
     expect(offer.audience).toEqual({ tone: "private", line: "Only you." });
+  });
+
+  test("a note shared out of your own workspace is never called only yours", () => {
+    /*
+      A personal workspace takes members — `inviteMember` has no `kind` check,
+      and `invitations.ts` opens by saying a shared context is the same row as
+      a personal one with more membership. So `team` on a note in a personal
+      context means real people, and "Only you." over it is the sentence this
+      module exists to prevent, said about the note instead of the workspace.
+    */
+    const offer = offerDictation({
+      ...ENGINE,
+      ...OPEN,
+      noteVisibility: "team",
+      context: context(),
+    });
+    expect(offer.refusal).toBeNull();
+    expect(offer.audience?.tone).toBe("shared");
+    expect(offer.audience?.line).not.toContain("Only you");
+    expect(offer.audience?.line).toContain("1-projects/weekly-sync.md");
+  });
+
+  test("a note pointed at a group names the group", () => {
+    const offer = offerDictation({
+      ...ENGINE,
+      ...OPEN,
+      noteVisibility: "@writers",
+      context: context(),
+    });
+    expect(offer.audience?.tone).toBe("shared");
+    expect(offer.audience?.line).toContain("@writers");
+  });
+
+  test("a note whose visibility this build was not told is never called only yours", () => {
+    /*
+      The same rule the `kind` field already has, applied to the field that
+      actually answers the question. `NoteEditor`'s own `visibility` prop says
+      it in as many words: a component that was not told has no honest answer,
+      and "inventing `private` would be a claim about access made by a
+      component that was not told".
+    */
+    const offer = offerDictation({ ...ENGINE, ...OPEN, noteVisibility: undefined, context: context() });
+    expect(offer.refusal).toBeNull();
+    expect(offer.audience?.line).not.toContain("Only you");
   });
 
   test("a shared context is named, not merely called shared", () => {
