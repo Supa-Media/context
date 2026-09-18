@@ -1475,6 +1475,196 @@ cleared. The document directory is included in device backups, as
 fake `expo-file-system`: `Directory.list()` naming, and write throughput on a real iPhone and
 Android device are unverified until somebody runs a first sync on one.
 
+### Offline is more than saving: create, rename, move, delete
+
+The owner's requirement is that people can *take notes* offline, the way they
+can in Apple Notes or Obsidian. Until this section, only saving an existing
+note's text was queued. New note, new folder, rename, move, archive and delete
+all went through `run()`, which has no offline branch: it waited
+`OPERATION_TIMEOUT_MS` (45 seconds) on a Convex action that never answers
+offline, then said "it may still have gone through — check the list" about a
+request that certainly had not. Creating a note is the core of taking notes,
+and it was the one thing a phone on a train could not do.
+
+**One queue, not a second one.** The outbox gains `ops` beside `writes`
+(`PendingOp`: `move` — which is both rename and move, as `moveEntry` is —
+`archive`, `trash` and `folder`). Everything `outbox.ts` and `sync.ts` already
+promise holds for ops unchanged: one sequential drain, the transient-code
+allowlist, `MAX_ATTEMPTS`, a conflict parked for a person and never retried by
+itself, nothing evicted, the epoch barrier, sign-out wiping the record (it is
+the same record), the per-workspace sender. `queuedOpSender` sits beside
+`queuedWriteSender` in `queuedWrite.ts` and is bound the same way — to the open
+context by the file browser, to each queue's own context by `drainAll` — so the
+cross-tenant property the background drain was built around covers ops too.
+The record's `version` was deliberately **not** bumped: `parseOutbox` discards
+a record of another version whole, so bumping it would throw away every edit
+the previous build had queued on first launch. An absent `ops` reads as none;
+the cost runs the other way — an older build that rewrites the record drops its
+ops and keeps its edits.
+
+#### A note created offline is a create, made later
+
+`createNote` offline enqueues a write with `baseEtag: null` — the form the
+queue already had for "this note did not exist" — and opens it at once. The
+editor holds it with `etag: null` (the `opened` action's `unsent`), so every
+save of it is a create too, and what drains is `writeNote` with no
+`expectedEtag`: the server's atomic create (`onlyIf: { absent }` where
+`conditionalCreate` is proven), which refuses with `CONFLICT` if a note
+appeared at that name meanwhile. That conflict is parked like any other and
+answered by the existing resolver; its Merge is refused with the sentence it
+already has for a note that did not exist, because a create has no ancestor.
+Renaming a parked create is also an answer — "call mine something else" — and
+is the one way a parked entry goes back into the queue without the resolver:
+because a person pressed it. Name collisions are refused locally against the
+listings as drawn, which include the queue's own new notes. New drawings stay
+online-only and say so: the phone's drawing editor is never kept offline
+(`drawingOffline.ts`) and the web's only once a drawing was opened online, so a
+drawing made offline could open as a picture nobody can draw in.
+
+A new folder is `createDirectory` made later — the server makes a folder real by
+writing its README placeholder, so there is nothing to invent — and a
+`DESTINATION_EXISTS` on drain is the folder that was asked for, not a problem
+for somebody to answer.
+
+#### Every op carries the version it was asked about
+
+A rename typed on a train is a decision about the note as it was on the train.
+Sent blind, a rename of a note somebody rewrote in Obsidian meanwhile would
+carry their newer text under a name chosen for something else, and a queued
+delete would put it in the trash without anybody who asked being told. So
+`moveEntry`, `archiveEntry` and `trashEntry` now take an optional
+`expectedEtag` and answer `CONFLICT` with the current etag when the note moved
+on — compared after the visibility check, so a hidden note is still
+not-found and its version never leaves the server. Atomic where the bucket
+proves both `conditionalCreate` and `conditionalDelete`, a read-compare where it
+does not (the check an online save gets on such a bucket); the plugin runtime's
+rename keeps refusing weak buckets through `requireAtomic`. Absent
+`expectedEtag` is exactly the online press it always was — it is optional, not
+a force flag, and **the client never sends an op on a note without one**:
+`queuedOpSender` refuses a versionless op locally rather than send it
+unchecked. A single-note move now returns the note's etag at its new path
+(after any self-link rewrite), because the queue's next op on that note must
+be checked against what its own rename produced.
+
+The version an op carries moves in exactly one way — `rebaseOp`, onto an etag
+the bucket returned *to this queue* for the same note: the note's edit landing
+ahead of it, or a rename of it landing ahead of it. Never a fresher read, which
+is `enqueue`'s rule restated for ops. A parked op offers "Do it anyway", which is
+`forceMine`'s shape — re-based onto the version the conflict reported, still
+conditional — and "Discard"; a refused one offers "Try again" and "Discard".
+
+A folder rename, move, archive or delete is refused offline in a sentence.
+A folder has no version, its notes can change on other devices while this one
+is offline, and a folder-wide op sent hours later against a tree nobody
+re-checked is last-write-wins across a subtree.
+
+#### Order, and what is coalesced
+
+The drain goes one **note** at a time (`drainUnits`, grouped by bucket path):
+its edit first, then whatever was asked of it. The edit goes before a rename so
+the rename carries the new text and is checked against the version the edit
+produced; before a delete so what is in the trash is what the person last
+wrote. A note whose edit is parked or refused has its op held back — not
+charged, since nothing reached the bucket. Between notes the order is the order
+things were asked.
+
+An edit of a note renamed on this device is filed under the **bucket's** name
+for it (`serverPathOf`), which is what makes "rename, then edit under the new
+name" drain as edit-then-rename rather than as a write to a path the bucket has
+not heard of; the console shows it under the new name (`localPathOf`), and
+anything done to such a note — even online — goes through the queue
+(`routesThroughQueue`).
+
+Coalesced where it is safe, and only while no drain is running:
+
+- a create renamed before it went is one create at the new name;
+- a create deleted before it went is nothing sent — its text handed back to the
+  toast's undo, the only way back to it;
+- a rename of a pending rename is one move; renamed back, no op at all;
+- a rename then a delete is a delete of the original.
+
+A create then an archive is both, in order, because an archive keeps a note and
+the note has to exist first. While a drain is on the wire nothing already
+queued is rewritten — rewriting a create that is being sent would make two
+notes — so an op queued then waits behind what it would have folded into, with
+no version of its own (`baseEtag: null`), and the landing ahead of it supplies
+one, in the drain or in `reconcile` afterwards. More round trips, the same
+result.
+
+**A name the queue is holding cannot be reused by a different note until the
+queue drains** (`claimedPaths`). Delete `plan` and create a new `plan` offline,
+and the order across two notes becomes load-bearing: the create sent first is a
+conflict with the note the delete had not removed yet. Refusing the second
+`plan` in a sentence is rare and says what to do; it is also the rule that lets
+the drain treat every note as independent of every other.
+
+#### What a person sees
+
+The tree is the bucket's listings with the queue laid over them
+(`overlay.ts`): a new note or folder appears, a renamed note is at its new name
+with its own entry (exception included), a moved one has left one folder for
+the other, a deleted or archived one is gone. A view, not a write into the
+mirror: the mirror is pruned against the server's manifest on every complete
+sync, and intent written into it would be deleted by the first sync that ran
+before it was sent. A parked op is still drawn where the person put it, with
+the `crit` mark, because drawing it back at the old name would read as the
+rename having been lost. The overlay is recomputed only when the queue's shape
+changes (`overlayKey`), never on a keystroke into a queued note.
+
+`pendingMarks` marks the row an op left behind; the phone's sync sheet lists
+every op in plain language — "Rename plan → plan-2026 · waiting to sync",
+"Delete old-notes · needs you", "New folder: Trips", and a new note's row reads
+"New note: Groceries" — with the answers on the parked ones. Each queued op
+toasts with an undo that restores the queue exactly as it was before the press,
+and says so plainly when it can no longer (the op is on the wire or landed).
+Counts include ops, so the strip, the pill and the sign-out warning count a
+waiting rename as something not in the bucket, and sign-out's warning now says
+"changes" rather than "edits". Any other operation asked for offline — a
+duplicate, a paste, a visibility change — is refused at once with a sentence;
+the 45-second "it may still have gone through" is now only for a device that
+believed it was online.
+
+After a drain that created notes or landed ops, the folders involved are read
+again, a created note is written into the mirror (badged with its folder's
+default until the next sync answers — `private` when unknown, so a guess never
+claims a note is shared), and a renamed note's mirror copy moves to its new
+name, so none of them blinks out of an offline tree in the window before the
+next sync.
+
+#### What a simplification costs, and what fails
+
+- Sending an op without its version, or dropping it "to get things through":
+  "it is never sent without the version it was asked about"
+  (`offlineFileOps.test.ts`) and, server side, the conflict tests in
+  `apps/convex/__tests__/offlineFileOps.test.ts` and "a queued rename or delete
+  of a note that changed is a conflict…" (`files.test.ts`).
+- Binding the op sender to the open context: "every rename names the context
+  its queue is filed under…" (`offlineDrainAll.test.ts`).
+- Sending an op past its note's parked edit: "its note's parked edit holds it
+  back, uncharged".
+- Filing an edit of a renamed note under its new name: "renamed, then edited
+  under the new name: the edit goes to the old name first, then the rename"
+  (`offlineFileOpsConsole.test.ts`).
+- Removing an ops-only queue's record: "a queue holding only a rename is written
+  down, and read back as it was".
+- Letting offline creates go through `run()`, or dropping the overlay, or the
+  offline guard in `run()`: each fails its own tests in
+  `offlineFileOpsConsole.test.ts` (sabotage-checked).
+
+**What this does not do, and what needs a device.** Folder rename, move,
+archive and delete stay online-only. The sync sheet — where parked ops are
+answered — is the phone's; on a pointer layout a parked op is marked in the
+tree and named in the strip, and its answer is the undo at press time or the
+same op pressed again online — a desktop place to answer one is a gap.
+Archive's destination is decided by the server's privacy rules, so an archived
+note simply leaves the tree offline and reappears in the archive after the
+next sync. A rename that lands and was dropped mid-flight is answered by
+queueing the rename back; a delete that landed cannot be taken back from here
+and is not pretended to have been. Two web tabs hold separate live queues over
+one store, as before. And all of it runs in tests against fakes: the queued
+create, rename and delete on a real phone going through a tunnel is unverified
+until somebody does it.
+
 ### A team link's note survives the console's own cold start, and the login gate
 
 `teamShareLink` returns the **readable** URL — `/console/@seyi?note=…` — and the
