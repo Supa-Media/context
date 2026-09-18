@@ -1323,8 +1323,12 @@ one.
 client, a teammate or the provider's own console can write `../../Library/x.md`,
 and joined onto the document directory that is a write outside the mirror. Every
 segment is therefore encoded (`mirrorPath.ts`) to an alphabet with **no separator
-and no dot** — lowercase letters, digits, `-`, `%XX` — so there is nothing left
-for a filesystem to interpret. Uppercase is escaped too, because `Plan.md` and
+and no dot** — lowercase letters, digits, `-`, `_XX` — so there is nothing left
+for a filesystem to interpret. The escape is `_` rather than `%` because
+`expo-file-system` addresses files by URI and a URI layer may percent-decode:
+with `%`, whether `%2E%2E%2F` reached the disk as nine characters or as `../`
+would depend on native decode behaviour no test here can see. `_` means nothing
+to a URI, and every name is pinned to survive `decodeURIComponent` unchanged. Uppercase is escaped too, because `Plan.md` and
 `plan.md` are two notes and one file on a case-insensitive filesystem; names past
 200 characters are hashed into a `~`-prefixed form the short form cannot produce.
 Each body record carries its own path and etag, and a read that finds another
@@ -1468,8 +1472,7 @@ splitting per entry if contexts reach tens of thousands. A crash between a body
 write and its index commit leaves an unreachable body until the workspace is
 cleared. The document directory is included in device backups, as
 `AsyncStorage` already is. And all of the native half runs in tests against a
-fake `expo-file-system`: the escaping of `%` through `Paths.join` and the native
-URI decode, `Directory.list()` naming, and write throughput on a real iPhone and
+fake `expo-file-system`: `Directory.list()` naming, and write throughput on a real iPhone and
 Android device are unverified until somebody runs a first sync on one.
 
 ### A team link's note survives the console's own cold start, and the login gate

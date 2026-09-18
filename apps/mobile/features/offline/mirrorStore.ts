@@ -23,9 +23,9 @@ import { guardMirror, type MirrorRoot, type MirrorSlot, type MirrorStore } from 
  *
  * **Every segment is encoded** (`mirrorPath.ts`), and that is the security
  * property of this file: a bucket key is untrusted input, and `..` in one must
- * not become a directory climb. `expo-file-system`'s `Paths.join` escapes `%`
- * in a segment before the native side decodes the URI once, so the name on
- * disk is exactly the encoded name, `%` and all.
+ * not become a directory climb. The escape character is `_`, not `%`, so the
+ * name on disk is the encoded name however many times `expo-file-system`'s
+ * URI layer percent-decodes it — see "Why the escape is `_`" in `mirrorPath.ts`.
  *
  * **`expo-file-system` is `core`** in `native-deps.json`, so this is a static
  * import with no `NativeModules` gate and no `runtimeVersion` bump —

@@ -14,11 +14,22 @@
  *
  * So every segment the native store builds a path from goes through here, and
  * the output alphabet has **no separator and no dot**: lowercase letters,
- * digits, `-`, and `%XX` escapes for every other UTF-8 byte. `..` becomes
- * `%2E%2E`, `/` becomes `%2F`, and there is nothing left for a filesystem to
+ * digits, `-`, and `_XX` escapes for every other UTF-8 byte. `..` becomes
+ * `_2E_2E`, `/` becomes `_2F`, and there is nothing left for a filesystem to
  * interpret. `__tests__/offlineMirrorStore.test.ts` writes traversal keys
  * through the real store over a fake disk that resolves `..` the way a real one
  * does, so a raw join escapes and the test sees it.
+ *
+ * ## Why the escape is `_` and not `%`
+ *
+ * `expo-file-system` addresses files by `file://` URI, and a URI layer is
+ * *allowed* to percent-decode. With `%` as the escape, whether `%2E%2E%2F` stays
+ * nine literal characters or becomes `../` on disk would rest on how many times
+ * native code decodes — a fact about a library version, on two platforms, that
+ * no test in this repo can see. `_` means nothing to a URI, so the name is the
+ * same string however many times anything decodes it, and the question does
+ * not arise. The test pins it: every name survives `decodeURIComponent`
+ * unchanged.
  *
  * ## Why uppercase letters are escaped too
  *
@@ -27,15 +38,16 @@
  * overwriting the other. iOS's APFS is case-sensitive today and macOS's
  * default is not, and this is not a fact worth betting a note body on, so the
  * name is made from an alphabet where case never carries meaning: `P` is
- * `%50`, and escapes are always written with uppercase hex so `%50` is never
- * also produced as `%5a`-style lowercase.
+ * `_50`, and escapes are always written with uppercase hex so `_50` is never
+ * also produced as `_5a`-style lowercase. `_` itself is escaped (`_5F`), so
+ * the encoding stays one-to-one.
  *
  * ## Why a long path is hashed
  *
  * Both platforms cap a filename at 255 bytes, and escaping multiplies a
  * path's length by up to three. A name that would exceed `MAX_NAME` becomes
  * `~` + two independent 53-bit hashes + a readable prefix. `~` is outside the
- * short form's alphabet (it is escaped as `%7E` there), so a hashed name can
+ * short form's alphabet (it is escaped as `_7E` there), so a hashed name can
  * never equal an escaped one. A collision between two hashed names is not a
  * disclosure — both are notes in the same context at the same clearance — and
  * it is not even a wrong read: the body record carries its own path, and
@@ -94,7 +106,7 @@ function escape(text: string): string {
       out += char;
       continue;
     }
-    for (const byte of utf8Bytes(char)) out += `%${hex2(byte)}`;
+    for (const byte of utf8Bytes(char)) out += `_${hex2(byte)}`;
   }
   return out;
 }
@@ -119,24 +131,25 @@ function cyrb53(text: string, seed: number): number {
  * costs nothing and means no caller has to know that.
  */
 export function segmentName(value: string): string {
-  return value === "" ? "%00" : escape(value);
+  return value === "" ? "_00" : escape(value);
 }
 
 /** The filename a note's body is stored under. Never contains `/` or `.`. */
 export function bodyFileName(path: string): string {
-  const escaped = path === "" ? "%00" : escape(path);
+  const escaped = path === "" ? "_00" : escape(path);
   if (escaped.length <= MAX_NAME) return escaped;
   const digest =
     cyrb53(path, 0).toString(36).padStart(11, "0") + cyrb53(path, 1).toString(36).padStart(11, "0");
-  return `~${digest}-${escaped.slice(0, MAX_NAME - digest.length - 2).replace(/%[0-9A-F]?$/, "")}`;
+  return `~${digest}-${escaped.slice(0, MAX_NAME - digest.length - 2).replace(/_[0-9A-F]?$/, "")}`;
 }
 
 /** The inverse of `segmentName`, for reading a directory listing back. */
 export function segmentValue(name: string): string | null {
-  if (name === "%00") return "";
-  if (!/^(?:[a-z0-9-]|%[0-9A-F]{2})+$/.test(name)) return null;
+  if (name === "_00") return "";
+  if (!/^(?:[a-z0-9-]|_[0-9A-F]{2})+$/.test(name)) return null;
   try {
-    return decodeURIComponent(name);
+    // The alphabet was checked above, so every `_` here starts an escape.
+    return decodeURIComponent(name.replace(/_/g, "%"));
   } catch {
     // Escapes that are not valid UTF-8 were not written by `segmentName`.
     return null;

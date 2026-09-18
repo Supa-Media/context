@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
-import { bodyFileName, segmentName } from "../features/offline/mirrorPath";
+import { bodyFileName, segmentName, segmentValue } from "../features/offline/mirrorPath";
 import { currentEpoch, endSession } from "../features/offline/epoch";
 
 /**
@@ -47,6 +47,24 @@ describe("a note path becomes one filename, never a path", () => {
     expect(name).not.toContain(".");
     expect(name.length).toBeGreaterThan(0);
     expect(name.length).toBeLessThanOrEqual(200);
+  });
+
+  /**
+   * `expo-file-system` addresses files by `file://` URI, and native code may
+   * percent-decode one. If `%` were the escape, `%2E%2E%2F` could come back as
+   * `../` on disk — so no name may contain anything a decode would change.
+   */
+  test.each(hostile)("%j survives any number of URI decodes unchanged", (path) => {
+    const name = bodyFileName(path);
+    expect(name).not.toContain("%");
+    expect(decodeURIComponent(name)).toBe(name);
+    expect(decodeURIComponent(decodeURIComponent(name))).toBe(name);
+  });
+
+  test("a segment reads back as exactly the value it was made from", () => {
+    for (const value of ["w1", "private", "a_b", "../x", "", "Ünï 😀", "_2E"]) {
+      expect(segmentValue(segmentName(value))).toBe(value);
+    }
   });
 
   test("distinct paths never share a filename, including the long ones", () => {
