@@ -429,6 +429,15 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
     an account both belong to.
   */
   account: "profile",
+  /*
+    The four that became Sharing & Access. Each was a section people linked to
+    — a shared link's own screen most of all — and each is a block on one
+    screen now.
+  */
+  people: "sharing",
+  groups: "sharing",
+  shares: "sharing",
+  privacy: "sharing",
 };
 
 export function settingsFromQuery(

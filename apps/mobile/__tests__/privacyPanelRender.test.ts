@@ -44,7 +44,7 @@ jest.mock("react-native-safe-area-context", () => ({
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { useDemoConsoleData } from "../features/console/useDemoConsoleData";
-import { SettingsPane } from "../features/console/panes/SettingsPane";
+import { PrivacyPanel } from "../features/console/settings/panels/PrivacyPanel";
 import { SettingsOverlay } from "../features/console/settings/SettingsOverlay";
 import type { ConsoleContext, ConsoleData } from "../features/console/types";
 import type { FileEntry, FolderListing, Visibility } from "../features/console/files/types";
@@ -159,9 +159,15 @@ function panel(options: Options): HTMLElement {
       setVisibility: options.onSetVisibility ?? (() => {}),
     },
   };
-  mount(() =>
-    createElement(SettingsPane, { data, section: "privacy", onClose: () => {} }),
-  );
+  /*
+    The block itself, not the pane around it. Privacy is one of four blocks on
+    Sharing & Access now, and the assertions here are about what *this* block
+    may say — a sweep of the whole screen would be reading the shared-links
+    list's paths as if the privacy rules had named them. The screen's own
+    wiring is covered by the reachability test above and by
+    `settingsOverlayRender`.
+  */
+  mount(() => createElement(PrivacyPanel, { data }));
   return document.body;
 }
 
@@ -173,13 +179,13 @@ function press(host: HTMLElement, testID: string): void {
   });
 }
 
-describe("the section is reachable and is headed by its own row", () => {
+describe("the block is reachable inside Sharing & Access", () => {
   test("settings opens it, and it is not somebody else's panel", () => {
     const base = demoData();
     mount(() =>
       createElement(SettingsOverlay, {
         data: base,
-        section: "privacy",
+        section: "sharing",
         onSelect: () => {},
         onDismiss: () => {},
       }),
@@ -441,9 +447,7 @@ describe("a filtered view says so and does not fill in the gap", () => {
       selectedContextId: "ctx",
       files: { listings: { "": listing("", "private", [folder("1-projects", "team")]) } },
     } as unknown as ConsoleData;
-    mount(() =>
-      createElement(SettingsPane, { data, section: "privacy", onClose: () => {} }),
-    );
+    mount(() => createElement(PrivacyPanel, { data }));
     expect(document.body.textContent ?? "").toContain("1-projects");
   });
 

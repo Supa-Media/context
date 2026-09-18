@@ -7,7 +7,7 @@ import { Icon } from "../../../design/components/Icon";
 import { Notice } from "../../../design/components/Input";
 import { Pill } from "../../../design/components/Pill";
 import { Text } from "../../../design/components/Text";
-import { PanelHead } from "./PanelHead";
+import { SubHead } from "./PanelHead";
 import { radii } from "../../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../../design/theme";
 import { capabilitiesForRole } from "../../capabilities";
@@ -89,14 +89,7 @@ import { isFilteredView } from "../../visibility";
  * copy of the one operation that rewrites the whole access map is a second
  * thing to keep honest. This says which state the reader is in.
  */
-export function PrivacyPanel({
-  data,
-  /** True on the old single-scroll pane, where this block has a heading above it. */
-  inline,
-}: {
-  data: ConsoleData;
-  inline: boolean;
-}) {
+export function PrivacyPanel({ data }: { data: ConsoleData }) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
   const current = selectedContext(data);
@@ -214,10 +207,10 @@ export function PrivacyPanel({
 
   return (
     <View>
-      <PanelHead section="privacy" sectioned={!inline}>
+      <SubHead title="Privacy">
         What is private by default, folder by folder. Two words decide it, and neither of
         them is public — nothing here is on the internet, and nothing here is indexed.
-      </PanelHead>
+      </SubHead>
 
       <Card>
         <Row style={styles.meaningRow}>
