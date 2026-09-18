@@ -242,6 +242,9 @@ export interface RekeyResult {
   googleConnectionsRekeyed: number;
   googleConnectionsSkipped: number;
   googleConnectionsUnreadable: number;
+  providerCredentialsRekeyed: number;
+  providerCredentialsSkipped: number;
+  providerCredentialsUnreadable: number;
   platformSecretsRekeyed: number;
   platformSecretsSkipped: number;
   platformSecretsUnreadable: number;
@@ -1490,6 +1493,7 @@ export const ROTATED_ENVELOPE_COLUMNS = [
   "encryptedDataKey",
   "encryptedValue",
   "encryptedTargetSecretAccessKey",
+  "encryptedApiKey",
 ] as const;
 
 /**
@@ -1687,6 +1691,81 @@ export const applyDataKeyRekey = internalMutation({
 });
 
 /**
+ * Candidate envelopes on `providerCredentials`, the agent's model account.
+ *
+ * A fourth table and therefore a fourth walk, for the reason the mail
+ * connection's own header gives one paragraph down: the cross-schema guard
+ * catches an unaccounted column *name*, and cannot catch a table this pass
+ * never visits. `providerCredentials` is not exempt — losing the envelope
+ * means the customer re-pastes an API key from somebody else's console, which
+ * is not "an action the owner is already in the middle of" — so it moves
+ * forward with everything else.
+ */
+export const listProviderCredentialRekeyCandidates = internalQuery({
+  args: { currentKeyId: v.string(), limit: v.number() },
+  returns: v.object({
+    candidates: v.array(
+      v.object({
+        rowId: v.id("providerCredentials"),
+        workspaceId: v.id("workspaces"),
+        envelope: v.string(),
+      }),
+    ),
+    unreadable: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const rows = await ctx.db.query("providerCredentials").take(args.limit);
+    const candidates = [];
+    let unreadable = 0;
+    for (const row of rows) {
+      const envelope = row.encryptedApiKey;
+      if (typeof envelope !== "string" || envelope.length === 0) {
+        unreadable += 1;
+        continue;
+      }
+      let keyId: string;
+      try {
+        keyId = envelopeKeyId(envelope);
+      } catch {
+        unreadable += 1;
+        continue;
+      }
+      if (keyId === args.currentKeyId) continue;
+      candidates.push({ rowId: row._id, workspaceId: row.workspaceId, envelope });
+    }
+    return { candidates, unreadable };
+  },
+});
+
+/**
+ * Re-seal one provider key under the current envelope key.
+ *
+ * Conditional on the bytes the pass read, like every other apply here: a
+ * customer who reconnected a provider mid-pass holds a *newer* key under the
+ * current generation, and restoring a re-encryption of the old one would
+ * quietly put back a credential they had just replaced.
+ */
+export const applyProviderCredentialRekey = internalMutation({
+  args: {
+    rowId: v.id("providerCredentials"),
+    expectedEnvelope: v.string(),
+    envelope: v.string(),
+  },
+  returns: v.boolean(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.rowId);
+    if (row === null) return false;
+    if (row.encryptedApiKey !== args.expectedEnvelope) return false;
+    await ctx.db.patch(args.rowId, { encryptedApiKey: args.envelope });
+    await recordAudit(ctx, {
+      workspaceId: row.workspaceId,
+      action: "encryption.rekeyed",
+    });
+    return true;
+  },
+});
+
+/**
  * Every field on a mail connection that holds an encrypted envelope.
  *
  * A mailbox connection has its own table (`googleConnections`, never a column
@@ -1707,6 +1786,16 @@ const googleConnectionEnvelopeField = v.union(
 );
 type GoogleConnectionEnvelopeField =
   "encryptedRefreshToken" | "encryptedAccessToken";
+
+/** Candidate envelopes on `providerCredentials`, one per row. */
+export interface ProviderCredentialRekeyCandidates {
+  candidates: {
+    rowId: Id<"providerCredentials">;
+    workspaceId: Id<"workspaces">;
+    envelope: string;
+  }[];
+  unreadable: number;
+}
 
 /** Candidate envelopes on `googleConnections`, one per field. */
 export interface GoogleConnectionRekeyCandidates {
@@ -1950,6 +2039,9 @@ export const rekeyStorageBindings = internalAction({
     googleConnectionsRekeyed: v.number(),
     googleConnectionsSkipped: v.number(),
     googleConnectionsUnreadable: v.number(),
+    providerCredentialsRekeyed: v.number(),
+    providerCredentialsSkipped: v.number(),
+    providerCredentialsUnreadable: v.number(),
     platformSecretsRekeyed: v.number(),
     platformSecretsSkipped: v.number(),
     platformSecretsUnreadable: v.number(),
@@ -2064,6 +2156,40 @@ export const rekeyStorageBindings = internalAction({
       else googleConnectionsSkipped += 1;
     }
 
+    // The agent's model account. A fourth table, so a fourth walk — wired in
+    // here rather than only named in `ROTATED_ENVELOPE_COLUMNS`, because a
+    // column listed as rotated whose table this pass never visits is the exact
+    // shape of the `encryptedDataKey` miss.
+    const providerCredentials: ProviderCredentialRekeyCandidates =
+      await ctx.runQuery(
+        internal.functions.storage.listProviderCredentialRekeyCandidates,
+        { currentKeyId: keyset.current.id, limit },
+      );
+
+    let providerCredentialsRekeyed = 0;
+    let providerCredentialsSkipped = 0;
+    let providerCredentialsUnreadable = providerCredentials.unreadable;
+    for (const candidate of providerCredentials.candidates) {
+      const context = { workspaceId: candidate.workspaceId as string };
+      let plaintext: string;
+      try {
+        plaintext = await decryptSecret(candidate.envelope, keyset, context);
+      } catch {
+        providerCredentialsUnreadable += 1;
+        continue;
+      }
+      const applied: boolean = await ctx.runMutation(
+        internal.functions.storage.applyProviderCredentialRekey,
+        {
+          rowId: candidate.rowId,
+          expectedEnvelope: candidate.envelope,
+          envelope: await encryptSecret(plaintext, keyset, context),
+        },
+      );
+      if (applied) providerCredentialsRekeyed += 1;
+      else providerCredentialsSkipped += 1;
+    }
+
     // And the platform's own credentials. Losing these is an outage rather than
     // data loss — an operator re-enters them — but a rotation that cannot be
     // finished without one is a rotation nobody performs, which is the state
@@ -2140,6 +2266,9 @@ export const rekeyStorageBindings = internalAction({
       googleConnectionsRekeyed,
       googleConnectionsSkipped,
       googleConnectionsUnreadable,
+      providerCredentialsRekeyed,
+      providerCredentialsSkipped,
+      providerCredentialsUnreadable,
       platformSecretsRekeyed,
       platformSecretsSkipped,
       platformSecretsUnreadable,

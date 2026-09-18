@@ -581,6 +581,20 @@ async function deleteWorkspaceCascade(
     }
   }
 
+  // The model account the agent spends. An envelope holding somebody's own
+  // Anthropic or OpenAI key, so it dies with the workspace for the same reason
+  // the storage secret does: a credential outliving the thing it was scoped to
+  // is a credential nobody is watching. Nothing is revoked on the way out —
+  // the key belongs to the customer's provider account and is theirs to
+  // rotate; deleting our copy is the whole of what we can do.
+  const providerCredentials = await ctx.db
+    .query("providerCredentials")
+    .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+    .collect();
+  for (const credential of providerCredentials) {
+    await ctx.db.delete(credential._id);
+  }
+
   // The ingestion policy. `unique()` would also work — one row per personal
   // context — but a shared context has none, and collect-then-delete treats
   // "no row" as the ordinary case it is.

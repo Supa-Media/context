@@ -324,6 +324,29 @@ const DECRYPT_IMPORTERS: ReadonlySet<string> = new Set([
   // product on the grant, so this module adds exactly one new decrypt site,
   // not three.
   "functions/calendarConnect.ts",
+  // THE NINTH, AND THE FIRST CREDENTIAL THAT IS NOT OURS TO ROTATE.
+  //
+  // `providers.ts` holds the API key for the model account the agent spends —
+  // the customer's own Anthropic or OpenAI key — and opens it in exactly one
+  // place, `openProviderCredential`, whose only caller is the gateway. Its own
+  // module for the reason the sixth entry gives: one module per thing sealed
+  // to a different lifetime. This one outlives no binding and is bound to no
+  // handshake; it is replaced when somebody pastes a new key and deleted when
+  // they disconnect, and folding it into `storage.ts` would put a credential
+  // with that lifetime behind a module whose every other secret belongs to a
+  // bucket.
+  //
+  // What bounds it: `connectProvider` and `listProviders` are the only public
+  // exports and neither reaches the decrypt — the first encrypts, the second
+  // builds its answer field by field from the row and never touches
+  // `encryptedApiKey`. The refusals are written to name the provider and never
+  // the key, because a credential we did not issue is one we cannot rotate
+  // after a leak, and #661 put a credential we *could* rotate into the
+  // production logs by way of a validation error.
+  //
+  // See `__tests__/providerCredentials.test.ts`, which drives every failing
+  // path and searches the thrown value for the key it was given.
+  "functions/providers.ts",
 ]);
 
 /** An import of `decryptSecret`, in code rather than in prose. */
@@ -1275,6 +1298,23 @@ describe("no public function can reach a storage secret", () => {
         // here: `googleConnect.mintGoogleAccessToken` and `.revokeGoogleGrant`
         // above already serve every product on the one connection row.
         "functions.calendarConnect.exchangeAndBindCalendar",
+        // THE AGENT'S MODEL ACCOUNT, AND THE ONLY CREDENTIAL HERE WE CANNOT
+        // ROTATE AFTER A LEAK.
+        //
+        // Opens the customer's own Anthropic or OpenAI key so the gateway can
+        // spend it on one request. An internalAction, and the gateway is its
+        // only caller — the two public exports in that module do not reach the
+        // decrypt at all: `connectProvider` encrypts, and `listProviders`
+        // builds its answer field by field and never reads `encryptedApiKey`.
+        //
+        // What bounds it: the returns validator is three flat fields with
+        // nothing nested to drift, which is deliberate. #661 broke on a
+        // *nested* validator — `capabilities` gained a key, `v.object` refused
+        // the object `openStorageBinding` had just built, and the error named
+        // what it rejected, so a live R2 secret went into the production logs
+        // beside it. A key issued by somebody else's console cannot be rotated
+        // by us at all, so the shape here is kept too small to drift.
+        "functions.providers.openProviderCredential",
       ].sort(),
     );
   });

@@ -999,6 +999,44 @@ const schema = defineSchema({
   }).index("by_workspace", ["workspaceId"]),
 
   /**
+   * The model account the agent spends, one row per provider per workspace.
+   *
+   * The customer's own Anthropic or OpenAI key, so the bill is theirs and we
+   * add nothing to it. It is a credential in exactly the sense non-negotiable
+   * #1 means, and it is held the way `storageBindings` holds an S3 secret:
+   * an envelope from `encryptSecret`, bound by AAD to this workspace, never
+   * returned by a client-callable function and never logged.
+   *
+   * **`fingerprint` is a hash and not a prefix.** `appSecrets` settled that
+   * already — "what appears in a screenshot is not a fragment of the real
+   * value" — and it matters more here, because this key was issued by somebody
+   * else's console and a leaked fragment is a clue to a credential we do not
+   * control. The console shows which provider is connected and when; it never
+   * shows part of the key.
+   *
+   * There is no base URL either, and no `compatible` provider yet: a URL the
+   * gateway attaches a key to needs the loopback and private-network refusals
+   * `storage.ts` already applies to a bucket endpoint, and the request it
+   * would feed does not exist yet. See `functions/providers.ts`.
+   *
+   * There is no `selected` column. Which provider answers is a question about
+   * the agent, not about the credential, and a boolean here would let two rows
+   * both claim it.
+   */
+  providerCredentials: defineTable({
+    workspaceId: v.id("workspaces"),
+    provider: v.union(v.literal("anthropic"), v.literal("openai")),
+    /** An envelope from `encryptSecret`. Never plaintext, never returned. */
+    encryptedApiKey: v.string(),
+    /** SHA-256 of the key, first 8 hex. For support, never for display as a key. */
+    fingerprint: v.string(),
+    connectedBy: v.id("users"),
+    connectedAt: v.number(),
+  })
+    .index("by_workspace", ["workspaceId"])
+    .index("by_workspace_provider", ["workspaceId", "provider"]),
+
+  /**
    * A paid copy from customer-owned storage into a managed bucket.
    *
    * The source binding remains live until copy and verification finish. Its
