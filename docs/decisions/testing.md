@@ -351,7 +351,7 @@ in the engine iOS Safari ships, which is the platform a service worker is most
 likely to differ on. Re-check when Playwright's WebKit offline support changes
 — the skip is one line and the case is engine-agnostic.
 
-Three things this cost, recorded so the next person does not pay them again:
+Four things this cost, recorded so the next person does not pay them again:
 
 - **It drives the built export, not `public/`.** A sabotage of the source
   passed here and failed the unit suite, which reads `public/sw.js` off disk.
@@ -364,6 +364,11 @@ Three things this cost, recorded so the next person does not pay them again:
 - **`page.route` cannot intercept a service worker's own `fetch`.** A draft
   proved network-first by intercepting the document and expecting the newer
   body; it fails, and a green version of it would have proved nothing.
+- **A CI step that runs a browser has to ask for it.** `Editor in WebKit`
+  installed `webkit` alone, so the first Chromium step died with "Executable
+  doesn't exist" — a failure that reads like the new test and is really the
+  job's install line. The install is now `webkit chromium`, and the reason
+  Chromium is there at all is one spec.
 
 ### Two offline claims rest on stores no test in this repository has ever talked to
 
