@@ -33,6 +33,7 @@
 
 import { BrowserWindow, screen, shell } from "electron";
 import { join } from "node:path";
+import { SHELL_TRAFFIC_LIGHTS } from "@context/desktop-bridge";
 import { mayNavigateConsoleWindow } from "../core/shell/approval.ts";
 import { mayGrantConsolePermission } from "../core/shell/console.ts";
 
@@ -182,6 +183,23 @@ export function createConsoleWindow(
     */
     title: "Context",
     titleBarStyle: "hiddenInset",
+    /*
+      And the buttons go where the page reserved the space, rather than where
+      macOS would have put them.
+
+      `packages/desktop-bridge/src/layout.ts` is the contract — **the page owns
+      its layout, the shell owns the buttons' position** — and this is the half
+      of it that was described and never wired. Without it the page reserves
+      `SHELL_TITLE_BAND_PX` and the shell places the lights at the system
+      default for `hiddenInset`, which is a different number: the two agree
+      only by luck, and a change to either drifts silently because neither
+      side reads the other.
+
+      The notepad deliberately does not get this: it is `notepad.html` from
+      disk, not the hosted app, so nothing there reserves the band this
+      position assumes.
+    */
+    trafficLightPosition: { x: SHELL_TRAFFIC_LIGHTS.x, y: SHELL_TRAFFIC_LIGHTS.y },
     // Painted before the page is, so a cold load shows the app's own ground
     // rather than Chromium's white. Matches `renderer/tokens.css`.
     backgroundColor: "#050506",

@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ShellTitleBand } from "../../app/ShellTitleBandView";
 import { useReducedMotion } from "../useReducedMotion";
 import { Icon } from "./Icon";
 import { Text } from "./Text";
@@ -145,6 +146,21 @@ export function Overlay({
   const insets = useSafeAreaInsets();
   // Starts `true`, so nothing moves before the preference has resolved.
   const reduced = useReducedMotion();
+  /*
+    And the desktop shell's traffic lights, for the same reason and one step
+    further: `app/_layout.tsx` mounts `ShellTitleBand` above every *route*, and
+    a `Modal` is not below it — it is its own root view, so this surface opened
+    at the very top of the window with the close/minimise/zoom buttons sitting
+    on its own leading control. The reported defect was the *Notes* button
+    under the traffic lights.
+
+    The band itself rather than `paddingTop`: it is the element that carries
+    `-webkit-app-region: drag`, so reserving the space this way also keeps the
+    window draggable by its top edge while settings is open — which is where a
+    person reaches for it. Painted in this surface's own ground rather than the
+    console header's `surface2`, because the bar below it is `ground` here.
+  */
+  const band = <ShellTitleBand color={colors.ground} />;
 
   /**
    * The phone's bar: a back chevron to the list, the screen's name, the close.
@@ -228,6 +244,7 @@ export function Overlay({
             { paddingTop: insets.top, paddingBottom: insets.bottom },
           ]}
         >
+          {band}
           {head}
           <View style={styles.phoneBody}>{sidebar ?? children}</View>
         </KeyboardAvoidingView>
@@ -291,6 +308,7 @@ export function Overlay({
         style={[styles.page, { paddingTop: insets.top, paddingBottom: insets.bottom }]}
         testID={testID ? `${testID}-panel` : undefined}
       >
+        {band}
         {bar}
         <View style={styles.body}>
           {sidebar === undefined ? null : (

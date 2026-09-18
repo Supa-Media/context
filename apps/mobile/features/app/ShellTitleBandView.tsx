@@ -1,7 +1,7 @@
 import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
 import { getDesktopBridge, SHELL_TITLE_BAND_PX } from "@context/desktop-bridge";
 import { useColors } from "../design/theme";
-import { shouldShowShellTitleBand } from "./shellTitleBand";
+import { shellTitleBandPx, shouldShowShellTitleBand } from "./shellTitleBand";
 
 /**
  * The band that keeps the desktop shell's traffic lights off the console's
@@ -36,7 +36,7 @@ import { shouldShowShellTitleBand } from "./shellTitleBand";
  * window instead of activating it. Nothing here does yet, which is why there
  * is no such override to see.
  */
-export function ShellTitleBand() {
+export function ShellTitleBand({ color }: { color?: string } = {}) {
   const colors = useColors();
   const bridge = Platform.OS === "web" ? getDesktopBridge() : null;
 
@@ -45,9 +45,23 @@ export function ShellTitleBand() {
   return (
     <View
       testID="shell-title-band"
-      style={[styles.band, { backgroundColor: colors.surface2 }]}
+      style={[styles.band, { backgroundColor: color ?? colors.surface2 }]}
     />
   );
+}
+
+/**
+ * The same reservation as a number, for the two surfaces that cannot use the
+ * band itself: the app frame, which is sized in viewport units, and anything
+ * inside a `Modal`, which is its own root and sits above the band.
+ *
+ * A hook only because reading the bridge is a web-only global; it has no
+ * state and never changes within a session — the shell a page is hosted by
+ * does not change under it.
+ */
+export function useShellTitleBandPx(): number {
+  const bridge = Platform.OS === "web" ? getDesktopBridge() : null;
+  return shellTitleBandPx(Platform.OS, bridge?.shell?.platform ?? null, SHELL_TITLE_BAND_PX);
 }
 
 const styles = StyleSheet.create({
