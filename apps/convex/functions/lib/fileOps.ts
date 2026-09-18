@@ -2305,6 +2305,7 @@ export async function copyPath(
   await copyPrivacy(
     store,
     pairs.map((pair) => ({ from: pair.source, to: pair.destination })),
+    sourceIsFolder ? { from, to } : null,
   );
 
   return { from, to, paths: pairs.map((pair) => pair.destination) };
@@ -3214,23 +3215,61 @@ async function remapPrivacy(
   });
 }
 
-/** Give a copy the same exception as its original, where it is still one. */
+/**
+ * Give a copy what its original had — its exception where it had one, and
+ * otherwise the visibility its folder gave it.
+ *
+ * The second half is the same fact `remapPrivacy` turns on, and it is not the
+ * rarer half: a note is usually private because its FOLDER is, with nothing in
+ * the manifest naming the note. Carrying only exceptions meant a copy taken
+ * into a shared folder arrived readable by every member, and the copy is the
+ * operation where that is hardest to notice — the original is still sitting
+ * where it was, still private, so nothing the owner is looking at changed.
+ *
+ * Narrowed against the destination, never widened, exactly as a move is.
+ */
 async function copyPrivacy(
   store: FileStore,
   pairs: { from: string; to: string }[],
+  folderCopy: { from: string; to: string } | null = null,
 ): Promise<void> {
   const state = await loadPrivacyState(store);
   if (state.text === null || state.invalid) return;
-  if (!pairs.some(({ from }) => hasOverride(state.overrides, from))) return;
+  const wasVisibleAs = new Map<string, Visibility>();
+  for (const pair of pairs) {
+    wasVisibleAs.set(pair.from, effectiveVisibility(pair.from, state.rules, state.overrides));
+  }
+  const carriesSomething = pairs.some(
+    ({ from }) => hasOverride(state.overrides, from) || wasVisibleAs.get(from) === "private",
+  );
+  if (!carriesSomething) return;
 
   await mutateManifest(store, (current) => {
+    // One rule for a copied folder that was private only because its parent
+    // was, for `remapPrivacy`'s reason: an exception per note turns a
+    // customer's `privacy.md` into a list of everything they ever copied.
+    const rules = [...current.rules];
+    if (folderCopy !== null) {
+      const inherited = visibilityOf(folderCopy.from, current.rules);
+      if (inherited === "private" && visibilityOf(folderCopy.to, current.rules) === "team") {
+        rules.push({ prefix: folderCopy.to, vis: inherited });
+      }
+    }
+    const deduped = oneRulePerPrefix(rules);
     let overrides = current.overrides;
     for (const pair of pairs) {
       const existing = overrideFor(current.overrides, pair.from);
-      if (existing === undefined) continue;
-      overrides = nextOverrides(pair.to, existing, current.rules, overrides);
+      const was = wasVisibleAs.get(pair.from);
+      // An exception is carried as it stands — the owner chose it, and
+      // re-deriving it here would retier that choice. Only the inherited case
+      // is computed, and `nextOverrides` writes nothing where the destination
+      // folder already gives the copy what the original had.
+      const carry =
+        existing ?? (was === undefined ? undefined : narrowerVisibility(was, visibilityOf(pair.to, deduped)));
+      if (carry === undefined) continue;
+      overrides = nextOverrides(pair.to, carry, deduped, overrides);
     }
-    return { rules: current.rules, overrides };
+    return { rules: deduped, overrides };
   });
 }
 

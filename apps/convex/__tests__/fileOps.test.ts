@@ -1049,6 +1049,38 @@ describe("moving and renaming", () => {
 });
 
 describe("copying and duplicating", () => {
+  test("a copy of an inherited-private note does not become readable by landing in a shared folder", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    await copyPath(store, {
+      from: "2-areas/health.md",
+      to: "1-projects/health-copy.md",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/health-copy.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    // The original is untouched, which is what makes this one hard to notice.
+    expect(canSee("2-areas/health.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+  });
+
+  test("a copied folder that was private only because its parent is carries one rule, not an exception per note", async () => {
+    const store = bucket();
+    await shareProjects(store);
+    store.seed("2-areas/clinic/notes.md", "# Notes\n");
+    store.seed("2-areas/clinic/deep/more.md", "# More\n");
+    await copyPath(store, {
+      from: "2-areas/clinic",
+      to: "1-projects/clinic",
+      clearance: clearanceOf("private"),
+      now: NOW,
+    });
+    const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
+    expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);
+    expect(manifest.overrides.has("1-projects/clinic/notes.md")).toBe(false);
+    expect(manifest.rules.find((rule) => rule.prefix === "1-projects/clinic")?.vis).toBe("private");
+  });
+
   test("duplicate lands beside the original under a free name", async () => {
     const store = bucket();
     const result = await duplicatePath(store, {
