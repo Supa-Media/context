@@ -418,6 +418,11 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
     must never appear in `SETTINGS_SECTIONS`, the list, or search results.
   */
   devices: "profile",
+  /*
+    `appearance` the same way: the picker is gone, the app follows the device,
+    and Profile is where the sentence saying so lives.
+  */
+  appearance: "profile",
 };
 
 export function settingsFromQuery(

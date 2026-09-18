@@ -102,7 +102,7 @@ export const SETTINGS_SECTIONS = [
       all: it returns a section that cannot answer.
     */
     keywords:
-      "name handle username email address capture mail me identity mac computer laptop machine device devices desktop revoke",
+      "name handle username email address capture mail me identity mac computer laptop machine device devices desktop revoke dark mode light theme night appearance display colour color scheme",
     label: "Profile",
     scope: "account",
     group: "Your account",
@@ -118,15 +118,6 @@ export const SETTINGS_SECTIONS = [
     scope: "account",
     group: "Your account",
     icon: "mailOpen",
-    personalOnly: false,
-  },
-  {
-    key: "appearance",
-    keywords: "dark mode light theme night appearance display colour color scheme",
-    label: "Appearance",
-    scope: "account",
-    group: "Your account",
-    icon: "sun",
     personalOnly: false,
   },
   {

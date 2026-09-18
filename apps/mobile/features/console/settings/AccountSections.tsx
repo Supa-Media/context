@@ -12,7 +12,6 @@ import { DeleteAccountCard } from "./DeleteAccountCard";
 import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
-import { AppearancePanel } from "./panels/AppearancePanel";
 import { MachinesCard } from "./panels/MachinesCard";
 
 /**
@@ -155,6 +154,29 @@ export function AccountSection({
           none at all.
         </Text>
         {/*
+          Appearance, which is now a fact rather than a control.
+
+          It was three buttons — Light, Dark, Follow device — and the whole
+          apparatus behind them: a stored choice, a module-level store to keep
+          the panel and the provider agreeing, and a launch image held up on
+          native until the device had answered. What it bought was a person
+          pinning the app against their own system setting, which is not a
+          thing anybody asked for and is one more row in a list already too
+          long to scan. The row is gone and so is the machinery; this sentence
+          is what is left, and it is true.
+        */}
+        <Card style={styles.spaced}>
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">Appearance</Text>
+              <Text variant="rowSub" style={styles.rowSub}>
+                Follows your device. Context is light when your phone or Mac is, and
+                dark when it is.
+              </Text>
+            </Grow>
+          </Row>
+        </Card>
+        {/*
           The Macs, at the foot of the person they belong to.
 
           "Your devices" was a row of its own in the index and is not one any
@@ -218,10 +240,6 @@ export function AccountSection({
         </Card>
       </View>
     );
-  }
-
-  if (section === "appearance") {
-    return <AppearancePanel />;
   }
 
   return (

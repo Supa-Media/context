@@ -241,6 +241,15 @@ describe("the account's own settings have a home", () => {
     expect(tokens).toEqual(["invite-token"]);
   });
 
+  test("profile states that appearance follows the device", () => {
+    // The three-button picker and the stored choice behind it are gone. What
+    // is left has to say so on the screen the search box now lands on.
+    const text = overlay("profile").textContent ?? "";
+    expect(text).toContain("Appearance");
+    expect(text).toContain("Follows your device");
+    expect(text).not.toContain("Follow device");
+  });
+
   test("profile carries the machines, because their own row is gone", () => {
     // The Revoke button for a lost Mac has to stay reachable from a phone.
     // `useQuery` is stubbed to `undefined` here, which is the loading state —

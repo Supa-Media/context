@@ -93,6 +93,20 @@ describe("two scopes in one list", () => {
     }
   });
 
+  test("appearance is a sentence on Profile, not a section of its own", () => {
+    /*
+      "Follow the device" is the whole of the feature now, so there is nothing
+      to navigate to — but "dark mode" is exactly what somebody types when they
+      cannot find the setting, and a search that matches nothing reads as a
+      product that lost it.
+    */
+    const all = settingsSectionsFor("personal");
+    expect(all.map((section) => section.key)).not.toContain("appearance");
+    expect(isSettingsSection("appearance")).toBe(false);
+    expect(matchSettingsSections(all, "dark mode").map((s) => s.key)).toEqual(["profile"]);
+    expect(matchSettingsSections(all, "theme").map((s) => s.key)).toEqual(["profile"]);
+  });
+
   test("the machines are reachable from Profile, because the row went and the revoke did not", () => {
     /*
       A grant here lets a Mac capture into private notes. Losing the row is a
@@ -223,8 +237,13 @@ describe("searching the list", () => {
     ["mac", "profile"],
     ["laptop", "profile"],
     ["revoke a mac", "profile"],
-    ["dark mode", "appearance"],
-    ["light", "appearance"],
+    /*
+      Repointed with the row: the picker is gone and the app follows the
+      device, so "dark mode" has to land on the screen that says so. A word
+      that matches nothing is somebody concluding the setting is missing.
+    */
+    ["dark mode", "profile"],
+    ["light", "profile"],
     /*
       Nobody types "premium" — they type what they are trying to do, and none
       of these words are on the row. "storage limit" is the one worth keeping:
