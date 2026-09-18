@@ -12,7 +12,7 @@ import {
   type CacheScope,
 } from "./keys";
 import type { KeyValueStore } from "./memory";
-import { counts, emptyOutbox, parseOutbox, type Outbox, type OutboxCounts } from "./outbox";
+import { counts, emptyOutbox, isEmpty, parseOutbox, type Outbox, type OutboxCounts } from "./outbox";
 import type { FolderListing, OpenNote } from "../console/files/types";
 
 /**
@@ -415,7 +415,9 @@ export async function getOutbox(store: KeyValueStore, workspaceId: string): Prom
 }
 
 export async function putOutbox(store: KeyValueStore, outbox: Outbox): Promise<void> {
-  if (outbox.writes.length === 0) {
+  // Empty means no edits *and* no ops: a queue holding only a rename is still
+  // somebody's unsent work, and removing its record would lose it on reload.
+  if (isEmpty(outbox)) {
     await store.remove(keyFor("outbox", outbox.workspaceId));
     return;
   }

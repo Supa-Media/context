@@ -32,19 +32,32 @@ import { holdAncestors, neededEtags, releaseAncestors } from "./mirrorHolds";
 import { openMirrorStore } from "./mirrorStore";
 import type { KeyValueStore } from "./memory";
 import {
+  claimedPaths,
   counts,
   discard,
+  dropOp as dropOpFrom,
   emptyOutbox,
   enqueue,
   find,
+  findOp,
   forceMine,
+  isEmpty,
+  opsOf,
+  overrideOp as overrideOpIn,
+  queueFolder as queueFolderIn,
+  queueMove as queueMoveIn,
+  queueRemoval as queueRemovalIn,
   retry,
+  retryOp as retryOpIn,
+  routesThroughQueue,
+  serverPathOf,
   settle,
   type Outbox,
   type OutboxCounts,
+  type PendingOp,
   type PendingWrite,
 } from "./outbox";
-import { drainOutbox, type DrainReport, type WriteOutcome } from "./sync";
+import { drainOutbox, type DrainReport, type OpOutcome, type OpSent, type WriteOutcome } from "./sync";
 import { useReachability } from "./reachability";
 import type { CacheScope } from "./keys";
 import type { Reachability } from "./copy";
@@ -124,6 +137,11 @@ import type { FolderListing, OpenNote } from "../console/files/types";
  * touches them.
  */
 
+/** A local handle for an op. Never sent, so it only has to be unique on this device. */
+function newOpId(): string {
+  return `op_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 /** A second of typing is what a crash may cost. See the file comment. */
 export const PERSIST_DEBOUNCE_MS = 1_000;
 
@@ -199,10 +217,60 @@ export interface OfflineNotes {
   /** Put a parked refusal back in the queue, unchanged. */
   retryQueued: (path: string) => void;
 
+  /*
+    Renames, moves, archives, deletes and new folders — `PendingOp`. Every one
+    of these takes the path *as the console shows it*; where that is a note
+    this device has renamed, the queue knows the bucket's name for it
+    (`serverPathOf`) and the callers never have to.
+  */
+  /** The bucket's name for a note this device may have renamed. */
+  serverPathOf: (path: string) => string;
+  /** Whether an action on this path has to go through the queue, even online. */
+  routesThroughQueue: (path: string) => boolean;
+  /** Whether the queue is holding this name — see `claimedPaths`. */
+  claims: (path: string) => boolean;
+  /** The create waiting for this path, if the note exists only on this device. */
+  pendingCreate: (path: string) => PendingWrite | undefined;
+  /**
+   * Queue a rename or move. `etag` is the note's version as the device has it;
+   * `false` when the queue would not take it — see `queueMove`.
+   */
+  queueMove: (move: { from: string; to: string; etag: string | null }) => QueuedOp;
+  /**
+   * Queue a delete or archive. `dropped` is a create that was never sent and is
+   * now gone — the caller offers it back with `restoreCreate`.
+   */
+  queueRemoval: (removal: {
+    kind: "trash" | "archive";
+    path: string;
+    etag: string | null;
+  }) => QueuedOp & { dropped?: PendingWrite };
+  queueFolder: (path: string) => QueuedOp;
+  /** Take an op back, or discard a parked one. */
+  dropOp: (id: string) => void;
+  /** A refused op, back in the queue because a person asked. */
+  retryOp: (id: string) => void;
+  /** "Do it anyway" — against the version the conflict reported. */
+  overrideOp: (id: string) => void;
+  /** The undo of a delete that dropped an unsent create. */
+  restoreCreate: (write: PendingWrite) => void;
+  /** The id of the op this queue holds on a bucket path, for an undo. */
+
   /** Try to empty the queue now. A no-op while one is already running. */
   drain: () => void;
   /** What the last drain did, for the console to report. `null` until one runs. */
   lastDrain: DrainReport | null;
+}
+
+/**
+ * What queueing an op answered. `undo` puts the queue back exactly as it was
+ * before the press, and answers `false` when it no longer can — the op is on
+ * its way to the bucket or already there, or something else in the queue has
+ * moved since — so a caller never says "undone" about something that was not.
+ */
+export interface QueuedOp {
+  ok: boolean;
+  undo?: () => boolean;
 }
 
 export function useOfflineNotes(options: {
@@ -218,6 +286,13 @@ export function useOfflineNotes(options: {
   write: (write: PendingWrite) => Promise<WriteOutcome>;
   /** Called for each write that landed, so the editor can take the new etag. */
   onWritten?: (result: { path: string; etag: string }) => void;
+  /**
+   * Performs one queued op. Optional for the callers with nothing but edits —
+   * without it, ops are left in the queue untouched.
+   */
+  op?: (op: PendingOp) => Promise<OpOutcome>;
+  /** Called for each op that landed, so the editor can follow a renamed note. */
+  onOpDone?: (done: OpSent) => void;
 }): OfflineNotes {
   const { tier, workspaceId } = options;
   const reachability = useReachability();
@@ -271,6 +346,10 @@ export function useOfflineNotes(options: {
   writeRef.current = options.write;
   const onWrittenRef = useRef(options.onWritten);
   onWrittenRef.current = options.onWritten;
+  const opRef = useRef(options.op);
+  opRef.current = options.op;
+  const onOpDoneRef = useRef(options.onOpDone);
+  onOpDoneRef.current = options.onOpDone;
 
   const flush = useCallback(
     (next: Outbox) => {
@@ -447,6 +526,64 @@ export function useOfflineNotes(options: {
     [mine, scope, store, workspaceId],
   );
 
+  /**
+   * Move this device's copy of a note onto where an op just put it in the
+   * bucket: a renamed note's body to its new name (at the version the move
+   * returned, where it said), and a deleted or archived one off the device —
+   * the next sync brings the archived copy back where the archive put it.
+   * Without this the tree drawn from the mirror shows the note under its old
+   * name, beside the new one, until the next sync prunes it.
+   */
+  const rememberOpDone = useCallback(
+    (done: OpSent) => {
+      if (workspaceId === null || scope === null || !mine()) return;
+      if (done.kind === "folder") return;
+      const epoch = epochRef.current;
+      void (async () => {
+        const mirror = await openMirrorStore();
+        if (mirror === null) return;
+        if (done.kind === "move" && done.to !== undefined) {
+          const copy = await mirroredNote(mirror, scope, workspaceId, done.path);
+          if (copy !== null && mine()) {
+            const needed = await neededEtags(store, workspaceId);
+            if (!mine()) return;
+            await putMirroredNotes(
+              mirror,
+              epoch,
+              scope,
+              workspaceId,
+              [{ ...copy.value, path: done.to, etag: done.etag ?? copy.value.etag }],
+              needed,
+              Date.now(),
+            );
+          }
+        }
+        if (!mine()) return;
+        await forgetMirroredNote(mirror, epoch, workspaceId, done.path);
+      })().catch(() => {});
+    },
+    [mine, scope, store, workspaceId],
+  );
+
+  /**
+   * An undo that puts the ops back exactly as they were before one press.
+   *
+   * Only while nothing has touched them since, and never during a drain: an op
+   * already on the wire cannot be recalled by editing the queue, and restoring
+   * the rename a delete folded into, after the delete reached the bucket, would
+   * queue a rename of a note in the trash.
+   */
+  const undoTo = useCallback(
+    (before: Outbox, after: Outbox) => () => {
+      if (draining.current) return false;
+      const now = outboxRef.current;
+      if (now.ops !== after.ops || now.writes !== after.writes) return false;
+      commit({ ...now, writes: before.writes, ops: opsOf(before) }, true);
+      return true;
+    },
+    [commit],
+  );
+
   const drain = useCallback(() => {
     /*
       Not a device write, and gated anyway. The console stays mounted through
@@ -460,13 +597,19 @@ export function useOfflineNotes(options: {
     */
     if (draining.current || workspaceId === null || !mine()) return;
     const current = outboxRef.current;
-    if (current.writes.length === 0) return;
+    if (isEmpty(current)) return;
     draining.current = true;
 
+    const send = opRef.current;
     void drainOutbox(current, {
       write: (write) => writeRef.current(write),
+      ...(send === undefined ? {} : { op: (op: PendingOp) => send(op) }),
       now: () => Date.now(),
       onWritten: (result) => onWrittenRef.current?.({ path: result.path, etag: result.etag }),
+      onOpDone: (done) => {
+        rememberOpDone(done);
+        onOpDoneRef.current?.(done);
+      },
     })
       .then(({ outbox: next, report }) => {
         /*
@@ -476,7 +619,10 @@ export function useOfflineNotes(options: {
           than replacing it — is what stops a save made mid-drain from being
           silently dropped.
         */
-        commit(reconcile(outboxRef.current, next, report), true);
+        commit(
+          reconcile(outboxRef.current, next, report, { id: newOpId, now: Date.now() }),
+          true,
+        );
         setLastDrain(report);
         /*
           What was sent is in the bucket now, at the etag the write returned,
@@ -497,7 +643,7 @@ export function useOfflineNotes(options: {
       .finally(() => {
         draining.current = false;
       });
-  }, [commit, mine, rememberSent, workspaceId]);
+  }, [commit, mine, rememberOpDone, rememberSent, workspaceId]);
 
   /** Empty the queue whenever we believe we can reach the bucket. */
   useEffect(() => {
@@ -669,14 +815,92 @@ export function useOfflineNotes(options: {
         writes the ref synchronously alongside `setOutbox`, so reading it is
         always the latest. The rendered `outbox` above is for drawing.
       */
-      pendingFor: (path) => find(outboxRef.current, path),
+      /*
+        The edits are keyed by the bucket's name for a note — see
+        `serverPathOf` — so an edit typed into a note renamed on this device is
+        queued against the note the bucket has, and sent before the rename.
+      */
+      pendingFor: (path) => find(outboxRef.current, serverPathOf(outboxRef.current, path)),
       queueSave: (save) =>
-        commit(enqueue(outboxRef.current, { ...save, now: Date.now() }), false),
+        commit(
+          enqueue(outboxRef.current, {
+            ...save,
+            path: serverPathOf(outboxRef.current, save.path),
+            now: Date.now(),
+          }),
+          false,
+        ),
       // The three below all take work *out* of the queue or change what it will
       // do, so they are written through rather than debounced.
-      dropQueued: (path) => commit(discard(outboxRef.current, path), true),
-      keepQueued: (path) => commit(forceMine(outboxRef.current, path), true),
-      retryQueued: (path) => commit(retry(outboxRef.current, path), true),
+      dropQueued: (path) =>
+        commit(discard(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+      keepQueued: (path) =>
+        commit(forceMine(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+      retryQueued: (path) =>
+        commit(retry(outboxRef.current, serverPathOf(outboxRef.current, path)), true),
+
+      serverPathOf: (path) => serverPathOf(outboxRef.current, path),
+      routesThroughQueue: (path) => routesThroughQueue(outboxRef.current, path),
+      claims: (path) => claimedPaths(outboxRef.current).has(path),
+      pendingCreate: (path) => {
+        const write = find(outboxRef.current, serverPathOf(outboxRef.current, path));
+        return write?.baseEtag === null ? write : undefined;
+      },
+      /*
+        Every op below is written through at once rather than debounced: each
+        is one press, not a stream of keystrokes, and a rename that survived
+        only in memory would come back after a crash as the old name with the
+        person's edits queued against a path they think is gone.
+
+        `coalesce` is off while a drain is running — see `QueueOpInput` — which
+        is the one thing here that depends on the drain rather than the queue.
+      */
+      queueMove: ({ from, to, etag }) => {
+        const next = queueMoveIn(outboxRef.current, {
+          id: newOpId(),
+          path: from,
+          to,
+          etag,
+          now: Date.now(),
+          coalesce: !draining.current,
+        });
+        if (next === null) return { ok: false };
+        const before = outboxRef.current;
+        commit(next, true);
+        return { ok: true, undo: undoTo(before, next) };
+      },
+      queueRemoval: ({ kind, path, etag }) => {
+        const id = newOpId();
+        const result = queueRemovalIn(outboxRef.current, {
+          id,
+          kind,
+          path,
+          etag,
+          now: Date.now(),
+          coalesce: !draining.current,
+        });
+        if (result === null) return { ok: false };
+        const before = outboxRef.current;
+        commit(result.outbox, true);
+        if (result.dropped !== undefined) return { ok: true, dropped: result.dropped };
+        return { ok: true, undo: undoTo(before, result.outbox) };
+      },
+      queueFolder: (path) => {
+        const next = queueFolderIn(outboxRef.current, { id: newOpId(), path, now: Date.now() });
+        if (next === null) return { ok: false };
+        const before = outboxRef.current;
+        commit(next, true);
+        return { ok: true, undo: undoTo(before, next) };
+      },
+      dropOp: (id) => commit(dropOpFrom(outboxRef.current, id), true),
+      retryOp: (id) => commit(retryOpIn(outboxRef.current, id), true),
+      overrideOp: (id) => commit(overrideOpIn(outboxRef.current, id), true),
+      restoreCreate: (write) => {
+        const current = outboxRef.current;
+        // Only into a name nothing else has taken since.
+        if (claimedPaths(current).has(write.path)) return;
+        commit({ ...current, writes: [...current.writes, write] }, true);
+      },
 
       drain,
       lastDrain,
@@ -692,6 +916,7 @@ export function useOfflineNotes(options: {
     rememberSent,
     scope,
     store,
+    undoTo,
     workspaceId,
   ]);
 
@@ -722,7 +947,13 @@ export function useOfflineNotes(options: {
  * self-conflict a minute later) and it is unreachable through the hook without
  * a fake timer race.
  */
-export function reconcile(live: Outbox, drained: Outbox, report: DrainReport): Outbox {
+export function reconcile(
+  live: Outbox,
+  drained: Outbox,
+  report: DrainReport,
+  /** For the one op reconciling can add — see the inverse move below. */
+  make: { id: () => string; now: number } = { id: newOpId, now: Date.now() },
+): Outbox {
   let result = live;
 
   for (const entry of live.writes) {
@@ -749,7 +980,86 @@ export function reconcile(live: Outbox, drained: Outbox, report: DrainReport): O
     });
   }
 
-  return result;
+  return reconcileOps(result, drained, report, make);
+}
+
+/**
+ * The same fold for ops, which have one case the edits do not.
+ *
+ * Ops are never rewritten while a drain runs (`coalesce` is off), so an op the
+ * drain sent is exactly the op still in the live queue — it goes. An op the
+ * drain reached a verdict on takes that verdict, and its re-based version with
+ * it. An op queued *during* the drain was not in the snapshot, so nothing
+ * re-based it; it is moved here onto what the drain's landings produced, by
+ * the same rule the drain uses (`rebaseOp`) — the edit it followed, or the
+ * rename it was queued behind.
+ *
+ * **And an op the person took back while it was on the wire.** The undo that
+ * could do that refuses during a drain, but "Discard" on a parked op in the
+ * sheet is always a drop, and a `dropOp` racing a send is possible. The bucket
+ * has done it; the person's last word was "don't". For a rename that is
+ * answered by queueing the rename back, at the version the rename returned —
+ * a real, conditional op the person can see. A delete or archive that landed
+ * cannot be taken back from here and is not pretended to have been.
+ */
+function reconcileOps(
+  live: Outbox,
+  drained: Outbox,
+  report: DrainReport,
+  make: { id: () => string; now: number },
+): Outbox {
+  const done = new Map(report.ops.done.map((one) => [one.id, one]));
+  const ops: PendingOp[] = [];
+  for (const op of opsOf(live)) {
+    if (done.has(op.id)) continue;
+    const after = findOp(drained, op.id);
+    if (after !== undefined) {
+      ops.push({
+        ...op,
+        state: after.state,
+        attempts: after.attempts,
+        baseEtag: after.baseEtag,
+        conflict: after.conflict,
+        rejection: after.rejection,
+        lastError: after.lastError,
+      });
+      continue;
+    }
+    ops.push(rebasedOnLandings(op, report));
+  }
+
+  for (const landed of report.ops.done) {
+    if (landed.kind !== "move" || landed.to === undefined) continue;
+    // Sent from the snapshot and gone from the live queue: dropped mid-flight.
+    if (opsOf(live).some((op) => op.id === landed.id)) continue;
+    if (landed.etag === undefined) continue;
+    ops.push({
+      id: make.id(),
+      kind: "move",
+      path: landed.to,
+      to: landed.path,
+      baseEtag: landed.etag,
+      queuedAt: make.now,
+      updatedAt: make.now,
+      state: "pending",
+      attempts: 0,
+    });
+  }
+  return { ...live, ops };
+}
+
+function rebasedOnLandings(op: PendingOp, report: DrainReport): PendingOp {
+  const edit = report.sent.find((one) => one.path === op.path);
+  if (edit !== undefined && (op.baseEtag === null || op.baseEtag === edit.sentBaseEtag)) {
+    return { ...op, baseEtag: edit.etag };
+  }
+  if (op.baseEtag === null) {
+    const rename = report.ops.done.find(
+      (one) => one.kind === "move" && one.to === op.path && one.etag !== undefined,
+    );
+    if (rename?.etag !== undefined) return { ...op, baseEtag: rename.etag };
+  }
+  return op;
 }
 
 function patch(outbox: Outbox, path: string, fields: Partial<PendingWrite>): Outbox {
