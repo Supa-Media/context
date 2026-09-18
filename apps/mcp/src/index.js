@@ -3957,6 +3957,43 @@ async function persistPrivacyFolderMove(store, source, destination) {
         rules.push({ ...rule, prefix: movePrefix(rule.prefix) });
       }
     }
+    /*
+      The folder's own EFFECTIVE visibility, carried as one rule.
+
+      Everything above moves what `privacy.md` NAMES — a rule on the source
+      folder or inside it, an override on a note. That is complete for a folder
+      that declares itself and for a note with its own exception, and it
+      carries nothing at all for the ordinary case: `visibilityOf` is
+      longest-prefix, so a folder private because an ANCESTOR says so is named
+      nowhere, and neither are the notes under it.
+
+      Without this, such a tree landed on the destination's rule and was
+      published — the same defect the control plane's `movePath` had, where the
+      exception half was carried and the inherited half was not. `toolMoveFolder`
+      computes the narrower value per note and never reaches this function; a
+      folder one object larger took this path instead and got a different
+      answer for the same notes.
+
+      One rule, not one exception per note: a folder operation should leave a
+      folder-shaped manifest, and 500 generated lines would be unreadable to
+      the owner who opens `privacy.md` in Obsidian. Per-note overrides still
+      win over it, so a note the owner deliberately published travels as
+      published — checked, because narrowing that would be this fix committing
+      the opposite error.
+    */
+    const sourceVisibility = visibilityOf(source, state.rules);
+    // Read AFTER the loop above, so a rule the source folder declared for
+    // itself has already been carried here and is what this compares against.
+    // That is also why no "did the folder declare itself?" guard is needed: in
+    // that case the carried rule IS the destination's visibility, the two
+    // values are equal, and the test below does not fire. An explicit guard
+    // was written first and sabotage put it at 0 — correctly redundant rather
+    // than unheld, so it is gone rather than shipped unchecked.
+    const destinationVisibility = visibilityOf(destination, rules);
+    const narrowed = narrowerVisibility(sourceVisibility, destinationVisibility);
+    if (narrowed !== destinationVisibility) {
+      rules.push({ prefix: destination, vis: narrowed });
+    }
     const overrides = new PrivacyOverrides();
     for (const [path, visibility] of state.overrides.entries()) {
       if (path === destination || path.startsWith(`${destination}/`)) continue;
