@@ -19,6 +19,7 @@ import {
   folderItems,
   fuzzyMatch,
   itemsFromListings,
+  itemsFromPaths,
   rank,
   type PaletteItem,
 } from "../features/console/files/palette";
@@ -280,6 +281,41 @@ describe("rank", () => {
 /* -------------------------------------------------------------------------- */
 /*                                item sources                                */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * Offline, quick open covers every note the mirror holds rather than only the
+ * folders somebody expanded — the listings the palette ranks are whatever was
+ * loaded, and offline nothing more loads. The rows must be the same shape a
+ * listing produces, so the same note is one row whichever half named it.
+ */
+describe("itemsFromPaths", () => {
+  test("names every note and every folder above it, as a listing would", () => {
+    const items = itemsFromPaths(
+      ["1-projects/garden/plan.md", "index.md", "1-projects/garden/photo.png"],
+      [],
+    );
+    expect(items).toEqual(
+      expect.arrayContaining([
+        { id: "1-projects/garden/plan.md", label: "plan.md", detail: "1-projects/garden", kind: "note" },
+        { id: "index.md", label: "index.md", detail: "/", kind: "note" },
+        { id: "1-projects", label: "1-projects", kind: "folder" },
+        { id: "1-projects/garden", label: "1-projects/garden", kind: "folder" },
+      ]),
+    );
+  });
+
+  test("a path the loaded listings already named is not listed twice", () => {
+    const loaded = itemsFromListings(listings);
+    const merged = itemsFromPaths(
+      [...loaded.map((item) => item.id), "0-inbox/only-on-device.md"],
+      loaded,
+    );
+    expect(merged.length).toBe(loaded.length + 2);
+    expect(merged.slice(0, loaded.length)).toEqual(loaded);
+    expect(merged.map((item) => item.id)).toContain("0-inbox/only-on-device.md");
+    expect(merged.map((item) => item.id)).toContain("0-inbox");
+  });
+});
 
 describe("itemsFromListings", () => {
   const items = itemsFromListings(listings);

@@ -20,7 +20,7 @@ import {
   type UpsellRow,
   type UpsellTarget,
 } from "./results";
-import { useBlendedSearch } from "./useBlendedSearch";
+import { useBlendedSearch, type BlendedDeviceSearch } from "./useBlendedSearch";
 
 /**
  * One row of the upsell: what to say about a context that answered the slow
@@ -103,6 +103,7 @@ export function SearchPane({
   onScope,
   onOpen,
   onClose,
+  device,
 }: {
   query: string;
   /** The scope, as slugs, from the URL. Empty means every context in reach. */
@@ -129,9 +130,15 @@ export function SearchPane({
    * the entry behind it is often another app's, or nothing at all.
    */
   onClose: () => void;
+  /**
+   * The copies on this device, for a search with no connection or one the
+   * control plane failed — see `useBlendedSearch`. Absent, the page is what it
+   * always was.
+   */
+  device?: BlendedDeviceSearch | null;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const search = useBlendedSearch({ query, slugs });
+  const search = useBlendedSearch({ query, slugs, device });
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const { state, results, answer, contexts } = search;
@@ -156,7 +163,14 @@ export function SearchPane({
     search, is a sentence about nothing.
   */
   const showUpsell =
-    upsell.length > 0 && state !== "idle" && state !== "searching" && state !== "failed";
+    upsell.length > 0 &&
+    state !== "idle" &&
+    state !== "searching" &&
+    state !== "failed" &&
+    // An answer from the device was not searched from anybody's bucket, fast
+    // or slow, and an offer to make that faster would describe a search that
+    // did not happen.
+    search.notice === null;
 
   const open = useCallback(
     (row: BlendedResult) => onOpen(noteHref(row.slug, row.path)),
@@ -263,6 +277,21 @@ export function SearchPane({
               })
             )}
           </View>
+        </View>
+      ) : null}
+
+      {/*
+        Where these results came from, when it was the device. Above the list
+        rather than under it, unlike the per-source notes below: it arrives
+        with the answer rather than after it, so it cannot push rows that are
+        already being read, and it qualifies every row — "only 340 of 1,204
+        notes are on this device" is something to know before the first one.
+      */}
+      {search.notice !== null ? (
+        <View style={styles.deviceNotice} testID="search-device-notice">
+          <Text variant="rowSub" style={styles.nudgeText}>
+            {search.notice}
+          </Text>
         </View>
       ) : null}
 
@@ -421,4 +450,11 @@ const makeStyles = (colors: Colors) =>
       borderTopColor: colors.line,
     },
     more: { alignSelf: "flex-start", marginTop: space.x3 },
+    deviceNotice: {
+      paddingVertical: space.x2,
+      paddingHorizontal: space.x3,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      borderColor: colors.line,
+    },
   });

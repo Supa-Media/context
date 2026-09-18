@@ -588,6 +588,26 @@ export async function mirroredNote(
 }
 
 /**
+ * One entry's current body, read at exactly the clearance `at` and nowhere
+ * else — unlike `mirroredNote`, which walks `readableAt`.
+ *
+ * For the device search (`mirrorSearch.ts`), which searches one index and must
+ * read only the bodies that index names: an entry from the `team` index paired
+ * with a body from the `private` slot would be a private note's text answering
+ * a query nobody at that clearance may ask. The record's own path and etag are
+ * checked as for every other read, so a body the index has moved past is a miss.
+ */
+export function mirroredBodyAt(
+  store: MirrorStore,
+  at: CacheScope,
+  workspaceId: string,
+  entry: MirrorEntry,
+): Promise<string | null> {
+  if (!entry.body) return Promise.resolve(null);
+  return readBody(store, at, workspaceId, "current", entry.path, entry.etag);
+}
+
+/**
  * The body a three-way merge may use as the ancestor of a draft based on
  * `baseEtag`: the current copy if it is at that version, the held `base` if
  * that is, and otherwise the current copy anyway — so `offerMerge` sees an

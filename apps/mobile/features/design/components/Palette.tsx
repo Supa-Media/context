@@ -185,6 +185,21 @@ export interface PaletteSearch {
    * AI client reads off this field, never a fourth version of it.
    */
   reducedRecallNotes?: readonly string[];
+  /**
+   * A sentence about where the answer came from, drawn in the same fixed
+   * place as the shed-note caveat — e.g. "Searched the copy on this device.
+   * Only 340 of 1,204 notes are on this device yet." (`deviceSearchNotice` in
+   * `features/offline/mirrorCopy.ts`). Fixed above the list for the same
+   * reason: it qualifies every row, so it must be on screen with the first.
+   */
+  notice?: string | null;
+  /**
+   * What an answered search with no rows says, when the caller's own
+   * `noMatchMessage` would be wrong for it — a search of the device's copy
+   * that found nothing must not tell somebody to "keep typing to search the
+   * rest of this context".
+   */
+  emptyMessage?: string;
 }
 
 export interface PaletteProps {
@@ -622,6 +637,7 @@ export function Palette({
     if (search?.state === "failed") {
       return "That search could not be run. Only loaded folders were filtered.";
     }
+    if (search?.state === "ready" && search.emptyMessage) return search.emptyMessage;
     return noMatchMessage ?? "Nothing matches. Try fewer letters.";
   })();
 
@@ -643,6 +659,12 @@ export function Palette({
   const reducedRecallNotice = reducedRecallText ? (
     <View style={styles.notice} testID="palette-reduced-recall">
       <Text variant="rowSub">{reducedRecallText}</Text>
+    </View>
+  ) : null;
+  /* Where the answer came from — the device's copy — in the same fixed place. */
+  const sourceNotice = search?.notice ? (
+    <View style={styles.notice} testID="palette-search-notice">
+      <Text variant="rowSub">{search.notice}</Text>
     </View>
   ) : null;
 
@@ -760,6 +782,7 @@ export function Palette({
             />
           </View>
           {heading}
+          {sourceNotice}
           {reducedRecallNotice}
           {list}
         </KeyboardAvoidingView>
@@ -794,6 +817,7 @@ export function Palette({
             {field}
           </View>
           {heading}
+          {sourceNotice}
           {reducedRecallNotice}
           {list}
         </Pressable>

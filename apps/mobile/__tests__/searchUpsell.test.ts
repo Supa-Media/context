@@ -141,9 +141,30 @@ function baseView(over: Partial<BlendedSearchView> = {}): BlendedSearchView {
     loadMore: () => {},
     retry: () => {},
     retrying: null,
+    notice: null,
     ...over,
   };
 }
+
+describe("an answer from the device", () => {
+  test("says where it came from, above the results, and offers no upgrade", () => {
+    const { text } = mount(
+      baseView({ notice: "Searched the copies on this device." }),
+    );
+    const notice = document.body.querySelector('[data-testid="search-device-notice"]');
+    expect(notice?.textContent).toBe("Searched the copies on this device.");
+    // The rows are still drawn...
+    expect(text()).toContain("Review cycle");
+    // ...but "searched from your own bucket" would describe a search that did
+    // not happen.
+    expect(document.body.querySelector('[data-testid="search-upsell"]')).toBeNull();
+  });
+
+  test("draws nothing when the control plane answered", () => {
+    mount(baseView());
+    expect(document.body.querySelector('[data-testid="search-device-notice"]')).toBeNull();
+  });
+});
 
 describe("the way out", () => {
   test("the page draws an exit, and pressing it leaves", async () => {
