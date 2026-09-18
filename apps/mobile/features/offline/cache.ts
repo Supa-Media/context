@@ -1,5 +1,6 @@
 import {
   CACHE_SCOPES,
+  isOwnTyping,
   isStaleVersion,
   keyFor,
   keysForDepartedContexts,
@@ -259,6 +260,154 @@ export async function clearDraft(
   await store.remove(keyFor("draft", workspaceId, path));
 }
 
+/* ---------------------------- context rows ------------------------------ */
+
+/**
+ * One row of the context list, as it is remembered for a cold start.
+ *
+ * ## Why this is here at all
+ *
+ * Every other module in this folder works only once the console already knows
+ * which context is open and what the person's role in it is. Both come from
+ * `listMyWorkspaces`, which is a Convex subscription — so on a launch with no
+ * network neither ever arrives, `visibilityTierForRole` answers `unknown`, and
+ * `useOfflineNotes` correctly refuses to serve a single cached byte. The whole
+ * feature was reachable only while the process was already warm, which is not
+ * the state a phone is in when somebody takes it out of a pocket on a train.
+ *
+ * So the list is written down as it lands, and read back when — and only when
+ * — the live one has not arrived and the device says it is offline.
+ *
+ * ## What it holds, and what it must never hold
+ *
+ * Exactly the fields `listMyWorkspaces` returns: ids, a slug, a display name,
+ * a role, a folder name. Identifiers and labels, the same class of thing
+ * `lastPlace` already keeps, and **no note content, no etag, no draft and
+ * above all no credential** — non-negotiable #1 keeps credentials off a device
+ * and this is not the file that gets to be the exception. It is cleared on
+ * sign-out with everything else here, and purged for a context that leaves the
+ * list by `forgetDepartedContexts`.
+ *
+ * ## Why remembering a role is not a wider clearance
+ *
+ * The argument is in `keys.ts` under the `context` kind and it rests on a fact
+ * about the control plane rather than on care taken here: `private` is
+ * `role === "owner"` and the owner role cannot be taken away. A remembered
+ * role can therefore be *stale* — a promotion from `member` to `editor` is not
+ * seen until the next successful load — but it can never be *wider* than the
+ * one the server would give, which is the only direction that discloses
+ * anything. Both of those roles read at `team` regardless.
+ */
+export interface RememberedContext {
+  workspaceId: string;
+  slug: string;
+  displayName: string;
+  kind: string;
+  role: string;
+  meetingsFolder?: string;
+  structureTemplate?: string;
+  pinned?: boolean;
+}
+
+/**
+ * Write down the context list that just landed, one record per context.
+ *
+ * Per context rather than one list record, so that every rule this folder
+ * already has for "everything belonging to workspace X" reaches it for free:
+ * `keysForWorkspace` takes it when somebody leaves, `keysForDepartedContexts`
+ * takes it when a membership ended somewhere this device never saw, and
+ * `sweep` ages it out on the same bound as the notes beside it. A single list
+ * record would have needed all three taught about it separately, and the one
+ * that got forgotten would be the one that leaves a context named on a device
+ * its owner was removed from.
+ *
+ * It does not prune. The purge that runs on the same landing owns that, and
+ * two writers deciding which contexts are live is how they come to disagree.
+ */
+export async function rememberContexts(
+  store: KeyValueStore,
+  contexts: readonly RememberedContext[],
+  now: number,
+): Promise<void> {
+  for (const context of contexts) {
+    await store.set(
+      keyFor("context", context.workspaceId),
+      JSON.stringify({ value: context, cachedAt: now }),
+    );
+  }
+}
+
+/**
+ * Remove one remembered context row.
+ *
+ * Exists for the sign-out race and for nothing else: a write in flight when
+ * `forgetLocalCopies` ran lands behind the clear, and a context row that
+ * outlives a session is what the boot gate would read as evidence of one. Its
+ * caller deletes only rows it wrote itself, only once the epoch says its
+ * session is over.
+ */
+export async function forgetContextRow(
+  store: KeyValueStore,
+  workspaceId: string,
+): Promise<void> {
+  await store.remove(keyFor("context", workspaceId));
+}
+
+/**
+ * The context list as of the last successful load, or nothing.
+ *
+ * Bounded by the same age as a cached note, and for the same reason: a device
+ * that has not reached the server in thirty days should not still be drawing a
+ * rail out of what it remembers. Every record is validated field by field —
+ * this runs on the path that draws the console, so a record written by a
+ * version that shaped it differently has to read as absent rather than as a
+ * row with `undefined` where a slug goes.
+ *
+ * Unordered. The rail and `defaultContext` decide order from the list and
+ * `lastPlace` already holds which context somebody was in, so a second opinion
+ * about order here would be one more thing that can disagree.
+ */
+export async function recallContexts(
+  store: KeyValueStore,
+  options: { now: number; maxAgeMs?: number },
+): Promise<RememberedContext[]> {
+  const maxAge = options.maxAgeMs ?? MAX_AGE_MS;
+  const found: RememberedContext[] = [];
+  for (const key of await store.keys()) {
+    if (parseKey(key)?.kind !== "context") continue;
+    const record = decode<unknown>(await store.get(key));
+    if (record === null || options.now - record.cachedAt > maxAge) continue;
+    const context = validContext(record.value);
+    if (context !== null) found.push(context);
+  }
+  return found;
+}
+
+/** A stored row, or `null` for anything that is not one. Never a throw. */
+function validContext(value: unknown): RememberedContext | null {
+  if (typeof value !== "object" || value === null) return null;
+  const row = value as Record<string, unknown>;
+  for (const field of ["workspaceId", "slug", "displayName", "kind", "role"]) {
+    if (typeof row[field] !== "string" || row[field] === "") return null;
+  }
+  for (const field of ["meetingsFolder", "structureTemplate"]) {
+    if (row[field] !== undefined && typeof row[field] !== "string") return null;
+  }
+  if (row.pinned !== undefined && typeof row.pinned !== "boolean") return null;
+  return {
+    workspaceId: row.workspaceId as string,
+    slug: row.slug as string,
+    displayName: row.displayName as string,
+    kind: row.kind as string,
+    role: row.role as string,
+    ...(typeof row.meetingsFolder === "string" ? { meetingsFolder: row.meetingsFolder } : {}),
+    ...(typeof row.structureTemplate === "string"
+      ? { structureTemplate: row.structureTemplate }
+      : {}),
+    ...(typeof row.pinned === "boolean" ? { pinned: row.pinned } : {}),
+  };
+}
+
 /* ------------------------------- outbox --------------------------------- */
 
 export async function getOutbox(store: KeyValueStore, workspaceId: string): Promise<Outbox> {
@@ -423,8 +572,18 @@ export async function forgetDeparted(
 /**
  * Apply the two bounds, and drop records written by a version we cannot read.
  *
- * Notes and listings only. A draft or a queued write is somebody's typing and
- * is never swept — see the file comment.
+ * Never somebody's typing: a draft and a queued write are the only copy of
+ * something a person wrote, and `isOwnTyping` is what keeps this function off
+ * them — see the file comment.
+ *
+ * **The two bounds do not cover the same set, and that is deliberate.** The
+ * age bound is a privacy bound, so it takes everything disposable, a
+ * remembered context row included: a device that has not reached the server in
+ * a month should not still name somebody's contexts. The count bound exists
+ * because note bodies fill a 5MB bucket, so it takes note bodies and listings
+ * and nothing else — evicting a context row to make room would cost the boot
+ * that the rest of this feature now depends on, to reclaim a few hundred
+ * bytes, and the eviction would be invisible.
  */
 export async function sweep(
   store: KeyValueStore,
@@ -444,7 +603,7 @@ export async function sweep(
     }
     const parsed = parseKey(key);
     if (parsed === null) continue;
-    if (parsed.kind !== "note" && parsed.kind !== "listing") continue;
+    if (isOwnTyping(parsed.kind)) continue;
 
     const record = decode<unknown>(await store.get(key));
     if (record === null || options.now - record.cachedAt > maxAge) {
@@ -452,7 +611,9 @@ export async function sweep(
       removed += 1;
       continue;
     }
-    evictable.push({ key, cachedAt: record.cachedAt });
+    if (parsed.kind === "note" || parsed.kind === "listing") {
+      evictable.push({ key, cachedAt: record.cachedAt });
+    }
   }
 
   if (evictable.length > maxEntries) {

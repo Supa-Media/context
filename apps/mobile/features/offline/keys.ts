@@ -112,7 +112,31 @@ export type UnscopedKind =
   /** An unsaved draft, which is not the same thing as a queued write. */
   | "draft"
   /** The write queue. One record for the whole context, not one per note. */
-  | "outbox";
+  | "outbox"
+  /**
+   * One row of the context list, so a cold start with no network knows which
+   * contexts exist and what this person's role in each one is.
+   *
+   * Unscoped because it is not a copy of a bucket answer — it holds a slug, a
+   * display name and a role, and no note content of any kind. It is also not
+   * somebody's typing, which is the distinction `isOwnTyping` below exists to
+   * make: it is disposable, it is swept by age, and a purge may take it.
+   *
+   * **Remembering a role cannot widen a clearance, and that is a fact about
+   * the control plane rather than a hope about this file.** `private` is
+   * `role === "owner"` and nothing else (`visibilityTierForRole`, mirroring
+   * `scopeForRole`), and the owner role cannot be taken away: `setMemberRole`
+   * refuses with `CANNOT_CHANGE_OWNER_ROLE`, `removeMember` with
+   * `CANNOT_REMOVE_OWNER`, `leaveWorkspace` with `OWNER_CANNOT_LEAVE`, and
+   * ownership transfer is not built. So a remembered `owner` was true when it
+   * was written and is still true now, and every other role remembers `team`,
+   * which is the narrow one this file already serves to anybody.
+   *
+   * `__tests__/ownerRoleIsPermanent.test.ts` pins that premise where it lives —
+   * in `apps/convex` — so building ownership transfer fails this rule's test
+   * rather than quietly widening a cache key.
+   */
+  | "context";
 
 /** What a key can be about. */
 export type Kind = ScopedKind | UnscopedKind;
@@ -124,7 +148,33 @@ export type Kind = ScopedKind | UnscopedKind;
   checks are derived from them, so the two representations cannot disagree.
 */
 const SCOPED: Record<ScopedKind, true> = { note: true, listing: true };
-const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true };
+const UNSCOPED: Record<UnscopedKind, true> = { draft: true, outbox: true, context: true };
+
+/**
+ * The kinds that are the only copy of something a person typed.
+ *
+ * `sweep` may not evict these and `keysForDepartedContexts` may not purge
+ * them; everything else under this namespace is a derivative that a server can
+ * produce again. Until a context row existed those two rules could both be
+ * spelled "has no clearance", because unscoped and untyped were the same set.
+ * They are not the same idea, and conflating them is how a later kind that is
+ * neither a bucket copy nor somebody's typing ends up immortal by accident.
+ *
+ * Spelled as a record over `Kind` so that adding a kind without deciding which
+ * side of this line it falls on is a compile error.
+ */
+const OWN_TYPING: Record<Kind, boolean> = {
+  note: false,
+  listing: false,
+  draft: true,
+  outbox: true,
+  context: false,
+};
+
+/** Whether this kind is somebody's own typing, and therefore never disposable. */
+export function isOwnTyping(kind: Kind): boolean {
+  return OWN_TYPING[kind];
+}
 const SCOPES: Record<CacheScope, true> = { private: true, team: true };
 
 /**
@@ -280,12 +330,11 @@ export function keysForWorkspace(keys: readonly string[], workspaceId: string): 
  *
  * Two deliberate narrowings, and neither is caution for its own sake:
  *
- *  - **Scoped kinds only.** A `note` or a `listing` is a copy of what the
- *    bucket said and the server can produce it again; a `draft` or an `outbox`
- *    record is somebody's own typing, which exists nowhere else. `sweep` is
- *    forbidden to touch those two for the same reason, and a purge driven by a
- *    list that can arrive late or short must be more careful than `sweep`, not
- *    less.
+ *  - **Never somebody's typing.** A `note`, a `listing` and a `context` row
+ *    are all derivatives the server can produce again; a `draft` or an
+ *    `outbox` record exists nowhere else. `sweep` is forbidden to touch those
+ *    two for the same reason, and a purge driven by a list that can arrive
+ *    late or short must be more careful than `sweep`, not less.
  *  - **Stale-version keys are left.** `keysForWorkspace` takes them precisely
  *    because they cannot be attributed to a workspace; here that same fact
  *    makes "is this one of the contexts in the list" unanswerable, and a purge
@@ -298,11 +347,12 @@ export function keysForWorkspace(keys: readonly string[], workspaceId: string): 
  * boundary, so the distinction is made by the caller and the safe answer is the
  * one this function gives when it is not made.
  *
- * Spelled as "has a clearance" rather than as a list of kinds: a `ScopedKind`
- * added later is by construction another copy of a bucket answer, and this
- * purge should take it without anybody remembering to come back here. The
- * kinds that must never be taken are exactly the ones `parseKey` gives a
- * `null` scope.
+ * Spelled as `isOwnTyping` rather than as a list of kinds, so a kind added
+ * later is taken by default and only a deliberate "this is the only copy"
+ * keeps it. It used to read "has a clearance", which was the same set while
+ * every unscoped kind was typing — and would have quietly exempted the
+ * `context` row, leaving a removed context named on the device until the age
+ * bound reached it.
  */
 export function keysForDepartedContexts(
   keys: readonly string[],
@@ -312,7 +362,7 @@ export function keysForDepartedContexts(
   const live = new Set(known);
   return keys.filter((key) => {
     const parsed = parseKey(key);
-    if (parsed === null || parsed.scope === null) return false;
+    if (parsed === null || isOwnTyping(parsed.kind)) return false;
     return !live.has(parsed.workspaceId);
   });
 }

@@ -43,6 +43,7 @@ import {
   forgetDepartedContexts,
   forgetLocalCopies,
 } from "../offline/forget";
+import { useRememberedContexts } from "../offline/useRememberedContexts";
 import { defaultContext } from "./nav";
 import {
   buildConstellation,
@@ -334,7 +335,22 @@ export function useLiveConsoleData(): ConsoleData {
   const invitations = usable<Array<{ slug: string; token: string }>>(
     specResults.invitations,
   );
-  const workspaces = usable<WorkspaceSummary[]>(workspacesResult);
+  /*
+    The live list, or the one this device remembers when there is no network to
+    ask and nothing has landed.
+
+    `useRememberedContexts` carries the whole argument for when a memory may
+    stand in for an answer — and the cast is the one place a remembered row
+    becomes a `WorkspaceSummary` again. It is safe because the row was written
+    from this exact type on a load that did land: `workspaceId` is the string a
+    `Id<"workspaces">` already is, and every consumer below uses it as an
+    argument or a key rather than as proof of anything. The proof is the
+    server's, and offline there is nothing to prove to — a remembered id that
+    was somehow wrong reaches a bucket read that refuses it, which is the
+    direction this whole feature is allowed to be wrong in.
+  */
+  const liveWorkspaces = usable<WorkspaceSummary[]>(workspacesResult);
+  const workspaces = useRememberedContexts(liveWorkspaces) as WorkspaceSummary[] | undefined;
   // `fastSearch.searchableContexts` answers `{ contexts }` (see
   // `apps/convex/functions/fastSearch.ts`); this reader only ever wanted how
   // many there are. That is now every context the person belongs to rather
@@ -901,7 +917,20 @@ export function useLiveConsoleData(): ConsoleData {
     failure is a purged cache for a context the person still has. A cache miss,
     in the direction this whole function is allowed to be wrong in.
   */
-  const knownContextKey = (workspaces ?? [])
+  /*
+    `liveWorkspaces`, never `workspaces`, and this is the one place below that
+    difference matters.
+
+    `workspaces` may be the list this device *remembers* when there is no
+    network (see `useRememberedContexts`). A purge driven by a memory would be
+    exactly the failure the paragraph above rules out: the guard is that the
+    list must be **known**, and a remembered list is the opposite of an answer.
+    It is also not merely redundant — a remembered row expires on its own age
+    bound, so a memory can be a strict subset of what this person still has,
+    and purging from it would delete the cached notes of a live context at the
+    one moment they are earning their keep.
+  */
+  const knownContextKey = (liveWorkspaces ?? [])
     .map((workspace) => workspace.workspaceId)
     .join(",");
   useEffect(() => {

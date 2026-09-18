@@ -36,6 +36,42 @@ describe("protected routes", () => {
       action: "wait",
     });
   });
+
+  /**
+   * `isLoading` is not "the token is being read off the device" — that part is
+   * local. It is "the socket has not answered", so with no network it never
+   * ends and this gate rendered `null` for as long as the app stayed open. A
+   * relaunch on a train was an app that would not start, on a device holding a
+   * complete offline copy of the notes somebody wanted to read.
+   */
+  test("renders offline for a device that remembers a session", () => {
+    expect(resolveProtectedRoute(loading, null, true)).toEqual({ action: "render" });
+  });
+
+  /**
+   * And the bound on it. The caller only passes `true` when it is offline *and*
+   * something was written down, and sign-out clears that — so a signed-out
+   * device waits exactly as it did before. The default matters as much as the
+   * behaviour: every existing caller and test gets today's answer without
+   * saying anything.
+   */
+  test("a device that remembers nothing waits, as it always did", () => {
+    expect(resolveProtectedRoute(loading, null, false)).toEqual({ action: "wait" });
+    expect(resolveProtectedRoute(loading)).toEqual({ action: "wait" });
+  });
+
+  /**
+   * A remembered session is not a claim about *who*. Once the server has
+   * answered, its answer decides — a signed-out visitor is still sent to sign
+   * in, remembered rows or not, and the sign-out that produced that state has
+   * already cleared them.
+   */
+  test("it never overrides a server answer", () => {
+    expect(resolveProtectedRoute(signedOut, null, true)).toEqual({
+      action: "redirect",
+      href: LOGIN_ROUTE,
+    });
+  });
 });
 
 describe("auth routes", () => {
