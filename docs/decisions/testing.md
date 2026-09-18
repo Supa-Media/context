@@ -306,6 +306,114 @@ does nothing at all. Presses inside an animating overlay use `locator.tap()`,
 which is the same real touch under an actionability check that waits for the
 element to stop moving.
 
+### A fake models the platform only where somebody has already been surprised by it
+
+The offline work (#687–#689) shipped with its riskiest file — `public/sw.js`, a
+service worker that sits in front of every request the web app makes, survives
+the tab, and cannot be reloaded out of — proven **only** in a `node:vm` sandbox
+against a `CacheStorage` written by hand. That sandbox earns its place: it
+drives the real file through its own event handlers, it runs in a second, and
+six deliberate sabotages against it each failed the right case.
+
+It still missed a real defect, and the shape of the miss is the point. #690:
+`cache.put` stores a *response*, a response carries its own `url`, so the shell
+entry — stored under one constant key precisely so the cache could not become a
+list of note paths — reported the address of the navigation that last filled
+it. On this product that address is a context slug and a note path, sitting in
+a cache deliberately exempted from `forgetLocalCopies` on the argument that it
+held nothing worth clearing. The fake could not exhibit it: a `Response` built
+in Node reports an empty `url` after `clone()`. The fake was not wrong, it was
+not the platform.
+
+`appShellWorker.test.ts` catches that defect today, because #690 taught the
+fake to model the url. **That ordering is the rule, not a footnote:** the
+measurement came from a real browser and the fake was corrected to match it. A
+fake only models the platform where somebody has already been surprised by the
+platform, so a suite made entirely of fakes cannot discover the next surprise —
+it can only re-assert the last one.
+
+**So the guard is `apps/mobile/e2e/webkit/offlineShell.spec.ts`**, which loads
+the real export in a real engine, goes genuinely offline with
+`context.setOffline(true)`, and asserts the app still renders and the shell it
+served remembers nobody. Its own rule is narrow on purpose: assert only what a
+real engine can disagree with the fake about. Network-first ordering stays in
+the sandbox, because that is control flow Node reproduces exactly.
+
+**It runs in Chromium, not WebKit, and that is measured rather than assumed.**
+The first CI run got further than expected: WebKit registered the worker on
+`http://127.0.0.1`, took control, and passed 85 cases beside it. What failed
+was a reload taken while `setOffline(true)` was in force — `page.reload: WebKit
+encountered an internal error`, before the navigation starts, inside
+Playwright's WebKit driver rather than anywhere in `sw.js`. So the case skips
+itself there with that reason written on it, and `ci.yml` runs it as its own
+Chromium step. The cost is stated rather than hidden: this check does not run
+in the engine iOS Safari ships, which is the platform a service worker is most
+likely to differ on. Re-check when Playwright's WebKit offline support changes
+— the skip is one line and the case is engine-agnostic.
+
+Four things this cost, recorded so the next person does not pay them again:
+
+- **It drives the built export, not `public/`.** A sabotage of the source
+  passed here and failed the unit suite, which reads `public/sw.js` off disk.
+  CI builds before it tests; locally it reads as "the browser disagrees with
+  the sandbox" when it means "the browser is a build behind."
+- **`navigator.serviceWorker.ready` hangs here.** The app registers from a
+  `load` listener and `page.goto` already resolves on `load`, so the promise is
+  created before the registration it waits for is asked for. `controller` is
+  the right wait and the stronger fact.
+- **`page.route` cannot intercept a service worker's own `fetch`.** A draft
+  proved network-first by intercepting the document and expecting the newer
+  body; it fails, and a green version of it would have proved nothing.
+- **A CI step that runs a browser has to ask for it.** `Editor in WebKit`
+  installed `webkit` alone, so the first Chromium step died with "Executable
+  doesn't exist" — a failure that reads like the new test and is really the
+  job's install line. The install is now `webkit chromium`, and the reason
+  Chromium is there at all is one spec.
+
+### Two offline claims rest on stores no test in this repository has ever talked to
+
+#693 gave the offline mirror its server half, and two of its behaviours are
+correct against the in-memory store stub and **unverified against the thing
+they are about**. Both are written here rather than left in a pull request,
+because the gap is not closeable by anyone without credentials this repository
+deliberately does not hold.
+
+**A Dropbox context past one page reports `truncated`.** `DropboxStore.list`
+ignores `startAfter` — `list_folder` has no position, only its own cursor, and
+promises no key order — so `syncManifest` checks the order it got back and
+reports a short manifest rather than looping. The *detection* is proven:
+`offlineSync.test.ts`'s "a store that ignores the resume point is reported
+short, never replayed as the rest". What is unproven is the premise under it —
+that real Dropbox behaves the way the stub does when the position is ignored.
+
+**A bucket without proven `conditionalCreate` keeps read-then-compare.**
+`files.test.ts`'s "a create on a bucket that never proved create-only writes
+says it was a read-compare" pins the degradation, at `conditionalCreate: false`.
+What is unproven is that real B2 and Wasabi actually *fail* the connect-time
+probe rather than claiming a capability they do not honour — which is not a
+hypothetical for this class of store: `S3Store` declares `conditionalWrite`
+`true` for every S3-compatible endpoint including the ones that ignore
+`If-Match`, and `docs/decisions/app-and-console.md` already had to route around
+exactly that by reading the binding's *probed* capability instead of the
+provider's claim.
+
+**What would falsify each**, so this is a standing task rather than a caveat:
+one real bucket per store, with a note count past a single list page, walked
+by `syncManifest` and then written to with no `expectedEtag`. If Dropbox
+returns its pages in a stable order the manifest could resume rather than
+truncate, and the conservative answer is costing a full re-walk per sync. If
+B2 or Wasabi pass the `conditionalCreate` probe and then overwrite anyway, the
+offline queue's create path is silently last-write-wins for a note typed on a
+train — which is the failure the whole feature exists to prevent.
+
+**Why no test here does it:** a long-lived storage credential in a public
+repository's workflow is the property `gateway-health.yml` above is built
+around not having, and the same argument applies with more force to a
+credential that can write. The honest position is a manual check against a
+throwaway bucket, recorded in a pull request, not a CI job — and until somebody
+runs one, "offline sync works on Dropbox" and "a create is safe on B2" are
+claims about a stub.
+
 ### An unauthenticated probe is not a health check for an authenticated endpoint
 
 `gateway-health.yml` (#659) watches the gateway every fifteen minutes with three
