@@ -204,6 +204,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A sort number is filing, so the console draws the name and keeps the number
 - A folder row says what differs, so `0-inbox` gets no count
 - "Move to…" is one dialog, and the other context is a destination rather than a mode
+- Settings is seven rows, and a row has to earn its place
 
 ## [Meetings](./meetings.md)
 
