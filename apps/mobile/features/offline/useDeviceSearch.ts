@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
+import type { Reachability } from "./copy";
 import { currentEpoch } from "./epoch";
 import { readIndex } from "./mirror";
 import { searchMirror, type DeviceSearchAnswer } from "./mirrorSearch";
+import { useMirrorStatuses } from "./mirrorStatus";
 import { openMirrorStore } from "./mirrorStore";
+import type { BlendedDeviceSearch } from "../console/search/useBlendedSearch";
 import { visibilityTierForRole } from "../console/visibility";
 
 /**
@@ -78,4 +81,44 @@ export function useMirrorPaths(
   }, [active, workspaceId, tier]);
 
   return paths;
+}
+
+/**
+ * The search page's handle on every context's copy: the console's own context
+ * list (remembered on a cold start offline, unlike the page's subscription),
+ * each searched at the clearance its role gives, with the mirror's statuses
+ * for "only 340 of 1,204".
+ */
+export function useBlendedDeviceSearch(
+  contexts: readonly { id: string; slug: string; displayName: string; role: string }[],
+  reachability: Reachability,
+): BlendedDeviceSearch {
+  const statuses = useMirrorStatuses();
+  // Keyed on the rows, not the array, whose identity changes on every tick.
+  const key = JSON.stringify(contexts.map((c) => [c.id, c.slug, c.displayName, c.role]));
+  const listed = useMemo(
+    () =>
+      (JSON.parse(key) as [string, string, string, string][]).map(
+        ([workspaceId, slug, displayName, role]) => ({ workspaceId, slug, displayName, role }),
+      ),
+    [key],
+  );
+  return useMemo(
+    () => ({
+      reachability,
+      contexts: listed,
+      statuses,
+      search: async ({ workspaceId, role }, query) => {
+        const tier = visibilityTierForRole(role);
+        const store = await openMirrorStore();
+        if (store === null) return null;
+        if (tier === "unknown") {
+          // No clearance, no copy: `useMirrorSync` never files one for it.
+          return { hits: [], matchCount: 0, searched: 0, encryptedSkipped: 0, mirrored: false };
+        }
+        return searchMirror(store, tier, workspaceId, query);
+      },
+    }),
+    [reachability, listed, statuses],
+  );
 }

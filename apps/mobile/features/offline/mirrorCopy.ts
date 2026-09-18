@@ -182,8 +182,11 @@ export function mirrorSheetSection(sync: SyncFacts | undefined, now: number): Sy
  */
 export type DeviceSearchReason = "offline" | "unreachable";
 
-/** How many of a context's notes are here, when the mirror says it is not all of them. */
-function shortfall(status: MirrorStatus | undefined): string | null {
+/**
+ * How many of a context's notes are here, when the mirror says it is not all
+ * of them — a sentence, or `null` for a whole copy or no claim.
+ */
+export function mirrorShortfall(status: MirrorStatus | undefined): string | null {
   if (status === undefined) return null;
   switch (status.state) {
     case "synced":
@@ -235,7 +238,7 @@ export function deviceSearchNotice(input: {
       ? "Searched the copy on this device."
       : "Your bucket did not answer, so this searched the copy on this device.",
   );
-  const short = shortfall(input.status);
+  const short = mirrorShortfall(input.status);
   if (short !== null) parts.push(short);
   if (input.encryptedSkipped > 0) {
     parts.push(

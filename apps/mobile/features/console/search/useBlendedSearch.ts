@@ -22,6 +22,13 @@
  *    by the answer.** Changing the query or the scope empties the list; a new
  *    page appends. Resetting on the answer instead is how "load more" turns
  *    into "replace what you were reading".
+ *
+ * And a fifth, from the palette too: **with no connection the page answers
+ * from the copies on the device** (`deviceSearch.ts`, over
+ * `features/offline/mirrorSearch.ts`). Offline, the control plane is not
+ * asked; online, it is, and only a request that failed or timed out falls
+ * back to the device — labelled as that in `notice`, never passed off as the
+ * page's usual answer. The rule and its reasons are `useContextSearch`'s.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +36,16 @@ import { useConvex, useQueries, type RequestForQueries } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { raceTimeout } from "../storage/timeout";
+import type { Reachability } from "../../offline/copy";
+import type { DeviceSearchReason } from "../../offline/mirrorCopy";
+import type { DeviceSearchAnswer } from "../../offline/mirrorSearch";
+import type { MirrorStatus } from "../../offline/mirrorStatus";
+import {
+  blendDeviceAnswers,
+  deviceSearchPageNotice,
+  type DeviceSearchContext,
+  type DeviceSourceAnswer,
+} from "./deviceSearch";
 import {
   MIN_QUERY,
   pageState,
@@ -68,15 +85,46 @@ export interface BlendedSearchView {
   /** Ask one context again, on its own. */
   retry: (workspaceId: string) => void;
   retrying: string | null;
+  /**
+   * A sentence for above the results when they came from the device, or
+   * `null` when the control plane answered. See `deviceSearchPageNotice`.
+   */
+  notice: string | null;
+}
+
+/**
+ * The copies on this device, as the page hands them in. The contexts come from
+ * the console's own list (which survives a cold start offline, from memory —
+ * `useRememberedContexts`) rather than from `searchableContexts`, which is a
+ * Convex subscription and is exactly what is missing offline.
+ */
+export interface BlendedDeviceSearch {
+  reachability: Reachability;
+  contexts: readonly (DeviceSearchContext & { role: string })[];
+  statuses: ReadonlyMap<string, MirrorStatus>;
+  /** `null` — no mirror on this device at all. */
+  search: (
+    context: { workspaceId: string; role: string },
+    query: string,
+  ) => Promise<DeviceSearchAnswer | null>;
 }
 
 export function useBlendedSearch(options: {
   query: string;
   /** Context slugs from the URL. Empty means every context in reach. */
   slugs: readonly string[];
+  device?: BlendedDeviceSearch | null;
 }): BlendedSearchView {
   const convex = useConvex();
   const { query, slugs } = options;
+  /*
+    Through a ref, so a download's progress ticking the statuses does not
+    re-send the query; whether the device is offline is a dependency, so going
+    offline over a failed page answers it from the device.
+  */
+  const deviceRef = useRef(options.device ?? null);
+  deviceRef.current = options.device ?? null;
+  const offline = options.device?.reachability === "offline";
 
   /*
     `useQueries` rather than `useQuery`, for the reason `useLiveConsoleData`
@@ -114,6 +162,7 @@ export function useBlendedSearch(options: {
   const [loadingMore, setLoadingMore] = useState(false);
   const [failed, setFailed] = useState(false);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   /**
    * The question the newest request was for.
@@ -182,6 +231,7 @@ export function useBlendedSearch(options: {
       setResults([]);
       setLoading(false);
       setFailed(false);
+      setNotice(null);
       // The answer is kept rather than cleared, and only for `searchableCount`:
       // it is what lets an emptied field still say "nothing to search"
       // instead of falling back to "type something" for somebody who cannot.
@@ -190,20 +240,77 @@ export function useBlendedSearch(options: {
 
     setLoading(true);
     setFailed(false);
+
+    /**
+     * Every context in scope, from the device. The scope is the URL's slugs
+     * against the console's own list — the same "empty means everything" rule
+     * `toggleScope` states — because `scope` above is built from a
+     * subscription that has nothing in it offline.
+     */
+    const fromDevice = async (local: BlendedDeviceSearch, reason: DeviceSearchReason) => {
+      const inScope =
+        slugs.length === 0
+          ? local.contexts
+          : local.contexts.filter((context) => slugs.includes(context.slug));
+      const answers: DeviceSourceAnswer[] = await Promise.all(
+        inScope.map(async (context) => {
+          let found: DeviceSearchAnswer | null;
+          try {
+            found = await local.search(context, trimmed);
+          } catch {
+            found = null;
+          }
+          return {
+            context: {
+              workspaceId: context.workspaceId,
+              slug: context.slug,
+              displayName: context.displayName,
+            },
+            answer: found,
+            status: local.statuses.get(context.workspaceId),
+          };
+        }),
+      );
+      if (asked.current !== question) return;
+      setLoading(false);
+      const noCopy = answers.length > 0 && answers.every((each) => each.answer === null);
+      if (noCopy && reason === "unreachable") {
+        // Nothing to fall back on: the request failed, and that is the page.
+        setResults([]);
+        setFailed(true);
+        return;
+      }
+      const blended = blendDeviceAnswers(answers);
+      setAnswer(blended);
+      setResults(blended.results);
+      setNotice(deviceSearchPageNotice(reason, answers));
+    };
+
     const timer = setTimeout(() => {
       asked.current = question;
       void (async () => {
+        const local = deviceRef.current;
+        if (offline && local !== null) {
+          await fromDevice(local, "offline");
+          return;
+        }
         const settled = await ask({
           query: trimmed,
           ...(scope.length > 0 ? { contexts: scope as Id<"workspaces">[] } : {}),
         });
         if (asked.current !== question) return;
-        setLoading(false);
         if (settled.kind === "value") {
+          setLoading(false);
+          setNotice(null);
           setAnswer(settled.value);
           setResults(settled.value.results);
           return;
         }
+        if (local !== null) {
+          await fromDevice(local, "unreachable");
+          return;
+        }
+        setLoading(false);
         // A timeout and a rejection land together on purpose: both mean this
         // page has no answer, and what a person does about either is the same
         // — try again. The rows already on screen belong to a different
@@ -214,7 +321,7 @@ export function useBlendedSearch(options: {
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [ask, query, question, scope]);
+  }, [ask, query, question, scope, slugs, offline]);
 
   const loadMore = useCallback(() => {
     const cursor = answer?.cursor;
@@ -309,7 +416,8 @@ export function useBlendedSearch(options: {
       loadMore,
       retry,
       retrying,
+      notice,
     }),
-    [state, results, answer, contexts, loadingMore, loadMore, retry, retrying],
+    [state, results, answer, contexts, loadingMore, loadMore, retry, retrying, notice],
   );
 }
