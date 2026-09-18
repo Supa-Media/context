@@ -115,6 +115,7 @@ export interface InboxCandidate {
 export function discoverInboxChannels(
   rootEntries: readonly FileEntry[] | undefined,
   emailEntries: readonly FileEntry[] | undefined,
+  chatEntries?: readonly FileEntry[] | undefined,
 ): InboxCandidate[] {
   if (rootEntries === undefined) return [];
   const folders = new Set(
@@ -123,6 +124,14 @@ export function discoverInboxChannels(
   const candidates: InboxCandidate[] = [];
 
   if (folders.has(MEETINGS_FOLDER)) candidates.push({ kind: "meetings", account: "", path: MEETINGS_FOLDER });
+  /*
+    Chat carries an account level since 2026-09-18 and did not before, so both
+    are rows here: the folder itself for every day written flat, and one row
+    per account folder under it. A workspace that connected two Google
+    accounts has both — the older days under the channel row, the newer ones
+    under the account they came from — and that is the honest reading of what
+    is actually in the bucket rather than a claim that the old days moved.
+  */
   if (folders.has(CHANNEL_FOLDERS["google-chat"])) {
     candidates.push({ kind: "google-chat", account: "", path: CHANNEL_FOLDERS["google-chat"] });
   }
@@ -131,12 +140,23 @@ export function discoverInboxChannels(
   }
   if (folders.has(CONTACTS_FOLDER)) candidates.push({ kind: "contacts", account: "", path: CONTACTS_FOLDER });
 
-  if (folders.has(CHANNEL_FOLDERS.email) && emailEntries !== undefined) {
-    for (const entry of emailEntries) {
+  for (const [kind, base, entries] of [
+    ["email", CHANNEL_FOLDERS.email, emailEntries],
+    ["google-chat", CHANNEL_FOLDERS["google-chat"], chatEntries],
+  ] as const) {
+    if (!folders.has(base) || entries === undefined) continue;
+    for (const entry of entries) {
       if (entry.kind !== "folder") continue;
-      const slug = entry.path.slice(CHANNEL_FOLDERS.email.length + 1);
-      if (slug.includes("/") || !isMailboxSlug(slug)) continue;
-      candidates.push({ kind: "email", account: slug, path: entry.path });
+      const slug = entry.path.slice(base.length + 1);
+      /*
+        A year folder is not an account. `0-inbox/google-chat/2026` is where
+        this channel's own flat-era days went once they started nesting, and
+        `isMailboxSlug` accepts it — four digits is a legal slug — so it is
+        ruled out by shape here rather than discovered as a row called "2026"
+        holding twelve folders.
+      */
+      if (slug.includes("/") || /^\d{4}$/.test(slug) || !isMailboxSlug(slug)) continue;
+      candidates.push({ kind, account: slug, path: entry.path });
     }
   }
 

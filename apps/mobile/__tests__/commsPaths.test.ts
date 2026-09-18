@@ -76,8 +76,28 @@ describe("classifyCommsPath", () => {
     });
   });
 
-  test("a dated-tree channel path is not a channel-day note", () => {
-    expect(classifyCommsPath("0-inbox/email/name-at-example-com/2026/09/2026-09-07.md")).toBeNull();
+  test("a dated-tree channel path IS a channel-day note, since that is where days are written", () => {
+    expect(classifyCommsPath("0-inbox/email/name-at-example-com/2026/09/2026-09-07.md")).toEqual({
+      kind: "channel-day",
+      channel: "email",
+      account: "name-at-example-com",
+      date: "2026-09-07",
+      part: 1,
+    });
+  });
+
+  test("...and so is the flat path every day written before it still lives at", () => {
+    expect(classifyCommsPath("0-inbox/email/name-at-example-com/2026-09-07.md")).toEqual({
+      kind: "channel-day",
+      channel: "email",
+      account: "name-at-example-com",
+      date: "2026-09-07",
+      part: 1,
+    });
+  });
+
+  test("a year folder that disagrees with the filename is nobody's day", () => {
+    expect(classifyCommsPath("0-inbox/email/name-at-example-com/2025/01/2026-09-07.md")).toBeNull();
   });
 
   test("a contact page", () => {

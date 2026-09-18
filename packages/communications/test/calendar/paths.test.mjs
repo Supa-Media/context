@@ -9,18 +9,18 @@ export function runCalendarPathChecks(check) {
   check("2026-13-01 has no thirteenth month and is refused", !isCalendarDayDate("2026-13-01"));
   check("a non-date value is refused", !isCalendarDayDate("hello") && !isCalendarDayDate(20260907) && !isCalendarDayDate(null));
 
-  check("calendarDayNotePath is flat, one file per day", calendarDayNotePath({ date: "2026-09-07" }) === "0-inbox/calendar/2026-09-07.md");
+  check("a calendar day is filed under its year and month", calendarDayNotePath({ date: "2026-09-07" }) === "0-inbox/calendar/2026/09/2026-09-07.md");
   check(
     "a root prefix is applied at the boundary, never derived",
-    calendarDayNotePath({ date: "2026-09-07" }, { root: "vault" }) === "vault/0-inbox/calendar/2026-09-07.md"
+    calendarDayNotePath({ date: "2026-09-07" }, { root: "vault" }) === "vault/0-inbox/calendar/2026/09/2026-09-07.md"
   );
   check(
     "a configured destination folder replaces the default Calendar folder",
-    calendarDayNotePath({ date: "2026-09-07" }, { folder: "2-areas/schedule" }) === "2-areas/schedule/2026-09-07.md"
+    calendarDayNotePath({ date: "2026-09-07" }, { folder: "2-areas/schedule" }) === "2-areas/schedule/2026/09/2026-09-07.md"
   );
   check(
     "the customer root still wraps a configured destination",
-    calendarDayNotePath({ date: "2026-09-07" }, { root: "vault", folder: "2-areas/schedule" }) === "vault/2-areas/schedule/2026-09-07.md"
+    calendarDayNotePath({ date: "2026-09-07" }, { root: "vault", folder: "2-areas/schedule" }) === "vault/2-areas/schedule/2026/09/2026-09-07.md"
   );
   check("a destination that normalizes away is refused, never turned into a rootless key", (() => {
     // `channelDestinationFolder`, the same decision for a channel day, answers
@@ -70,7 +70,27 @@ export function runCalendarPathChecks(check) {
       JSON.stringify({ date: "2026-09-07" })
   );
   check("a path outside the calendar folder is not one of ours", parseCalendarDayPath("0-inbox/email/x/2026-09-07.md") === null);
-  check("a subfolder under calendar/ is not one of ours — nothing this module writes goes deeper", parseCalendarDayPath("0-inbox/calendar/2026/2026-09-07.md") === null);
+  check(
+    "a day written before the dated tree is still a calendar day",
+    JSON.stringify(parseCalendarDayPath("0-inbox/calendar/2026-09-07.md")) === JSON.stringify({ date: "2026-09-07" })
+  );
+  check(
+    "...and a per-account folder reads the same, which is how two Google accounts stop sharing one file",
+    JSON.stringify(
+      parseCalendarDayPath("0-inbox/calendar/name-at-example-com/2026/09/2026-09-07.md", {
+        folder: "0-inbox/calendar/name-at-example-com",
+      })
+    ) === JSON.stringify({ date: "2026-09-07" })
+  );
+  check("a year folder with no month is not one of ours", parseCalendarDayPath("0-inbox/calendar/2026/2026-09-07.md") === null);
+  check(
+    "a date folder that disagrees with the filename is nobody's day",
+    parseCalendarDayPath("0-inbox/calendar/2025/01/2026-09-07.md") === null
+  );
+  check(
+    "a folder somebody made below the month is not one of ours either",
+    parseCalendarDayPath("0-inbox/calendar/2026/09/drafts/2026-09-07.md") === null
+  );
   check("a day that does not exist is refused even though the pattern matches", parseCalendarDayPath("0-inbox/calendar/2026-02-30.md") === null);
   check("a non-string is refused without throwing", parseCalendarDayPath(undefined) === null && parseCalendarDayPath(42) === null);
   check(
@@ -91,7 +111,7 @@ export function runCalendarPathChecks(check) {
   // still just concatenated once, with no other segment invented.
   check(
     "a path is exactly <root>/0-inbox/calendar/<date>.md — no id this module invents in between",
-    calendarDayNotePath({ date: "2026-09-07" }, { root: "workspaces/acme" }) === "workspaces/acme/0-inbox/calendar/2026-09-07.md"
+    calendarDayNotePath({ date: "2026-09-07" }, { root: "workspaces/acme" }) === "workspaces/acme/0-inbox/calendar/2026/09/2026-09-07.md"
   );
   check("with no root, the path starts at the inbox itself", calendarDayNotePath({ date: "2026-09-07" }).startsWith("0-inbox/"));
 

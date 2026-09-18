@@ -270,13 +270,81 @@ function validateBackfillDays(value: number | undefined): number {
  * touches the bucket) — the notes are the customer's, and moving a year of
  * them is `move_folder`'s job and their decision.
  */
+/**
+ * The folder name this Google account's days go under.
+ *
+ * One answer for all three products, and it is Gmail's when Gmail has one:
+ * `gmail.mailboxSlug` is chosen once at connect and never recomputed, so an
+ * account whose mail is already in `0-inbox/email/<slug>/` gets
+ * `0-inbox/calendar/<slug>/` and `0-inbox/google-chat/<slug>/` beside it
+ * rather than a second spelling of the same person.
+ *
+ * `taken` is every other connection in this workspace, so two addresses that
+ * slugify alike (`a.b@` and `a-b@`) get different folders — the same rule
+ * `chooseMailboxSlug` applies to mailboxes, applied to the whole account. The
+ * result is recorded in the connection's `destinationFolder` by its caller and
+ * never recomputed, which is what makes a later disconnect unable to rename
+ * the folder somebody's calendar is already in.
+ */
+/**
+ * Every account slug this workspace has already spent, except this address's own.
+ *
+ * Read off the rows rather than kept in a column: a slug is *recorded* inside
+ * each product's `destinationFolder`, and the mailbox's is on `gmail`, so the
+ * rows are the record. Excluding the address being bound is what makes a
+ * reconnect idempotent — without it, an account would find its own slug taken
+ * and give itself a hashed second one on every reconnect.
+ */
+export async function takenAccountSlugs(
+  ctx: { db: { query: (table: "googleConnections") => any } },
+  workspaceId: Id<"workspaces">,
+  address: string,
+): Promise<string[]> {
+  const rows = await ctx.db
+    .query("googleConnections")
+    .withIndex("by_workspace", (q: any) => q.eq("workspaceId", workspaceId))
+    .collect();
+  return rows
+    .filter((row: any) => row.address !== address)
+    .flatMap((row: any) => (row.gmail?.mailboxSlug ? [row.gmail.mailboxSlug as string] : []));
+}
+
+export function accountSlugFor(
+  address: string,
+  existing: { gmail?: { mailboxSlug?: string } } | null | undefined,
+  taken: readonly string[],
+): string {
+  const chosen = existing?.gmail?.mailboxSlug;
+  if (typeof chosen === "string" && chosen.length > 0) return chosen;
+  return chooseMailboxSlug(address, [...taken]);
+}
+
 export function defaultGoogleDestinationFolder(
   service: GoogleSyncService,
   mailboxSlug: string | undefined,
 ): string {
   if (service === "gmail") return `${CHANNEL_FOLDERS.email}/${mailboxSlug ?? SLUG_FALLBACK}`;
-  if (service === "calendar") return CALENDAR_FOLDER;
-  return CHANNEL_FOLDERS["google-chat"];
+  /*
+    Calendar and Chat take the account level too, since 2026-09-18.
+
+    They were one folder per workspace, so two connected Google accounts wrote
+    one `0-inbox/calendar/2026-09-07.md` between them. It read correctly —
+    every event names its account — and it cost the thing the mailbox folder
+    was built for: a folder is the only unit `visibilityOf` can name, so
+    "my work calendar is team and my personal one is private" was not
+    expressible at all, at any number of lines in `privacy.md`.
+
+    A slug is only ever *recorded*, never recomputed: an absent one answers
+    the folder these products have always used, so an existing connection
+    whose row predates `accountSlug` goes on writing exactly where it was.
+    That is what makes the change forward-only for days as well as folders.
+  */
+  if (service === "calendar") {
+    return mailboxSlug === undefined ? CALENDAR_FOLDER : `${CALENDAR_FOLDER}/${mailboxSlug}`;
+  }
+  return mailboxSlug === undefined
+    ? CHANNEL_FOLDERS["google-chat"]
+    : `${CHANNEL_FOLDERS["google-chat"]}/${mailboxSlug}`;
 }
 
 /**

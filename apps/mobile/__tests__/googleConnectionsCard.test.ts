@@ -320,7 +320,9 @@ describe("GoogleConnectionsCard", () => {
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
         now.getDate(),
       ).padStart(2, "0")}`;
-      expect(preview!.textContent).toContain(`2-areas/communications/${today}.md`);
+      expect(preview!.textContent).toContain(
+        `2-areas/communications/${today.slice(0, 4)}/${today.slice(5, 7)}/${today}.md`,
+      );
       screen.unmount();
     });
 

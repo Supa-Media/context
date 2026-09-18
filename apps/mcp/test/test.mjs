@@ -35,6 +35,7 @@ import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
 import { runGmailSyncChecks } from "./gmailSync.test.mjs";
+import { runDayPlacementChecks } from "./dayPlacement.test.mjs";
 import { runGoogleChatChecks } from "./googleChat.test.mjs";
 import { runChatContributionStoreChecks } from "./chatContributionStore.test.mjs";
 import { runCalendarContributionStoreChecks } from "./calendarContributionStore.test.mjs";
@@ -4488,6 +4489,7 @@ await runMeetingChecks(check);
 // gap detection and full reconcile, and the quota bound. No network and no
 // dependency: `gmailSync.js` takes its socket and its store as parameters.
 await runGmailSyncChecks(check);
+await runDayPlacementChecks(check);
 
 // Google Chat sync: no shared globals, no worker fetch — pure functions plus
 // a fixture Chat API over an injected fetchImpl, so it runs anywhere in this

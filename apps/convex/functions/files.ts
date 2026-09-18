@@ -122,6 +122,7 @@ import {
   writeContactDraft,
   writeDayPart,
 } from "../../mcp/src/communications/gmailSync.js";
+import { placeDayParts } from "../../mcp/src/communications/dayPlacement.js";
 import {
   ChatApiError,
   listMessagesPage,
@@ -2763,10 +2764,20 @@ async function runGoogleChatForwardSync(
     store: chatStore,
     sourceIds: job.contributorSourceIds,
   });
-  const notes = renderSharedGoogleChat({
-    contributions,
-    nonceSeed: job.workspaceNonceSeed,
-  });
+  /*
+    Placed against the bucket after rendering: a Chat day this workspace
+    already holds a flat note for keeps it, and only a day never written
+    before is filed under its month. `apps/mcp/src/communications/dayPlacement.js`
+    holds the argument — a day that is regenerated on every pass and changes
+    folders under itself exists twice, under one date.
+  */
+  const notes = await placeDayParts(
+    chatStore,
+    renderSharedGoogleChat({
+      contributions,
+      nonceSeed: job.workspaceNonceSeed,
+    }),
+  );
 
   let daysTouched = 0;
   let bytesWritten = 0;

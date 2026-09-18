@@ -597,8 +597,10 @@ describe("the row shape: attaching chat to the shared googleConnections row", ()
     const [view] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
       workspaceId,
     });
-    expect(view?.chat?.destinationFolder).toBe("0-inbox/google-chat");
-    expect(view?.chat?.destinationPath).toBe("0-inbox/google-chat/YYYY-MM-DD.md");
+    expect(view?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
+    expect(view?.chat?.destinationPath).toBe(
+      "0-inbox/google-chat/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
+    );
   });
 });
 
@@ -1584,8 +1586,11 @@ describe("a connection records the folder it files into, rather than re-deriving
         .unique(),
     );
     // Recorded, not absent: an absent folder is one a later edit to
-    // `defaultGoogleDestinationFolder` would answer differently.
-    expect(row?.chat?.destinationFolder).toBe("0-inbox/google-chat");
+    // `defaultGoogleDestinationFolder` would answer differently — which is
+    // exactly what happened on 2026-09-18, when Chat gained an account level.
+    // A connection bound before that keeps what its row says; one bound after
+    // it gets this account's own folder.
+    expect(row?.chat?.destinationFolder).toBe("0-inbox/google-chat/person-at-example-invalid");
   });
 
   test("a reconnect keeps the folder the connection already had", async () => {

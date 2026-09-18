@@ -162,7 +162,7 @@ export async function runGoogleChatChecks(check) {
     });
     check(
       "a configured Chat destination folder controls where daily notes are written",
-      result.notes.some((part) => part.path === "2-areas/communications/daily/2026-09-06.md"),
+      result.notes.some((part) => part.path === "2-areas/communications/daily/2026/09/2026-09-06.md"),
     );
     check(
       "a sync exposes a JSON-safe account contribution for the shared-note runner",
@@ -233,7 +233,7 @@ export async function runGoogleChatChecks(check) {
       renderSharedGoogleChat({
         contributions: [contributionA, { ...contributionB, destinationFolder: "2-areas/chat" }],
         nonceSeed: "workspace-seed",
-      }).map(({ path }) => path).sort().join("|") === "0-inbox/google-chat/2026-09-06.md|2-areas/chat/2026-09-06.md",
+      }).map(({ path }) => path).sort().join("|") === "0-inbox/google-chat/2026/09/2026-09-06.md|2-areas/chat/2026/09/2026-09-06.md",
     );
     check(
       "a duplicate account contribution fails closed instead of silently choosing a winner",
@@ -307,7 +307,7 @@ export async function runGoogleChatChecks(check) {
           ],
           nonceSeed: "workspace-seed",
         });
-        return notes.length === 1 && notes[0].path === "0-inbox/google-chat/2026-09-06.md";
+        return notes.length === 1 && notes[0].path === "0-inbox/google-chat/2026/09/2026-09-06.md";
       })(),
     );
 

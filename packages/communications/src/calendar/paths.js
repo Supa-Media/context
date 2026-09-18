@@ -1,11 +1,20 @@
 // Where a day of somebody's calendar lands in their own bucket.
 //
-// One file, `0-inbox/calendar/YYYY-MM-DD.md`, full stop — no account level
-// (see `protocol.js` for why calendar does not repeat email's per-mailbox
-// folder), no `YYYY/MM/` nesting (same argument `../paths.js` makes for a
-// channel day: a flat folder sorted by name is the ordering a date tree buys,
-// one level up, and nobody reaches a day of their calendar by scrolling a
-// folder listing anyway).
+// One file per day, `<folder>/YYYY/MM/YYYY-MM-DD.md`, and both halves of that
+// shape changed on 2026-09-18:
+//
+//  - **The account level arrives through `folder`, not through a new
+//    argument.** A connection's destination is `0-inbox/calendar/<mailbox>`
+//    now, chosen in the control plane where the mailbox slug already lives
+//    (`defaultGoogleDestinationFolder`), so two Google accounts stop writing
+//    one file — and a folder rule in `privacy.md` can tell a work calendar
+//    from a personal one, which is the argument the mailbox folder was built
+//    on. This module needs no new parameter to say it, which is why it has
+//    none.
+//  - **The date folders**, for the reason `../paths.js` records at length.
+//
+// Forward-only, so the reader takes both shapes: every day written before
+// these is in the flat folder, in a bucket the customer owns, and stays there.
 
 import { normalizeRoot } from "../paths.js";
 import { CALENDAR_DATE_PATTERN, CALENDAR_FOLDER } from "./protocol.js";
@@ -65,7 +74,8 @@ function calendarDestinationFolder(folder) {
 export function calendarDayNotePath(day, options = {}) {
   if (!day || typeof day !== "object") throw new TypeError("calendarDayNotePath needs a day");
   if (!isCalendarDayDate(day.date)) throw new TypeError(`not a calendar date: ${day.date}`);
-  return `${normalizeRoot(options.root)}${calendarDestinationFolder(options.folder)}/${day.date}.md`;
+  const dated = `${day.date.slice(0, 4)}/${day.date.slice(5, 7)}`;
+  return `${normalizeRoot(options.root)}${calendarDestinationFolder(options.folder)}/${dated}/${day.date}.md`;
 }
 
 /**
@@ -87,13 +97,23 @@ export function parseCalendarDayPath(path, options = {}) {
   const folder = calendarDestinationFolder(options.folder);
   if (!key.startsWith(`${folder}/`)) return null;
   const rest = key.slice(folder.length + 1);
-  // Exactly one segment: a subfolder under `0-inbox/calendar/` is somebody's
-  // own folder, not a shape this module writes.
-  if (rest.includes("/")) return null;
-  const match = DAY_FILE.exec(rest);
+  const segments = rest.split("/");
+  const file = segments.pop();
+  const match = DAY_FILE.exec(file ?? "");
   if (match === null) return null;
-  if (!isCalendarDayDate(match[1])) return null;
-  return { date: match[1] };
+  const date = match[1];
+  if (!isCalendarDayDate(date)) return null;
+  /*
+    Nothing in front of the file is the flat shape written before 2026-09-18;
+    `YYYY/MM` in front of it is the shape written since, and it has to agree
+    with the name it precedes. Anything else — a deeper tree, a month folder
+    with no year, a year that disagrees with the filename — is somebody's own
+    folder, and calling it a calendar day would list one day under two dates.
+  */
+  if (segments.length === 0) return { date };
+  if (segments.length !== 2) return null;
+  if (segments[0] !== date.slice(0, 4) || segments[1] !== date.slice(5, 7)) return null;
+  return { date };
 }
 
 /**

@@ -91,8 +91,14 @@ describe("what the pattern writes", () => {
   test("today's key, from the draft rather than from what is stored", () => {
     // Built from the draft: a preview of the saved value would be a preview of
     // the thing somebody is in the middle of replacing.
-    expect(draft("2-areas/comms").preview).toBe("2-areas/comms/2026-09-12.md");
-    expect(draft("2-areas/comms/YYYY-MM-DD.md").preview).toBe("2-areas/comms/2026-09-12.md");
+    // The year and month folders are part of what a pattern writes, since
+    // 2026-09-18 — a preview that hid them would be a preview of a key the
+    // sync does not write.
+    expect(draft("2-areas/comms").preview).toBe("2-areas/comms/2026/09/2026-09-12.md");
+    expect(draft("2-areas/comms/YYYY-MM-DD.md").preview).toBe("2-areas/comms/2026/09/2026-09-12.md");
+    expect(draft("2-areas/comms/YYYY/MM/YYYY-MM-DD.md").preview).toBe(
+      "2-areas/comms/2026/09/2026-09-12.md",
+    );
   });
 
   test("nothing at all when the draft is not a destination", () => {

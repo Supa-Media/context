@@ -1196,7 +1196,10 @@ describe("a calendar connection records the folder it files into", () => {
         )
         .unique(),
     );
-    expect(row?.calendar?.destinationFolder).toBe("0-inbox/calendar");
+    // This account's own folder under the calendar folder, since 2026-09-18.
+    // Two Google accounts used to write one file between them, which is a pair
+    // of calendars no folder rule in `privacy.md` could tell apart.
+    expect(row?.calendar?.destinationFolder).toBe("0-inbox/calendar/person-at-example-invalid");
   });
 
   test("a reconnect keeps a destination the owner chose", async () => {
