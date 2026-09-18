@@ -485,4 +485,66 @@ describe("a browser that refuses storage", () => {
     expect(await response!.text()).toBe("the real document");
     expect(held(worker)["context-app-shell-v1"] ?? []).toEqual([]);
   });
+  /**
+   * THE KEY IS ONE KEY, AND THE ENTRY UNDER IT CARRIES A URL OF ITS OWN.
+   *
+   * The privacy argument at the top of `sw.js` is that the shell lives under a
+   * single constant key, so `CacheStorage` cannot become "a list of every
+   * context and every note path somebody had opened". The key half of that is
+   * true and is held by the one-key test above.
+   *
+   * A `Response` also carries its own `url`, and `cache.put` stores the
+   * response. Measured in Chromium rather than reasoned about: after
+   * `cache.put(SHELL_KEY, fetched)`, `(await cache.match(SHELL_KEY)).url` is
+   * the URL the document was fetched from — on this product a context slug and
+   * a note path, since `/console/@someone?note=1-projects/pay-review.md` is a
+   * navigation like any other and a reload on an open note is a navigation.
+   *
+   * One entry, so one path rather than the history the file was written to
+   * prevent — and it sits in the cache the file argues has "nothing in it to
+   * leak and nothing worth clearing at sign-out", which is why the claim
+   * mattered enough to check.
+   *
+   * The fake cache cannot show this on its own: a `Response` built in Node has
+   * an empty `url`, so the network answer here is given one the way a browser
+   * would, with the same `defineProperty` device `redirected()` above uses.
+   */
+  test("the stored shell carries no note path in its own url", async () => {
+    const opened = `${ORIGIN}/console/@seyi?note=1-projects/pay-review.md`;
+    /*
+      `url` is set on the clone as well as on the original, because `store()`
+      caches `response.clone()` and a clone of a Node-built `Response` reports
+      an empty `url`. Without that, this case passes against the unfixed worker
+      and proves nothing — it did, on the first run, which is why the harness
+      models the platform here rather than the other way round.
+    */
+    const withUrl = (body: string) => {
+      const response = new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+      Object.defineProperty(response, "url", { value: opened });
+      const clone = response.clone.bind(response);
+      Object.defineProperty(response, "clone", {
+        value: () => {
+          const copy = clone();
+          Object.defineProperty(copy, "url", { value: opened });
+          return copy;
+        },
+      });
+      return response;
+    };
+    worker.setFetch(async () => withUrl("<!doctype html>the shell"));
+
+    await navigate(worker, opened);
+
+    const stored = worker.caches.stores.get("context-app-shell-v1")!.get("/")!;
+    expect(stored.url).not.toContain("pay-review");
+    expect(stored.url).not.toContain("@seyi");
+    // And the shell is still a usable shell: the point is to drop the label,
+    // not the document.
+    expect(await stored.clone().text()).toBe("<!doctype html>the shell");
+    expect(stored.status).toBe(200);
+    expect(stored.headers.get("Content-Type")).toBe("text/html");
+  });
 });
