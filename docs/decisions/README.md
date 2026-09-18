@@ -128,6 +128,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The response file is created by the author, never by the first submission
 - A form that does not parse is inert, never half-working
 - Forms need conditional writes, and say so when they cannot have them
+- The response table scrolls sideways, and never truncates an answer
 - What is deliberately not built
 
 ## [Search and the derived index](./search.md)
@@ -184,6 +185,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The rail's "New workspace" entry is a verb, and the claim entry is a gap
 - The rail is one list, with the personal workspace pinned to the top
 - The rail folds into the switcher, and the column it occupied goes to the note
+- The workspaces come back as a row at the foot of the tree, not as a column
 - The URL is a mirror of the open note, and the phone's copy of it is a pointer
 - A URL is a context and a note, and half of one is not an instruction
 - A note link is a path with a keyword in front, because a scheme has a host
@@ -200,6 +202,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The note is a measured column, and the demo note stopped faking one
 - The staff console is shaped for ten customers, and its figures count rows
 - A sort number is filing, so the console draws the name and keeps the number
+- A folder row says what differs, so `0-inbox` gets no count
 - "Move to…" is one dialog, and the other context is a destination rather than a mode
 
 ## [Meetings](./meetings.md)
@@ -337,6 +340,10 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The open note is an editor a plugin can write into, while its work is running
 - A press that does nothing is a bug, even when nothing is broken
 - A check that reads React state from inside `onEvent` is not a check
+- A plugin's `fetch` goes through the grant, and the CSP still denies the frame
+- A plugin's suggestions cross the `WebView` bridge, and the guest asks nothing until told there is somebody to ask
+- A plugin row answers "is it on"; everything else is one press away
+- The section is hidden, the machinery is not
 
 ## [Testing and guards](./testing.md)
 

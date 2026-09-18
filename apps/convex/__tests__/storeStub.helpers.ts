@@ -126,6 +126,16 @@ export function memoryStore(
      * delete can be made conditional on the etag the copy was taken at.
      */
     conditional?: boolean;
+    /**
+     * Accept `If-Match` on DELETE and **ignore it**, while enforcing it on PUT.
+     *
+     * Not a hypothetical backend: this is R2, measured. Every real binding
+     * probes `conditionalDelete: false` and `conditionalWrite: true`, which is
+     * why `retireMovedSource` substitutes a conditional PUT for a conditional
+     * delete. A stub that only models the honest case cannot tell the
+     * substitute from the hazard it replaces.
+     */
+    ignoreIfMatchOnDelete?: boolean;
   } = {},
 ): MemoryStore {
   const objects = new Map<string, StoredValue>();
@@ -136,7 +146,10 @@ export function memoryStore(
     capabilities: {
       conditionalWrite: options.ignoreIfMatch !== true,
       ...(options.conditional === true
-        ? { conditionalCreate: true, conditionalDelete: true }
+        ? {
+            conditionalCreate: true,
+            conditionalDelete: options.ignoreIfMatchOnDelete !== true,
+          }
         : {}),
     },
     seed(key, body) {
@@ -144,7 +157,11 @@ export function memoryStore(
     },
     async delete(key, deleteOptions) {
       const expected = deleteOptions?.onlyIf?.etagMatches;
-      if (options.conditional === true && expected !== undefined) {
+      if (
+        options.conditional === true &&
+        options.ignoreIfMatchOnDelete !== true &&
+        expected !== undefined
+      ) {
         // `null` is "the precondition did not hold", which is how every caller
         // in `lib/fileOps.ts` tells a conflict from a delete that happened.
         if (objects.get(key)?.etag !== expected) return null;

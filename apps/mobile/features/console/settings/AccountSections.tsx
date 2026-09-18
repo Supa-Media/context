@@ -12,8 +12,7 @@ import { DeleteAccountCard } from "./DeleteAccountCard";
 import { atName } from "../format";
 import type { ConsoleData } from "../types";
 import { settingsSectionLabel, type SettingsSectionKey } from "./sections";
-import { AppearancePanel } from "./panels/AppearancePanel";
-import { DevicesPanel } from "./panels/DevicesPanel";
+import { MachinesCard } from "./panels/MachinesCard";
 
 /**
  * The settings that belong to the person rather than to one context.
@@ -116,48 +115,6 @@ export function AccountSection({
     );
   }
 
-  if (section === "profile") {
-    return (
-      <View>
-        <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
-          {settingsSectionLabel("profile")}
-        </Text>
-        <Text variant="paneSub" style={styles.sub}>
-          {owned
-            ? "Your username comes from one global namespace shared with workspace names — unique, stable, and reserved against interception, which is why it cannot be changed yet."
-            : "You are signed in, and you have not made a workspace of your own yet. Until you do, this is the address you signed in with rather than a username."}
-        </Text>
-        <Card>
-          <Row>
-            <Grow>
-              <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
-            </Grow>
-            <Text variant="mono">{data.viewer.name}</Text>
-          </Row>
-          {/*
-            Only where it is the address this person's own workspace was issued.
-            `viewerIdentity` substitutes a derived one when the open context is
-            somebody else's, and a guess presented as a fact under the heading
-            "Profile" is a stronger claim than the rail's account block has
-            ever made.
-          */}
-          {owned && data.viewer.detail !== undefined ? (
-            <Row divided>
-              <Grow>
-                <Text variant="rowTitle">Mail sent here</Text>
-              </Grow>
-              <Text variant="mono">{data.viewer.detail}</Text>
-            </Row>
-          ) : null}
-        </Card>
-        <Text variant="foot" style={styles.foot}>
-          Only a personal workspace has an address mail can be sent to. A shared one has
-          none at all.
-        </Text>
-      </View>
-    );
-  }
-
   if (section === "invitations") {
     const invitations = data.invitations ?? [];
     return (
@@ -208,58 +165,123 @@ export function AccountSection({
     );
   }
 
-  if (section === "devices") {
-    return <DevicesPanel />;
-  }
-
-  if (section === "appearance") {
-    return <AppearancePanel />;
-  }
-
+  /*
+    Profile is the fall-through rather than another `if`, and that is a claim
+    about the list as much as about this function: after Devices, Appearance
+    and "Sign out & delete" folded into it, the account scope is AI apps, a
+    conditional Invitations, and the screen about you. An unknown account key
+    landing here lands on the person's own screen, which is the safe answer.
+  */
   return (
     <View>
       <Text variant="paneTitle" role="heading" aria-level={2} style={styles.head}>
-        {settingsSectionLabel("account")}
-      </Text>
-      <Text variant="paneSub" style={styles.sub}>
-        Both ask twice, and neither touches your notes.
-      </Text>
-      {/*
-        Signing out sits above deletion, and it is here rather than only in the
-        rail because "Danger zone" was the wrong name for a screen holding one
-        button: somebody who wants to end a session searches for "sign out",
-        and a search that lands them on a delete-only screen has aimed them at
-        the wrong control. Two buttons, in the order of how often they are
-        wanted, is safer than one button people arrive at by mistake.
-      */}
-      <Card style={styles.spaced}>
-        <Row>
-          <Grow>
-            <Text variant="rowTitle">Sign out</Text>
-            <Text variant="rowSub" style={styles.rowSub}>
-              Ends this session on this device. Everything stays exactly as it is, and
-              the AI apps you connected keep working — they hold their own grants.
-            </Text>
-          </Grow>
-          <Button
-            label="Sign out"
-            disabled={onSignOut === undefined}
-            onPress={onSignOut}
-            testID="settings-sign-out"
-          />
-        </Row>
-      </Card>
-      {/*
-        The way all the way out, moved here from the Connections pane. It was
-        beside "add a client", which is the opposite intention wearing the same
-        card. Absent in the demo, where there is no account to delete.
-      */}
-      {data.deleteAccount ? (
+        {settingsSectionLabel("profile")}
+        </Text>
+        <Text variant="paneSub" style={styles.sub}>
+          {owned
+            ? "Your username comes from one global namespace shared with workspace names — unique, stable, and reserved against interception, which is why it cannot be changed yet."
+            : "You are signed in, and you have not made a workspace of your own yet. Until you do, this is the address you signed in with rather than a username."}
+        </Text>
+        <Card>
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">{owned ? "Username" : "Signed in as"}</Text>
+            </Grow>
+            <Text variant="mono">{data.viewer.name}</Text>
+          </Row>
+          {/*
+            Only where it is the address this person's own workspace was issued.
+            `viewerIdentity` substitutes a derived one when the open context is
+            somebody else's, and a guess presented as a fact under the heading
+            "Profile" is a stronger claim than the rail's account block has
+            ever made.
+          */}
+          {owned && data.viewer.detail !== undefined ? (
+            <Row divided>
+              <Grow>
+                <Text variant="rowTitle">Mail sent here</Text>
+              </Grow>
+              <Text variant="mono">{data.viewer.detail}</Text>
+            </Row>
+          ) : null}
+        </Card>
+        <Text variant="foot" style={styles.foot}>
+          Only a personal workspace has an address mail can be sent to. A shared one has
+          none at all.
+        </Text>
+        {/*
+          Appearance, which is now a fact rather than a control.
+
+          It was three buttons — Light, Dark, Follow device — and the whole
+          apparatus behind them: a stored choice, a module-level store to keep
+          the panel and the provider agreeing, and a launch image held up on
+          native until the device had answered. What it bought was a person
+          pinning the app against their own system setting, which is not a
+          thing anybody asked for and is one more row in a list already too
+          long to scan. The row is gone and so is the machinery; this sentence
+          is what is left, and it is true.
+        */}
+        <Card style={styles.spaced}>
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">Appearance</Text>
+              <Text variant="rowSub" style={styles.rowSub}>
+                Follows your device. Context is light when your phone or Mac is, and
+                dark when it is.
+              </Text>
+            </Grow>
+          </Row>
+        </Card>
+        {/*
+          The Macs, at the foot of the person they belong to.
+
+          "Your devices" was a row of its own in the index and is not one any
+          more — but the row was never the point, the Revoke button was. A
+          machine grant can capture into private notes, so somebody whose
+          laptop is gone has to be able to cut it off from the phone in their
+          hand, and this is the account-scoped screen they are already on.
+        */}
         <View style={styles.spaced}>
-          <DeleteAccountCard deleteAccount={data.deleteAccount} />
+          <MachinesCard />
         </View>
-      ) : null}
-    </View>
+        {/*
+          The two ways out, at the foot of the screen about the person they
+          belong to.
+
+          They were a section of their own — "Sign out & delete" — which is a
+          row in the index for a pair of buttons somebody presses once or
+          never, and it put the control that ends a *session* on the only
+          screen that can end an *account*. Here they are under the identity
+          they act on, in the order of how often they are wanted, and the row
+          that used to hold them is gone from a list being cut to seven.
+        */}
+        <Card style={styles.spaced}>
+          <Row>
+            <Grow>
+              <Text variant="rowTitle">Sign out</Text>
+              <Text variant="rowSub" style={styles.rowSub}>
+                Ends this session on this device. Everything stays exactly as it is, and
+                the AI apps you connected keep working — they hold their own grants.
+              </Text>
+            </Grow>
+            <Button
+              label="Sign out"
+              disabled={onSignOut === undefined}
+              onPress={onSignOut}
+              testID="settings-sign-out"
+            />
+          </Row>
+        </Card>
+        {/*
+          The way all the way out. Absent in the demo, where there is no
+          account to delete.
+        */}
+        {data.deleteAccount ? (
+          <View style={styles.spaced}>
+            <DeleteAccountCard deleteAccount={data.deleteAccount} />
+          </View>
+        ) : null}
+      </View>
   );
 }
 

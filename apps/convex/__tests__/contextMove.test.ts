@@ -67,8 +67,17 @@ type Bucket = MemoryStore & FileStore;
  * the binding proved it can, and the conflict half of this suite is meaningless
  * against a stub that deletes whatever it is pointed at.
  */
-function bucket(folders: string[], kind: "personal" | "shared" = "personal"): Bucket {
-  const store = memoryStore({ conditional: true }) as Bucket;
+function bucket(
+  folders: string[],
+  kind: "personal" | "shared" = "personal",
+  /**
+   * Model R2: `If-Match` on DELETE is accepted and ignored, and the binding
+   * says so. This is what every real row probes as, so it is worth being able
+   * to run the whole suite against it.
+   */
+  options: { ignoreIfMatchOnDelete?: boolean } = {},
+): Bucket {
+  const store = memoryStore({ conditional: true, ...options }) as Bucket;
   store.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(folders, kind));
   return store;
 }
@@ -526,6 +535,103 @@ describe("what a cross-context move refuses to do", () => {
       sources: landed.landed.map((entry) => ({ path: entry.destination, etag: entry.etag })),
     });
     expect(destination.objects.has("work/pay.md")).toBe(false);
+  });
+
+  test("on storage that ignores a conditional delete, the edit is still kept", async () => {
+    /*
+      R2 ACCEPTS `If-Match` ON DELETE AND DOES NOT ENFORCE IT.
+
+      Measured in `apps/mcp`, once every binding was probed instead of
+      inheriting a claim: `conditionalDelete` is false on every real row and
+      `conditionalWrite` is true. So the obvious conditional delete is not a
+      guard here at all — an unguarded fallback destroys the edit somebody made
+      while the copy was in the air, silently, on the storage this product
+      actually runs on.
+
+      `retireMovedSource` substitutes a conditional PUT: the source path is
+      claimed with a zero-byte marker under the etag that was copied, which
+      fails if anybody touched it, and only then deleted. This is the same
+      conflict test as the one above, against a bucket that lies about DELETE.
+    */
+    const source = bucket(["1-projects"], "personal", { ignoreIfMatchOnDelete: true });
+    const destination = bucket(["work"]);
+    source.seed("1-projects/pay.md", "# first\n");
+    expect(source.capabilities.conditionalDelete).toBe(false);
+
+    const exported = await exportContextMoveBatch(source, {
+      from: "1-projects/pay.md",
+      to: "work/pay.md",
+      clearance: OWNER,
+    });
+    source.seed("1-projects/pay.md", "# second\n");
+
+    const removed = await deleteMovedSources(source, {
+      sources: [{ path: "1-projects/pay.md", etag: exported.objects[0]!.etag }],
+    });
+
+    expect(removed.deleted).toEqual([]);
+    expect(removed.conflicts).toEqual(["1-projects/pay.md"]);
+    // The newer text, not a zero-byte marker and not nothing.
+    expect(source.snapshot()["1-projects/pay.md"]).toBe("# second\n");
+  });
+
+  test("on that same storage an untouched source is still retired", async () => {
+    const source = bucket(["1-projects"], "personal", { ignoreIfMatchOnDelete: true });
+    const destination = bucket(["work"]);
+    source.seed("1-projects/pay.md", "# Pay\n");
+
+    const result = await runMove(source, destination, {
+      from: "1-projects/pay.md",
+      to: "work/pay.md",
+    });
+
+    // The substitute has to do the ordinary job too: a guard that refused every
+    // move on R2 is the bug this replaced.
+    expect(result.failure).toBeNull();
+    expect(result.moved).toEqual(["1-projects/pay.md"]);
+    expect(source.objects.has("1-projects/pay.md")).toBe(false);
+    expect(destination.snapshot()["work/pay.md"]).toBe("# Pay\n");
+  });
+
+  test("storage that can do neither is refused before anything is copied", async () => {
+    // B2 and Wasabi, which this file already models as `ignoreIfMatch`:
+    // they accept the precondition and write anyway, so the binding reports
+    // no conditional write. Refused by name, and refused on the source side —
+    // where a discovery made any later would already have written the
+    // destination.
+    const source = memoryStore({ ignoreIfMatch: true }) as Bucket;
+    source.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(["1-projects"], "personal"));
+    source.seed("1-projects/pay.md", "# Pay\n");
+    const destination = bucket(["work"]);
+
+    await expect(
+      exportContextMoveBatch(source, {
+        from: "1-projects/pay.md",
+        to: "work/pay.md",
+        clearance: OWNER,
+      }),
+    ).rejects.toThrow(/conflict-safe/);
+    expect(destination.objects.has("work/pay.md")).toBe(false);
+  });
+
+  test("a destination that cannot write only-if-absent is refused too", async () => {
+    const source = bucket(["1-projects"]);
+    const destination = memoryStore() as Bucket;
+    destination.seed(PRIVACY_KEY, renderPrivacyManifestForFolders(["work"], "personal"));
+    source.seed("1-projects/pay.md", "# Pay\n");
+
+    const exported = await exportContextMoveBatch(source, {
+      from: "1-projects/pay.md",
+      to: "work/pay.md",
+      clearance: OWNER,
+    });
+
+    // The read-compare that used to stand in for this is exactly the window a
+    // move must not have: two movers landing on one path both see it free.
+    await expect(
+      importContextMoveBatch(destination, { objects: exported.objects, clearance: OWNER }),
+    ).rejects.toThrow(/only if it is absent|if it is absent/);
+    expect(source.objects.has("1-projects/pay.md")).toBe(true);
   });
 
   test("an encrypted note stays in the context whose key can open it", async () => {

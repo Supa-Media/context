@@ -916,10 +916,16 @@ unproven capability: a binding that claims conditional writes it does not have
 loses somebody's edit silently, which is the one failure a notes product cannot
 have. That rule is right and is not what was wrong. What was wrong is that
 absent and `false` arrived at it as the same value, so every binding older than
-the field reported no conditional delete, `moveSafetyRefusal` refused every
-move in those workspaces, and the buckets underneath were R2 — which has
-supported conditional delete throughout. A paying customer found it, not a
-test.
+the field reported no conditional delete and `moveSafetyRefusal` refused every
+move in those workspaces. A paying customer found it, not a test.
+
+That section also asserted the buckets underneath "have supported conditional
+delete throughout", and **the backfill it argued for is what disproved it**:
+once every row was probed rather than assumed, `conditionalDelete` came back
+`false` on all of them. R2 accepts `If-Match` on DELETE and does not enforce
+it, which is the shape the probe is built to catch and the reason it fails
+closed. The refusal was reporting the truth; the feature it refused was the
+thing that needed to change. See the section below.
 
 Nothing re-asked, and that is the structural half. There was no storage job in
 `crons.ts`, and `reverifyStorage` is a button an owner presses; asking somebody
@@ -967,6 +973,51 @@ preconditions makes every capability test vacuous in the direction that works.
 `apps/convex/__tests__/capabilityBackfill.test.ts`, the capability assertions in
 `provisioning.test.ts` and `reverifyStorage.test.ts`, and the two legacy-binding
 checks in `apps/mcp/test/storeFactory.test.mjs` fail.
+
+## A conditional write is the guard a conditional delete would have been
+
+A move is copy-then-delete, and the delete is the half that can destroy work:
+an edit landing between the two is lost, and the copy already taken is the
+older version. So every move required `conditionalDelete` and refused without
+it — the right instinct, applied to the wrong primitive.
+
+**R2 does not enforce `If-Match` on DELETE.** Measured, after the capability
+backfill above made it measurable: the probe declares the capability, tests it,
+and every binding in production answered `false`. The consequence was total and
+went unnoticed because it was worded as somebody else's fault — no note could
+be moved, renamed, batched or handed to another workspace, on the storage this
+product runs on, and each refusal named the storage provider. `conditionalWrite`
+and `conditionalCreate` were `true` throughout.
+
+The substitute is a conditional **write**, in `retireMovedSource`:
+
+1. PUT the source path with `If-Match` on the etag that was copied. Atomic, and
+   it fails if anybody touched the note — the same conflict the conditional
+   delete reported, from the same evidence.
+2. The object at that path is now a zero-byte marker of ours, so the DELETE
+   that follows needs no precondition: there is nothing there left to lose.
+
+`moveSafetyRefusal` therefore accepts **either** conditional, and a store with
+neither is still refused by name. That is not a softening: a store that cannot
+claim a path cannot move a note safely, and B2 and Wasabi remain refused.
+
+**Trash is a cross-workspace concern only.** A same-workspace move needs no
+extra copy, because the destination *is* the copy — a third one in the same
+bucket is storage the customer pays for to hold what they already have. A
+cross-workspace move is the exception, and the reason is the one thing it
+cannot promise: its destination is a different bucket, which the owner may stop
+being able to reach. So that move alone leaves the source bytes under
+`.context/trash/<timestamp>/<original path>`, plumbing and therefore invisible
+to every listing, search and privacy decision.
+
+**What a simplification of this would cost.** Dropping the conditional claim
+and deleting outright is the silent data loss, and it is three checks in
+`test/moveWithoutConditionalDelete.test.mjs` — measured by sabotage, not
+assumed. Accepting a store with neither conditional lets a move start that can
+only finish unsafely. Taking the trash copy after the claim archives the
+marker instead of the note. Keeping the old requirement in
+`deleteObjectForMove` lets a large folder cut over logically and then never
+materialize, which is worse than refusing up front.
 
 ## Which folder is "the archive" is a question, not a constant
 
@@ -1114,13 +1165,34 @@ through it in flight, bounded by `CONTEXT_MOVE_BATCH_BYTES`; nothing is stored.
 That is the same transit every `readNote` already makes and is not what
 non-negotiable #1 forbids, which is the control plane *holding* note content.
 
-**Copy, verify, then delete, per object.** The destination answers with an etag
-before the source key is removed, and the removal is conditional on the etag the
-copy was taken at. A batch that dies leaves objects in both places, which the
-next pass simply does not see — the recoverable direction. The opposite order
-loses notes. A source edited between the copy and the delete keeps the newer
-text: the copy is rolled back and the move stops, because silently deleting the
-newer one is the only outcome here that destroys work.
+**Copy, verify, then retire, per object.** The destination answers with an etag
+before the source key is touched. A batch that dies leaves objects in both
+places, which the next pass simply does not see — the recoverable direction. The
+opposite order loses notes. A source edited between the copy and the retirement
+keeps the newer text: the copy is rolled back and the move stops, because
+silently deleting the newer one is the only outcome here that destroys work.
+
+**"Retire" and not "delete", because a conditional DELETE is not a guard on the
+storage this runs on.** R2 accepts `If-Match` on DELETE and ignores it, so the
+obvious `delete(path, { onlyIf: { etagMatches } })` either refuses every move or
+silently destroys that edit. `retireMovedSource` here is the gateway's, ported
+rather than reinvented so two engines cannot drift on a data-loss guard: claim
+the source path with a zero-byte marker under a conditional **PUT** on the
+copied etag — atomic, and it fails if anybody touched the note — then delete the
+marker, which by then is the only thing at that key. Either conditional
+satisfies the source and `conditionalCreate` is required at the destination;
+both are asked before a byte moves, and a store with neither is refused by name.
+
+**No trash copy, and that is a divergence from the gateway's single-note
+cross-workspace move, which keeps one.** The argument there is that this is the
+one move whose destination is a bucket the owner may stop being able to reach.
+It holds, and what does not carry to this path is the arithmetic: the gateway
+trashes one note moved by an agent on a tool call, and this moves a folder a
+person picked a destination for in a dialog that names it — so the copy would
+scale with the folder and double a nine-thousand-note move in the customer's own
+bucket until somebody empties trash. The content is not lost either way; access
+to it is, and giving it away is what the press meant. Reversing this is a
+`trashBody` away and would be a reasonable call to make differently.
 
 **This is also why a cross-context move has no size limit.**
 `FOLDER_OPERATION_CAP` refuses a single-store folder move past 500 files, and
@@ -1155,10 +1227,13 @@ write here" is a second one to get wrong.
 puts a second, wider entry in `CREDENTIAL_BARRIERS` and every argument that
 enumeration exists to force. Deleting before the destination answers loses notes
 on any failure. An unconditional delete loses the edit somebody made while the
-move ran. A persisted listing cursor skips objects on S3-compatible providers.
+move ran. A persisted listing cursor skips objects on S3-compatible providers. Trusting a
+conditional DELETE destroys an edit made mid-move on R2, silently, while the
+code claims it is kept.
 Doing it in one request reintroduces the 500-file ceiling on the operation whose
 whole point is not having one. `apps/convex/__tests__/contextMove.test.ts` and
 `contextMoves.test.ts` fail — in particular "a folder larger than a single-store
 move could touch still moves, whole", "a note edited between the copy and the
-delete keeps the newer text", and the endpoint enumeration that makes a fourth
-public function in that module impossible to add without an isolation test.
+delete keeps the newer text", "on storage that ignores a conditional delete, the edit is still kept",
+and the endpoint enumeration that makes a fourth public function in that module
+impossible to add without an isolation test.

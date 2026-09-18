@@ -27,6 +27,7 @@ import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
+import { runMoveWithoutConditionalDeleteChecks } from "./moveWithoutConditionalDelete.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
@@ -4449,6 +4450,7 @@ await runDrawingChecks(check);
 
 await runTenancyChecks(check);
 await runCrossContextChecks(check);
+await runMoveWithoutConditionalDeleteChecks(check);
 // The arguments of a tool call, against the schema `tools/list` advertised for
 // it. Its own control plane and S3 backend, so — like the tenancy suite — it
 // swaps globalThis.fetch and restores it, and must not run while anything

@@ -4,7 +4,7 @@ import { Dot } from "../../design/components/Dot";
 import { Icon, type IconName } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
 import { layout, pointerType as t, radii, space, touchType } from "../../design/tokens";
-import { useAppearanceChoice, useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { atName } from "../format";
 import { selectedContext, type ConsoleContext, type ConsoleData } from "../types";
 import { settingsPreview } from "./previews";
@@ -83,18 +83,6 @@ export function SettingsList({
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
   const current = selectedContext(data);
-  /*
-    The one preview that is not on `ConsoleData`. It is the person's setting
-    rather than the context's, so it is read from the provider here and passed
-    down, instead of `settingsPreview` reaching for a hook and stopping being
-    a pure function with tests.
-
-    Handed over whole rather than as `choice`, because `choice` is `"system"`
-    until the device answers on a native cold start — see `settingsPreview`,
-    which takes `ready` with it so that dropping it is a type error rather
-    than a thing to remember.
-  */
-  const appearance = useAppearanceChoice();
   const shown = matchSettingsSections(sections, query);
   const searching = query.trim() !== "";
 
@@ -103,7 +91,7 @@ export function SettingsList({
       key={entry.key}
       icon={entry.icon}
       label={entry.label}
-      value={settingsPreview(entry.key, data, appearance)}
+      value={settingsPreview(entry.key, data)}
       selected={entry.key === active}
       compact={compact}
       testID={`settings-section-${entry.key}`}

@@ -2350,6 +2350,10 @@ export async function exportContextMoveBatch(
   const to = requirePath(options.to);
   assertWritablePath(from);
   assertWritablePath(to);
+  // Before the first read, not after the first copy: a move that discovered
+  // this on the way to retiring a source would already have written the
+  // destination, and the only way out of that is a duplicate.
+  assertSourceCanRetire(store);
 
   const state = await loadPrivacyState(store);
   if (state.invalid) {
@@ -2499,6 +2503,8 @@ export async function importContextMoveBatch(
     root?: string;
   },
 ): Promise<ContextMoveImport> {
+  assertDestinationCanLand(store);
+
   const state = await loadPrivacyState(store);
   if (state.invalid) {
     throw new FileOpError(
@@ -2590,10 +2596,13 @@ export async function importContextMoveBatch(
           },
         };
       }
-      const created =
-        store.capabilities?.conditionalCreate === true
-          ? await store.put(entry.destination, entry.object.bytes, { onlyIf: { absent: true } })
-          : await store.put(entry.destination, entry.object.bytes);
+      // Unconditionally conditional: `assertDestinationCanLand` has already
+      // refused a store that cannot do this, so there is no fallback arm to
+      // get wrong — and the fallback that used to be here was a read-compare,
+      // which is exactly the window this operation must not have.
+      const created = await store.put(entry.destination, entry.object.bytes, {
+        onlyIf: { absent: true },
+      });
       if (created === null) {
         return {
           landed,
@@ -2632,19 +2641,103 @@ export async function importContextMoveBatch(
  * is reported as a conflict instead, and the caller removes the stale copy it
  * made and stops — see `contextMoves.ts`.
  */
+/**
+ * Take one copied object out, under a guard the storage will actually enforce.
+ *
+ * **A conditional DELETE is not that guard on the storage this product runs
+ * on.** R2 accepts `If-Match` on DELETE and ignores it — measured, in
+ * `apps/mcp`'s "Move a note on storage that will not enforce a conditional
+ * delete", once every binding was probed instead of inheriting a claim: every
+ * real row came back `conditionalDelete: false` and `conditionalWrite: true`.
+ * So the obvious `delete(path, { onlyIf: { etagMatches } })` either refuses
+ * every move (if the capability is required) or silently destroys the edit
+ * somebody made mid-move (if it is not) — and the second is what the
+ * unguarded fallback here used to do, while this file's own comment claimed
+ * the newer text was kept.
+ *
+ * The substitute is the gateway's `retireMovedSource`, ported rather than
+ * reinvented so the two engines cannot drift on a data-loss guard:
+ *
+ *   1. PUT a zero-byte marker at the source path under `If-Match` on the etag
+ *      that was copied. Atomic, and it fails if anybody touched the note —
+ *      the same conflict, established from the same evidence.
+ *   2. Delete the marker. By then the only thing at that key is ours, so the
+ *      delete cannot destroy a customer's bytes whether or not it is
+ *      conditional.
+ *
+ * `unguarded` is a store that can do neither, which `assertContextMoveSafe`
+ * refuses before anything is copied. It is returned rather than thrown so that
+ * a caller which somehow reaches it treats it as a refusal instead of as a
+ * successful retirement.
+ */
+async function retireMovedSource(
+  store: FileStore,
+  key: string,
+  etag: string,
+): Promise<"retired" | "conflict" | "unguarded"> {
+  if (etag === "") return "unguarded";
+  if (store.capabilities?.conditionalDelete === true) {
+    const deleted = await store.delete(key, { onlyIf: { etagMatches: etag } });
+    return deleted === null ? "conflict" : "retired";
+  }
+  if (store.capabilities?.conditionalWrite !== true) return "unguarded";
+  const claimed = await store.put(key, new Uint8Array(0), { onlyIf: { etagMatches: etag } });
+  if (claimed === null) return "conflict";
+  try {
+    await store.delete(key);
+  } catch {
+    // A zero-byte marker at a path whose content is already at the destination.
+    // The next pass lists it, finds nothing to carry, and removes it; reporting
+    // the move as failed here would be the false half of a move that happened.
+  }
+  return "retired";
+}
+
+/**
+ * What each end of a cross-context move needs of its own store.
+ *
+ * The gateway's `moveSafetyRefusal`, split in two because the two stores are
+ * opened by two different calls through the credential barrier and nothing in
+ * this process ever holds both. Each half is asked **before its own side does
+ * anything**, and refused by name rather than silently degraded: the
+ * degradation is "your edit was destroyed instead of refused", which is the
+ * one outcome this operation may never have.
+ *
+ * Either conditional satisfies the source, for the reason `retireMovedSource`
+ * gives at length. B2 and Wasabi have neither and are refused, which is what
+ * every other conflict-safe path in this file already does to them.
+ */
+function assertSourceCanRetire(store: FileStore): void {
+  if (
+    store.capabilities?.conditionalDelete !== true &&
+    store.capabilities?.conditionalWrite !== true
+  ) {
+    throw new FileOpError(
+      "STORAGE_UNSAFE",
+      "This context is on storage that cannot make a conflict-safe write, so a note edited while it moved would be lost rather than refused. Nothing was moved.",
+    );
+  }
+}
+
+function assertDestinationCanLand(store: FileStore): void {
+  if (store.capabilities?.conditionalCreate !== true) {
+    throw new FileOpError(
+      "STORAGE_UNSAFE",
+      "The context you are moving into is on storage that cannot write a file only if it is absent, so a move there could overwrite something. Nothing was moved.",
+    );
+  }
+}
+
 export async function deleteMovedSources(
   store: FileStore,
   options: { sources: readonly { path: string; etag: string }[] },
 ): Promise<{ deleted: string[]; conflicts: string[] }> {
   const deleted: string[] = [];
   const conflicts: string[] = [];
-  const conditional = store.capabilities?.conditionalDelete === true;
   for (const source of options.sources) {
-    const removed = conditional
-      ? await store.delete(source.path, { onlyIf: { etagMatches: source.etag } })
-      : await store.delete(source.path);
-    if (removed === null) conflicts.push(source.path);
-    else deleted.push(source.path);
+    const retired = await retireMovedSource(store, source.path, source.etag);
+    if (retired === "retired") deleted.push(source.path);
+    else conflicts.push(source.path);
   }
 
   if (deleted.length > 0) {

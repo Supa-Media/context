@@ -1,3 +1,6 @@
+import type { AppSectionKey } from "../nav";
+import type { SettingsSectionKey } from "../settings/sections";
+
 /**
  * Where you have been in this context, and the way back.
  *
@@ -27,18 +30,128 @@
  * visit, the ends of the list — are tested without a renderer.
  */
 
+/**
+ * A PAGE, NOT A PATH — and this is the correction, not the original design.
+ *
+ * `entries` held `string[]`, and every string was a file or folder path. So
+ * the console's other destinations were not "somewhere you had been" with a
+ * poor label; they did not exist. Reported from a phone: open Settings, open a
+ * note from it, press `‹`, and you land on the note you were reading *before* —
+ * because the only list `‹` could walk was the notes.
+ *
+ * Every kind here is a place with its own URL (`nav.ts` makes that the rule:
+ * "the back button has to mean something"), so this union is the set of URLs
+ * one context can be showing, minus the context segment they share:
+ *
+ *  - **`path`** — a note or a folder, and with it the inbox, a channel and a
+ *    contact page. Those are addressed by path too (`classifyCommsPath`), so
+ *    they came along the moment the other two kinds did rather than needing a
+ *    kind each.
+ *  - **`settings`** — the overlay, *per section*. `?settings=storage` and
+ *    `?settings=ingestion` are different URLs and a person moving between them
+ *    has moved; collapsing them to one "settings" place would make `‹` skip a
+ *    page, which is the same defect wearing a different shape.
+ *  - **`app`** — Search, Map, Connections. Above a context rather than inside
+ *    one, and reachable without changing which context is selected, so they
+ *    belong in the same list.
+ *
+ * What is deliberately **not** a kind is another context. Paths are relative to
+ * a bucket — see `clearedHistory`, which is unchanged and still wipes on a
+ * context switch, for what carrying one across would offer somebody.
+ */
+export type Place =
+  | { kind: "path"; path: string }
+  | { kind: "settings"; section: SettingsSectionKey }
+  | { kind: "app"; section: AppSectionKey };
+
+export function notePlace(path: string): Place {
+  return { kind: "path", path };
+}
+
+export function settingsPlace(section: SettingsSectionKey): Place {
+  return { kind: "settings", section };
+}
+
+export function appPlace(section: AppSectionKey): Place {
+  return { kind: "app", section };
+}
+
+/**
+ * Whether two places are the same one.
+ *
+ * `kind` first, and that is the whole reason this is a function rather than a
+ * payload comparison: a note called `storage.md` and the storage settings
+ * section both carry the string "storage", and a comparison that looked only
+ * at the payload would call them one place and swallow the step between them.
+ */
+export function samePlace(a: Place | null, b: Place | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.kind !== b.kind) return false;
+  if (a.kind === "path") return a.path === (b as { path: string }).path;
+  return a.section === (b as { section: string }).section;
+}
+
+/**
+ * Which place the console is showing, from the three things that decide it.
+ *
+ * Here rather than inline in the layout, and that is the lesson of the defect
+ * this replaced: the *model* was wide enough to hold a settings section long
+ * before anything recorded one, so a suite full of passing history tests said
+ * nothing at all about whether `‹` could reach Settings. A derivation that
+ * lives in a `useMemo` is a derivation with no test.
+ *
+ * The order is the order the screen stacks them, and each step is a real
+ * precedence rather than a preference:
+ *
+ *  1. **The settings overlay wins**, because it is drawn over Browse with the
+ *     note still mounted behind it. Asking "which path is selected" while it
+ *     is open answers about the page underneath.
+ *  2. **An app pane next.** Search, Map and Connections are outside a context
+ *     but do not clear its selection, so a stale path survives into them.
+ *  3. **Otherwise the selection**, which is a note, a folder, the inbox, a
+ *     channel or a contact — all addressed by path.
+ *
+ * `null` means "nowhere yet", which is the frame before the first selection
+ * lands, and it records nothing rather than recording a guess.
+ */
+export function placeOf(where: {
+  settingsSection: SettingsSectionKey | null;
+  routeKind: "landing" | "app" | "context";
+  appSection: AppSectionKey | null;
+  selectedPath: string | null;
+}): Place | null {
+  if (where.settingsSection !== null) return settingsPlace(where.settingsSection);
+  if (where.routeKind === "app" && where.appSection !== null) {
+    return appPlace(where.appSection);
+  }
+  return where.selectedPath === null ? null : notePlace(where.selectedPath);
+}
+
 export interface HistoryState {
-  /** Visited paths, oldest first. */
-  entries: readonly string[];
+  /** Visited places, oldest first. */
+  entries: readonly Place[];
   /** Cursor into `entries`. `-1` only while nothing has been visited. */
   at: number;
 }
 
 export const emptyHistory: HistoryState = { entries: [], at: -1 };
 
-/** The note the cursor is on, or `null` before anything has been visited. */
-export function currentPath(state: HistoryState): string | null {
+/** The place the cursor is on, or `null` before anything has been visited. */
+export function currentPlace(state: HistoryState): Place | null {
   return state.at < 0 ? null : (state.entries[state.at] ?? null);
+}
+
+/**
+ * The path the cursor is on, or `null`.
+ *
+ * `null` where the current place is a settings section or an app pane, **not**
+ * the last path behind it. Callers select a file with this, and answering with
+ * a stale path would move the selection out from under somebody who pressed
+ * back to reach a setting.
+ */
+export function currentPath(state: HistoryState): string | null {
+  const place = currentPlace(state);
+  return place !== null && place.kind === "path" ? place.path : null;
 }
 
 /**
@@ -49,10 +162,10 @@ export function currentPath(state: HistoryState): string | null {
  * would need two presses to go anywhere — which is the bug that makes people
  * stop trusting a back button.
  */
-export function visited(state: HistoryState, path: string): HistoryState {
-  if (currentPath(state) === path) return state;
+export function visited(state: HistoryState, place: Place): HistoryState {
+  if (samePlace(currentPlace(state), place)) return state;
   const kept = state.entries.slice(0, state.at + 1);
-  return { entries: [...kept, path], at: kept.length };
+  return { entries: [...kept, place], at: kept.length };
 }
 
 /**
@@ -91,10 +204,19 @@ export function recentPaths(state: HistoryState): string[] {
   const seen = new Set<string>();
   const recent: string[] = [];
   for (let index = state.entries.length - 1; index >= 0; index -= 1) {
-    const path = state.entries[index];
-    if (seen.has(path)) continue;
-    seen.add(path);
-    recent.push(path);
+    /*
+      Paths only, now that history is wider than this sheet.
+
+      The sheet draws file names and sends `select(path)`, so a settings
+      section listed here would be a row that either reads as a note or
+      navigates nowhere. `‹` owes every page; Recent is a list of notes and
+      folders and says so.
+    */
+    const place = state.entries[index];
+    if (place === undefined || place.kind !== "path") continue;
+    if (seen.has(place.path)) continue;
+    seen.add(place.path);
+    recent.push(place.path);
     if (recent.length === MAX_RECENT) break;
   }
   return recent;
@@ -115,7 +237,9 @@ export function recentPaths(state: HistoryState): string[] {
  * only entry is the same dead end.
  */
 export function hasSomewhereToGo(state: HistoryState, selected: string | null): boolean {
-  return state.entries.some((path) => path !== selected);
+  // Against the sheet's own rows rather than every entry: a settings section
+  // in the list is not somewhere this sheet can send anybody.
+  return recentPaths(state).some((path) => path !== selected);
 }
 
 export function canGoBack(state: HistoryState): boolean {

@@ -476,6 +476,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * Inert where it should be: on a phone this sits inside `BrowsePane`'s
    * scroller, whose content container does not stretch its children, so the
    * page goes on being as long as what is in it.
+   *
+   * On a pointer layout it is inside a scroller too now — `document-scroll`,
+   * which is what lets a fifty-row folder be read past the bottom of the
+   * window. That one's content container carries `flexGrow: 1` so this goes on
+   * growing to the region: without it the background would hug the rows again
+   * and the empty area below them would stop answering a right-click, which is
+   * the thing this style exists for.
    */
   folder: { flexGrow: 1 },
   /*
@@ -592,6 +599,16 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the least — on a bucket laid out the standard way it is the same word eight
    * times over. A pip reads as "this one differs" at a glance, and carries its
    * meaning in the accessible name for anybody who needs it spelled out.
+   *
+   * **This slot is for exceptions, and that is why there is no count here.**
+   * `Phone-Browse.dc.html` draws a `3` beside `0-inbox` in this position; the
+   * owner declined it on 2026-09-18 — "that is not what the inbox there means"
+   * — and the reason it belongs in this comment rather than only in the design
+   * record is that the slot is the argument. A count is not an exception about
+   * anything, so it would be the first mark here not making the listing's one
+   * claim, and the pip beside it would lose the meaning it has by being the
+   * only thing in the slot. See `docs/decisions/app-and-console.md`, "A folder
+   * row says what differs, so `0-inbox` gets no count".
    */
   pip: { width: 7, height: 7, borderRadius: 4 },
   pipTeam: { backgroundColor: colors.accent },

@@ -317,6 +317,26 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
+/*
+  WHICH KIND OF COLUMN A RESPONSE CELL IS.
+
+  A column of answers and a column *about* an answer want opposite things from
+  the layout, and the table is built from `config.fields` — so which is which is
+  known here, at build time, and is said in a class. `:nth-child(n + 4)` in the
+  stylesheet would be a second copy of the field count living somewhere it can
+  never be checked against the first.
+
+  What the two classes buy is in `livePreviewStyles`: a handle, a timestamp and
+  a row of buttons never wrap, an answer wraps inside a capped column, and the
+  table is as wide as its columns need with the box scrolling sideways under it.
+*/
+/** A column holding what somebody answered. */
+const VALUE_CELL = "cm-lp-form-cell-value";
+/** A column holding a fact about the response: who, when, votes, actions. */
+const META_CELL = "cm-lp-form-cell-meta";
+/** `At`, which is a meta column that also wants tabular digits. */
+const AT_CELL = `${META_CELL} cm-lp-form-cell-at`;
+
 /**
  * A form, drawn from its own declaration, that submits.
  *
@@ -622,15 +642,12 @@ export class FormWidget extends WidgetType {
     table.className = "cm-lp-form-responses-table";
     const head = document.createElement("thead");
     const headings = document.createElement("tr");
-    for (const label of [
-      ...config.fields.map((field) => field.name.replace(/_/g, " ")),
-      "By",
-      "At",
-    ]) {
-      headings.append(el("th", "", label));
+    for (const field of config.fields) {
+      headings.append(el("th", VALUE_CELL, field.name.replace(/_/g, " ")));
     }
-    if (config.votes === "named") headings.append(el("th", "", "Votes"));
-    if (config.edit_own) headings.append(el("th", "", "Actions"));
+    headings.append(el("th", META_CELL, "By"), el("th", AT_CELL, "At"));
+    if (config.votes === "named") headings.append(el("th", META_CELL, "Votes"));
+    if (config.edit_own) headings.append(el("th", META_CELL, "Actions"));
     head.append(headings);
     table.append(head);
 
@@ -638,17 +655,24 @@ export class FormWidget extends WidgetType {
     for (const response of responses) {
       const row = document.createElement("tr");
       for (const field of config.fields) {
-        row.append(el("td", "", response.values[field.name] ?? ""));
+        row.append(el("td", VALUE_CELL, response.values[field.name] ?? ""));
       }
-      row.append(el("td", "", response.by), el("td", "", response.at));
+      row.append(el("td", META_CELL, response.by), el("td", AT_CELL, response.at));
       if (config.votes === "named") {
-        const cell = document.createElement("td");
+        const cell = el("td", META_CELL);
+        /*
+          The voters and the buttons on one line. Stacked, this was the tallest
+          cell in the table and so the height of every row — two lines spent on
+          a column that holds no answer. See the stylesheet.
+        */
+        const line = el("div", "cm-lp-form-votes");
         const voters = el(
           "div",
           "cm-lp-form-voters",
           response.votes.length === 0 ? "No votes" : response.votes.join(", "),
         );
-        cell.append(voters);
+        line.append(voters);
+        cell.append(line);
         const vote = this.host?.current?.vote;
         if (vote !== undefined) {
           const controls = el("div", "cm-lp-form-vote-controls");
@@ -675,12 +699,12 @@ export class FormWidget extends WidgetType {
           add.addEventListener("click", () => void run("up"));
           remove.addEventListener("click", () => void run("none"));
           controls.append(add, remove);
-          cell.append(controls);
+          line.append(controls);
         }
         row.append(cell);
       }
       if (config.edit_own) {
-        const cell = document.createElement("td");
+        const cell = el("td", META_CELL);
         const controls = el("div", "cm-lp-form-response-controls");
         if (this.host?.current?.update !== undefined) {
           const change = el("button", "cm-lp-form-response-action cm-lp-form-edit", "Edit");

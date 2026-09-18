@@ -86,9 +86,18 @@ async function bindBucket(
       bucket,
       accessKeyId: FAKE_STORAGE.accessKeyId,
       encryptedSecretAccessKey,
-      // Conditional create and delete are what a move requires: the copy is
-      // made with `absent`, the source removed with `etagMatches`.
-      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      /*
+        THE SHAPE A REAL BINDING PROBES AS, NOT THE FLATTERING ONE.
+
+        R2 accepts `If-Match` on DELETE and ignores it, so every real row comes
+        back `conditionalDelete: false` with the other two true — measured in
+        `apps/mcp`'s "Move a note on storage that will not enforce a
+        conditional delete". Writing `true` here would run this whole suite
+        down a branch no customer is on and leave `retireMovedSource`'s
+        conditional-PUT substitute — the thing that actually protects an edit
+        made mid-move — untested end to end.
+      */
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: false },
       status: "connected" as const,
       lastVerifiedAt: Date.now(),
       boundBy,

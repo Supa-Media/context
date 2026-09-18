@@ -43,7 +43,11 @@ import {
   type FormOutcome,
   type FormSubmission,
 } from "../features/console/files/formBlock";
-import { decorationsFor, markdownLanguage } from "../features/console/files/livePreview";
+import {
+  decorationsFor,
+  livePreviewStyles,
+  markdownLanguage,
+} from "../features/console/files/livePreview";
 
 const FORM = [
   "# Feedback",
@@ -620,5 +624,198 @@ describe("in the decoration set", () => {
   test("and a surface that configured none draws the form with its button off", () => {
     const dom = widgets(stateFor(FORM))[0].toDOM();
     expect(dom.querySelector<HTMLButtonElement>(".cm-lp-form-submit")?.disabled).toBe(true);
+  });
+});
+
+/**
+ * THE RESPONSE TABLE IS READ ACROSS, NOT CRUSHED INTO THE CARD.
+ *
+ * What this replaced, from a screenshot of the feature-request form: a table at
+ * `width: 100%` inside a card the width of the reading measure, with seven
+ * columns. The browser's only move is to shrink every column until the whole
+ * thing fits, so `@seyi` broke across two lines mid-handle, a timestamp took
+ * four, and one response was 190px tall. Every column was equally unreadable in
+ * service of showing all of them at once.
+ *
+ * The owner pointed at Notion, twice, and the two screenshots are the whole
+ * specification: columns keep the width their content needs, rows stay one
+ * band tall, and what does not fit is reached by scrolling sideways — in the
+ * second screenshot the first column has scrolled away entirely, so nothing is
+ * pinned and the sideways scroll is the only mechanism.
+ *
+ * Three rules, and the reason each is a class rather than an nth-child:
+ *
+ *  1. **A column of answers and a column about the answer want opposite
+ *     things.** `@seyi`, `2026-09-13T04:19Z` and a row of buttons must never
+ *     wrap; a person's sentence must. The table is built from `config.fields`,
+ *     so which column is which is known at build time and is said in a class —
+ *     `:nth-child(4)` would be a second copy of the field count, and would be
+ *     wrong for the next form.
+ *  2. **Nothing is truncated.** Notion clips a cell and you open the row to
+ *     read it; this table has no row to open, and the whole point of the
+ *     feature is collecting what people wrote. So a long answer wraps inside a
+ *     capped column instead of being hidden behind a hover a phone does not
+ *     have.
+ *  3. **The scroll box runs to the card's edge.** A scroll inset by the card's
+ *     padding leaves a dead gutter the content slides under, which reads as
+ *     clipping rather than as scrolling.
+ *
+ * jsdom does not lay out, so these check the DOM and the declarations that
+ * produce the layout; the layout itself was read off the two screenshots.
+ */
+describe("the response table is read across, not crushed", () => {
+  const WITH_LONG_ANSWER: FormHostContext = {
+    submit: async () => ({ ok: true, message: "Sent." }),
+    vote: async () => ({ ok: true, message: "Vote added." }),
+    update: async () => ({ ok: true, message: "Updated." }),
+    retract: async () => ({ ok: true, message: "Deleted." }),
+    readResponses: async () => ({
+      ok: true,
+      message: "",
+      text: [
+        "<!-- context:form responses id=bugs layout=table -->",
+        "",
+        "| Id | By | At | summary | detail | area | Votes |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| r-1234abcd | @alex | 2026-09-13T03:20Z | default viewing mode on page" +
+          " — this page should be default view-mode so that people see the input" +
+          " box rather than the text | | app | @seyi, @shyoh |",
+      ].join("\n"),
+    }),
+  };
+
+  async function table(): Promise<HTMLElement> {
+    const state = stateFor(FORM, { host: WITH_LONG_ANSWER });
+    const dom = new FormWidget(formFences(state)[0], { current: WITH_LONG_ANSWER }).toDOM();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return dom.querySelector<HTMLElement>(".cm-lp-form-responses-table")!;
+  }
+
+  /** The rule body for one selector, as `livePreviewStyles` declares it. */
+  function rule(selector: string): string {
+    const at = livePreviewStyles.indexOf(selector + " {");
+    expect(at).toBeGreaterThan(-1);
+    return livePreviewStyles.slice(at, livePreviewStyles.indexOf("}", at));
+  }
+
+  test("an answer's column and a column about the answer are told apart", async () => {
+    const rows = (await table()).querySelectorAll("tbody td");
+    // summary, detail, area — then by, at, votes, actions.
+    expect([...rows].map((cell) => cell.className)).toEqual([
+      "cm-lp-form-cell-value",
+      "cm-lp-form-cell-value",
+      "cm-lp-form-cell-value",
+      "cm-lp-form-cell-meta",
+      "cm-lp-form-cell-meta cm-lp-form-cell-at",
+      "cm-lp-form-cell-meta",
+      "cm-lp-form-cell-meta",
+    ]);
+  });
+
+  test("...and their headings carry the same classes, so the column agrees with itself", async () => {
+    const headings = (await table()).querySelectorAll("thead th");
+    expect([...headings].map((cell) => cell.className)).toEqual([
+      "cm-lp-form-cell-value",
+      "cm-lp-form-cell-value",
+      "cm-lp-form-cell-value",
+      "cm-lp-form-cell-meta",
+      "cm-lp-form-cell-meta cm-lp-form-cell-at",
+      "cm-lp-form-cell-meta",
+      "cm-lp-form-cell-meta",
+    ]);
+  });
+
+  /*
+    SABOTAGE: `width: 100%` back on the table. Fails here, and is exactly the
+    screenshot this describe block opens with.
+  */
+  test("the table takes the width its columns need and the box scrolls", () => {
+    expect(rule(".cm-lp-form-responses-table")).toContain("width: max-content");
+    // ...and still fills the card when the columns do not need all of it.
+    expect(rule(".cm-lp-form-responses-table")).toContain("min-width: 100%");
+    expect(rule(".cm-lp-form-responses-scroll")).toContain("overflow-x: auto");
+  });
+
+  test("a handle, a timestamp and a row of buttons never wrap", () => {
+    expect(rule(".cm-lp-form-cell-meta")).toContain("white-space: nowrap");
+  });
+
+  test("...and an answer wraps rather than running the table off the screen", () => {
+    expect(rule(".cm-lp-form-cell-value")).toContain("max-width");
+    expect(rule(".cm-lp-form-cell-value")).not.toContain("nowrap");
+    expect(rule(".cm-lp-form-cell-value")).not.toContain("text-overflow");
+  });
+
+  /*
+    SABOTAGE: drop the vw term and cap at 24em flat. Nothing fails elsewhere and
+    the table still scrolls — it just stops saying that it does, which is the
+    defect this term exists for. At 24em the answer column fills a phone
+    exactly, so the next column begins at the card's edge and a table with four
+    more columns looks like one with none. The scrollbar that would say
+    otherwise is a transient overlay on a touch device.
+  */
+  test("the next column peeks, because a scroll nobody can see is not offered", () => {
+    expect(rule(".cm-lp-form-cell-value")).toContain("min(24em, 72vw)");
+  });
+
+  test("the whole answer is in the cell, not a truncation of it", async () => {
+    const cell = (await table()).querySelector("tbody td");
+    expect(cell?.textContent).toContain("people see the input box rather than the text");
+  });
+
+  /*
+    SABOTAGE: append the controls to the cell rather than to the line. Fails
+    here, and puts back the two-line Votes cell that set every row's height.
+  */
+  test("the voters and their buttons share one line, not one column each", async () => {
+    const votes = (await table()).querySelector(".cm-lp-form-votes");
+    expect(votes?.querySelector(".cm-lp-form-voters")?.textContent).toBe("@seyi, @shyoh");
+    expect(votes?.querySelector(".cm-lp-form-vote-controls")).not.toBeNull();
+    expect(rule(".cm-lp-form-votes")).toContain("display: flex");
+  });
+
+  /*
+    The defect this table's own fix would otherwise have introduced. A declined
+    vote replaces the voters with the gateway's message and a declined delete
+    replaces the button's label — both inside a column that never wraps, in a
+    table that is now as wide as its widest content. One refused delete would
+    have pushed every column right of it off the card and left it there.
+
+    SABOTAGE: drop either `white-space: normal`. Fails here — and measured in
+    Chromium at 390pt, against a card 340px wide: capped, a refusal takes the
+    table to 1214px whether the message is 38 characters or 150. Uncapped it is
+    1340px and 2751px, which is to say it is however long the sentence is.
+  */
+  test("a refusal from the gateway wraps instead of setting the table's width", () => {
+    expect(rule(".cm-lp-form-voters")).toContain("white-space: normal");
+    expect(rule(".cm-lp-form-voters")).toContain("max-width");
+    expect(rule(".cm-lp-form-response-action")).toContain("white-space: normal");
+    expect(rule(".cm-lp-form-response-action")).toContain("max-width");
+  });
+
+  test("the scroll box runs to the card's edge rather than inside its padding", () => {
+    // The band's own horizontal padding is zero; the gutter is carried by the
+    // first and last cell, so the rows slide under the card's edge.
+    expect(rule(".cm-lp-form-responses")).toContain("padding: var(--form-gutter) 0");
+    expect(rule(".cm-lp-form-responses-table td:first-child")).toContain(
+      "padding-left: var(--form-gutter)",
+    );
+  });
+
+  /*
+    One number for the card's gutter, declared on the card. It was 14px in four
+    rules and 9px, 11px and 14px vertically in three of them, which is what
+    "the spacing looks off" was: no two bands agreed on where their edge was.
+  */
+  test("every band measures its gutter from one declaration", () => {
+    expect(rule(".cm-lp-form")).toContain("--form-gutter:");
+    for (const selector of [
+      ".cm-lp-form-head",
+      ".cm-lp-form-fields",
+      ".cm-lp-form-foot",
+      ".cm-lp-form-responses",
+    ]) {
+      expect(rule(selector)).toContain("var(--form-gutter)");
+    }
   });
 });
