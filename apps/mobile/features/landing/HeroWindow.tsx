@@ -52,7 +52,7 @@ import { fonts, leading, pointerType as t, radii, space, tracking } from "../des
  * lands within three points of every number the canvas drew, and keeps this
  * file from being the place a seventeenth size gets in.
  */
-export function HeroWindow() {
+export function HeroWindow({ compact = false }: { compact?: boolean }) {
   const styles = useThemedStyles(makeStyles);
 
   return (
@@ -75,6 +75,16 @@ export function HeroWindow() {
       </View>
 
       <View style={styles.body}>
+        {/*
+          NO TREE ON A PHONE, WHICH IS WHAT `Landing-Phone.dc.html` DRAWS.
+
+          The tree is 210pt of a 390pt screen, and what is left is 180 for a
+          note — measured, that wrapped `spirit / bible-study / kings` to one
+          word per line and turned a picture of a comfortable editor into a
+          picture of a cramped one. The stacked board drops it and keeps the
+          title bar and the note, which is the half that says what this is.
+        */}
+        {compact ? null : (
         <View style={styles.tree}>
           <Row label="0-inbox" meta="3" metaTone="accent" />
           <Row label="1-projects" meta="team" metaTone="team" />
@@ -88,8 +98,9 @@ export function HeroWindow() {
           <Row label="memory-verses" depth={3} />
           <Row label="3-resources" />
         </View>
+        )}
 
-        <View style={styles.note}>
+        <View style={[styles.note, compact && styles.noteCompact]}>
           <Text style={styles.crumb}>spirit / bible-study / kings · private</Text>
           <Text style={styles.noteTitle}>2-kings-5</Text>
           <Text style={styles.noteHeading}>Summary</Text>
@@ -272,6 +283,8 @@ const makeStyles = (colors: Colors) =>
     metaTeam: { color: colors.appTeam },
 
     note: { flex: 1, minWidth: 0, paddingTop: 40, paddingHorizontal: 48 },
+    /* The phone's window is the note alone, so it gets the phone's gutters. */
+    noteCompact: { paddingTop: 20, paddingHorizontal: 20 },
     crumb: {
       fontFamily: fonts.mono,
       fontSize: t.label,

@@ -60,6 +60,7 @@ import {
   TERMS_LINK,
 } from "./copy";
 import { heroHeadingWidth } from "./hero";
+import { densityFor } from "../app/frame";
 
 /** github.com/Supa-Media/context — the repo this page is built from. */
 const REPO_URL = "https://github.com/Supa-Media/context";
@@ -80,6 +81,13 @@ const ARCHITECTURE_URL = "https://github.com/Supa-Media/context#how-it-works";
 export function Landing() {
   const styles = useThemedStyles(makeStyles);
   const { width } = useWindowDimensions();
+  /*
+    One column, at the density that owns the word. `Landing-Phone.dc.html` is
+    the same page stacked, and `densityFor` is what the rest of the application
+    asks — a landing page inventing its own breakpoint is a second answer to
+    "what is a phone".
+  */
+  const phone = densityFor(width) === "compact";
   const router = useRouter();
   const auth = useConvexAuth();
   const demo = useDemoConsoleData();
@@ -222,8 +230,8 @@ export function Landing() {
             those the two stack with the window underneath. One fewer place
             that has to be told what a phone is.
           */}
-          <View style={styles.heroRow}>
-          <View style={styles.hero}>
+          <View style={[styles.heroRow, phone && styles.heroRowPhone]}>
+          <View style={[styles.hero, phone && styles.heroPhone]}>
             {/*
               THE LICENCE CLAIM, BESIDE THE SENTENCE IT QUALIFIES.
 
@@ -332,8 +340,8 @@ export function Landing() {
             and a card is a thing the page contains rather than a thing the
             page is showing you.
           */}
-          <View style={styles.heroWindow}>
-            <HeroWindow />
+          <View style={[styles.heroWindow, phone && styles.heroWindowPhone]}>
+            <HeroWindow compact={phone} />
           </View>
           </View>
 
@@ -568,17 +576,58 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     */
     marginRight: -layout.gutter,
   },
+  /**
+   * A PHONE IS ONE COLUMN, AND IT HAS TO BE SAID TWICE.
+   *
+   * `flexWrap` alone was not enough and the landing page shipped broken at
+   * 390pt because of it: a wrapped row still gives each child its `minWidth`,
+   * so a 420pt window on a 390pt screen overflowed by 30 — and `marginRight:
+   * -28` pulled the whole row a further 28pt past the edge, which is why the
+   * headline, the paragraph and the buttons all ran off the right edge rather
+   * than just the window. Everything below the fold was fine, which is how it
+   * survived a desktop review.
+   *
+   * So the negative margin is a pointer-layout thing (there is no page gutter
+   * worth escaping on a phone) and the columns are told they may shrink —
+   * `minWidth: 0`, which a flex child does not do by default and which is the
+   * whole fix.
+   */
+  heroRowPhone: { flexDirection: "column", alignItems: "stretch", marginRight: 0, gap: 28 },
+  /*
+    `flexBasis: "auto"`, and this one is worth knowing: **in a column, flex-basis
+    is the HEIGHT.** `hero`'s 560 is a width for the two-column layout, and the
+    moment the row became a column it became a 560pt *height* — so the hero box
+    ended 560 down while its content ran on to about 1300, and the window drew
+    straight over the second button. On screen it looked like an overlap bug;
+    in the stylesheet it is one property meaning two things.
+  */
+  heroPhone: { flexBasis: "auto" },
   heroWindow: {
     flexGrow: 1,
     flexBasis: 520,
     minWidth: 420,
     paddingTop: 84,
   },
+  /*
+    `Landing-Phone.dc.html` keeps the window, under the pitch rather than
+    beside it and running off the bottom-right. `minWidth: 0` is what lets it
+    be 390 wide instead of 420.
+  */
+  heroWindowPhone: { minWidth: 0, flexBasis: "auto", width: "100%", paddingTop: 8 },
   hero: {
     flexGrow: 1,
     flexBasis: 560,
-    minWidth: 320,
+    minWidth: 0,
     maxWidth: 660,
+    /*
+      `width: "100%"` with `maxWidth` rather than a basis alone: in the phone's
+      column the basis is the *height* axis's business, and without a width the
+      hero sized itself to its widest child — the H1, whose own `maxWidth` is
+      `heroHeadingWidth(46)` = 434 on a 390 screen. That is how a headline ran
+      off the edge of a page whose document reported no horizontal overflow at
+      all: the stage clips, so `scrollWidth` stayed 390 while the text did not.
+    */
+    width: "100%",
     alignItems: "flex-start",
     // 72, not 88: the eyebrow pill now sits at the top of this column and
     // carries 28 of its own beneath it, so the old gap would compound.
