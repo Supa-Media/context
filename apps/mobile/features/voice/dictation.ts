@@ -46,6 +46,16 @@ export type DictationFailure =
    * looks live while producing no words is the worse failure.
    */
   | "unreachable"
+  /**
+   * The engine needs a connection and this device does not have one.
+   *
+   * Its own case rather than `unreachable`, because the person can act on it
+   * and the action is somewhere else: Chrome's engine is a network service, so
+   * offline it can only fail, while the computer's own dictation — macOS and
+   * Windows both ship one — works with no connection at all. "The words cannot
+   * be made right now" was true and left them with nothing to do.
+   */
+  | "offline"
   /** This surface has no speech engine. See `engine.ts`. */
   | "unsupported";
 

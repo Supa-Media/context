@@ -266,10 +266,58 @@ describe("failures", () => {
 
   test("the network cases are amber, not a refusal", () => {
     const { failureFor } = load();
-    expect(failureFor("network")).toBe("unreachable");
+    /*
+      Chrome's engine is a Google service, so `network` means the words have
+      nowhere to be made — which is a connection problem the person can act on,
+      not an engine that is broken. See `offline` in `dictation.ts`.
+    */
+    expect(failureFor("network")).toBe("offline");
     expect(failureFor("audio-capture")).toBe("no-microphone");
     expect(failureFor("service-not-allowed")).toBe("denied");
     expect(failureFor("something-new-in-2028")).toBe("unreachable");
+  });
+
+  test("a browser that knows it is offline says so, and never opens the microphone", () => {
+    /*
+      The engine Chrome ships sends the audio to a server, so offline it can
+      only fail — after it has opened the microphone and drawn a live capsule.
+      A browser that already says it has no connection is answered before any
+      of that happens, with the sentence that points at the computer's own
+      dictation, which works offline.
+    */
+    const had = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { onLine: false },
+    });
+    try {
+      const { createDictationEngine } = load();
+      const sink = collector();
+      createDictationEngine().open(sink.handlers);
+      expect(built).toHaveLength(0);
+      expect(sink.errors).toEqual(["offline"]);
+    } finally {
+      if (had === undefined) delete (globalThis as { navigator?: unknown }).navigator;
+      else Object.defineProperty(globalThis, "navigator", had);
+    }
+  });
+
+  test("a browser that is online, or will not say, opens as it always did", () => {
+    const had = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    for (const value of [{ onLine: true }, {}]) {
+      Object.defineProperty(globalThis, "navigator", { configurable: true, value });
+      try {
+        built = [];
+        const { createDictationEngine } = load();
+        const sink = collector();
+        createDictationEngine().open(sink.handlers);
+        expect(built).toHaveLength(1);
+        expect(sink.errors).toEqual([]);
+      } finally {
+        if (had === undefined) delete (globalThis as { navigator?: unknown }).navigator;
+        else Object.defineProperty(globalThis, "navigator", had);
+      }
+    }
   });
 
   test("a browser with no engine at all says so and opens nothing", () => {
