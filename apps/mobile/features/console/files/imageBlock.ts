@@ -303,13 +303,23 @@ export function cutBlock(state: EditorState, at: number): { from: number; to: nu
 }
 
 /**
- * Where a pasted image lands.
+ * Where a pasted image lands, and where the caret goes after it.
  *
  * On its own line, always, because a row is a line and an embed dropped into
  * the middle of a sentence would be prose rather than an image this editor can
- * lay out. An empty line takes it directly; a line with text on it gets a new
- * line under it. The caret ends after the embed so a second paste lands beside
- * rather than on top.
+ * lay out.
+ *
+ * **The caret goes to the line *after* it, and that is the whole of the second
+ * version of this function.** The first put the caret after the embed, which is
+ * on the image's own line — and the reveal rule then does exactly what it is
+ * supposed to do: the line the selection is in shows its markup. So a paste
+ * ended with the raw `![[…]]` on screen, drawn as a link, and the image
+ * appeared only once somebody clicked somewhere else. Reported as "just pasted
+ * an image, and got this", with a screenshot of a link.
+ *
+ * A blank line is written under the embed when there is not already one, so
+ * there is somewhere for the caret to be that is not the image's line — and
+ * it is where you would keep typing anyway.
  */
 export function planInsert(
   state: EditorState,
@@ -318,15 +328,14 @@ export function planInsert(
 ): TransactionSpec {
   const embed = embedFor(target, width);
   const line = state.doc.lineAt(state.selection.main.head);
-  if (line.text.trim() === "") {
-    return {
-      changes: { from: line.from, to: line.to, insert: embed },
-      selection: { anchor: line.from + embed.length },
-    };
-  }
+  const onEmptyLine = line.text.trim() === "";
+  const from = onEmptyLine ? line.from : line.to;
+  const insert = `${onEmptyLine ? "" : "\n"}${embed}\n`;
   return {
-    changes: { from: line.to, to: line.to, insert: `\n${embed}` },
-    selection: { anchor: line.to + 1 + embed.length },
+    changes: { from, to: onEmptyLine ? line.to : line.to, insert },
+    // After the newline this just wrote: the image's own line is left alone, so
+    // the row draws the moment the paste lands.
+    selection: { anchor: from + insert.length },
   };
 }
 

@@ -55,7 +55,7 @@ import { useFileBrowser } from "../features/console/files/useFileBrowser";
 
 const NOTE = "1-projects/note.md";
 const OTHER = "1-projects/other.md";
-const KEY = "attachments/2026/09/paste-4b2c9f1a.png";
+const KEY = "paste-4b2c9f1a.png";
 
 function entry(path: string, kind: "file" | "folder") {
   return {
@@ -132,7 +132,7 @@ describe("images through the file browser", () => {
       bytes: BYTES.buffer,
       contentType: "image/png",
     });
-    actions[name("storeNoteImage")] = async () => ({ path: KEY, leaf: "paste-4b2c9f1a.png" });
+    actions[name("storeNoteImage")] = async () => ({ leaf: KEY });
   });
 
   afterEach(() => {
@@ -160,7 +160,7 @@ describe("images through the file browser", () => {
     const reads = calls.filter((call) => call.name === name("readNoteImage"));
     expect(reads.length).toBe(1);
     // The pair the server needs: which note is asking, and for which key.
-    expect(reads[0]!.args).toMatchObject({ notePath: NOTE, path: KEY });
+    expect(reads[0]!.args).toMatchObject({ notePath: NOTE, leaf: KEY });
   });
 
   test("a store answers with the key, and puts the bytes straight in the cache", async () => {
@@ -264,7 +264,7 @@ describe("a note that closes while the upload is in flight", () => {
       await new Promise<void>((resolve) => {
         release = resolve;
       });
-      return { path: KEY, leaf: "paste-4b2c9f1a.png" };
+      return { leaf: KEY };
     };
     unmount = mount();
     await settle();

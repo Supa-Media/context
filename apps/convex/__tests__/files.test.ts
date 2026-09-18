@@ -2728,7 +2728,7 @@ describe("a stranger cannot reach another workspace's files", () => {
         as.action(api.functions.files.readNoteImage, {
           workspaceId,
           notePath: "1-projects/a.md",
-          path: "attachments/2026/09/paste-abcd1234.png",
+          leaf: "paste-abcd1234.png",
         }),
     ];
 
@@ -3410,25 +3410,24 @@ describe("reading a pasted image", () => {
     });
   }
 
-  /** Store an image as the owner, and answer with the key it landed at. */
+  /** Store an image as the owner, and answer with the leaf it landed at. */
   async function pasted(f: Fixture): Promise<string> {
     const stored = await asUser(f.t, f.owner).action(api.functions.files.storeNoteImage, {
       workspaceId: f.workspaceId,
       bytes: new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]).buffer,
       contentType: "image/png",
     });
-    return stored.path;
+    return stored.leaf;
   }
 
   test("the owner reads back the bytes a note of theirs references", async () => {
     const f = await fixture();
-    const path = await pasted(f);
-    const leaf = path.slice(path.lastIndexOf("/") + 1);
+    const leaf = await pasted(f);
     await rewrite(f, "1-projects/shared.md", `# Shared\n\n![[${leaf}|320]]\n`);
     const read = await asUser(f.t, f.owner).action(api.functions.files.readNoteImage, {
       workspaceId: f.workspaceId,
       notePath: "1-projects/shared.md",
-      path,
+      leaf,
     });
     expect(new Uint8Array(read.bytes)).toEqual(
       new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
@@ -3438,12 +3437,12 @@ describe("reading a pasted image", () => {
 
   test("a note that does not name it does not open it", async () => {
     const f = await fixture();
-    const path = await pasted(f);
+    const leaf = await pasted(f);
     const error = await captureError(() =>
       asUser(f.t, f.owner).action(api.functions.files.readNoteImage, {
         workspaceId: f.workspaceId,
         notePath: "1-projects/shared.md",
-        path,
+        leaf,
       }),
     );
     expect(errorCode(error)).toBe("FILE_NOT_FOUND");
@@ -3452,8 +3451,7 @@ describe("reading a pasted image", () => {
   test("a member cannot reach an image only a private note references", async () => {
     const f = await fixture();
     await share(f);
-    const path = await pasted(f);
-    const leaf = path.slice(path.lastIndexOf("/") + 1);
+    const leaf = await pasted(f);
     await rewrite(f, "2-areas/private-note.md", `# Private\n\n![[${leaf}]]\n`);
 
     // Naming the private note is the same absence as naming a note that never
@@ -3463,7 +3461,7 @@ describe("reading a pasted image", () => {
       asUser(f.t, f.reader).action(api.functions.files.readNoteImage, {
         workspaceId: f.workspaceId,
         notePath: "2-areas/private-note.md",
-        path,
+        leaf,
       }),
     );
     // And naming a note they CAN see does not help, because that note does not
@@ -3473,7 +3471,7 @@ describe("reading a pasted image", () => {
       asUser(f.t, f.reader).action(api.functions.files.readNoteImage, {
         workspaceId: f.workspaceId,
         notePath: "1-projects/shared.md",
-        path,
+        leaf,
       }),
     );
     expect(errorCode(throughTheNote)).toBe("FILE_NOT_FOUND");
@@ -3483,7 +3481,7 @@ describe("reading a pasted image", () => {
     const owner = await asUser(f.t, f.owner).action(api.functions.files.readNoteImage, {
       workspaceId: f.workspaceId,
       notePath: "2-areas/private-note.md",
-      path,
+      leaf,
     });
     expect(owner.bytes.byteLength).toBe(8);
   });
@@ -3506,7 +3504,7 @@ describe("reading a pasted image", () => {
     const second = await pasted(f);
     expect(second).toBe(first);
     expect(
-      [...f.backend.objects.keys()].filter((key) => key.startsWith("attachments/")).length,
+      [...f.backend.objects.keys()].filter((key) => key.includes("paste-")).length,
     ).toBe(1);
   });
 });

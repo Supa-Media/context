@@ -217,9 +217,7 @@ import {
   importVaultFiles,
   writeImage,
   readImage,
-  attachmentKeyFor,
-  readAttachment,
-  writeAttachment,
+  pasteImageLeaf,
 } from "./lib/fileOps";
 import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
 import {
@@ -343,17 +341,6 @@ const imageValidator = v.object({
   bytes: v.bytes(),
 });
 
-const attachmentWrittenValidator = v.object({
-  kind: v.literal("attachmentWritten"),
-  key: v.string(),
-  etag: v.string(),
-});
-
-const attachmentValidator = v.object({
-  kind: v.literal("attachment"),
-  bytes: v.bytes(),
-  contentType: v.string(),
-});
 
 const pluginVerdictValidator = v.union(
   v.literal("runs"),
@@ -1028,8 +1015,6 @@ const operationResultValidator = v.union(
   storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
-  attachmentWrittenValidator,
-  attachmentValidator,
   pluginInventoryValidator,
   pluginManagedInstallsValidator,
   contextPluginsValidator,
@@ -1145,23 +1130,6 @@ const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
-  /**
-   * A pasted image: bytes into a folder the customer can see, and back out.
-   *
-   * A separate pair from `writeImage`/`readImage` rather than a flag on them,
-   * for the reason `ATTACHMENT_PREFIX` gives: those keys are opaque plumbing a
-   * machine wrote, these are somebody's own picture, and the difference is
-   * whether Obsidian can resolve the embed that points at it. They share the
-   * exemptions — no `.md`, no visibility of their own, no history — and nothing
-   * else.
-   */
-  v.object({
-    kind: v.literal("writeAttachment"),
-    path: v.string(),
-    bytes: v.bytes(),
-    contentType: v.string(),
-  }),
-  v.object({ kind: v.literal("readAttachment"), path: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
   v.object({ kind: v.literal("pluginManagedList") }),
   v.object({ kind: v.literal("contextPlugins") }),
@@ -1398,8 +1366,6 @@ type FileOperation =
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
-  | { kind: "writeAttachment"; path: string; bytes: ArrayBuffer; contentType: string }
-  | { kind: "readAttachment"; path: string }
   | { kind: "pluginInventory" }
   | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
@@ -1599,9 +1565,7 @@ type OperationResult =
       partial: boolean;
     }
   | { kind: "imageWritten"; key: string; etag: string }
-  | { kind: "image"; bytes: ArrayBuffer }
-  | { kind: "attachmentWritten"; key: string; etag: string }
-  | { kind: "attachment"; bytes: ArrayBuffer; contentType: string };
+  | { kind: "image"; bytes: ArrayBuffer };
 
 /** Product-owned shadow settings; `.obsidian/` remains read-only. */
 /**
@@ -3778,18 +3742,6 @@ export async function executeOperation(
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
-      case "writeAttachment": {
-        const written = await writeAttachment(store, {
-          path: operation.path,
-          bytes: new Uint8Array(operation.bytes),
-          contentType: operation.contentType,
-        });
-        return { kind: "attachmentWritten", ...written };
-      }
-      case "readAttachment": {
-        const read = await readAttachment(store, operation.path);
-        return { kind: "attachment", ...read };
-      }
       case "resetPrivacy": {
         const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };
@@ -4701,11 +4653,6 @@ async function contentHash(bytes: ArrayBuffer): Promise<string> {
     .slice(0, 16);
 }
 
-/** The last segment of a key, which is what a note's embed names. */
-function leafOf(path: string): string {
-  return path.slice(path.lastIndexOf("/") + 1);
-}
-
 /**
  * Store an image somebody pasted into a note.
  *
@@ -4716,10 +4663,10 @@ function leafOf(path: string): string {
  * guarantee this does not make.
  *
  * The name is ours to choose and not the caller's, which is the security half:
- * a client-supplied key is a path to argue about, and this one is derived from
- * the bytes — the same image is the same object, a retry overwrites itself, and
- * `assertAttachmentPath` still refuses whatever comes out if the derivation is
- * ever changed carelessly.
+ * a client-supplied leaf is a path to argue about, and this one is derived from
+ * the bytes. `writeImage` still applies the gateway's own leaf rule to whatever
+ * comes out, so a careless change to the derivation is refused rather than
+ * writing a key `read_image` could never name.
  */
 export const storeNoteImage = action({
   args: {
@@ -4727,30 +4674,29 @@ export const storeNoteImage = action({
     bytes: v.bytes(),
     contentType: v.string(),
   },
-  returns: v.object({ path: v.string(), leaf: v.string() }),
-  handler: async (ctx, args): Promise<{ path: string; leaf: string }> => {
+  returns: v.object({ leaf: v.string() }),
+  handler: async (ctx, args): Promise<{ leaf: string }> => {
     const actorUserId = await callerId(ctx);
     const { scope, grantedNames } = await ctx.runQuery(
       internal.functions.files.authorizeFileAccess,
       { actorUserId, workspaceId: args.workspaceId, minimum: "editor" },
     );
-    const path = attachmentKeyFor({
+    const leaf = pasteImageLeaf({
       hash: await contentHash(args.bytes),
       contentType: args.contentType,
-      at: new Date(),
     });
     await ctx.runAction(internal.functions.files.runFileOperation, {
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
       operation: {
-        kind: "writeAttachment",
-        path,
+        kind: "writeImage",
+        leaf,
         bytes: args.bytes,
         contentType: args.contentType,
       },
     });
-    return { path, leaf: leafOf(path) };
+    return { leaf };
   },
 });
 
@@ -4767,7 +4713,7 @@ export const storeNoteImage = action({
  * A caller who can see no such note gets `FILE_NOT_FOUND` — the same error as
  * for an image that was never written, so this cannot be used to learn that one
  * exists. A `member` therefore cannot pull an image out of a private note by
- * naming its key, which is the isolation case worth a test rather than a
+ * naming its leaf, which is the isolation case worth a test rather than a
  * comment.
  *
  * Deliberately broad about what "references" means: any mention of the leaf
@@ -4780,7 +4726,7 @@ export const readNoteImage = action({
   args: {
     workspaceId: v.id("workspaces"),
     notePath: v.string(),
-    path: v.string(),
+    leaf: v.string(),
   },
   returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
   handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
@@ -4795,7 +4741,7 @@ export const readNoteImage = action({
       grantedNames,
       operation: { kind: "read", path: args.notePath },
     })) as Extract<OperationResult, { kind: "file" }>;
-    if (!note.text.includes(leafOf(args.path))) {
+    if (!note.text.includes(args.leaf)) {
       throw new ConvexError({
         code: "FILE_NOT_FOUND",
         message: "No note you can see references that image.",
@@ -4805,9 +4751,20 @@ export const readNoteImage = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
-      operation: { kind: "readAttachment", path: args.path },
-    })) as Extract<OperationResult, { kind: "attachment" }>;
-    return { bytes: result.bytes, contentType: result.contentType };
+      operation: { kind: "readImage", leaf: args.leaf },
+    })) as Extract<OperationResult, { kind: "image" }>;
+    /*
+      The type comes from the extension rather than from the store, because an
+      adapter is not obliged to hand one back and a picture served as
+      `application/octet-stream` is a download rather than an image. The leaf has
+      already been through `readImage`'s own gate by this point, so the extension
+      here is one of the set.
+    */
+    const extension = args.leaf.slice(args.leaf.lastIndexOf(".") + 1).toLowerCase();
+    return {
+      bytes: result.bytes,
+      contentType: extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`,
+    };
   },
 });
 

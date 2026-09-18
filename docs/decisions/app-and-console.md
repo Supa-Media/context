@@ -5746,6 +5746,15 @@ reads as broken to every client at once. The line is drawn immediately, before
 the upload completes, because the object's name is known before the bytes move
 (below), so the optimistic line is the final one rather than a guess.
 
+**The caret lands on the line *below* the image, and that is not a detail.**
+The first version left it after the embed — on the image's own line — and the
+reveal rule then did exactly what it exists to do: the line the selection is in
+shows its markup. So a paste ended with `![[paste-….png]]` on screen, drawn as a
+link, and the picture appeared only once somebody clicked elsewhere. Reported
+within a day of shipping, with a screenshot of a link. A blank line under the
+embed is written when there is not one already, which is where somebody would
+keep typing anyway.
+
 **The width goes in the pipe, and that is the load-bearing choice.**
 `![[attachments/2026/09/paste-4b2c9f1a.png|480]]`, Obsidian's own grammar, which
 [`links.ts`](../../packages/shared/src/links.ts) and `apps/mcp/src/links.js`
@@ -5784,19 +5793,25 @@ what a file written by anything else looks like and those two must not be
 different states; an unknown key inside a directive survives an alignment
 change, so an older console cannot silently drop what a newer one wrote.
 
-**The bytes land in `attachments/<YYYY>/<MM>/paste-<hash>.<ext>`, and not in the
-image store that already existed.** `IMAGE_PREFIX` — `.context/assets/images/` —
-is dot-prefixed, opaque and unlistable on purpose, which is right for pictures a
-machine produced (a share card, an inline image off an email) and wrong for this
-one. Obsidian skips dot-folders, so an embed pointing into `.context/` draws as a
-broken link in the app half these customers keep open beside ours, and "your
-pictures are in a hidden folder" is not an answer about somebody's own note. So a
-second pair of operations rather than a flag on the first: visible, browsable,
-exported with everything else, sharing the three exemptions a stored object has
-always had — no `.md`, no visibility of its own, no history — and nothing else.
-The write is deliberately **not** conditional, because the key *is* the bytes:
-two writers race to the same object, a retry is idempotent, and a bucket without
-conditional writes loses nothing here.
+**The bytes go in the opaque store, and this reverses what shipped first.**
+The first version put pastes in a visible `attachments/<YYYY>/<MM>/` folder,
+argued from Obsidian: that app skips dot-folders, so an embed pointing into
+`.context/` draws there as a broken link. The owner reversed it the day it
+landed, and the reasons are better than the one it replaced — one image store
+rather than two, nothing new in the file tree, the listing stays the customer's
+own folders, and `IMAGE_PREFIX` is the prefix `read_image` already serves, so an
+agent can fetch an image somebody pasted. A visible folder could not have
+offered that without widening `imageRefFor`, which is a security-critical
+function.
+
+So a pasted image is `paste-<hash>.<ext>` under `IMAGE_PREFIX`, written through
+the `writeImage` that was already there, and the embed names the leaf —
+`![[paste-4b2c9f1a.png]]` — which is also what a person typing one by hand in
+another app would write. **What it costs is stated rather than hidden**: that
+embed does not resolve in Obsidian, because the bytes are in a folder Obsidian
+does not look in. Export is unaffected — `.context/` leaves with everything else
+— and a resolver on the Obsidian side, or a visible mirror of the store, is the
+change to make if that becomes the thing people trip over.
 
 **Reading one back is gated on the reference, which is the gateway's own rule.**
 An image has no row in `privacy.md` and cannot have one — non-negotiable #5 keeps
@@ -5887,8 +5902,9 @@ Storing a position, an alignment as anything but a comment, or a crop box buys
 arrangement and costs the claim that the Markdown is the whole note. Making the
 width a percentage or a per-device value buys a nicer phone and costs "one file,
 read the same everywhere". Writing the line before the object trades a
-recoverable orphan for a broken note. Putting the bytes in `.context/` buys one
-store instead of two and breaks every embed in Obsidian. Dropping the reference
+recoverable orphan for a broken note. Putting the bytes in a visible folder buys an embed that
+resolves in Obsidian and costs a second image store, a new folder in everybody's
+file tree, and an agent that cannot read what somebody pasted. Dropping the reference
 gate on reads buys one round trip and turns a visible folder into a way for a
 member to read what a private note holds.
 
@@ -5898,9 +5914,11 @@ removes the directive, an unknown directive key survives an alignment change.
 `imageBlock.test.ts` (26) is every gesture as a planner — the reveal rule, the
 snapping and `⌥` turning it off, a drop onto a paragraph moving the line, a drop
 onto a row joining it, the blank-line arithmetic of moving a block, and base64
-byte for byte against the platform's own encoder. `attachments.test.ts` (20) is
-the path gate in every traversal spelling that has been tried on one, the derived
-name, and the byte round trip. `imageBrowser.test.ts` (5) is the console's side:
+byte for byte against the platform's own encoder. `pasteImage.test.ts` (8) is the derived
+name: a type the store cannot serve has no name at all, a hash that is not a
+hash is refused rather than producing a junk key, and every name it can produce
+round-trips through `writeImage`'s own leaf rule — a key that rule refuses is
+bytes nobody could ever get back out. `imageBrowser.test.ts` (5) is the console's side:
 the cache that keeps a keystroke from being a round trip per picture, a server
 refusal passed through in its own words, and an encrypted note refusing before
 the bytes leave the device. `webviewHost.test.ts` (6) is the bridge: every branch
@@ -5912,13 +5930,9 @@ reads it — and it was that file's own endpoint table that noticed the two new
 actions were missing from it. Sabotaged by disabling the reference check: two of
 those go red, which is the point of writing them.
 
-**What is not built, stated rather than implied.** The gateway's `read_image`
-still serves only `IMAGE_PREFIX`, so an agent cannot fetch a pasted image yet —
-`imageRefFor` is a security-critical function and widening it is its own change
-with its own tests. The embed carries the full key rather than a bare leaf, so a
-line somebody typed by hand in Obsidian as `![[sketch.png]]` draws as an absence
-in this console until it is a path; resolving a bare leaf needs a lookup this
-does not have. Attachments are still not in the offline mirror, per #696 above.
+**What is not built, stated rather than implied.** An embed into `IMAGE_PREFIX`
+does not resolve in Obsidian, per the reversal above. Images are still not in the
+offline mirror, per #696 above.
 And there is no crop, which is the one on this list worth doing next: a crop that
 writes a new object needs no new numbers in the file, which is what made every
 other item here expensive.

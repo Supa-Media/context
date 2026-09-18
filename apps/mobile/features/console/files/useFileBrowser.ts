@@ -526,7 +526,7 @@ export function useFileBrowser(options: {
       const cached = imageCache.current.get(cacheKey);
       if (cached !== undefined) return cached;
       try {
-        const read = await readNoteImageAction({ workspaceId, notePath, path: target });
+        const read = await readNoteImageAction({ workspaceId, notePath, leaf: target });
         const src = dataUrlFor(read.bytes, read.contentType);
         imageCache.current.set(cacheKey, src);
         return src;
@@ -593,7 +593,7 @@ export function useFileBrowser(options: {
         });
         if (selectedPathRef.current !== noteAtStart) {
           imageCache.current.set(
-            `${workspaceId}|${stored.path}`,
+            `${workspaceId}|${stored.leaf}`,
             dataUrlFor(image.bytes, image.contentType),
           );
           return {
@@ -601,10 +601,10 @@ export function useFileBrowser(options: {
           };
         }
         imageCache.current.set(
-          `${workspaceId}|${stored.path}`,
+          `${workspaceId}|${stored.leaf}`,
           dataUrlFor(image.bytes, image.contentType),
         );
-        return { target: stored.path };
+        return { target: stored.leaf };
       } catch (error) {
         return { error: toFileError(error).message };
       }
