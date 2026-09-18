@@ -361,21 +361,7 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
     this screen can reach the bucket at all — and because a person who has lost
     signal should not have to read past a word count to find that out.
   */
-  if (facts.sync !== undefined) {
-    const connection = connectionLine(facts.sync);
-    if (connection !== null) {
-      segments.push({
-        id: "connection",
-        text: connection.text,
-        tone: "warn",
-        detail: connection.detail,
-      });
-    }
-    const queue = queueLine(facts.sync);
-    if (queue !== null) {
-      segments.push({ id: "queue", text: queue.text, tone: queue.tone, detail: queue.detail });
-    }
-  }
+  if (facts.sync !== undefined) segments.push(...syncSegments(facts.sync));
 
   /*
     The note's key, at the leading edge and before everything else.
@@ -478,6 +464,198 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
   }
 
   return segments;
+}
+
+/**
+ * The connection and the queue, as segments — the strip's first two, and the
+ * whole of what a phone is told about either.
+ *
+ * Its own function so the two surfaces that say these things cannot come to
+ * say them differently: the strip at a pointer width (`statusSegments`) and the
+ * phone's header pill and sheet (`compactSync`, `syncSheetSections`) all start
+ * here, and the sentences themselves are `copy.ts`'s. A phone that composed its
+ * own "Offline" would be a second opinion about when to say it — and the rule
+ * that it is absent while the platform has not answered is exactly the kind of
+ * thing a second opinion drops.
+ */
+export function syncSegments(sync: SyncFacts): StatusSegment[] {
+  const segments: StatusSegment[] = [];
+  const connection = connectionLine(sync);
+  if (connection !== null) {
+    segments.push({
+      id: "connection",
+      text: connection.text,
+      tone: "warn",
+      detail: connection.detail,
+    });
+  }
+  const queue = queueLine(sync);
+  if (queue !== null) {
+    segments.push({ id: "queue", text: queue.text, tone: queue.tone, detail: queue.detail });
+  }
+  return segments;
+}
+
+/**
+ * Whether the open note's own save claim is one a phone has to be shown.
+ *
+ * `warn` and `crit` only — `Queued`, `Cached copy`, `Conflict`, `Not saved`.
+ * The quiet states (`Saving soon`, `Saving…`, `Saved`) are the ordinary case,
+ * and on a phone the note already ends in a sentence that says them
+ * (`NoteEditor`'s durability line). A chip that sits in a 390pt header for
+ * every note ever opened is a chip people stop seeing, which is the argument
+ * `connectionLine` makes about "Offline"; the loud four are the ones that
+ * change what somebody should believe about the note in front of them.
+ */
+export function loudSave(chip: StatusSegment | null): StatusSegment | null {
+  if (chip === null) return null;
+  return chip.tone === "warn" || chip.tone === "crit" ? chip : null;
+}
+
+/** What the phone's header pill draws. */
+export interface CompactSync {
+  /** `crit` whenever anything in it is — a conflict outranks everything else. */
+  tone: "warn" | "crit";
+  /** The words on the pill: short, because it shares a row with two buttons. */
+  text: string;
+  /** Every fact the pill stands for, in full, for a screen reader. */
+  label: string;
+}
+
+/**
+ * The phone's header pill, or `null` when there is nothing to say.
+ *
+ * **A phone has no status strip** (`frame.ts` answers `statusBar: false` at
+ * compact), so until this existed the three states `copy.ts` words — Offline,
+ * "N notes waiting to sync", "N notes need you" — were drawn on no surface a
+ * phone could see, and neither was the open note's `Queued` or `Cached copy`.
+ * The owner's requirement was the plain one: it should be clear when notes are
+ * not synced.
+ *
+ * Built from `syncSegments` and `saveChip`, never from counts of its own, so the
+ * pill is absent in exactly the states the strip is silent in: online with an
+ * empty queue, and — the one that matters — while the platform has not said
+ * whether it is online at all. `null` is the common case and draws nothing.
+ *
+ * The text is the strip's own words where they fit and a count where they do
+ * not. Offline with writes waiting reads `Offline · 3`, the 3 being every note
+ * not yet in the bucket; online, the queue segment's sentence is short enough
+ * to print as it is ("2 notes need you"). The label carries all of it in full,
+ * and the sheet behind the pill carries the rest.
+ */
+export function compactSync(
+  sync: SyncFacts | undefined,
+  save: StatusSegment | null,
+): CompactSync | null {
+  const segments = sync === undefined ? [] : syncSegments(sync);
+  const note = loudSave(save);
+  if (segments.length === 0 && note === null) return null;
+
+  const connection = segments.find((segment) => segment.id === "connection");
+  const queue = segments.find((segment) => segment.id === "queue");
+  const unsent =
+    sync === undefined ? 0 : sync.counts.pending + sync.counts.conflicted + sync.counts.rejected;
+
+  const parts: string[] = [];
+  if (connection !== undefined) {
+    parts.push(unsent > 0 ? `${connection.text} · ${group(unsent)}` : connection.text);
+  } else if (queue !== undefined) {
+    parts.push(queue.text);
+  }
+  if (note !== null) parts.push(note.text);
+
+  const all = [...segments, ...(note === null ? [] : [note])];
+  const tone = all.some((segment) => segment.tone === "crit") ? "crit" : "warn";
+  /*
+    "This note" is said, because "Queued" beside "3 notes waiting to sync" is
+    ambiguous about which note is queued — sighted people have the pill's
+    position to tell them, and a screen reader has only the words.
+  */
+  const label = [
+    ...segments.map((segment) => segment.text),
+    ...(note === null ? [] : [`This note: ${note.text}`]),
+  ].join(". ");
+
+  return { tone, text: parts.join(" · "), label };
+}
+
+/** One block of the phone's sync sheet. */
+export interface SyncSheetSection {
+  id: "connection" | "stuck" | "waiting" | "note";
+  text: string;
+  tone: "warn" | "crit";
+  detail: string;
+  /** The notes this block is about, each one a row that opens it. */
+  paths: readonly string[];
+}
+
+/**
+ * What the sheet behind the phone's pill says, in the order it says it.
+ *
+ * The strip names at most three stuck notes in a sentence (`copy.ts`'s
+ * `namesOf`), because it is one line in a fixed-height bar. A sheet is not, so
+ * every note is a row a person can press to open — and opening is how a
+ * waiting note is checked and a stuck one is answered. The sentences are still
+ * `queueLine`'s, asked twice:
+ *
+ *  - once as it stands, which answers the crit block when anything is stuck;
+ *  - once with only the pending count, which answers the waiting block. The
+ *    strip never needs that second sentence, because a conflict outranks it on
+ *    a single line; a sheet has room for both and must not drop the notes that
+ *    are merely waiting just because one is stuck.
+ *
+ * `stuckPaths` is left off both calls: the rows are the names, and a sentence
+ * listing three of them above a list of all of them says them twice.
+ */
+export function syncSheetSections(
+  sync: SyncFacts | undefined,
+  pending: { queued: readonly string[]; conflicted: readonly string[] },
+  save: StatusSegment | null,
+): SyncSheetSection[] {
+  const sections: SyncSheetSection[] = [];
+  if (sync !== undefined) {
+    const connection = connectionLine(sync);
+    if (connection !== null) {
+      sections.push({ id: "connection", tone: "warn", paths: [], ...connection });
+    }
+    const unnamed = { ...sync, stuckPaths: undefined };
+    const stuck = queueLine(unnamed);
+    if (stuck !== null && stuck.tone === "crit") {
+      sections.push({
+        id: "stuck",
+        tone: "crit",
+        text: stuck.text,
+        detail: stuck.detail,
+        paths: pending.conflicted,
+      });
+    }
+    const waiting = queueLine({
+      ...unnamed,
+      counts: { pending: sync.counts.pending, conflicted: 0, rejected: 0 },
+    });
+    if (waiting !== null) {
+      sections.push({
+        id: "waiting",
+        tone: "warn",
+        text: waiting.text,
+        detail: waiting.detail,
+        paths: pending.queued,
+      });
+    }
+  }
+  const note = loudSave(save);
+  if (note !== null) {
+    sections.push({
+      id: "note",
+      tone: note.tone === "crit" ? "crit" : "warn",
+      text: `This note: ${note.text}`,
+      // `Cached copy`'s detail is where its age lives ("read 3 hours ago"),
+      // and a phone has no tooltip — the sheet is the only place it is said.
+      detail: note.detail ?? "",
+      paths: [],
+    });
+  }
+  return sections;
 }
 
 /** The ids rendered against the trailing edge of the bar. */

@@ -717,6 +717,7 @@ export function Explorer({
             onMenu={openMenu}
             drag={dragHandlers}
             dropTarget={dropTarget}
+            pendingStateFor={files.pending?.stateFor}
           />
         )}
 

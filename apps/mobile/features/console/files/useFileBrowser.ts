@@ -86,6 +86,7 @@ import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
 import type { AppliedPluginNoteWrite } from "../plugins/runtime";
+import { pendingMarks } from "./pendingMarks";
 
 /**
  * Where the draft for a note nobody is looking at actually is.
@@ -2748,6 +2749,14 @@ export function useFileBrowser(options: {
     ],
   );
 
+  /*
+    Which rows the lists mark, from the queue this browser holds — the open
+    context's, which is the only context any of those lists draws. Memoised on
+    the queue itself so a keystroke that does not touch the queue does not hand
+    every row a new selector.
+  */
+  const pending = useMemo(() => pendingMarks(offline.outbox.writes), [offline.outbox]);
+
   return useMemo(
     () => ({
       canEdit: options.canEdit,
@@ -2791,6 +2800,7 @@ export function useFileBrowser(options: {
           .filter((write) => write.state !== "pending")
           .map((write) => write.path),
       },
+      pending,
       notice,
       dismissNotice,
       toasts,
@@ -2885,6 +2895,7 @@ export function useFileBrowser(options: {
       offline.outbox,
       offline.reachability,
       offline.ready,
+      pending,
       options.canEdit,
       options.conditionalWrite,
       options.isOwner,

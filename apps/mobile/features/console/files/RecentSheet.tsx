@@ -7,6 +7,8 @@ import { Text } from "../../design/components/Text";
 import { radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { baseName, displayName, displayPath, parentPath } from "./paths";
+import type { SyncMark } from "./pendingMarks";
+import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 
 /**
  * Where you have been in this context, on a phone.
@@ -96,6 +98,7 @@ export function RecentSheet({
   currentPath,
   onOpen,
   onDismiss,
+  pendingStateFor,
 }: {
   /** Newest first, from `recentPaths`. */
   paths: readonly string[];
@@ -103,6 +106,12 @@ export function RecentSheet({
   currentPath: string | null;
   onOpen: (path: string) => void;
   onDismiss: () => void;
+  /**
+   * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
+   * The history is this context's (a switch clears it), so the open context's
+   * queue is the right one to ask.
+   */
+  pendingStateFor?: (path: string) => SyncMark | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const insets = useSafeAreaInsets();
@@ -141,6 +150,7 @@ export function RecentSheet({
                 key={path}
                 path={path}
                 current={path === currentPath}
+                sync={looksLikeFolder(path) ? null : (pendingStateFor?.(path) ?? null)}
                 onPress={() => onOpen(path)}
               />
             ))}
@@ -162,10 +172,13 @@ export function RecentSheet({
 function RecentRow({
   path,
   current,
+  sync,
   onPress,
 }: {
   path: string;
   current: boolean;
+  /** This note's edit is not in the bucket yet. `null` for one that is. */
+  sync: SyncMark | null;
   onPress: () => void;
 }) {
   const colors = useColors();
@@ -175,7 +188,7 @@ function RecentRow({
   return (
     <Pressable
       role="button"
-      accessibilityLabel={describeRecent(path, current)}
+      accessibilityLabel={withSyncMark(describeRecent(path, current), sync)}
       onPress={onPress}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
@@ -195,6 +208,7 @@ function RecentRow({
           {folderLabel(path)}
         </Text>
       </View>
+      {sync === null ? null : <SyncMarkDot mark={sync} />}
       <FocusRing visible={focused} radius={radii.md} />
     </Pressable>
   );

@@ -1029,6 +1029,7 @@ export function BrowsePane({
             foot={contextFoot}
             onSelect={files.select}
             menu={folderMenuFor("")}
+            pendingStateFor={files.pending?.stateFor}
           />
         )
       ) : null
@@ -1068,6 +1069,7 @@ export function BrowsePane({
         foot={contextFoot}
         onSelect={files.select}
         menu={folderMenuFor(selected.path)}
+        pendingStateFor={files.pending?.stateFor}
       />
     ) : files.conflict?.path === selected.path ? (
       /*
