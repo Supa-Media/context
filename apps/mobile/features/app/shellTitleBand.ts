@@ -40,3 +40,31 @@ export function shouldShowShellTitleBand(
   if (platformOS !== "web") return false;
   return shellPlatform === "macos";
 }
+
+/**
+ * How many pixels the shell's traffic lights need reserved at the top.
+ *
+ * The same rule as `shouldShowShellTitleBand`, as a number, because the band
+ * is not the only thing that has to know it. **Two other places pay it, and
+ * both were defects until they did:**
+ *
+ *  - `AppFrame` is `100dvh` tall (`design/css.ts`), and it is drawn *below*
+ *    the band — so the frame hung `SHELL_TITLE_BAND_PX` past the bottom of the
+ *    window and the console's footer row was clipped by exactly the band's
+ *    height. The frame is one viewport *minus the band*.
+ *  - `Overlay` draws settings in a `Modal`, which is its own root view on
+ *    every platform — nothing above it, band included, pushes it down. It
+ *    opened at `y: 0` with the traffic lights on top of its own *Notes*
+ *    control, which is the report this exists for: *"some pages dont take the
+ *    streetlights in consideration"*.
+ *
+ * A number rather than a boolean at the call sites so neither of them
+ * re-states `38`; the constant stays `@context/desktop-bridge`'s to change.
+ */
+export function shellTitleBandPx(
+  platformOS: string,
+  shellPlatform: string | null | undefined,
+  bandPx: number,
+): number {
+  return shouldShowShellTitleBand(platformOS, shellPlatform) ? bandPx : 0;
+}
