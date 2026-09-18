@@ -359,6 +359,15 @@ const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
     borderTopColor: colors.lineStrong,
     backgroundColor: colors.surface,
     maxHeight: "70%",
+    /*
+      A phone's width, centred, on a pointer layout — the same sheet rising from
+      the bottom edge rather than a second, desktop-only surface with its own
+      copy of the rows and answers. Narrower than this, it is the full width it
+      always was.
+    */
+    width: "100%",
+    maxWidth: 560,
+    alignSelf: "center",
     boxShadow: shadows.rising,
   },
   grabber: {

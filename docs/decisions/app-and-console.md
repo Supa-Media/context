@@ -1617,6 +1617,14 @@ every op in plain language — "Rename plan → plan-2026 · waiting to sync",
 "New note: Groceries" — with the answers on the parked ones. Each queued op
 toasts with an undo that restores the queue exactly as it was before the press,
 and says so plainly when it can no longer (the op is on the wire or landed).
+**The sheet is reachable on every layout**, because its rows are where a
+parked op is answered: a phone opens it from the pill, and a pointer layout
+from the status strip's sync segments ("Offline", "2 notes need you", "3 notes
+waiting to sync"), which are buttons for exactly that and are the only segments
+that are — the rest are measurements. The same sheet, centred at a phone's
+width, rather than a desktop surface with its own copy of the rows and answers.
+Marked and counted but unanswerable would strand a change with no way to act on
+it (`desktopSyncAnswers.test.ts` fails if the strip stops opening it).
 Counts include ops, so the strip, the pill and the sign-out warning count a
 waiting rename as something not in the bucket, and sign-out's warning now says
 "changes" rather than "edits". Any other operation asked for offline — a
@@ -1652,10 +1660,7 @@ next sync.
   `offlineFileOpsConsole.test.ts` (sabotage-checked).
 
 **What this does not do, and what needs a device.** Folder rename, move,
-archive and delete stay online-only. The sync sheet — where parked ops are
-answered — is the phone's; on a pointer layout a parked op is marked in the
-tree and named in the strip, and its answer is the undo at press time or the
-same op pressed again online — a desktop place to answer one is a gap.
+archive and delete stay online-only.
 Archive's destination is decided by the server's privacy rules, so an archived
 note simply leaves the tree offline and reappears in the archive after the
 next sync. A rename that lands and was dropped mid-flight is answered by

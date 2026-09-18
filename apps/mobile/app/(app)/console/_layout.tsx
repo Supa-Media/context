@@ -992,7 +992,7 @@ export default function ConsoleLayout() {
             />
           ) : undefined
         }
-        status={<Status data={data} />}
+        status={<Status data={data} onOpenSync={browsing ? () => setSyncOpen(true) : undefined} />}
         bottomBar={
           browsing ? (
             <ConsoleBottomBar
@@ -1198,7 +1198,14 @@ export default function ConsoleLayout() {
           is restored as a conflict the moment its note opens (`open` in
           `useFileBrowser`), which is where its three answers are.
         */}
-        {syncOpen && phone && browsing ? (
+        {/*
+          Every layout, not only the phone's: on a pointer layout the strip's
+          sync segments open it (`Status`), because a parked rename or delete
+          is answered on this sheet's rows and nowhere else — marked and
+          counted but unanswerable is a change stranded with no way to act on
+          it.
+        */}
+        {syncOpen && browsing ? (
           <SyncSheet
             sync={data.files.sync}
             save={saveChip({ editor: data.files.editor, now: Date.now() })}
@@ -1695,7 +1702,18 @@ function Account({
  * save there is checked by re-reading first, and "degrade honestly" (see
  * CLAUDE.md) means somebody has to be able to see which one they got.
  */
-function Status({ data }: { data: ConsoleData }) {
+function Status({
+  data,
+  onOpenSync,
+}: {
+  data: ConsoleData;
+  /**
+   * Opens the sync sheet — the phone's, reused, so the rows and the answers on
+   * them are one implementation. Given only where the sheet can open (Browse),
+   * and attached only to the two sync segments.
+   */
+  onOpenSync?: () => void;
+}) {
   const styles = useThemedStyles(makeStyles);
   const segments = statusSegments({
     editor: data.files.editor,
@@ -1728,7 +1746,11 @@ function Status({ data }: { data: ConsoleData }) {
     the front beside "Offline" when part of it is missing and the device is
     offline, and quietly at the end of the leading group otherwise.
   */
-  const withMirror = withMirrorSegment(segments, data.files.sync, Date.now());
+  const withMirror = withMirrorSegment(segments, data.files.sync, Date.now()).map((segment) =>
+    onOpenSync !== undefined && (segment.id === "queue" || segment.id === "connection")
+      ? { ...segment, onPress: onOpenSync }
+      : segment,
+  );
   return <StatusBar segments={withMirror} style={styles.statusBar} testID="console-status" />;
 }
 

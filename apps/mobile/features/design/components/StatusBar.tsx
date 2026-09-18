@@ -1,4 +1,4 @@
-import { Platform, StyleSheet, View, type ViewStyle } from "react-native";
+import { Platform, Pressable, StyleSheet, View, type ViewStyle } from "react-native";
 import { fonts, layout, radii, space } from "../tokens";
 import { useColors, useThemedStyles, type Colors } from "../theme";
 import { Text } from "./Text";
@@ -57,6 +57,14 @@ export interface StatusBarSegment {
    * read at a glance.
    */
   pip?: boolean;
+  /**
+   * Makes the segment a button. For the sync segments only — "2 notes need
+   * you" is a statement that has to lead somewhere a person can answer it, and
+   * on a pointer layout the strip is the only place it is said. Every other
+   * segment is a measurement and stays text: a bar of buttons is a toolbar
+   * nobody asked for.
+   */
+  onPress?: () => void;
 }
 
 /**
@@ -139,6 +147,20 @@ function Segment({ segment }: { segment: StatusBarSegment }) {
     </Text>
   );
 
+  if (segment.onPress !== undefined) {
+    return (
+      <Pressable
+        role="button"
+        accessibilityLabel={`${segment.detail ? `${segment.text}. ${segment.detail}` : segment.text}. Show sync details`}
+        onPress={segment.onPress}
+        style={styles.pressable}
+        testID={`status-${segment.id}-press`}
+      >
+        {label}
+      </Pressable>
+    );
+  }
+
   if (segment.pip !== true) return label;
 
   /*
@@ -160,6 +182,7 @@ function Segment({ segment }: { segment: StatusBarSegment }) {
 
 const makeStyles = (colors: Colors) => StyleSheet.create({
   pipped: { flexDirection: "row", alignItems: "center", gap: 5 },
+  pressable: { flexShrink: 1, cursor: "pointer" },
   pip: { width: 6, height: 6, borderRadius: radii.pill },
 
   bar: {
