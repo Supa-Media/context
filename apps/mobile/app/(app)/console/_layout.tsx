@@ -27,7 +27,7 @@ import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSug
 import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
 import { PluginSettingsPane } from "../../../features/console/plugins/PluginSettingsPane";
 import { EditorRegion } from "../../../features/console/EditorRegion";
-import { TierChip } from "../../../features/console/ConsoleShell";
+import { SaveChip, TierChip } from "../../../features/console/ConsoleShell";
 import {
   Explorer,
   ExplorerDialogs,
@@ -791,7 +791,15 @@ export default function ConsoleLayout() {
           ) : (
             <>
               {/*
-                Gated on `insideContext`, and `StorageChip` beside it is not.
+                Whether the last keystroke is in the bucket, leading the group —
+                see `SaveChip` for why this is a chip here rather than a Save
+                button over the note. Not gated on `insideContext` either: it is
+                a claim about the note that is open, and a note stays open
+                behind Map, Connections and the settings overlay.
+              */}
+              <SaveChip editor={data.files.editor} />
+              {/*
+                Gated on `insideContext`, and the two chips beside it are not.
                 That is deliberate rather than an oversight to tidy: a bucket is
                 one fact about the selected context, but a tier is a claim about
                 what *you* can see, and on an all-contexts route you may be

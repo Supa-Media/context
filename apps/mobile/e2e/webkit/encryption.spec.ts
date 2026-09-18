@@ -76,9 +76,10 @@ async function editorText(page: Page): Promise<string> {
  * Wait for the note to be *open*, which is not the same thing as clicked.
  *
  * This waited on `note-durability`, and that stopped being a signal this
- * viewport can see. The durability sentence is compact-only now — a pointer
- * layout makes the same claim in the status bar's `save` segment, and drawing
- * both put "Saved in your bucket" 40pt above the word "Saved" (see
+ * viewport can see. The durability sentence is drawn at a pointer width only
+ * where it is explaining something — a failed save, a queued draft — because
+ * everywhere else the top bar's `SaveChip` makes the claim, and drawing both
+ * put "Saved in your bucket" 40pt above the word "Saved" (see
  * `NoteEditor.tsx`'s own note on the row). This file overrides the suite's
  * phone viewport to 1280×900 for the reasons in the header, so it was waiting
  * on an element the layout it asked for deliberately does not draw, and every

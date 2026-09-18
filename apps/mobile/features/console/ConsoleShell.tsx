@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 import { PressRow, WindowDots } from "../design/components/Button";
 import { Dot } from "../design/components/Dot";
 import { Pill } from "../design/components/Pill";
 import { Text } from "../design/components/Text";
 import { layout, pointerType as t, radii } from "../design/tokens";
 import { useThemedStyles, type Colors } from "../design/theme";
+import type { EditorState } from "./files/editor";
+import { saveChip } from "./files/status";
 import { atName } from "./format";
 import { APP_SECTIONS, selectContextRoute, type ConsoleRoute } from "./nav";
 import { railGroup } from "./rail";
@@ -233,6 +235,73 @@ export function PaneHead({
         ) : null}
       </View>
       {trailing}
+    </View>
+  );
+}
+
+/**
+ * Whether what you have typed is in the bucket yet, in the top bar.
+ *
+ * **This is where the Save button went.** The console autosaves a couple of
+ * seconds after typing stops (`autosave.ts`), and while that write was pending
+ * the editor drew "Discard changes" and "Save" across the foot of the note —
+ * two controls over somebody's own text, in the middle of the screen, for the
+ * whole time they were writing. They were not there to be pressed: ⌘S and the
+ * autosave timer both do what Save does, and the row appeared in `dirty`,
+ * which is the state every keystroke produces. What a person actually wants
+ * during that second or two is *reassurance*, and reassurance is a chip, not a
+ * button.
+ *
+ * So the states split by whether a person has to do something:
+ *
+ *  - **Nothing owed** — typing, saving, saved, a cached body, a queued draft
+ *    draining on its own — this chip, and nothing over the note.
+ *  - **A decision owed** — a save that failed, a conflict — `NoteEditor` still
+ *    draws the row, because `editor.ts` is explicit that the manual route has
+ *    to stay reachable exactly where autosave refuses.
+ *
+ * Beside the bucket chip rather than anywhere else, because the two answer one
+ * question between them: where the note lives, and whether it is there yet.
+ * `saveChip` supplies the words and the tone — the same arms, the same detail
+ * strings and the same tests as when the status strip carried them.
+ *
+ * **Leading the trailing group**, which is a layout rule rather than a
+ * preference: this is the only chip in the bar whose text changes while
+ * somebody types, and in a row aligned to the trailing edge the leading item is
+ * the one that can grow without pushing its neighbours about.
+ */
+export function SaveChip({ editor }: { editor: EditorState }) {
+  const chip = saveChip({ editor, now: Date.now() });
+  if (chip === null) return null;
+
+  /*
+    A dot for the two tones that want the eye, and none for the rest. Every
+    state here has a tone, so a dot on all of them would be a row of lights —
+    `status.ts` makes the same argument about the strip's pip. "Saving…" is the
+    ordinary case and gets the ordinary chip; "Queued" and "Not saved" are
+    states somebody is being asked to notice.
+  */
+  const tone = chip.tone === "quiet" ? "neutral" : chip.tone;
+  const loud = chip.tone === "warn" || chip.tone === "crit";
+
+  /*
+    The sentence behind the word, the same way `StatusBarSegment` carries it:
+    RN-Web forwards `title` to the DOM node, and the accessible name says both
+    so a screen reader is not left with "Queued".
+  */
+  const tip =
+    Platform.OS === "web" && chip.detail ? ({ title: chip.detail } as object) : null;
+
+  return (
+    <View
+      accessible
+      accessibilityLabel={chip.detail ? `${chip.text}. ${chip.detail}` : chip.text}
+      testID="save-chip"
+      {...tip}
+    >
+      <Pill tone={tone} leading={loud ? <Dot tone={tone} /> : undefined}>
+        {chip.text}
+      </Pill>
     </View>
   );
 }

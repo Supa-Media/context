@@ -28,8 +28,23 @@ import type { EditorState } from "./editor";
 import type { ConflictCheck } from "./types";
 import { connectionLine, queueLine, type SyncFacts } from "../../offline/copy";
 
-export interface StatusFacts {
+/**
+ * What the save claim is made from.
+ *
+ * Its own interface because the claim itself is no longer part of the strip —
+ * `saveChip` answers it and the top bar draws it, beside the bucket it is
+ * about. A caller that wants only that does not have to invent a
+ * `storageLabel` it has no use for.
+ */
+export interface SaveFacts {
   editor: EditorState;
+  /** Wall-clock ms, passed in so this stays pure and testable. */
+  now: number;
+  /** When the open note was last saved in this session. */
+  savedAt?: number;
+}
+
+export interface StatusFacts extends SaveFacts {
   /** From the last SaveResult. `undefined` until something has been saved. */
   conflictCheck?: ConflictCheck;
   /** "R2 · my-bucket", or null when no bucket is bound. */
@@ -61,10 +76,6 @@ export interface StatusFacts {
    * is optional there.
    */
   index?: { label: string; detail: string; tone: "quiet" | "warn" } | null;
-  /** Wall-clock ms, passed in so this stays pure and testable. */
-  now: number;
-  /** When the open note was last saved in this session. */
-  savedAt?: number;
   /**
    * The connection, and the writes that have not reached the bucket.
    *
@@ -171,8 +182,34 @@ export function relativeTime(then: number, now: number): string {
   return sameYear ? stamp : `${stamp} ${d.getFullYear()}`;
 }
 
-/** The save segment, or `null` when nothing is open. */
-function saveSegment(facts: StatusFacts): StatusSegment | null {
+/**
+ * Whether the open note is in the customer's bucket — the one claim in this
+ * module that is about the note rather than about the context.
+ *
+ * **It is a chip in the top bar now, and it used to be a segment in this
+ * strip.** The move is the second half of an argument the strip already won
+ * once. The editor drew a Save pill at the foot of the note; the strip said the
+ * same thing 40pt below it; the strip kept the claim because it is the surface
+ * that never moves, and the pill stayed only in the two states where pressing
+ * it does something. What that left was a console where the ordinary act of
+ * typing put two controls over somebody's text — "Discard changes" and "Save",
+ * in the middle of the screen, for as long as the draft was unwritten — while
+ * the sentence that could have said it quietly was at the bottom of the window
+ * in 11pt grey, between a word count and a bucket name.
+ *
+ * So the claim went where a person already looks for the state of their
+ * storage: beside the bucket chip, at the top-right, which is a *place* rather
+ * than one more fact in a row of facts. The strip keeps everything that is a
+ * measurement — the path, the count, the index, how writes are checked, the
+ * bucket — and gives up the one thing that changes while you type.
+ *
+ * Still shaped as a `StatusSegment`, and deliberately: the tones, the ids and
+ * the detail strings are the same vocabulary, `StatusBarSegment` can still draw
+ * it if the bar ever wants it back, and the states below are pinned by
+ * `status.test.ts` exactly as they were. `null` when nothing is open — an idle
+ * "Saved" against no note is a claim about a file that is not there.
+ */
+export function saveChip(facts: SaveFacts): StatusSegment | null {
   const { editor, now, savedAt } = facts;
   const message = editor.message;
 
@@ -384,12 +421,19 @@ export function statusSegments(facts: StatusFacts): StatusSegment[] {
       count is not a grapheme count was, and it was interesting *because* the
       label had to avoid claiming otherwise.
 
-      The canvas's bar is `path … words · saved · R2`.
+      The canvas's bar is `path … words · R2`, the save claim having gone
+      to the top bar (`saveChip`).
     */
   }
 
-  const save = saveSegment(facts);
-  if (save) segments.push(save);
+  /*
+    NO SAVE SEGMENT. It is `saveChip`, in the top bar, beside the bucket it is
+    a claim about — see that function for why it left this row. The bar is the
+    facts that are *measured* about the note and the context; whether the last
+    keystroke has reached the bucket is the one thing here that changes while
+    somebody types, and it was the one thing here nobody could see from the
+    caret.
+  */
 
   /*
     How much of this context is in the hosted index.

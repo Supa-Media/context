@@ -15,6 +15,7 @@ import { describe, expect, test } from "@jest/globals";
 import {
   countWords,
   relativeTime,
+  saveChip,
   statusSegments,
   TRAILING_SEGMENTS,
   type StatusFacts,
@@ -53,6 +54,11 @@ function byId(segments: StatusSegment[], id: StatusSegment["id"]): StatusSegment
   return segments.find((segment) => segment.id === id);
 }
 
+/** The top bar's save claim for one editor status. */
+function chipFor(status: EditorStatus, draft = "hello world"): StatusSegment | null {
+  return saveChip({ editor: editorWith(status, draft), now: NOW });
+}
+
 /* -------------------------------------------------------------------------- */
 /*                                   counts                                   */
 /* -------------------------------------------------------------------------- */
@@ -81,7 +87,7 @@ describe("counting a draft", () => {
    * "61 words" and "390 characters" are the same fact told twice, and the
    * second needed a tooltip to explain that it was counting UTF-16 code units
    * rather than anything a reader can see. The canvas's bar is
-   * `path … words · saved · R2`.
+   * `path … words · R2` — the save claim is `saveChip`'s, in the top bar.
    *
    * `countUnits` went with the segment rather than staying as a helper nobody
    * calls, so what is left to assert is the absence — and it is asserted
@@ -116,16 +122,34 @@ describe("counting a draft", () => {
 /*                                    save                                    */
 /* -------------------------------------------------------------------------- */
 
-describe("the save segment", () => {
-  test("clean says when, or just says saved", () => {
-    const withTime = statusSegments(
-      facts({ editor: editorWith("clean"), savedAt: NOW - 10 * 60_000 }),
-    );
-    expect(byId(withTime, "save")?.text).toBe("Saved 10 minutes ago");
-    expect(byId(withTime, "save")?.tone).toBe("quiet");
+/**
+ * THE SAVE CLAIM IS NOT IN THE STRIP ANY MORE, AND EVERY ARM OF IT SURVIVED.
+ *
+ * It is `saveChip`, drawn in the top bar beside the bucket chip — see that
+ * function for the argument. What matters here is that moving it was a move
+ * and not a rewrite: the words, the tones and the details below are the ones
+ * this file has always asserted, re-pointed at the function that answers them.
+ *
+ * The first case is the guard on the move itself. Without it, a change that
+ * put the segment back would leave the console saying "Saved" twice — once at
+ * the top-right and once at the bottom-right, in two visual languages, which
+ * is the duplication both surfaces have now been through once.
+ */
+describe("the save claim", () => {
+  test("the strip does not carry it", () => {
+    for (const status of ["clean", "dirty", "saving", "saved", "queued", "conflict", "error"] as EditorStatus[]) {
+      expect(byId(statusSegments(facts({ editor: editorWith(status) })), "save")).toBeUndefined();
+    }
+    // Not passing because nothing rendered: the strip still says the rest.
+    expect(byId(statusSegments(facts()), "words")?.text).toBe("2 words");
+  });
 
-    const withoutTime = statusSegments(facts({ editor: editorWith("clean") }));
-    expect(byId(withoutTime, "save")?.text).toBe("Saved");
+  test("clean says when, or just says saved", () => {
+    const withTime = saveChip({ editor: editorWith("clean"), now: NOW, savedAt: NOW - 10 * 60_000 });
+    expect(withTime?.text).toBe("Saved 10 minutes ago");
+    expect(withTime?.tone).toBe("quiet");
+
+    expect(chipFor("clean")?.text).toBe("Saved");
   });
 
   test("a draft on its way to the bucket is not a warning", () => {
@@ -137,40 +161,34 @@ describe("the save segment", () => {
       something again: `queued`, `error` and a cached body are the states that
       persist without the bucket hearing about them.
     */
-    const segments = statusSegments(facts({ editor: editorWith("dirty", "typed more") }));
-    expect(byId(segments, "save")?.text).toBe("Saving soon");
-    expect(byId(segments, "save")?.tone).toBe("quiet");
-    expect(byId(segments, "save")?.detail).toContain("written to your bucket");
+    const dirty = chipFor("dirty", "typed more");
+    expect(dirty?.text).toBe("Saving soon");
+    expect(dirty?.tone).toBe("quiet");
+    expect(dirty?.detail).toContain("written to your bucket");
     // The states that really are not in the bucket keep their tone.
-    expect(byId(statusSegments(facts({ editor: editorWith("queued") })), "save")?.tone).toBe("warn");
-    expect(byId(statusSegments(facts({ editor: editorWith("error") })), "save")?.tone).toBe("crit");
+    expect(chipFor("queued")?.tone).toBe("warn");
+    expect(chipFor("error")?.tone).toBe("crit");
   });
 
   test("saving, and having just saved", () => {
-    expect(byId(statusSegments(facts({ editor: editorWith("saving") })), "save")?.text).toBe(
-      "Saving…",
-    );
-    const saved = byId(statusSegments(facts({ editor: editorWith("saved") })), "save");
+    expect(chipFor("saving")?.text).toBe("Saving…");
+    const saved = chipFor("saved");
     expect(saved?.text).toBe("Saved");
     expect(saved?.tone).toBe("ok");
   });
 
   test("a conflict and a failure are both critical", () => {
-    expect(byId(statusSegments(facts({ editor: editorWith("conflict") })), "save")?.tone).toBe(
-      "crit",
-    );
-    expect(byId(statusSegments(facts({ editor: editorWith("error") })), "save")?.tone).toBe("crit");
+    expect(chipFor("conflict")?.tone).toBe("crit");
+    expect(chipFor("error")?.tone).toBe("crit");
   });
 
   test("the editor's own message becomes the detail when it has one", () => {
     const editor = editorWith("error", "draft", { message: "The bucket refused the write." });
-    expect(byId(statusSegments(facts({ editor })), "save")?.detail).toBe(
-      "The bucket refused the write.",
-    );
+    expect(saveChip({ editor, now: NOW })?.detail).toBe("The bucket refused the write.");
   });
 
-  test("nothing open means no save segment at all", () => {
-    expect(byId(statusSegments(facts({ editor: emptyEditor })), "save")).toBeUndefined();
+  test("nothing open means no chip at all", () => {
+    expect(saveChip({ editor: emptyEditor, now: NOW })).toBeNull();
   });
 });
 
@@ -257,7 +275,6 @@ describe("the storage segment", () => {
     expect(ids).toEqual([
       "path",
       "words",
-      "save",
       "index",
       "conflictCheck",
       "storage",

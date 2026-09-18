@@ -438,16 +438,60 @@ export function NoteEditor({
   const titled = noteHeadingSource(state.draft, state.path) !== "heading";
 
   /*
-    The two halves of the line at the foot of the document, resolved once.
+    The line at the foot of the document, resolved once — and the question of
+    whether anything belongs down here at all.
 
-    `durability` is the sentence and `canDiscard` is the control beside it; the
-    row exists when either does, so a queued draft whose message never arrived
-    still gets its way out and a note with nothing to say draws no empty band.
+    **`decision` is the whole rule, and it is a reversal.** This row used to
+    appear for `dirty`, which is the state every keystroke produces: two
+    controls, "Discard changes" and "Save", laid across somebody's own text for
+    as long as a draft was unwritten — and unwritten means "for the next two
+    seconds", because `autosave.ts` writes it the moment typing stops. Neither
+    was needed. ⌘S and the autosave timer make the same conditional write, and
+    Discard-in-`dirty` was only ever reachable inside that same two-second
+    window (once the write lands the baseline moves and it is gone), which is
+    what the editor's own undo is for.
+
+    What is left is the states autosave refuses or cannot finish — a failed
+    save, a conflict, a draft the offline queue is holding. `editor.ts` is
+    explicit that the manual route has to stay reachable there, and those are
+    also the only states with something to *explain*, so the sentence comes
+    back at a pointer width with them rather than staying compact-only: the
+    words are the error message itself ("we don't know whether that save
+    landed"), and a crit chip in the top bar cannot carry a paragraph.
+
+    Every other state says it in the top bar's `SaveChip` — "Saving soon",
+    "Saving…", "Saved" — which is a claim you can read without anything
+    standing over the note. See `status.ts`'s `saveChip`.
   */
   const durability = statusLine(state);
-  const canDiscard =
-    editable &&
-    (state.status === "dirty" || state.status === "error" || state.status === "queued");
+  const decision =
+    state.status === "error" || state.status === "conflict" || state.status === "queued";
+  /*
+    `conflict` is not here, and that is unchanged: its way out is "Overwrite
+    theirs" beside the resolver, not a third verb. `queued` is, and that is not
+    a nicety — Save is dead in that state (the queue already holds the newest
+    text), so without this there is no control on screen that lets somebody
+    change their mind about an edit made offline, and the way out would be to
+    retype the original and wait for it to sync. Pressing it drops the queued
+    write as well as the draft; see `discard` in `useFileBrowser`.
+  */
+  const canDiscard = editable && (state.status === "error" || state.status === "queued");
+  /*
+    Where the sentence is drawn: the phone always, and a pointer width only
+    where the words *are* the message — `error` and `queued` both print
+    `state.message`, which is a paragraph the top bar's chip cannot hold.
+
+    `conflict` is `decision` too and is deliberately not here. Its line is the
+    single word "Conflict", and the conflict notice a few lines up has already
+    said that at length, with the two buttons for answering it. A pointer
+    layout would be printing the word under the paragraph explaining it.
+  */
+  const explains =
+    durability !== "" &&
+    (compact || state.status === "error" || state.status === "queued");
+  /* The manual write, where autosave will not make it. Never on a phone: Save
+     is on the bottom toolbar there (`check`), and this row is not a toolbar. */
+  const manualSave = !compact && !button.disabled && decision;
 
   /**
    * Everything that scrolls, as one node.
@@ -790,20 +834,22 @@ export function NoteEditor({
         out from under the toolbar. All of that still holds, so the sentence
         stays here at compact.
 
-        What changed is the other density. A pointer layout has the status bar,
-        and `status.ts`'s `save` segment is **the same claim**: "Saved", "Saved
-        2 minutes ago", "Cached copy", "Queued", "Not saved", each with this
-        sentence as its detail. Measured in Chromium at 1440×900 with the bar
-        finally spread across its row: "Saved in your bucket" sat 40pt above
+        What changed is the other density, twice. A pointer layout had the
+        status bar, and `status.ts`'s `save` segment was **the same claim**:
+        "Saved", "Saved 2 minutes ago", "Cached copy", "Queued", "Not saved".
+        Measured in Chromium at 1440×900: "Saved in your bucket" sat 40pt above
         the word "Saved", at the same leading edge, in two visual languages —
-        which is precisely the duplication the Save pill a few lines down was
-        removed for, arriving a second time from the other side. The bar is the
-        surface that never moves, so it keeps it.
+        so the sentence went compact-only and the bar, the surface that never
+        moves, kept the claim.
 
-        Nothing is lost at that density: the distinctions this sentence exists
-        to draw — in the bucket, on this device, queued, not saved — are arms
-        of `saveSegment` too, and the sentence itself is its `detail`, which is
-        the segment's tooltip and its accessible name.
+        The claim has since moved again, to the top bar's `SaveChip`, and this
+        sentence came part of the way back with it. It is drawn at a pointer
+        width in exactly the states `decision` names — a failed save, a
+        conflict, a queued draft — because in those the sentence is not a
+        restatement of the chip but the thing the chip has no room for: "Still
+        waiting on your bucket, so we stopped waiting…" is a paragraph, and
+        "Not saved" is two words. Everywhere else the chip says it alone and
+        nothing stands over the note.
 
         Discard sits beside it, at every density. It has no other route on a
         phone: the row menu acts on a file in the tree, and this acts on the
@@ -816,7 +862,7 @@ export function NoteEditor({
         and, in a conflict, Overwrite theirs — off every pointer layout with it,
         because the row is where that button lives.
       */}
-      {(durability !== "" && compact) || canDiscard || (!compact && !button.disabled) ? (
+      {explains || canDiscard || manualSave ? (
         <View style={[styles.statusRow, compact && styles.statusRowCompact]}>
           {/*
             Absent rather than empty. `statusLine` answers `""` for a state it
@@ -824,19 +870,12 @@ export function NoteEditor({
             message never arrived — and an empty `Text` here would be a blank
             line where a claim is supposed to be.
           */}
-          {durability === "" || !compact ? null : (
+          {!explains ? null : (
             <Text variant="meta" style={styles.status} testID="note-durability">
               {durability}
             </Text>
           )}
-          {/*
-            `queued` gets Discard too, and it is not a nicety. Save is dead in
-            that state — the queue already holds the newest text — so without
-            this there is no control on the screen that lets somebody change
-            their mind about an edit made offline, and the way out is to retype
-            the original and wait for it to sync. Pressing it drops the queued
-            write as well as the draft; see `discard` in `useFileBrowser`.
-          */}
+          {/* The two states it is offered in, and why, are beside `canDiscard`. */}
           {canDiscard ? <Button label="Discard changes" onPress={onDiscard} /> : null}
           {/*
             Save is on the bottom toolbar on a phone — `check`, which dims when
@@ -871,11 +910,18 @@ export function NoteEditor({
             of it.
 
             So `button.disabled` decides whether this is drawn rather than how
-            it looks. Nothing that can be pressed is removed: Save in `dirty`
-            and `error`, and "Overwrite theirs" in `conflict`, are exactly the
-            arms of `saveButton` that are pressable.
+            it looks — **and `decision` decides it too**, which is the later
+            half of the same argument. `dirty` is a pressable arm of
+            `saveButton` and it is no longer drawn here: autosave writes that
+            draft a couple of seconds after typing stops, ⌘S writes it now, and
+            a button that appears under somebody's hands on every keystroke to
+            offer what is already happening is the app asking to be looked
+            after. What is left is `error` and `conflict` — the two states
+            autosave refuses, where `editor.ts` says the manual route has to
+            stay reachable, and where nothing else on screen will make the
+            write.
           */}
-          {compact || button.disabled ? null : (
+          {!manualSave ? null : (
             <Button
               label={button.label}
               variant={state.status === "conflict" ? "danger" : "white"}
