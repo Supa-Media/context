@@ -123,6 +123,10 @@ function dataWith(
     dismissNotice: () => {},
     clipboard: null,
     sync: undefined,
+  // No move into another context is running. `BrowsePane` reads this on
+  // every render, so a fixture without it crashes the pane rather than
+  // failing the assertion the test was written for.
+  contextMoves: [],
   } as unknown as FileBrowser;
 
   return {

@@ -4,6 +4,7 @@ import { Button, PressRow } from "../../design/components/Button";
 import { Text } from "../../design/components/Text";
 import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import type { MoveDestination } from "./browser";
 import { describeNameProblem } from "./paths";
 
 /**
@@ -246,11 +247,26 @@ export function NamePrompt({
  * interaction that is worse on a phone anyway. A list is also the only version
  * that works with a keyboard.
  */
+/**
+ * A narrowing `typeof x === "object"` cannot do on its own.
+ *
+ * `typeof null` is `"object"`, so the obvious check reads `null` — this
+ * context, the case with no remote list at all — as a loaded one and asks it
+ * for `.folders`.
+ */
+function isFolderList(
+  value: { folders: readonly string[]; truncated: boolean } | "loading" | "failed" | null,
+): value is { folders: readonly string[]; truncated: boolean } {
+  return value !== null && typeof value === "object";
+}
+
 export function MovePicker({
   title,
   description,
   folders,
   currentFolder,
+  destinations = [],
+  loadDestinationFolders,
   onCancel,
   onConfirm,
 }: {
@@ -259,19 +275,105 @@ export function MovePicker({
   description?: string;
   folders: readonly string[];
   currentFolder: string;
+  /**
+   * Other contexts this can go to. Empty is the ordinary case — one context,
+   * or somebody who does not own this one — and the row of context buttons is
+   * then absent rather than a single disabled option.
+   */
+  destinations?: readonly MoveDestination[];
+  /** Fetches a destination's folders, once, when it is first chosen. */
+  loadDestinationFolders?: (contextId: string) => Promise<{
+    folders: readonly string[];
+    truncated: boolean;
+  }>;
   onCancel: () => void;
-  onConfirm: (folder: string) => void;
+  /** `contextId` is `null` for this context, which is the unchanged path. */
+  onConfirm: (folder: string, contextId: string | null) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<string | null>(null);
+  const [context, setContext] = useState<string | null>(null);
+  /**
+   * Folders per destination, kept after the first fetch.
+   *
+   * A walk of somebody else's bucket per press would make flipping between two
+   * contexts to compare them cost a credential open each way. The dialog is
+   * short-lived, so "until it closes" is the right lifetime and there is
+   * nothing to invalidate.
+   */
+  const [remote, setRemote] = useState<
+    Record<string, { folders: readonly string[]; truncated: boolean } | "loading" | "failed">
+  >({});
+
+  const pick = (contextId: string | null) => {
+    setContext(contextId);
+    // The chosen folder belongs to the context it was chosen in. Keeping it
+    // across a switch would arm "Move here" with a path the other context may
+    // not even have.
+    setChosen(null);
+    if (contextId === null || remote[contextId] !== undefined) return;
+    setRemote((current) => ({ ...current, [contextId]: "loading" }));
+    void loadDestinationFolders?.(contextId)
+      .then((answer) => setRemote((current) => ({ ...current, [contextId]: answer })))
+      .catch(() => setRemote((current) => ({ ...current, [contextId]: "failed" })));
+  };
+
+  // `null` for this context, `undefined` for one nothing has been asked about
+  // yet, and the three loaded states otherwise. Kept apart because "not asked"
+  // and "asked and empty" draw differently.
+  const loaded: { folders: readonly string[]; truncated: boolean } | "loading" | "failed" | null =
+    context === null ? null : (remote[context] ?? "loading");
+  const available =
+    context === null ? folders : isFolderList(loaded) ? loaded.folders : [];
+  const elsewhere = destinations.find((one) => one.id === context) ?? null;
 
   return (
     <Shell title={title} onClose={onCancel}>
       {description ? <Text variant="paneSub">{description}</Text> : null}
-      <Text variant="paneSub">Pick where it should live. Nothing is overwritten.</Text>
+      {destinations.length > 0 ? (
+        <View style={styles.pills}>
+          <Button
+            label="This context"
+            variant={context === null ? "dialogPrimary" : "dialog"}
+            onPress={() => pick(null)}
+          />
+          {destinations.map((destination) => (
+            <Button
+              key={destination.id}
+              label={destination.label}
+              variant={context === destination.id ? "dialogPrimary" : "dialog"}
+              onPress={() => pick(destination.id)}
+            />
+          ))}
+        </View>
+      ) : null}
+      <Text variant="paneSub">
+        {elsewhere === null
+          ? "Pick where it should live. Nothing is overwritten."
+          : /*
+              Three things a person cannot see from the folder list, said before
+              they press rather than discovered afterwards. Each is a real
+              property of a move across a tenancy boundary and none of them is
+              a defect: links live in the bucket they were written in, the
+              privacy manifest they land under is the other context's, and the
+              bytes cross a batch at a time.
+            */
+            `Moving into ${elsewhere.label}. Links to it are not rewritten, and nothing ` +
+            "becomes visible to anybody it was not already visible to — private stays " +
+            "private there. A large folder keeps going in the background."}
+      </Text>
+      {loaded === "loading" ? <Text variant="paneSub">Reading its folders…</Text> : null}
+      {loaded === "failed" ? (
+        <Text variant="error">That context&apos;s folders could not be read.</Text>
+      ) : null}
+      {isFolderList(loaded) && loaded.truncated ? (
+        <Text variant="paneSub">
+          Showing the first {loaded.folders.length} folders of that context.
+        </Text>
+      ) : null}
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
-        {folders.map((folder) => {
-          const here = folder === currentFolder;
+        {available.map((folder) => {
+          const here = context === null && folder === currentFolder;
           return (
             <PressRow
               key={folder || "/"}
@@ -298,10 +400,12 @@ export function MovePicker({
       <View style={styles.actions}>
         <Button label="Cancel" variant="dialog" onPress={onCancel} />
         <Button
-          label="Move here"
+          label={elsewhere === null ? "Move here" : `Move to ${elsewhere.label}`}
           variant="dialogPrimary"
-          disabled={chosen === null || chosen === currentFolder}
-          onPress={() => onConfirm(chosen!)}
+          // Only "the folder it is already in" is refused, and only in this
+          // context: the same path in another one is a different place.
+          disabled={chosen === null || (context === null && chosen === currentFolder)}
+          onPress={() => onConfirm(chosen!, context)}
         />
       </View>
     </Shell>
@@ -375,6 +479,14 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * the one that got noticed.
    */
   actions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  /**
+   * The row of contexts a move can go to.
+   *
+   * Wraps rather than scrolls: somebody with six contexts should see all six
+   * at once — a destination you have to scroll to find is one you pick the
+   * wrong one of.
+   */
+  pills: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   /**
    * The two rows of the create chooser.
    *

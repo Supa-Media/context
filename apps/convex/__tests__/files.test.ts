@@ -2548,6 +2548,12 @@ describe("a stranger cannot reach another workspace's files", () => {
       // cross-tenant risk: a stranger asking for another workspace's note
       // paths must get `WORKSPACE_NOT_FOUND`, never a real (even empty) list.
       (workspaceId) => as.action(api.functions.files.notePaths, { workspaceId }),
+      // The same shape one level up: every FOLDER this caller can see, for the
+      // "move into another context" picker. A folder name is itself private —
+      // `1-projects/acme-acquisition` names a deal — so handing a stranger an
+      // empty list rather than a refusal would still be an existence oracle
+      // they could walk one guess at a time.
+      (workspaceId) => as.action(api.functions.files.folderPaths, { workspaceId }),
       // Counts and phase reveal less than a path, but the existence of a long
       // move is still activity in another tenant and therefore owner-only.
       (workspaceId) => as.query(api.functions.files.listDurableMoves, { workspaceId }),

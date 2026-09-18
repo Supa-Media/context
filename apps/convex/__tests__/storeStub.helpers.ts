@@ -90,8 +90,12 @@ export interface MemoryStore extends ScaffoldStore {
    * it does not have — which is the exact production bug the capability probe
    * exists to catch.
    */
-  delete(key: string): Promise<void>;
-  capabilities: { conditionalWrite: boolean };
+  delete(key: string, options?: { onlyIf?: { etagMatches?: string } }): Promise<void | null>;
+  capabilities: {
+    conditionalWrite: boolean;
+    conditionalCreate?: boolean;
+    conditionalDelete?: boolean;
+  };
 }
 
 export function memoryStore(
@@ -107,6 +111,31 @@ export function memoryStore(
      * half-written bucket and no way to finish it.
      */
     refuseWrite?: (key: string) => boolean;
+    /**
+     * Honour `onlyIf: { absent: true }` on `put` and `onlyIf: { etagMatches }`
+     * on `delete`, and **say so** in `capabilities`.
+     *
+     * Opt-in rather than on, because the two halves have to move together: a
+     * stub that enforced the preconditions while still reporting no capability
+     * would exercise the read-compare fallback and call it the conditional
+     * path, and one that reported the capability without enforcing it is the
+     * B2 bug this file already models in the other direction.
+     *
+     * R2 and AWS S3 are what this describes — the backends a cross-context
+     * move requires, because copy-then-verify-then-delete is only safe if the
+     * delete can be made conditional on the etag the copy was taken at.
+     */
+    conditional?: boolean;
+    /**
+     * Accept `If-Match` on DELETE and **ignore it**, while enforcing it on PUT.
+     *
+     * Not a hypothetical backend: this is R2, measured. Every real binding
+     * probes `conditionalDelete: false` and `conditionalWrite: true`, which is
+     * why `retireMovedSource` substitutes a conditional PUT for a conditional
+     * delete. A stub that only models the honest case cannot tell the
+     * substitute from the hazard it replaces.
+     */
+    ignoreIfMatchOnDelete?: boolean;
   } = {},
 ): MemoryStore {
   const objects = new Map<string, StoredValue>();
@@ -114,11 +143,29 @@ export function memoryStore(
 
   return {
     objects,
-    capabilities: { conditionalWrite: options.ignoreIfMatch !== true },
+    capabilities: {
+      conditionalWrite: options.ignoreIfMatch !== true,
+      ...(options.conditional === true
+        ? {
+            conditionalCreate: true,
+            conditionalDelete: options.ignoreIfMatchOnDelete !== true,
+          }
+        : {}),
+    },
     seed(key, body) {
       objects.set(key, stored(body, `m${++counter}`));
     },
-    async delete(key) {
+    async delete(key, deleteOptions) {
+      const expected = deleteOptions?.onlyIf?.etagMatches;
+      if (
+        options.conditional === true &&
+        options.ignoreIfMatchOnDelete !== true &&
+        expected !== undefined
+      ) {
+        // `null` is "the precondition did not hold", which is how every caller
+        // in `lib/fileOps.ts` tells a conflict from a delete that happened.
+        if (objects.get(key)?.etag !== expected) return null;
+      }
       objects.delete(key);
     },
     /**
@@ -153,6 +200,13 @@ export function memoryStore(
       }
       const expected = putOptions?.onlyIf?.etagMatches;
       if (expected && !options.ignoreIfMatch && objects.get(key)?.etag !== expected) {
+        return null;
+      }
+      if (
+        options.conditional === true &&
+        putOptions?.onlyIf?.absent === true &&
+        objects.has(key)
+      ) {
         return null;
       }
       const etag = `m${++counter}`;
