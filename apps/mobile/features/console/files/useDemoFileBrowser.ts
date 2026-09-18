@@ -124,6 +124,14 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
         reported, never faked."
       */
       submitForm: async () => ({ ok: false, message: "Sign in to send a response." }),
+      /*
+        No bucket behind this one, so there are no bytes to hand over and no
+        paste to accept. `null` and a sentence rather than a pretend success:
+        "an absent capability is reported, never faked".
+      */
+      loadImage: async () => null,
+      say: () => {},
+      storeImage: async () => ({ error: "Sign in to add an image." }),
       readFormResponses: async () => ({ ok: false, message: "Sign in to read responses." }),
       voteForm: async () => ({ ok: false, message: "Sign in to vote." }),
       updateFormResponse: async () => ({ ok: false, message: "Sign in to edit responses." }),

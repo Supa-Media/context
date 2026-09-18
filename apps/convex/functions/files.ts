@@ -217,6 +217,9 @@ import {
   importVaultFiles,
   writeImage,
   readImage,
+  attachmentKeyFor,
+  readAttachment,
+  writeAttachment,
 } from "./lib/fileOps";
 import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
 import {
@@ -338,6 +341,18 @@ const imageWrittenValidator = v.object({
 const imageValidator = v.object({
   kind: v.literal("image"),
   bytes: v.bytes(),
+});
+
+const attachmentWrittenValidator = v.object({
+  kind: v.literal("attachmentWritten"),
+  key: v.string(),
+  etag: v.string(),
+});
+
+const attachmentValidator = v.object({
+  kind: v.literal("attachment"),
+  bytes: v.bytes(),
+  contentType: v.string(),
 });
 
 const pluginVerdictValidator = v.union(
@@ -1013,6 +1028,8 @@ const operationResultValidator = v.union(
   storageLayoutReadValidator,
   imageWrittenValidator,
   imageValidator,
+  attachmentWrittenValidator,
+  attachmentValidator,
   pluginInventoryValidator,
   pluginManagedInstallsValidator,
   contextPluginsValidator,
@@ -1128,6 +1145,23 @@ const operationValidator = v.union(
     contentType: v.string(),
   }),
   v.object({ kind: v.literal("readImage"), leaf: v.string() }),
+  /**
+   * A pasted image: bytes into a folder the customer can see, and back out.
+   *
+   * A separate pair from `writeImage`/`readImage` rather than a flag on them,
+   * for the reason `ATTACHMENT_PREFIX` gives: those keys are opaque plumbing a
+   * machine wrote, these are somebody's own picture, and the difference is
+   * whether Obsidian can resolve the embed that points at it. They share the
+   * exemptions — no `.md`, no visibility of their own, no history — and nothing
+   * else.
+   */
+  v.object({
+    kind: v.literal("writeAttachment"),
+    path: v.string(),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  }),
+  v.object({ kind: v.literal("readAttachment"), path: v.string() }),
   v.object({ kind: v.literal("pluginInventory") }),
   v.object({ kind: v.literal("pluginManagedList") }),
   v.object({ kind: v.literal("contextPlugins") }),
@@ -1364,6 +1398,8 @@ type FileOperation =
   | { kind: "setFolderVisibility"; path: string; visibility: "private" | "team" }
   | { kind: "writeImage"; leaf: string; bytes: ArrayBuffer; contentType: string }
   | { kind: "readImage"; leaf: string }
+  | { kind: "writeAttachment"; path: string; bytes: ArrayBuffer; contentType: string }
+  | { kind: "readAttachment"; path: string }
   | { kind: "pluginInventory" }
   | { kind: "pluginManagedList" }
   | { kind: "contextPlugins" }
@@ -1563,7 +1599,9 @@ type OperationResult =
       partial: boolean;
     }
   | { kind: "imageWritten"; key: string; etag: string }
-  | { kind: "image"; bytes: ArrayBuffer };
+  | { kind: "image"; bytes: ArrayBuffer }
+  | { kind: "attachmentWritten"; key: string; etag: string }
+  | { kind: "attachment"; bytes: ArrayBuffer; contentType: string };
 
 /** Product-owned shadow settings; `.obsidian/` remains read-only. */
 /**
@@ -3740,6 +3778,18 @@ export async function executeOperation(
         const bytes = await readImage(store, operation.leaf);
         return { kind: "image", bytes };
       }
+      case "writeAttachment": {
+        const written = await writeAttachment(store, {
+          path: operation.path,
+          bytes: new Uint8Array(operation.bytes),
+          contentType: operation.contentType,
+        });
+        return { kind: "attachmentWritten", ...written };
+      }
+      case "readAttachment": {
+        const read = await readAttachment(store, operation.path);
+        return { kind: "attachment", ...read };
+      }
       case "resetPrivacy": {
         const result = await resetPrivacyManifest(store, { clearance, now });
         return { kind: "privacyReset", ...result };
@@ -4638,6 +4688,129 @@ function validateVaultImportPlan(args: {
  * completed batch numbers, so a closed tab can reselect the same vault and
  * avoid sending batches that already finished.
  */
+/* -------------------------------------------------------------------------- */
+/*                    a pasted image, in and back out again                    */
+/* -------------------------------------------------------------------------- */
+
+/** Sixteen hex characters of SHA-256, which is what names the object. */
+async function contentHash(bytes: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+}
+
+/** The last segment of a key, which is what a note's embed names. */
+function leafOf(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+/**
+ * Store an image somebody pasted into a note.
+ *
+ * **Editor or owner**, because this writes to the bucket; `member` is read
+ * access and a paste is not a read. Nothing about the note is consulted: the
+ * caller may already write every note in this context, so gating the *image* on
+ * one particular note would be a check that refuses nothing and implies a
+ * guarantee this does not make.
+ *
+ * The name is ours to choose and not the caller's, which is the security half:
+ * a client-supplied key is a path to argue about, and this one is derived from
+ * the bytes — the same image is the same object, a retry overwrites itself, and
+ * `assertAttachmentPath` still refuses whatever comes out if the derivation is
+ * ever changed carelessly.
+ */
+export const storeNoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  },
+  returns: v.object({ path: v.string(), leaf: v.string() }),
+  handler: async (ctx, args): Promise<{ path: string; leaf: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "editor" },
+    );
+    const path = attachmentKeyFor({
+      hash: await contentHash(args.bytes),
+      contentType: args.contentType,
+      at: new Date(),
+    });
+    await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "writeAttachment",
+        path,
+        bytes: args.bytes,
+        contentType: args.contentType,
+      },
+    });
+    return { path, leaf: leafOf(path) };
+  },
+});
+
+/**
+ * Read a pasted image back, for a note that references it.
+ *
+ * **The reference is the gate, and it is the gateway's own.** An image has no
+ * visibility of its own — it borrows the visibility of the notes that point at
+ * it — so the question this asks is the question `read_image` asks: is there a
+ * note *this caller can see* that names this file? The note is read through the
+ * same `read` operation the editor uses, so `canSee` and `privacy.md` answer
+ * exactly once, in the place they already answer for note text.
+ *
+ * A caller who can see no such note gets `FILE_NOT_FOUND` — the same error as
+ * for an image that was never written, so this cannot be used to learn that one
+ * exists. A `member` therefore cannot pull an image out of a private note by
+ * naming its key, which is the isolation case worth a test rather than a
+ * comment.
+ *
+ * Deliberately broad about what "references" means: any mention of the leaf
+ * anywhere in the note. These notes are edited in Obsidian, in rclone and by
+ * hand, and the failure mode of a strict rule ("must be a markdown embed") is an
+ * image that silently stops loading in the app after somebody reformatted a
+ * line.
+ */
+export const readNoteImage = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    notePath: v.string(),
+    path: v.string(),
+  },
+  returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const note = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "read", path: args.notePath },
+    })) as Extract<OperationResult, { kind: "file" }>;
+    if (!note.text.includes(leafOf(args.path))) {
+      throw new ConvexError({
+        code: "FILE_NOT_FOUND",
+        message: "No note you can see references that image.",
+      });
+    }
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readAttachment", path: args.path },
+    })) as Extract<OperationResult, { kind: "attachment" }>;
+    return { bytes: result.bytes, contentType: result.contentType };
+  },
+});
+
 export const startVaultImport = mutation({
   args: {
     workspaceId: v.id("workspaces"),
