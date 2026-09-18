@@ -317,6 +317,33 @@ export async function runStoreChecks(check, gateway) {
       page2.cursor === undefined
   );
 
+  // `startAfter` is how the control plane's sync manifest resumes a walk
+  // without handing a caller the continuation token — which is base64 of the
+  // last backend key, and that key can be a note the caller may not see. It is
+  // ListObjectsV2's own `start-after`, root-prefixed like every other key, and
+  // a continuation token supersedes it, so it is only sent on a first page.
+  const startAfterStore = s3(() => new Response(listXml({})), { rootPrefix: "team-notes" });
+  await startAfterStore.list({ prefix: "", startAfter: "1-projects/a.md" });
+  await startAfterStore.list({ prefix: "", startAfter: "1-projects/a.md", cursor: "token-page-2" });
+  check(
+    "startAfter is sent as a root-prefixed start-after, and never beside a continuation token",
+    startAfterStore.fetchImpl.calls[0].url.searchParams.get("start-after") ===
+      "team-notes/1-projects/a.md" &&
+      startAfterStore.fetchImpl.calls[1].url.searchParams.get("start-after") === null &&
+      startAfterStore.fetchImpl.calls[1].url.searchParams.get("continuation-token") ===
+        "token-page-2"
+  );
+  let refusedStartAfter = false;
+  try {
+    await startAfterStore.list({ prefix: "", startAfter: "../escape.md" });
+  } catch {
+    refusedStartAfter = true;
+  }
+  check(
+    "a startAfter is a key, and a key that climbs out of the root is refused before any request",
+    refusedStartAfter && startAfterStore.fetchImpl.calls.length === 2
+  );
+
   const delimitedStore = s3(
     () =>
       new Response(
@@ -1781,6 +1808,33 @@ export async function runStoreChecks(check, gateway) {
     );
     const arg = JSON.parse(store.fetch.calls[0].body);
     check("a listing is scoped to the chosen folder", arg.path === "/Context");
+  }
+
+  {
+    // The offline mirror's manifest compares versions without reading every
+    // note, which is only possible if a listing carries the same version a
+    // read does. On Dropbox that is `rev` — `get` already hands it back as the
+    // etag — and the listing dropped it, so every Dropbox note would have
+    // looked changed on every sync.
+    const store = dropbox(() =>
+      dbxJson({
+        entries: [
+          {
+            ".tag": "file",
+            path_display: "/1-projects/a.md",
+            size: 3,
+            server_modified: "2026-08-01T10:00:00Z",
+            rev: "0157f8a1",
+          },
+        ],
+        has_more: false,
+      })
+    );
+    const page = await store.list({ prefix: "" });
+    check(
+      "a dropbox listing carries each file's rev as its etag, the same one a read returns",
+      page.objects[0]?.etag === "0157f8a1"
+    );
   }
 
   {
