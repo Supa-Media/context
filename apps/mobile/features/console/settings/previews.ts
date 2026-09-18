@@ -1,4 +1,3 @@
-import type { AppearanceChoice } from "../../design/theme";
 import { receivesMail } from "../ingestion/settings";
 import { privacyViewOf } from "../privacy/map";
 import { visibilityWord } from "../privacy/words";
@@ -58,17 +57,6 @@ import type { SettingsSectionKey } from "./sections";
 export function settingsPreview(
   key: SettingsSectionKey,
   data: ConsoleData,
-  /**
-   * The viewer's appearance setting, or `null` where the caller has none to
-   * offer — `OverviewPanel`, which draws no Appearance row.
-   *
-   * The whole object rather than the `choice`, and that is the guard rather
-   * than a convenience: `choice` is `"system"` before the device has answered
-   * on a native cold start, so a caller handing over only that reads "System"
-   * to somebody on Dark and then flips. Taking `ready` alongside it makes
-   * dropping it a type error instead of a thing to remember.
-   */
-  appearance: { choice: AppearanceChoice; ready: boolean } | null,
 ): string | null {
   switch (key) {
     case "apps":
@@ -85,12 +73,6 @@ export function settingsPreview(
       // "None" on every load is a badge people learn to ignore.
       const pending = data.invitations?.length ?? 0;
       return pending === 0 ? null : `${pending} pending`;
-    }
-
-    case "appearance": {
-      if (appearance === null || !appearance.ready) return null;
-      const { choice } = appearance;
-      return choice === "system" ? "System" : choice === "dark" ? "Dark" : "Light";
     }
 
     case "email": {

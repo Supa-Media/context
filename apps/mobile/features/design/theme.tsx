@@ -1,16 +1,11 @@
 import {
   createContext,
-  useCallback,
   useContext,
-  useEffect,
   useMemo,
-  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { useColorScheme } from "react-native";
 
-import { peekStoredSchemeSync } from "./appearancePeek";
-import { readStoredScheme, writeStoredScheme, type StoredScheme } from "./appearancePrefs";
 import {
   darkColors,
   darkGraphColors,
@@ -43,11 +38,23 @@ import {
  *
  * `useColorScheme()` already answers the question on every platform this app
  * ships to, so the hooks below work with no provider above them. The provider
- * exists for the two cases the platform cannot answer: a test that needs to
- * mount a screen in a named scheme, and (later) a user who wants to pin the
- * app to one appearance regardless of the system. Making it required would
- * have meant a crash in every one of the hundred-odd tests that mount a
- * component on its own, in exchange for nothing.
+ * exists for the one case the platform cannot answer: a test that needs to
+ * mount a screen in a named scheme.
+ *
+ * ## The app follows the device, and has nothing to remember
+ *
+ * There was a stored choice — Light, Dark, or follow the device — with a
+ * settings panel behind it, a module-level store to keep that panel and the
+ * provider from disagreeing, a synchronous peek on web and an async read on
+ * native, and a launch image held up in `app/_layout.tsx` until that read
+ * landed. All of it existed to make one pinned value arrive before the first
+ * frame.
+ *
+ * The pinning is gone, so the machinery is too rather than being left in
+ * place with nothing able to write to it: a stored `"dark"` that no surface
+ * could change would be a setting somebody is locked into, which is worse
+ * than the setting not existing. What "Appearance" means now is the sentence
+ * Profile prints — this app is light when the device is.
  */
 
 /**
@@ -129,141 +136,6 @@ export function useScheme(): Scheme {
   const chosen = useContext(SchemeContext);
   const system = useColorScheme();
   return resolveScheme(chosen, system);
-}
-
-/* -------------------------------------------------------------------------- */
-/* The remembered appearance — Light / Dark / Follow the device               */
-/* -------------------------------------------------------------------------- */
-
-/** What "Appearance" in account settings offers. `"system"` is the default. */
-export type AppearanceChoice = StoredScheme | "system";
-
-/**
- * A module-level external store, on the same shape `useLastPlace.ts` uses for
- * "the log, live for this session": a settings panel writing the choice and
- * the provider painting the app from it are two different trees, and nothing
- * shorter than a shared store keeps them from disagreeing the instant either
- * one re-renders on its own.
- *
- * ## The first paint, and why the two platforms differ
- *
- * The whole risk this section exists to manage: a stored `"light"` that
- * arrives one render late paints dark first (`resolveScheme`'s fallback) and
- * then flips, which reads as a flash rather than a choice taking effect.
- *
- * `peekStoredSchemeSync()` is what closes that gap, and it closes it two
- * different amounts on the two platforms this module ships to:
- *
- *  - **Web** answers synchronously, at module-evaluation time — before
- *    `AppearanceProvider` ever renders. The snapshot below is seeded with the
- *    real answer from the start, so there is no wrong first frame to flash
- *    from.
- *  - **Native** cannot answer synchronously (`AsyncStorage` is a bridge call),
- *    so the snapshot starts `ready: false` and `app/_layout.tsx` holds the
- *    launch image up — the same thing it already does for the auth session —
- *    until the read below resolves. The user never sees the frame in between;
- *    it exists only for as long as the launch image covers it.
- *
- * Either way, nothing downstream of `ready` ever has to guess: `choice` is
- * only ever the placeholder `"system"` while `ready` is `false`, and the one
- * caller that draws before `ready` is true (`app/_layout.tsx`) knows to wait
- * on it rather than paint.
- */
-const boot = peekStoredSchemeSync();
-let appearanceSnapshot: { choice: AppearanceChoice; ready: boolean } = {
-  choice: boot.scheme ?? "system",
-  ready: boot.resolved,
-};
-const appearanceListeners = new Set<() => void>();
-
-function publishAppearance(next: { choice: AppearanceChoice; ready: boolean }): void {
-  appearanceSnapshot = next;
-  for (const listener of appearanceListeners) listener();
-}
-
-function subscribeAppearance(listener: () => void): () => void {
-  appearanceListeners.add(listener);
-  return () => {
-    appearanceListeners.delete(listener);
-  };
-}
-
-function currentAppearance(): { choice: AppearanceChoice; ready: boolean } {
-  return appearanceSnapshot;
-}
-
-/**
- * Starts the async read at most once per process. A second mount of
- * `useAppearanceChoice` — the provider and the settings panel both use it —
- * must not issue a second device read, and once `ready` is `true` (including
- * synchronously, on web) there is nothing left to read.
- */
-let readStarted = false;
-function ensureAppearanceLoaded(): void {
-  if (readStarted || appearanceSnapshot.ready) return;
-  readStarted = true;
-  void readStoredScheme().then((stored) => {
-    publishAppearance({ choice: stored ?? "system", ready: true });
-  });
-}
-
-/**
- * The remembered appearance choice, live, plus a setter that writes it down.
- *
- * Every reader shares one store, so a change made from the settings panel is
- * visible to `AppearanceProvider` on its very next render — the two are not
- * otherwise related components, and the whole point is that they cannot
- * disagree about what "the current choice" is.
- */
-export function useAppearanceChoice(): {
-  choice: AppearanceChoice;
-  /** `false` only on a native cold start, before the device has answered. */
-  ready: boolean;
-  setChoice: (choice: AppearanceChoice) => void;
-} {
-  const snapshot = useSyncExternalStore(
-    subscribeAppearance,
-    currentAppearance,
-    currentAppearance,
-  );
-
-  useEffect(() => {
-    ensureAppearanceLoaded();
-  }, []);
-
-  const setChoice = useCallback((choice: AppearanceChoice) => {
-    // The screen updates first — same rule `useRememberPlace` follows — so
-    // every subtree reading this store repaints in the same tick rather than
-    // waiting on the device to catch up.
-    publishAppearance({ choice, ready: true });
-    // `writeStoredScheme` already swallows a failed write on `rememberPlace`'s
-    // model (see its own comment) — this promise cannot reject. `void` here
-    // is therefore only what it claims to be: telling the type checker the
-    // resolved value is unused, not standing in for error handling that would
-    // otherwise be missing.
-    void writeStoredScheme(choice === "system" ? null : choice);
-  }, []);
-
-  return { ...snapshot, setChoice };
-}
-
-/**
- * Pins the whole app to the remembered choice, or follows the system when
- * that choice is `"system"`. The one caller of this is `app/_layout.tsx` —
- * everything else keeps using `ThemeProvider` directly, including every test
- * that pins a subtree to one scheme on purpose.
- */
-export function AppearanceProvider({ children }: { children: ReactNode }) {
-  const { choice } = useAppearanceChoice();
-  return <ThemeProvider scheme={choice === "system" ? undefined : choice}>{children}</ThemeProvider>;
-}
-
-/** Test seam: forget the in-process appearance state. Not used by the app. */
-export function resetAppearanceForTests(): void {
-  readStarted = false;
-  appearanceListeners.clear();
-  const boot = peekStoredSchemeSync();
-  appearanceSnapshot = { choice: boot.scheme ?? "system", ready: boot.resolved };
 }
 
 export function useTheme(): Theme {

@@ -188,6 +188,12 @@ describe("the route table", () => {
     expect(settingsFromQuery(["email", "storage"])).toBe("email");
   });
 
+  test("a stale ?settings=appearance link opens Profile too", () => {
+    // The picker is gone and the app follows the device; Profile is where the
+    // sentence saying so lives.
+    expect(settingsFromQuery("appearance")).toBe("profile");
+  });
+
   test("a stale ?settings=devices link opens Profile, not nothing", () => {
     // "Your devices" stopped being a section and became a card at the foot of
     // Profile. A link somebody kept — or an older build's redirect — still
