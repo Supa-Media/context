@@ -7,12 +7,18 @@ import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
   dictationRun,
+  dictationTarget,
   drawInterim,
   insertDictated,
   interimField,
   takeBackRun,
 } from "../features/console/files/dictate";
-import { editability, editorExtensions, runCommand } from "../features/console/files/editorSetup";
+import {
+  editability,
+  editorExtensions,
+  openingCaret,
+  runCommand,
+} from "../features/console/files/editorSetup";
 import {
   acceptsCommand,
   decodeCommand,
@@ -69,6 +75,12 @@ import {
  *     that loses write access mid-dictation stops taking phrases`.
  *  7. `decodeCommand` returns `{ name: "dictate" }` without checking `text`.
  *     → `a dictate command with no text on it is refused at the wire` fails.
+ *  8. `insertDictated` uses `selection.main` directly instead of
+ *     `dictationTarget`.
+ *     → `a phrase dictated into a note nobody clicked into continues it rather
+ *     than heading it` fails. Found by looking at the first screenshot rather
+ *     than by reasoning: the dictated words were pushed into the front of the
+ *     note's title, because offset 0 is where a caret nobody has placed sits.
  */
 
 const views: EditorView[] = [];
@@ -207,6 +219,77 @@ describe("a settled phrase in the document", () => {
     // must not drag the caret to the end of it.
     expect(view.state.selection.main.head).toBe(0);
     expect(takeBackRun(view)).toBe(false);
+  });
+});
+
+describe("a caret nobody placed", () => {
+  test("a phrase dictated into a note nobody clicked into continues it rather than heading it", () => {
+    // Offset 0 is where CodeMirror's selection starts, so this is what a person
+    // gets by opening a note, reading it, and pressing the microphone.
+    const view = mount("# Weekly sync\n\nStanding agenda first.", 0);
+    insertDictated(view, "And one more thing.");
+    expect(view.state.doc.toString()).toBe(
+      "# Weekly sync\n\nStanding agenda first. And one more thing.",
+    );
+  });
+
+  test("a note that opens past its frontmatter is still an untouched caret", () => {
+    /*
+      The case the first screenshot failed on, and the reason the baseline is
+      `openingCaret` rather than 0: `LiveEditor.web.tsx` opens a note with a
+      `---` block at the first line *after* it, so a check against offset zero
+      never fires on the notes this app actually opens — and the dictated
+      phrase went into the front of the title instead.
+    */
+    const note = "---\nupdated: 2026-09-18\n---\n# Weekly sync\n\nStanding agenda first.";
+    const view = mount(note, openingCaret(note));
+    expect(view.state.selection.main.head).toBeGreaterThan(0);
+    insertDictated(view, "And one more thing.");
+    expect(view.state.doc.toString()).toBe(`${note} And one more thing.`);
+  });
+
+  test("a caret somebody did place is obeyed exactly, including at the very start", () => {
+    const view = mount("Standing agenda first.", 0);
+    // The caret is at 0 here too — but a run is already under way, so it was
+    // left there by the previous phrase rather than never placed.
+    insertDictated(view, "One.");
+    view.dispatch({ selection: { anchor: 0 } });
+    insertDictated(view, "Two.");
+    expect(view.state.doc.toString()).toContain("Two.Standing");
+  });
+
+  test("the second phrase of a run follows the first rather than relocating again", () => {
+    const view = mount("# Weekly sync\n\nBody.", 0);
+    insertDictated(view, "One.");
+    insertDictated(view, "Two.");
+    expect(view.state.doc.toString()).toBe("# Weekly sync\n\nBody. One. Two.");
+  });
+
+  test("the guess is drawn where the phrase will land, not at the untouched caret", () => {
+    const view = mount("# Weekly sync\n\nBody.", 0);
+    drawInterim(view, "still being heard");
+    const drawn = view.dom.querySelector(".cm-dictation-interim");
+    expect(drawn).not.toBeNull();
+    // Everything in the document precedes it, which is what "at the end" means
+    // when read off the rendered line boxes.
+    expect(view.dom.textContent?.indexOf("still being heard")).toBeGreaterThan(
+      view.dom.textContent!.indexOf("Body."),
+    );
+  });
+
+  test("an empty note has nowhere else to put it", () => {
+    const view = mount("", 0);
+    expect(
+      dictationTarget({ runActive: false, from: 0, to: 0, openingAt: 0, docLength: 0 }),
+    ).toEqual({ from: 0, to: 0 });
+    insertDictated(view, "First words.");
+    expect(view.state.doc.toString()).toBe("First words.");
+  });
+
+  test("a selection is never relocated, because a selection was made on purpose", () => {
+    expect(
+      dictationTarget({ runActive: false, from: 0, to: 9, openingAt: 0, docLength: 40 }),
+    ).toEqual({ from: 0, to: 9 });
   });
 });
 

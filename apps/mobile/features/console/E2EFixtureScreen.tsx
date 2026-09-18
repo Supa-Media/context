@@ -17,6 +17,8 @@ import { layout, space } from "../design/tokens";
 import { atName } from "./format";
 import { selectedContext } from "./types";
 import { useE2EFixtureConsoleData } from "./e2eFixtureData";
+import { entryAt } from "./files/tree";
+import { VoiceHostProvider, type VoiceHost } from "../voice/VoiceHost";
 
 /**
  * The real phone console — `BrowsePane` under a `NavBandProvider` — on the
@@ -140,6 +142,34 @@ export function E2EFixtureScreen({
     a pointer layout puts it in the switcher at the top.
   */
   const phone = densityFor(useWindowDimensions().width) === "compact";
+
+  /*
+    The microphone over the note, wired exactly as `(app)/console/_layout.tsx`
+    wires it — the same copied-from-the-real-layout rule this file already
+    follows for `NavBandProvider`.
+
+    It is here rather than left out because `useVoiceHost()` answers `null`
+    where nobody provides one, so without this the fixture would render the
+    console *minus* the one control `voice.spec.ts` exists to drive, and the
+    suite would be green against a screen that is not the product.
+
+    `onRecordMeeting` does nothing: there is no signed-in session here for
+    `useMeetingFlow` to resolve a destination against, exactly as
+    `onSelect`/`onOpen` do nothing above. The sheet's meeting row is still
+    pressable, which is what the case about the handoff asserts.
+  */
+  const voiceHost: VoiceHost = {
+    page: (() => {
+      const path = data.files.selectedPath;
+      const entry = path === null ? null : entryAt(data.files.listings, path, data.files.editor);
+      return {
+        context: current,
+        notePath: entry?.kind === "file" ? entry.path : null,
+        writable: entry !== null && !entry.readOnly,
+      };
+    })(),
+    onRecordMeeting: () => {},
+  };
 
   /*
     Slug in, id out — the resolution `Landing.tsx` and the console layout both
@@ -272,6 +302,7 @@ export function E2EFixtureScreen({
               ) : null,
             }}
           >
+            <VoiceHostProvider value={voiceHost}>
             <BrowsePane
               data={data}
               onOpenSettings={openSettings}
@@ -281,6 +312,7 @@ export function E2EFixtureScreen({
                 data.files.select(path);
               }}
             />
+            </VoiceHostProvider>
           </NavBandProvider>
         </View>
       </View>

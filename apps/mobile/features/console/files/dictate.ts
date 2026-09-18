@@ -1,9 +1,11 @@
 import {
   Annotation,
   EditorSelection,
+  Facet,
   StateEffect,
   StateField,
   Transaction,
+  type EditorState,
   type Extension,
 } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
@@ -79,6 +81,45 @@ export interface DictationRun {
  */
 const EDGE_FROM = 1;
 const EDGE_TO = -1;
+
+/**
+ * Where the editor put the caret when it opened this note.
+ *
+ * **Not zero.** `LiveEditor.web.tsx` opens a note at `openingCaret(value)` —
+ * just past a frontmatter block, so a note that begins with `---` does not open
+ * with the caret inside its YAML. So "the caret nobody has placed" is that
+ * position, not the start of the document, and a check against 0 silently never
+ * fires on the notes this app actually opens. That is exactly how it failed:
+ * the first screenshot showed a dictated phrase pushed into the front of a
+ * note's title, because the caret *was* deliberately somewhere — the editor had
+ * put it there.
+ *
+ * The function and the annotation are injected rather than imported: this
+ * module is imported *by* `editorSetup.ts`, and importing back would make a
+ * cycle out of two files the guest bundle also has to build.
+ */
+const dictationConfig = Facet.define<DictationOptions, DictationOptions>({
+  combine: (values) => values[0] ?? { openingCaret: () => 0, isExternalDoc: () => false },
+});
+
+export const openingAtField = StateField.define<number>({
+  create: (state) => state.facet(dictationConfig).openingCaret(state.doc.toString()),
+  update(value, tr) {
+    const config = tr.state.facet(dictationConfig);
+    // A different note was loaded into the same editor. Its own opening caret
+    // is a fresh question, and the old answer is a position in a document that
+    // no longer exists.
+    if (config.isExternalDoc(tr)) return config.openingCaret(tr.state.doc.toString());
+    return tr.docChanged ? tr.changes.mapPos(value, 1) : value;
+  },
+});
+
+export interface DictationOptions {
+  /** `editorSetup.ts`'s `openingCaret`. */
+  openingCaret: (doc: string) => number;
+  /** True for the `externalDoc` transaction that swaps one note for another. */
+  isExternalDoc: (tr: Transaction) => boolean;
+}
 
 /**
  * The guess, as state.
@@ -167,16 +208,86 @@ const interimDecoration = EditorView.decorations.compute(
   (state): DecorationSet => {
     const text = state.field(interimField, false) ?? "";
     if (text === "") return Decoration.none;
-    const at = state.selection.main.head;
+    /*
+      Drawn where the phrase will land rather than at the caret, because for an
+      untouched caret those are two different places — see `dictationTarget`.
+      A guess floating in front of the title while the settled form appears at
+      the end would make the grey text look like a bug rather than a preview.
+    */
+    const range = state.selection.main;
+    const at = dictationTarget({
+      runActive: (state.field(dictationRun, false) ?? null) !== null,
+      from: range.from,
+      to: range.to,
+      openingAt: openingAtOf(state),
+      docLength: state.doc.length,
+    }).from;
     return Decoration.set([
       Decoration.widget({ widget: new InterimWidget(text), side: 1 }).range(at),
     ]);
   },
 );
 
+/**
+ * Zero for a state configured without this extension.
+ *
+ * `field(…, false)` rather than a required read, because the same helpers run
+ * against editors that never mounted dictation — a unit test building a bare
+ * `EditorState` among them — and a required read throws on those.
+ */
+function openingAtOf(state: EditorState): number {
+  return state.field(openingAtField, false) ?? 0;
+}
+
 /** Everything this feature adds to an editor. Mounted by `editorExtensions`. */
-export function dictationExtension(): Extension {
-  return [interimField, dictationRun, interimDecoration];
+export function dictationExtension(options: DictationOptions): Extension {
+  return [
+    dictationConfig.of(options),
+    interimField,
+    dictationRun,
+    openingAtField,
+    interimDecoration,
+  ];
+}
+
+/**
+ * Where a phrase actually goes, given where the caret is.
+ *
+ * ## The caret nobody placed
+ *
+ * A person opens a note, reads it, and presses the microphone. They have not
+ * clicked into the text, so CodeMirror's selection is where it always starts:
+ * offset 0 — in front of the title. Inserting there is what the first
+ * screenshot of this feature showed, and it is not a small cosmetic problem:
+ * the words a person dictates get pushed into the front of their heading.
+ *
+ * So an untouched caret means *continue this note*, and the phrase goes at the
+ * end. A caret anywhere else was put there on purpose and is obeyed exactly.
+ * Offset 0 is the one position that cannot be told apart from "never placed",
+ * and dictating in front of a title is rare enough, and recoverable enough
+ * (type a space first, or click where you mean), to be the right thing to give
+ * up for it.
+ *
+ * **Only for the first phrase of a run.** Once dictation is under way the caret
+ * is wherever the last phrase left it, and a second relocation would send the
+ * second sentence somewhere the first one is not.
+ */
+export function dictationTarget(input: {
+  /** True once this run has inserted something. */
+  runActive: boolean;
+  from: number;
+  to: number;
+  /** Where the editor opened this note. See `openingAtField`. */
+  openingAt: number;
+  docLength: number;
+}): { from: number; to: number } {
+  const untouched =
+    !input.runActive &&
+    input.from === input.openingAt &&
+    input.to === input.openingAt &&
+    input.docLength > input.openingAt;
+  if (!untouched) return { from: input.from, to: input.to };
+  return { from: input.docLength, to: input.docLength };
 }
 
 /**
@@ -190,12 +301,19 @@ export function dictationExtension(): Extension {
 export function insertDictated(view: EditorView, phrase: string): void {
   if (view.state.readOnly) return;
   const range = view.state.selection.main;
-  const before = view.state.sliceDoc(Math.max(0, range.from - 1), range.from);
+  const target = dictationTarget({
+    runActive: (view.state.field(dictationRun, false) ?? null) !== null,
+    from: range.from,
+    to: range.to,
+    openingAt: openingAtOf(view.state),
+    docLength: view.state.doc.length,
+  });
+  const before = view.state.sliceDoc(Math.max(0, target.from - 1), target.from);
   const insert = joinDictated(before, phrase);
   if (insert === "") return;
   view.dispatch({
-    changes: { from: range.from, to: range.to, insert },
-    selection: EditorSelection.cursor(range.from + insert.length),
+    changes: { from: target.from, to: target.to, insert },
+    selection: EditorSelection.cursor(target.from + insert.length),
     scrollIntoView: true,
     annotations: [dictation.of("insert"), Transaction.userEvent.of("input.dictate")],
   });

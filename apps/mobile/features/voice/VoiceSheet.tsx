@@ -76,7 +76,13 @@ export function VoiceSheet({
   const canDictate = audience !== null;
 
   return (
-    <Modal transparent animationType={compact ? "slide" : "fade"} onRequestClose={onCancel} visible>
+    /*
+      A phone's sheet slides up from the edge it is anchored to. A pointer
+      layout's does not animate at all: it is a popover hanging off the button
+      that was just pressed, and a card that fades in beside the control you are
+      already looking at reads as a lag rather than as a transition.
+    */
+    <Modal transparent animationType={compact ? "slide" : "none"} onRequestClose={onCancel} visible>
       <Pressable
         style={[styles.scrim, compact ? styles.scrimCompact : styles.scrimPointer]}
         accessibilityLabel="Not now"

@@ -557,7 +557,10 @@ export function editorExtensions(options: {
       is reconfiguring an editor the moment somebody presses the microphone,
       which would cost the caret. See `dictate.ts`.
     */
-    dictationExtension(),
+    dictationExtension({
+      openingCaret,
+      isExternalDoc: (transaction) => transaction.annotation(externalDoc) === true,
+    }),
     /*
       Both halves of "a link to another note": drawing one as a link and
       following it, and offering the notes a `[[` could mean. One ref feeds
