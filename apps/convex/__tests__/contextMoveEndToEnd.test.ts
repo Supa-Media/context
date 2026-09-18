@@ -306,6 +306,39 @@ describe("a folder moved from one context into another", () => {
     expect(move?.details?.objects).toBe(2);
   });
 
+  test("the destination's own audit trail records what landed in it", async () => {
+    const p = await pair({ notes: 2 });
+
+    await asUser(p.t, p.mover).action(api.functions.contextMoves.startContextMove, {
+      sourceWorkspaceId: p.from,
+      from: "1-projects/acme",
+      destinationWorkspaceId: p.to,
+      to: "work/acme",
+    });
+    await drainScheduled(p.t);
+
+    /*
+      The mover is an EDITOR here, not the owner. Everything else an editor
+      writes into somebody's context leaves a row in that context's audit
+      trail; a move carrying an unbounded number of notes in from elsewhere
+      left nothing, and `listContextMoves` is indexed by source, so the
+      destination's owner had no record of it anywhere.
+    */
+    const events = await p.t.run((ctx) =>
+      ctx.db
+        .query("auditEvents")
+        .filter((q) => q.eq(q.field("workspaceId"), p.to))
+        .collect(),
+    );
+    const landed = events.find((event) => event.action === "file.moveIn");
+    expect(landed?.actorUserId).toBe(p.mover);
+    expect(landed?.details?.objects).toBe(2);
+    // The destination path only. The source path names a folder in a context
+    // this trail's readers have nothing to do with, and an audit row is a
+    // record of what happened HERE.
+    expect(landed?.paths).toEqual(["work/acme"]);
+  });
+
   test("an owner's private note stays private in a shared destination", async () => {
     const p = await pair({ notes: 1, into: "shared" });
 
