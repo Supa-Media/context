@@ -3277,6 +3277,40 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   background: var(--lp-link);
   border-color: var(--lp-link);
 }
+.cm-lp-image-grip {
+  position: absolute;
+  left: 6px;
+  top: 6px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--lp-code-bg);
+  opacity: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.cm-lp-images:hover .cm-lp-image-grip,
+.cm-lp-image-grip:focus-visible {
+  opacity: 1;
+}
+.cm-lp-image-moving {
+  opacity: 0.5;
+}
+/*
+  Where the line will land. Drawn in the scroller rather than in the row,
+  because the drop can be anywhere in the note and a caret parented to the image
+  would be clipped by it.
+*/
+.cm-lp-image-caret {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--lp-link);
+  pointer-events: none;
+}
 .cm-lp-image-missing {
   display: block;
   font-family: var(--lp-mono);

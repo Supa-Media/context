@@ -31,6 +31,7 @@ import {
   widthFromDrag,
   type ImageRow,
 } from "../features/console/files/imageBlock";
+import { base64FromBytes, dataUrlFor } from "../features/console/files/imageBytes";
 
 function stateFor(doc: string, cursor?: number): EditorState {
   return EditorState.create({
@@ -209,5 +210,30 @@ describe("where a pasted image lands", () => {
   test("a width is written when the host asked for one", () => {
     const state = stateFor("", 0);
     expect(applied(state, planInsert(state, "abc.png", 480))).toBe("![[abc.png|480]]");
+  });
+});
+
+describe("bytes to a src", () => {
+  test("base64 matches the platform's own, padding and all", () => {
+    for (const text of ["", "f", "fo", "foo", "foob", "fooba", "foobar", "any ± carnal pleasure"]) {
+      const bytes = new TextEncoder().encode(text);
+      expect(base64FromBytes(bytes.buffer)).toBe(Buffer.from(text, "utf8").toString("base64"));
+    }
+  });
+
+  test("every byte value survives, which a naive encoder gets wrong at 0x80", () => {
+    const bytes = new Uint8Array(256);
+    for (let index = 0; index < 256; index += 1) bytes[index] = index;
+    expect(base64FromBytes(bytes.buffer)).toBe(Buffer.from(bytes).toString("base64"));
+  });
+
+  test("a megabyte does not blow the stack, which a spread would", () => {
+    const bytes = new Uint8Array(1_000_000).fill(7);
+    expect(base64FromBytes(bytes.buffer).length).toBeGreaterThan(1_300_000);
+  });
+
+  test("the src carries the type the store answered with", () => {
+    const bytes = new TextEncoder().encode("hi");
+    expect(dataUrlFor(bytes.buffer, "image/png")).toBe("data:image/png;base64,aGk=");
   });
 });

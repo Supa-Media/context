@@ -243,6 +243,37 @@ export function allowInitialLoadOnly(request: { url: string }): boolean {
   return request.url === "about:blank" || request.url.startsWith("about:");
 }
 
+/**
+ * Base64 back to bytes, without `atob`.
+ *
+ * `atob` is present on the web and on Hermes today and has been absent from a
+ * React Native runtime within living memory, so the one place a paste would
+ * break on a platform upgrade is written out instead. Throws on a character
+ * outside the alphabet, which the caller turns into a sentence for the guest —
+ * a truncated image is worth refusing rather than storing.
+ */
+const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+export function bytesFromBase64(value: string): ArrayBuffer {
+  const clean = value.replace(/=+$/, "");
+  const bytes = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let byte = 0;
+  let accumulator = 0;
+  let bits = 0;
+  for (const character of clean) {
+    const index = BASE64_ALPHABET.indexOf(character);
+    if (index < 0) throw new Error("not base64");
+    accumulator = (accumulator << 6) | index;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes[byte] = (accumulator >> bits) & 0xff;
+      byte += 1;
+    }
+  }
+  return bytes.buffer;
+}
+
 export interface HostSink {
   onChange: (text: string) => void;
   onSave: () => void;
@@ -291,6 +322,19 @@ export interface HostSink {
     formId: string;
     responseId: string;
   }) => Promise<{ ok: boolean; message: string }>;
+  /**
+   * The bytes behind an image the note embeds, as a `data:` URL.
+   *
+   * Absent means this surface has no bucket behind it, and the guest is told
+   * `null` rather than left waiting — every branch of the two cases below
+   * replies, for the reason `onSubmitForm` gives.
+   */
+  onLoadImage?: (target: string) => Promise<string | null>;
+  /** Store a pasted image, and answer with the key to embed. */
+  onStoreImage?: (image: {
+    bytes: ArrayBuffer;
+    contentType: string;
+  }) => Promise<{ target: string } | { error: string }>;
   /**
    * Ask the running plugins what they would offer at this point in the line.
    *
@@ -565,6 +609,58 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           arrives, so a swallowed failure is a form that can never be sent
           again without reloading the note.
         */
+        /*
+          The two image cases. `image-load` is not gated on `editable` — an
+          image in a note somebody may only read still has to be visible — and
+          `image-store` is, because a paste is a write and the server would
+          refuse it anyway: the point of refusing here is that the guest hears
+          a sentence instead of watching a paste vanish.
+        */
+        case "image-load": {
+          const { token, target } = message;
+          const reply = (src: string | null): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "image-loaded", token, src }));
+          const load = sink.onLoadImage;
+          if (load === undefined) {
+            reply(null);
+            return;
+          }
+          load(target)
+            .then((src) => reply(src))
+            .catch(() => reply(null));
+          return;
+        }
+        case "image-store": {
+          const { token, bytes, contentType } = message;
+          const reply = (outcome: { target?: string; error?: string }): void =>
+            send(encode({ v: PROTOCOL_VERSION, type: "image-stored", token, ...outcome }));
+          if (!editable) {
+            reply({ error: "You can’t add an image to this note." });
+            return;
+          }
+          const store = sink.onStoreImage;
+          if (store === undefined) {
+            reply({ error: "Images can’t be added here." });
+            return;
+          }
+          let decoded: ArrayBuffer;
+          try {
+            decoded = bytesFromBase64(bytes);
+          } catch {
+            reply({ error: "That image did not arrive intact." });
+            return;
+          }
+          store({ bytes: decoded, contentType })
+            .then((outcome) =>
+              reply("target" in outcome ? { target: outcome.target } : { error: outcome.error }),
+            )
+            .catch((error: unknown) =>
+              reply({
+                error: error instanceof Error ? error.message : "That image could not be stored.",
+              }),
+            );
+          return;
+        }
         case "form-submit": {
           const { token, formId, values } = message;
           const reply = (ok: boolean, text: string): void =>

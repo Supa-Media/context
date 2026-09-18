@@ -425,7 +425,10 @@ export class ImageRowWidget extends WidgetType {
         });
     }
 
-    if (this.editable) figure.append(this.drawHandle(view, index, width));
+    if (this.editable) {
+      figure.append(this.drawHandle(view, index, width));
+      figure.append(this.drawGrip(view, index));
+    }
     return figure;
   }
 
@@ -502,6 +505,67 @@ export class ImageRowWidget extends WidgetType {
       );
     });
     return handle;
+  }
+
+  /**
+   * The grip: drag the image somewhere else in the note.
+   *
+   * Two outcomes, decided by `planDrop` from where the pointer let go — beside
+   * the images already on another line, or on a line of its own between two
+   * blocks. Both are one line edit, because a row is a line.
+   *
+   * The insertion point is `posAtCoords`, CodeMirror's own answer to "what is
+   * under this pointer", so a drop lands where the editor itself would put a
+   * caret. `null` from it — a pointer outside the content — is a cancelled drag
+   * rather than a guess at the nearest line.
+   */
+  private drawGrip(view: EditorView, index: number): HTMLElement {
+    const grip = document.createElement("button");
+    grip.type = "button";
+    grip.className = "cm-lp-image-grip";
+    grip.setAttribute("aria-label", "Move image");
+    grip.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const figure = grip.parentElement;
+      figure?.classList.add("cm-lp-image-moving");
+      const caret = document.createElement("div");
+      caret.className = "cm-lp-image-caret";
+      let at: number | null = null;
+      const move = (moveEvent: PointerEvent) => {
+        at = view.posAtCoords({ x: moveEvent.clientX, y: moveEvent.clientY });
+        if (at === null) {
+          caret.remove();
+          return;
+        }
+        // Drawn at the top of the line under the pointer, which is where the
+        // line would land — a caret somewhere else is a promise the drop does
+        // not keep.
+        const line = view.state.doc.lineAt(at);
+        const box = view.coordsAtPos(line.from);
+        if (box === null) return;
+        const scroller = view.scrollDOM.getBoundingClientRect();
+        caret.style.top = `${box.bottom - scroller.top + view.scrollDOM.scrollTop}px`;
+        view.scrollDOM.append(caret);
+      };
+      const end = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", end);
+        caret.remove();
+        figure?.classList.remove("cm-lp-image-moving");
+        if (at === null) return;
+        this.dispatch(view, planDrop(view.state, this.rowNow(view), index, at));
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", end);
+    });
+    /*
+      The keyboard equivalent is not here and does not need to be: `⌥↑` / `⌥↓`
+      move the line, which CodeMirror's own `defaultKeymap` already binds, and
+      the line is the unit. A second implementation of "move a block" for images
+      alone would be a second answer to the same question.
+    */
+    return grip;
   }
 
   /** Left, centre, right — the only three positions the file can carry. */
