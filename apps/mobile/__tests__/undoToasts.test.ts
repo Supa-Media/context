@@ -143,7 +143,7 @@ describe("an operation with an inverse offers it", () => {
     await settle();
 
     expect(browser.toasts).toHaveLength(1);
-    expect(browser.toasts[0]!.message).toBe("Moved to 2-areas.");
+    expect(browser.toasts[0]!.message).toBe("Moved to areas.");
     expect(moves()).toEqual([{ from: NOTE, to: "2-areas/note.md" }]);
 
     await act(async () => browser.toasts[0]!.undo!());

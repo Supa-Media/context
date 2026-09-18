@@ -32,7 +32,7 @@ export async function openWeeklyReview(page: Page): Promise<void> {
   await page.getByTestId("note-scroll").waitFor();
   await tap(page, "@seyi, the context you are in — open its root");
   await page.getByTestId("folder-row").first().waitFor();
-  await tap(page, "2-areas, folder");
+  await tap(page, "areas, folder");
   await tap(page, "weekly-review");
   await page.getByTestId("breadcrumb-leaf").waitFor();
 }

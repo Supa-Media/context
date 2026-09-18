@@ -35,6 +35,7 @@
  */
 
 import { drawingName, isDrawingPath } from "@context/drawings";
+import { withoutSortPrefix } from "./paths";
 
 import { stripFrontmatter } from "../../share/markdown";
 
@@ -163,12 +164,23 @@ export function noteHeading(source: string, path: string): string {
     const heading = firstHeading(body);
     if (heading !== null) return heading;
   } else {
-    const name = drawingName(path).trim();
+    const name = withoutSortPrefix(drawingName(path)).trim();
     if (name !== "") return name;
   }
 
+  /*
+    The filename, minus the two things that are filing rather than a name: the
+    extension, and the sort number. `1-plan.md` is a note called `plan`, the
+    same answer the tree row, the tab and the breadcrumb give it — and this rung
+    is what the inline title draws, so a disagreement here is two different
+    names for one note on one screen.
+
+    `withoutSortPrefix` before the extension trim, because both are anchored at
+    opposite ends and the order only matters for a name that is nothing but a
+    prefix: `1-.md` keeps its number rather than being drawn as a dotfile.
+  */
   const basename = path.slice(path.lastIndexOf("/") + 1);
-  const withoutExtension = basename.replace(/\.md$/i, "").trim();
+  const withoutExtension = withoutSortPrefix(basename).replace(/\.md$/i, "").trim();
   if (withoutExtension !== "") return withoutExtension;
   return basename !== "" ? basename : path;
 }

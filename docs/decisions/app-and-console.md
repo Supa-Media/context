@@ -4541,3 +4541,88 @@ is here and in `tokens.ts`.
 A third one is not covered by "well, the other two do it": the rule is about what
 the object *is*, not about wanting a dark box. Anything that is genuinely part of
 the page — a card, a callout, a band — inverts.
+
+## A sort number is filing, so the console draws the name and keeps the number
+
+PARA only works in order. `1-projects` has to come before `2-areas`, and every
+tool that reads the bucket — a listing, Obsidian's sidebar, the Files app, `ls`
+— sorts one way, alphabetically. So the order has to be *in the name*. That is
+not a Context convention we could drop; it is how ordering survives being
+handed to somebody else's tool, which is what non-negotiable #1 is about.
+
+The cost is that the number is then drawn back at the reader on every row, in
+every crumb, on every tab, in the one product whose claim is that the files stay
+pleasant to live in. The owner's framing, asking for this:
+
+> for numbers i agree that it's not sexy to have, but when you organize in para
+> you need to have the folders in a specific order, and most file systems just
+> do alphabetical
+
+The question that answers it — put to them by somebody they were explaining the
+layout to — was whether the number could be invisible: an attribute the console
+sorts by rather than something it renders.
+
+It can, and it already is: the number is filing, exactly as `.md` is filing.
+`displayName` had been dropping the extension from what a row draws since the
+tree existed, with `TreeRow.name` and `TreeRow.path` carrying the truth beside
+it. **`withoutSortPrefix` is the same rule for the other end of the name**, and
+`docs/decisions/` has no argument to re-run: it is the argument for the
+extension, applied where the reader already agreed with it.
+
+Backwards compatible in both directions, and that is the reason this is cheap
+rather than clever. An existing bucket needs no migration to look better,
+because nothing is written. A context whose folders draw without numbers is
+still, byte for byte, a context any other tool opens in order — so the person
+who leaves with their files (non-negotiable #1) leaves with the ordering intact,
+and never finds out this happened.
+
+**Where the number goes, and where it stays.** The split is not
+surface-by-surface taste; it is one question asked of each string — *is this
+naming a thing to a reader, or addressing a key?*
+
+- **Dropped**, because these name a thing: tree rows and folder rows
+  (`displayName`), every breadcrumb segment (`crumbsFor`), tab labels and the
+  folder that disambiguates two of them (`tabLabel`), the note's inline title
+  when it falls back to the filename (`noteHeading`), a folder's own heading on
+  its page, Recent's rows and the folder line under them, the row menu's title,
+  the "Currently team — from …" line, the share dialog's heading, and the
+  toasts that report a move, an archive or a delete.
+- **Kept**, because these address a key: Rename's field — which is the answer
+  to "but when editing you can see it", and the one place somebody changes the
+  number — the move picker and the command palette, `[[link]]` completion
+  (whose `insert` is a path being written into a note), the permanent-delete
+  sentence, and every operation anywhere, all of which go by `path`.
+
+**What a simplification of this would cost.** The tempting one is a wider
+pattern: `/^\d+[-_.\s]+/`, which is what `titleFromPath` and `linkLabel`
+already use. Both are allowed to be wider because both are *inventing a title*
+and may refuse — "a card with no title is honest". This rule draws the
+customer's own filename back at them, so being wrong is not a missing card, it
+is a row naming a file that is not the one on disk. Hence one or two digits (a
+year is four), a hyphen only, nothing stripped when nothing is left, and never
+when another digit follows — `2026-09-18.md` keeps its year, `12-25-christmas.md`
+keeps its month, and `4-archive/2026-08-26T09-14-02-113Z/…` keeps the folder
+`restoreTargetFor` reads a path back out of. **When in doubt, draw what is on
+disk**: showing a number nobody wanted is untidy, and hiding half of a date is a
+lie about somebody's file.
+
+The other simplification is to make the label depend on its siblings, so
+`1-plan` and `2-plan` do not both draw as `plan`. That is rejected and the
+collision is the accepted cost: a label computed from whatever else happens to
+be loaded reads differently for one folder in the tree, the tab strip and the
+crumb, and the tab strip is the only place a collision has a bounded answer (it
+qualifies with the folder, and already does). Two siblings deliberately given
+one word is a naming problem its owner can see and fix, in a Rename that spells
+the number out.
+
+**The tests that fail if it is reversed.** `fileEditor.test.ts`, "the display
+name" — the whole of PARA drawn short, a date left alone in four shapes, a
+number with nothing after it kept, a separator that is not a hyphen kept, the
+two halves re-joining to the original name, the collision pinned as stated, and
+`TreeRow.name`/`path` unchanged beside a trimmed `label`.
+`breadcrumbPath.test.ts`, "every segment drops its sort number" and "no trim
+reaches the path a segment opens" — the second is the one that matters, because
+a trim leaking into `crumb.path` asks somebody's bucket for a folder that is not
+there. `fileTabs.test.ts`, "a sort number is dropped, and the collision test
+sees the same name" — `1-plan.md` and `plan.md` both draw `plan`, so a collision
+test on the untrimmed name would leave two identical tabs.

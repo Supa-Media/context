@@ -68,7 +68,7 @@ import { Text } from "../../design/components/Text";
 import { fonts, leading, pointerType as t, radii, touchType } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor } from "../../app/frame";
-import { baseName } from "./paths";
+import { baseName, withoutSortPrefix } from "./paths";
 import {
   accessRows,
   type AccessMember,
@@ -416,7 +416,7 @@ export function ShareDialog({
         <Pressable
           style={[styles.card, compact && styles.sheet]}
           onPress={() => {}}
-          accessibilityLabel={`Share ${baseName(path)}`}
+          accessibilityLabel={`Share ${withoutSortPrefix(baseName(path))}`}
         >
           {/*
             A SHEET ON A PHONE, A CARD EVERYWHERE ELSE.
@@ -437,8 +437,15 @@ export function ShareDialog({
             panel that has always been there.
           */}
           {compact ? <View style={styles.handle} aria-hidden /> : null}
+          {/*
+            Named without its sort number, the way the row this was opened
+            from is: a heading reading `1-projects` over a row reading
+            `projects` reads as a different folder. Nothing here is addressed
+            by this string — the share rows below carry the real `path`, and a
+            minted link is a token rather than a path.
+          */}
           <Text variant="paneTitle" role="heading" aria-level={2}>
-            Share “{baseName(path)}”
+            Share “{withoutSortPrefix(baseName(path))}”
           </Text>
 
           <ScrollView
@@ -665,7 +672,7 @@ export function ShareDialog({
                     <AudienceControl
                       scope={scopeOf(access.visibility, openLink !== undefined)}
                       canOpenLink
-                      name={baseName(path)}
+                      name={withoutSortPrefix(baseName(path))}
                       onSet={onSetScope}
                       context={context}
                       compact={compact}

@@ -169,9 +169,12 @@ describe("the Recent sheet draws what history.ts says", () => {
   test("every place, newest first, with its folder underneath", () => {
     const sheet = mountSheet([NOTES, AREAS], NOTES);
 
+    // The title, then the folder underneath it — both drawn the way the tree
+    // draws them, so neither line carries a sort number the other has dropped.
     expect(sheet.need(`recent-${NOTES}`).textContent).toContain("notes");
-    expect(sheet.need(`recent-${NOTES}`).textContent).toContain("1-projects");
-    expect(sheet.need(`recent-${AREAS}`).textContent).toContain("2-areas");
+    expect(sheet.need(`recent-${NOTES}`).textContent).toContain("projects");
+    expect(sheet.need(`recent-${NOTES}`).textContent).not.toContain("1-projects");
+    expect(sheet.need(`recent-${AREAS}`).textContent).toContain("areas");
 
     // Order is the list's, not the sheet's: it draws what it is handed.
     const rows = Array.from(
@@ -263,8 +266,11 @@ describe("the Recent sheet draws what history.ts says", () => {
 
 describe("what a screen reader hears", () => {
   test("the kind, the name and the folder, in that order", () => {
-    expect(describeRecent(NOTES, false)).toBe("note notes, 1-projects");
-    expect(describeRecent(FOLDER, false)).toBe("folder 1-projects, in your context root");
+    // Named the way the row is drawn — without the extension, and without the
+    // sort number. A screen reader reading `one dash projects` for a row
+    // everybody else sees as `projects` is the row described wrong.
+    expect(describeRecent(NOTES, false)).toBe("note notes, projects");
+    expect(describeRecent(FOLDER, false)).toBe("folder projects, in your context root");
   });
 
   test("the root is a place, so it gets a name rather than an empty clause", () => {
@@ -278,6 +284,6 @@ describe("what a screen reader hears", () => {
   });
 
   test("where you are is a clause on the name", () => {
-    expect(describeRecent(NOTES, true)).toBe("note notes, 1-projects, where you are now");
+    expect(describeRecent(NOTES, true)).toBe("note notes, projects, where you are now");
   });
 });
