@@ -400,6 +400,11 @@ export class DropboxStore {
    * delimiter means "everything below here", which is `recursive: true`. S3
    * has to synthesise folders out of a flat keyspace; Dropbox already has
    * them, so `delimitedPrefixes` is just the folder entries.
+   *
+   * `startAfter` is not supported and is ignored: `list_folder` has no
+   * position but its own cursor, and does not promise key order. The one
+   * caller that passes it — the control plane's sync manifest — checks the
+   * order it got back and reports a short manifest rather than trusting this.
    */
   async list(options = {}) {
     const { prefix, delimiter, cursor, limit } = options;
@@ -435,6 +440,9 @@ export class DropboxStore {
           key,
           size: entry.size,
           uploaded: new Date(entry.server_modified),
+          // The same version `get` reports, so a listing can say which notes
+          // changed without reading them — what the sync manifest is for.
+          ...(entry.rev ? { etag: normalizeEtag(entry.rev) } : {}),
         });
       }
     }

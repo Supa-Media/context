@@ -249,12 +249,24 @@ export class S3Store {
     throw await s3Error("DELETE", key, response);
   }
 
-  async list({ prefix, delimiter, cursor, limit } = {}) {
+  /**
+   * `startAfter` is a key to resume *after*, and it exists so a walk can be
+   * resumed by somebody who must not hold the continuation token: that token
+   * is base64 of the last backend key, which may be a note they cannot see.
+   * The control plane's sync manifest resumes from the last path it actually
+   * returned instead. A continuation token supersedes it in ListObjectsV2, so
+   * it is sent only on a walk's first page.
+   */
+  async list({ prefix, delimiter, cursor, limit, startAfter } = {}) {
     const url = this.bucketUrl({
       "list-type": "2",
       prefix: applyRootPrefix(this.rootPrefix, assertSafePrefix(prefix)),
       delimiter,
       "continuation-token": cursor,
+      "start-after":
+        startAfter !== undefined && cursor === undefined
+          ? applyRootPrefix(this.rootPrefix, assertSafeKey(startAfter))
+          : undefined,
       "max-keys": limit,
     });
     const response = await this.send("GET", url);

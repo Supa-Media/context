@@ -174,6 +174,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Offline is a queue and a cache, and a conflict is parked rather than resolved
 - A cold start with no network is the case the offline layer was built for
 - A reconnection empties every queue, not the one on screen
+- The offline mirror is fed by a privacy-filtered manifest, a batched read, and a create that cannot clobber
 - On the web the app has to be able to start offline, which is a service worker
 - A team link's note survives the console's own cold start, and the login gate
 - A folder page is a page, and a folder is acted on like a note
