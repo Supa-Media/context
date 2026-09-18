@@ -52,7 +52,7 @@ import type { SettingsSectionKey } from "./sections";
  * change. (`devices` was the other one, and its row is gone: the machines are
  * a card at the foot of Profile now.)
  * `meetings` has nothing persisted to report by design, which
- * `MeetingsPanel`'s own header argues; `account` has no state worth a claim.
+ * `MeetingsPanel`'s own header argues.
  */
 export function settingsPreview(
   key: SettingsSectionKey,
@@ -167,7 +167,6 @@ export function settingsPreview(
     */
     case "overview":
     case "premium":
-    case "account":
     case "meetings":
     case "advanced":
       return null;

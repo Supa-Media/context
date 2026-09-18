@@ -209,9 +209,9 @@ describe("the account's own settings have a home", () => {
     expect(text).not.toContain("Your bucket, your credentials");
   });
 
-  test("both ways out of a session are controls, not headings", () => {
+  test("both ways out of a session are controls at the foot of Profile", () => {
     let signedOut = 0;
-    const host = overlay("account", () => {}, () => {}, {
+    const host = overlay("profile", () => {}, () => {}, {
       onSignOut: () => {
         signedOut += 1;
       },
@@ -220,8 +220,9 @@ describe("the account's own settings have a home", () => {
     const out = host.querySelector('[data-testid="settings-sign-out"]');
     expect(remove).not.toBeNull();
     expect(out).not.toBeNull();
-    // Sign-out used to be a glyph in the rail and nothing else, so somebody
-    // searching for it landed on the one screen that can end an account.
+    // Sign-out was a glyph in the rail, then a section of its own paired with
+    // account deletion. Neither is a place somebody looks: it is under the
+    // identity it ends, and the section that used to hold it is gone.
     act(() => {
       (out as HTMLElement).click();
     });

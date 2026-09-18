@@ -423,6 +423,12 @@ const RENAMED_SETTINGS_SECTIONS: Record<string, SettingsSectionKey> = {
     and Profile is where the sentence saying so lives.
   */
   appearance: "profile",
+  /*
+    `account` was "Sign out & delete", and both of its buttons are at the foot
+    of Profile now — the screen about the person, which is what a session and
+    an account both belong to.
+  */
+  account: "profile",
 };
 
 export function settingsFromQuery(

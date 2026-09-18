@@ -188,6 +188,12 @@ describe("the route table", () => {
     expect(settingsFromQuery(["email", "storage"])).toBe("email");
   });
 
+  test("a stale ?settings=account link opens Profile too", () => {
+    // "Sign out & delete" stopped being a section; both buttons are at the
+    // foot of Profile.
+    expect(settingsFromQuery("account")).toBe("profile");
+  });
+
   test("a stale ?settings=appearance link opens Profile too", () => {
     // The picker is gone and the app follows the device; Profile is where the
     // sentence saying so lives.
