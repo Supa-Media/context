@@ -26,6 +26,7 @@
 
 import { DEMO_COPY } from "./demoCopy";
 import { HERO_WINDOW_COPY } from "./heroWindowCopy";
+import { PRICING_COPY } from "./pricingCopy";
 
 /** The lit first line. */
 export const HERO_LINE_ONE = "Notes for your team";
@@ -216,6 +217,7 @@ export const LANDING_COPY = [
   ASSURE_EXIT_BODY,
   FOOT_LICENCE,
   ...HERO_WINDOW_COPY,
+  ...PRICING_COPY,
   NAV_ARCHITECTURE,
   NAV_GITHUB,
   NAV_SIGN_IN,

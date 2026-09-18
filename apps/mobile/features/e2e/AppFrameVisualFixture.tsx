@@ -16,6 +16,7 @@ import { storagePillLabel } from "../console/storage/pill";
 import { StatusBar } from "../design/components/StatusBar";
 import { BrowsePane } from "../console/panes/BrowsePane";
 import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
+import { notePlace } from "../console/files/history";
 import { ShareDialog } from "../console/files/ShareDialog";
 import { NavBandProvider } from "../console/NavBand";
 import { densityFor } from "../app/frame";
@@ -256,7 +257,7 @@ export function AppFrameVisualFixture() {
         bottomBar={
           <ConsoleBottomBar
             data={data}
-            history={{ entries: ["1-projects/context-lc.md"], at: 0 }}
+            history={{ entries: [notePlace("1-projects/context-lc.md")], at: 0 }}
             hasRecent
             onStep={() => {}}
             onSearch={() => {}}

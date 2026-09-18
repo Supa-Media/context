@@ -31,10 +31,10 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
   The whole of `convex/react` that any settings panel reaches for, not just
   `useAction`.
 
-  Two sections could not be mounted at all until this grew: `DevicesPanel`
-  calls `useConvexAuth` and `PremiumPanel` calls `useConvex`, and a narrower
-  mock meant the sweep below could not even *render* the two screens whose
-  headings it was written to check. Each stub answers the way an unauthorised,
+  Two screens could not be mounted at all until this grew: the machines card
+  at the foot of Profile calls `useConvexAuth` and `PremiumPanel` calls
+  `useConvex`, and a narrower mock meant the sweep below could not even
+  *render* the two screens whose headings it was written to check. Each stub answers the way an unauthorised,
   clientless console does, which is the state these panels already handle.
 */
 jest.mock("convex/react", () => ({
@@ -209,9 +209,9 @@ describe("the account's own settings have a home", () => {
     expect(text).not.toContain("Your bucket, your credentials");
   });
 
-  test("both ways out of a session are controls, not headings", () => {
+  test("both ways out of a session are controls at the foot of Profile", () => {
     let signedOut = 0;
-    const host = overlay("account", () => {}, () => {}, {
+    const host = overlay("profile", () => {}, () => {}, {
       onSignOut: () => {
         signedOut += 1;
       },
@@ -220,12 +220,35 @@ describe("the account's own settings have a home", () => {
     const out = host.querySelector('[data-testid="settings-sign-out"]');
     expect(remove).not.toBeNull();
     expect(out).not.toBeNull();
-    // Sign-out used to be a glyph in the rail and nothing else, so somebody
-    // searching for it landed on the one screen that can end an account.
+    // Sign-out was a glyph in the rail, then a section of its own paired with
+    // account deletion. Neither is a place somebody looks: it is under the
+    // identity it ends, and the section that used to hold it is gone.
     act(() => {
       (out as HTMLElement).click();
     });
     expect(signedOut).toBe(1);
+  });
+
+  test("with nothing pending there is no invitations row to press", () => {
+    /*
+      The row used to sit there reading "None" — a badge people learn to skip
+      past on the way to the rows that change. Absent instead, and a URL that
+      names it falls back the same way a section this context does not have
+      already does.
+    */
+    const data: ConsoleData = { ...demoData(), deleteAccount: async () => {}, invitations: [] };
+    mount(() =>
+      createElement(SettingsOverlay, {
+        data,
+        section: "invitations",
+        onSelect: () => {},
+        onDismiss: () => {},
+      }),
+    );
+    const body = document.body;
+    expect(body.querySelector('[data-testid="settings-section-invitations"]')).toBeNull();
+    // Fell back to the default section rather than opening an empty panel.
+    expect(body.textContent ?? "").not.toContain("Nothing pending");
   });
 
   test("an invitation is a live row, and answering it navigates", () => {
@@ -239,6 +262,22 @@ describe("the account's own settings have a home", () => {
       (row as HTMLElement).click();
     });
     expect(tokens).toEqual(["invite-token"]);
+  });
+
+  test("profile states that appearance follows the device", () => {
+    // The three-button picker and the stored choice behind it are gone. What
+    // is left has to say so on the screen the search box now lands on.
+    const text = overlay("profile").textContent ?? "";
+    expect(text).toContain("Appearance");
+    expect(text).toContain("Follows your device");
+    expect(text).not.toContain("Follow device");
+  });
+
+  test("profile carries the machines, because their own row is gone", () => {
+    // The Revoke button for a lost Mac has to stay reachable from a phone.
+    // `useQuery` is stubbed to `undefined` here, which is the loading state —
+    // the block itself is what this asserts, not the list inside it.
+    expect(overlay("profile").textContent ?? "").toContain("Your Macs");
   });
 
   test("profile states the name and does not pretend it can be changed", () => {
@@ -567,6 +606,78 @@ describe("every section names itself exactly once", () => {
       expect(headings).toEqual([label]);
     },
   );
+});
+
+/**
+ * Plugins is deprecated in the console, and the sweep above cannot see it.
+ *
+ * The demo console is deliberately a context that *has* plugins — five in its
+ * vault, one built-in switched off — so every assertion above draws the row and
+ * would go on drawing it if `SettingsOverlay` hard-coded the section back on.
+ * `pluginsExperiment.test.ts` proves the rule; this proves the wire, which is
+ * the half a pure test cannot reach: a real context that has never touched a
+ * plugin, rendered, with no row on its list.
+ */
+describe("the Plugins row is off a list that has no plugins behind it", () => {
+  /** The demo console with its three plugin views wound back to untouched. */
+  function untouched(): ConsoleData {
+    const data = demoData();
+    return {
+      ...data,
+      deleteAccount: async () => {},
+      invitations: [{ slug: "tomi", token: "invite-token" }],
+      plugins: { state: "idle" },
+      pluginInstalls: { state: "ready", installs: [], truncated: false, read: async () => {} },
+      contextPlugins:
+        data.contextPlugins.state === "ready"
+          ? {
+              ...data.contextPlugins,
+              // Every built-in back at its shipped default — on, and chosen by
+              // nobody. The row must not survive that.
+              plugins: data.contextPlugins.plugins.map((plugin) => ({
+                ...plugin,
+                enabled: plugin.defaultEnabled,
+              })),
+            }
+          : data.contextPlugins,
+    };
+  }
+
+  function list(data: ConsoleData): HTMLElement {
+    mount(() =>
+      createElement(SettingsOverlay, {
+        data,
+        section: "storage",
+        onSelect: () => {},
+        onDismiss: () => {},
+      }),
+    );
+    const host = document.body;
+    act(() => {
+      (host.querySelector('[data-testid="settings-overlay-back"]') as HTMLElement).click();
+    });
+    return host;
+  }
+
+  test("no row, while the rest of Your notes is untouched", () => {
+    const host = list(untouched());
+    expect(host.querySelector('[data-testid="settings-section-plugins"]')).toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-storage"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-search"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="settings-section-advanced"]')).not.toBeNull();
+    expect(host.textContent ?? "").not.toContain("Plugins");
+  });
+
+  test("and it is there for the demo, which has five of them", () => {
+    // The other half of the same wire: this is not a component that stopped
+    // rendering the row, it is one that reads what the context has.
+    const data: ConsoleData = {
+      ...demoData(),
+      deleteAccount: async () => {},
+      invitations: [{ slug: "tomi", token: "invite-token" }],
+    };
+    expect(list(data).querySelector('[data-testid="settings-section-plugins"]')).not.toBeNull();
+  });
 });
 
 /**

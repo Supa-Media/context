@@ -43,13 +43,16 @@ import { readFocus, scopeForFocus } from "../../../features/console/keyboardScop
 import { TabStrip } from "../../../features/console/files/TabStrip";
 import { tabAt } from "../../../features/console/files/tabs";
 import {
-  currentPath,
+  currentPlace,
   emptyHistory,
   hasSomewhereToGo,
+  placeOf,
   recentPaths,
+  samePlace,
   stepped,
   visited,
   type HistoryState,
+  type Place,
 } from "../../../features/console/files/history";
 import { entryAt } from "../../../features/console/files/tree";
 import {
@@ -63,6 +66,7 @@ import { needsDecision } from "../../../features/console/files/editor";
 import { useUnsavedGuard } from "../../../features/console/files/useUnsavedGuard";
 import { atName } from "../../../features/console/format";
 import { ContextStrip, CurrentContextPill } from "../../../features/console/ContextStrip";
+import { ContextFootRow } from "../../../features/console/ContextFootRow";
 import { NavBandProvider } from "../../../features/console/NavBand";
 import { useContextHref, useContextPlaces } from "../../../features/console/useLastPlace";
 import { useMeetingFlow } from "../../../features/meetings/useMeetingFlow";
@@ -280,43 +284,117 @@ export default function ConsoleLayout() {
   */
   const [history, setHistory] = useState<HistoryState>(emptyHistory);
   /*
-    Set while a back or forward press is moving the selection, so the effect
-    below does not record the move as a fresh visit — which would truncate the
-    forward tail on the first press of `‹` and make `›` dead.
+    THE PLACE A BACK OR FORWARD PRESS IS ON ITS WAY TO, or `null`.
+
+    So the effect below does not record the move as a fresh visit — which would
+    truncate the forward tail on the first press of `‹` and make `›` dead.
+
+    **A place rather than the boolean it was**, because a step can now change
+    two things. Reaching a note from Map is a `router.replace` *and* a
+    `select`, and if those land in two renders the intermediate one is a real
+    `here` — the old path under the new route — which a one-shot boolean
+    spends itself on, leaving the arrival to be recorded as a fresh visit and
+    the forward tail truncated by the very press that was meant to walk it.
+    Holding the destination instead means every state between the press and
+    the arrival is skipped, however many there are, and the flag clears on the
+    place it was waiting for rather than on the next render to come along.
   */
-  const navigating = useRef(false);
+  const navigatingTo = useRef<Place | null>(null);
   const selectedPath = data.files.selectedPath;
 
   useEffect(() => {
     setHistory(emptyHistory);
   }, [data.selectedContextId]);
 
+  /** The context a path place belongs to, for a step that has left it. */
+  const contextSlug = selectedContext(data)?.slug ?? null;
+  /*
+    WHERE YOU ARE, AS ONE PLACE, WHATEVER KIND OF PAGE IT IS.
+
+    This effect watched `selectedPath` alone, so Settings, Search, Map and
+    Connections were not somewhere you had been — they were nothing at all, and
+    `‹` walked past them to the note underneath. That was the reported defect:
+    open Settings, open a note from it, press back, and you land on the
+    previous *note*.
+
+    The console already knows which page it is on — the URL says so — so this
+    derives the place from the same three things the render does, in the order
+    the screen stacks them: the settings overlay is on top of everything when
+    it is open, an app pane is not inside a context at all, and otherwise you
+    are on the selected path. One expression, so the list cannot disagree with
+    what is drawn.
+  */
+  const here = useMemo<Place | null>(
+    () =>
+      placeOf({
+        settingsSection: openSettingsSection,
+        routeKind: route.kind,
+        appSection: route.kind === "app" ? route.section : null,
+        selectedPath,
+      }),
+    [openSettingsSection, route, selectedPath],
+  );
+
   useEffect(() => {
-    if (selectedPath === null) return;
-    if (navigating.current) {
-      navigating.current = false;
+    if (here === null) return;
+    if (navigatingTo.current !== null) {
+      if (samePlace(navigatingTo.current, here)) navigatingTo.current = null;
       return;
     }
-    setHistory((current) => visited(current, selectedPath));
-  }, [selectedPath]);
+    setHistory((current) => visited(current, here));
+  }, [here]);
 
   const step = useCallback(
     (delta: -1 | 1) => {
-      setHistory((current) => {
-        const next = stepped(current, delta);
-        const path = currentPath(next);
-        if (next === current || path === null) return current;
-        navigating.current = true;
+      setHistory((state) => {
+        const next = stepped(state, delta);
+        const place = currentPlace(next);
+        if (next === state || place === null) return state;
+        navigatingTo.current = place;
+
+        /*
+          Applying a place is the mirror of deriving one, and each kind has to
+          undo the others: arriving at a note with the settings overlay still
+          up would draw the note behind a panel nobody asked to keep, and
+          arriving at a settings section from Map has to be back inside the
+          context first.
+        */
+        if (place.kind === "settings") {
+          router.setParams({ settings: place.section });
+          return next;
+        }
+
+        if (place.kind === "app") {
+          router.setParams({ settings: undefined });
+          router.replace(hrefFor({ kind: "app", section: place.section }));
+          return next;
+        }
+
+        if (openSettingsSection !== null) router.setParams({ settings: undefined });
+        /*
+          Back into the context first, when the step is leaving an app pane:
+          Map is not inside one, and selecting a path while the route still
+          says `app` moves the selection under a screen that is not showing it.
+
+          `hrefFor` rather than `contextHrefFrom`, and for two reasons. It is
+          pure, so it is not a dependency declared 140 lines below this — and
+          `contextHrefFrom` resolves a context to the *last place you were in
+          it*, which is the opposite of what a back step wants: the place is
+          already decided, and `select` below is what applies it.
+        */
+        if (route.kind !== "context" && contextSlug !== null) {
+          router.replace(hrefFor({ kind: "context", slug: contextSlug, view: "browse" }));
+        }
         // The guard can still refuse — an unsaved draft. Then the selection
         // does not move, and neither should the cursor.
-        if (!data.files.select(path)) {
-          navigating.current = false;
-          return current;
+        if (!data.files.select(place.path)) {
+          navigatingTo.current = null;
+          return state;
         }
         return next;
       });
     },
-    [data.files],
+    [contextSlug, data.files, openSettingsSection, route, router],
   );
   const current = selectedContext(data);
   /*
@@ -499,6 +577,52 @@ export default function ConsoleLayout() {
    * offering a third would be a press that always fails. `scope.ts` states it.
    */
 
+  /*
+    One set of handlers, two triggers.
+
+    The title bar's chip opens this menu and so does the chevron at the end of
+    `ContextFootRow`, and they have to open the *same* list: every row in it is
+    conditional on something — the claim offer, "New workspace", Leave on a
+    context you do not own — and a second element built at the other call site is
+    how one of those conditions quietly goes missing from one of them. See
+    `SwitcherMenu`'s `trigger` prop.
+  */
+  const switcherProps = {
+    data,
+    label: insideContext ? contextLabel : "Your context",
+    tone: insideContext ? (current?.status ?? "warn") : "neutral",
+    onOpenContext: (slug: string) => {
+      const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
+      if (!sameRoute(next, route)) router.replace(hrefFor(next));
+    },
+    onOpenMeetings: data.demo ? undefined : () => router.push(MEETINGS_ROUTE),
+    onClaimContext: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+    onNewWorkspace: data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE),
+    onOpenSettings: () => {
+      router.setParams({
+        settings:
+          route.kind === "context" ? DEFAULT_SETTINGS_SECTION : DEFAULT_ACCOUNT_SETTINGS_SECTION,
+      });
+    },
+    /*
+      Leave, on the context you are standing in and only where the server would
+      allow it: `leaveWorkspace` refuses an owner (`OWNER_CANNOT_LEAVE`), so a
+      row offered on your own workspace would be a press whose only outcome is
+      an error. Fire-and-watch, exactly as the rail's row was — the membership
+      row deleting is what takes the context out of the list, through the
+      subscription — and then land on `/console` so nobody is left standing in a
+      context they just left.
+    */
+    onLeaveContext:
+      current === null || current.role === "owner" || data.leaveContext === undefined
+        ? undefined
+        : () => {
+            void data.leaveContext?.(current.id);
+            router.replace("/console");
+          },
+    onSignOut: requestSignOut,
+  } as const;
+
   return (
     <ConsoleDataProvider value={data}>
       <VoiceHostProvider value={voiceHost}>
@@ -528,47 +652,7 @@ export default function ConsoleLayout() {
           workspace and Meetings all leave the console, so Back has to be the
           way home.
         */
-        switcher={
-          <SwitcherMenu
-            data={data}
-            label={insideContext ? contextLabel : "Your context"}
-            tone={insideContext ? (current?.status ?? "warn") : "neutral"}
-            onOpenContext={(slug: string) => {
-              const next: ConsoleRoute = { kind: "context", slug, view: "browse" };
-              if (!sameRoute(next, route)) router.replace(hrefFor(next));
-            }}
-            onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
-            onClaimContext={data.demo ? undefined : () => router.push(WELCOME_ROUTE)}
-            onNewWorkspace={data.demo ? undefined : () => router.push(NEW_WORKSPACE_ROUTE)}
-            onOpenSettings={() => {
-              router.setParams({
-                settings:
-                  route.kind === "context"
-                    ? DEFAULT_SETTINGS_SECTION
-                    : DEFAULT_ACCOUNT_SETTINGS_SECTION,
-              });
-            }}
-            /*
-              Leave, on the context you are standing in and only where the
-              server would allow it: `leaveWorkspace` refuses an owner
-              (`OWNER_CANNOT_LEAVE`), so a row offered on your own workspace
-              would be a press whose only outcome is an error. Fire-and-watch,
-              exactly as the rail's row was — the membership row deleting is
-              what takes the context out of the list, through the
-              subscription — and then land on `/console` so nobody is left
-              standing in a context they just left.
-            */
-            onLeaveContext={
-              current === null || current.role === "owner" || data.leaveContext === undefined
-                ? undefined
-                : () => {
-                    void data.leaveContext?.(current.id);
-                    router.replace("/console");
-                  }
-            }
-            onSignOut={requestSignOut}
-          />
-        }
+        switcher={<SwitcherMenu {...switcherProps} />}
         /*
           No `switcherLabel`.
 
@@ -805,6 +889,31 @@ export default function ConsoleLayout() {
                 tabs.pin(path);
               }}
               onOverlayChange={setTreeOverlay}
+              /*
+                The workspaces, at the foot of the column. `foot.ts` decides what
+                fits in the width the panel has been dragged to; this supplies
+                the three things it cannot reach on its own — the list, the
+                recently-visited log and the router.
+
+                `phone` is not a condition here. A phone has no file tree at all
+                (`features/app/frame.ts`), so this slot has no supplier at that
+                density and `NavBand`'s strip goes on being its answer.
+              */
+              workspaces={
+                <ContextFootRow
+                  contexts={data.contexts}
+                  currentSlug={current?.slug ?? null}
+                  recent={places}
+                  /*
+                    Resolved at press time, never when the row rendered — the log
+                    moves on every navigation. Same rule, same reason and the
+                    same call as the phone's strip: a switch lands on the note
+                    you had open in that context rather than at its root.
+                  */
+                  onOpen={(slug) => router.replace(contextHrefFrom(slug))}
+                  menu={<SwitcherMenu {...switcherProps} trigger="chevron" />}
+                />
+              }
             />
           ) : undefined
         }

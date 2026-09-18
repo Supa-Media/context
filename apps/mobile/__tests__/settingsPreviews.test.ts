@@ -75,8 +75,8 @@ describe("a value is never invented out of an absence", () => {
     // bucket" — the distinction `ConsoleData.storage` spends a paragraph on,
     // and the one a trailing string is most likely to collapse.
     const base = demoData();
-    expect(settingsPreview("storage", { ...base, storage: undefined }, null)).toBeNull();
-    expect(settingsPreview("storage", { ...base, storage: null }, null)).toBeNull();
+    expect(settingsPreview("storage", { ...base, storage: undefined })).toBeNull();
+    expect(settingsPreview("storage", { ...base, storage: null })).toBeNull();
   });
 
   test("a connected bucket says which one, in the words the pill already uses", () => {
@@ -92,20 +92,18 @@ describe("a value is never invented out of an absence", () => {
           connected: true,
         },
       },
-      null,
     );
     expect(preview).toBe("R2 · notes-bucket");
   });
 
   test("invitations that have not loaded are not zero invitations", () => {
     const base = demoData();
-    expect(settingsPreview("invitations", { ...base, invitations: undefined }, null)).toBeNull();
-    expect(settingsPreview("invitations", { ...base, invitations: [] }, null)).toBeNull();
+    expect(settingsPreview("invitations", { ...base, invitations: undefined })).toBeNull();
+    expect(settingsPreview("invitations", { ...base, invitations: [] })).toBeNull();
     expect(
       settingsPreview(
         "invitations",
         { ...base, invitations: [{ slug: "supa", token: "t" }] },
-        null,
       ),
     ).toBe("1 pending");
   });
@@ -113,7 +111,7 @@ describe("a value is never invented out of an absence", () => {
   test("a search index that has not answered is not an index that is off", () => {
     const base = demoData();
     expect(
-      settingsPreview("search", { ...base, fastSearch: { ...base.fastSearch, status: null } }, null),
+      settingsPreview("search", { ...base, fastSearch: { ...base.fastSearch, status: null } }),
     ).toBeNull();
   });
 
@@ -123,7 +121,6 @@ describe("a value is never invented out of an absence", () => {
       settingsPreview(
         "people",
         { ...base, members: { ...base.members, loading: true, members: [] } },
-        null,
       ),
     ).toBeNull();
   });
@@ -142,7 +139,6 @@ describe("a value is never invented out of an absence", () => {
             failure: { headline: "Could not load who is here", next: "Try again in a moment." },
           },
         },
-        null,
       ),
     ).toBeNull();
   });
@@ -158,7 +154,7 @@ describe("an owner-only list withheld is never reported as empty", () => {
   test("groups say nothing to somebody who may not manage them", () => {
     const base = demoData();
     const withheld = { ...base, groups: { ...base.groups, groups: [], actions: undefined } };
-    expect(settingsPreview("groups", withheld, null)).toBeNull();
+    expect(settingsPreview("groups", withheld)).toBeNull();
   });
 
   test("groups say none to an owner whose list is genuinely empty", () => {
@@ -180,7 +176,6 @@ describe("an owner-only list withheld is never reported as empty", () => {
       settingsPreview(
         "groups",
         { ...base, groups: { ...base.groups, groups: [], actions: owner } },
-        null,
       ),
     ).toBe("None");
   });
@@ -188,7 +183,7 @@ describe("an owner-only list withheld is never reported as empty", () => {
   test("shared links say nothing to somebody who may not manage them", () => {
     const base = demoData();
     const withheld = { ...base, shares: { ...base.shares, shares: [], actions: undefined } };
-    expect(settingsPreview("shares", withheld, null)).toBeNull();
+    expect(settingsPreview("shares", withheld)).toBeNull();
   });
 });
 
@@ -201,7 +196,7 @@ describe("a half-visible mechanism never claims the whole", () => {
       can see would be a flat lie to anybody capturing iMessages.
     */
     const base = demoData();
-    expect(settingsPreview("chats", { ...base, googleConnections: [] }, null)).toBeNull();
+    expect(settingsPreview("chats", { ...base, googleConnections: [] })).toBeNull();
   });
 
   test("no Google mailbox is not 'no mail' either", () => {
@@ -214,45 +209,24 @@ describe("a half-visible mechanism never claims the whole", () => {
       subscription landed, and for ever if it failed.
     */
     const base = demoData();
-    expect(settingsPreview("email", { ...base, googleConnections: [] }, null)).toBeNull();
+    expect(settingsPreview("email", { ...base, googleConnections: [] })).toBeNull();
   });
 
-  test("meetings and devices keep quiet, because nothing here knows", () => {
+  test("meetings keeps quiet, because nothing here knows", () => {
     const base = demoData();
-    expect(settingsPreview("meetings", base, null)).toBeNull();
-    expect(settingsPreview("devices", base, null)).toBeNull();
+    expect(settingsPreview("meetings", base)).toBeNull();
   });
 });
 
 describe("the rows that can answer, do", () => {
-  test("appearance says which of the three it is set to", () => {
-    const base = demoData();
-    expect(settingsPreview("appearance", base, { choice: "dark", ready: true })).toBe("Dark");
-    expect(settingsPreview("appearance", base, { choice: "light", ready: true })).toBe("Light");
-    expect(settingsPreview("appearance", base, { choice: "system", ready: true })).toBe("System");
-    expect(settingsPreview("appearance", base, null)).toBeNull();
-  });
-
-  test("and says nothing while the device has not answered", () => {
-    /*
-      `choice` is `"system"` before `ensureAppearanceLoaded` resolves on a
-      native cold start. Read alone it tells somebody on Dark that they are on
-      System and then flips — a value invented out of an absence, which is the
-      one thing this module exists to refuse.
-    */
-    const base = demoData();
-    expect(settingsPreview("appearance", base, { choice: "system", ready: false })).toBeNull();
-    expect(settingsPreview("appearance", base, { choice: "dark", ready: false })).toBeNull();
-  });
-
   test("profile says the handle the person is signed in as", () => {
     const base = demoData();
-    expect(settingsPreview("profile", base, null)).toBe(base.viewer.name);
+    expect(settingsPreview("profile", base)).toBe(base.viewer.name);
   });
 
   test("privacy says the default every unruled folder inherits", () => {
     const base = demoData();
-    const preview = settingsPreview("privacy", base, null);
+    const preview = settingsPreview("privacy", base);
     // The demo's root manifest is loaded, so this is a real answer rather than
     // the loading `null` — and it is the word the privacy panel itself uses.
     // The same word the privacy panel's own pill uses, which moved with the
@@ -265,6 +239,6 @@ describe("the rows that can answer, do", () => {
   test("overview adds nothing, because the heading above it already said it", () => {
     // The scope heading names the context one line up. A row repeating it is
     // the same word twice, which is the defect this whole change is about.
-    expect(settingsPreview("overview", demoData(), null)).toBeNull();
+    expect(settingsPreview("overview", demoData())).toBeNull();
   });
 });

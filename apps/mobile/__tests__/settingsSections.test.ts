@@ -89,8 +89,70 @@ describe("two scopes in one list", () => {
     for (const kind of ["personal", "shared", null] as const) {
       const keys = settingsSectionsFor(kind).map((section) => section.key);
       expect(keys).toContain("apps");
-      expect(keys).toContain("account");
+      expect(keys).toContain("profile");
     }
+  });
+
+  test("invitations is a row only while one is waiting", () => {
+    /*
+      Three states, two of them absent and for different reasons: nothing
+      pending, and nothing known yet. `undefined` is the list in flight and is
+      not zero — the distinction `ConsoleData.invitations` and `previews.ts`
+      both keep — but neither is a row, because neither has anything in it.
+    */
+    const keysWhen = (waiting: boolean | undefined) =>
+      settingsSectionsFor("personal", { invitations: waiting }).map((section) => section.key);
+
+    expect(keysWhen(undefined)).not.toContain("invitations");
+    expect(keysWhen(false)).not.toContain("invitations");
+    expect(keysWhen(true)).toContain("invitations");
+    // And with no `shown` at all, which is every caller that does not know:
+    // fail closed, the direction the deprecated rows already land on.
+    expect(settingsSectionsFor("personal").map((s) => s.key)).not.toContain("invitations");
+  });
+
+  test("signing out is a control on Profile, not a row of its own", () => {
+    /*
+      "Sign out & delete" was a row in the index for two buttons somebody
+      presses once or never — and it put the control that ends a *session* on
+      the only screen that can end an *account*. Both are at the foot of
+      Profile now, under the identity they act on.
+    */
+    const all = settingsSectionsFor("personal");
+    expect(all.map((section) => section.key)).not.toContain("account");
+    expect(isSettingsSection("account")).toBe(false);
+    expect(matchSettingsSections(all, "sign out").map((s) => s.key)).toEqual(["profile"]);
+  });
+
+  test("appearance is a sentence on Profile, not a section of its own", () => {
+    /*
+      "Follow the device" is the whole of the feature now, so there is nothing
+      to navigate to — but "dark mode" is exactly what somebody types when they
+      cannot find the setting, and a search that matches nothing reads as a
+      product that lost it.
+    */
+    const all = settingsSectionsFor("personal");
+    expect(all.map((section) => section.key)).not.toContain("appearance");
+    expect(isSettingsSection("appearance")).toBe(false);
+    expect(matchSettingsSections(all, "dark mode").map((s) => s.key)).toEqual(["profile"]);
+    expect(matchSettingsSections(all, "theme").map((s) => s.key)).toEqual(["profile"]);
+  });
+
+  test("the machines are reachable from Profile, because the row went and the revoke did not", () => {
+    /*
+      A grant here lets a Mac capture into private notes. Losing the row is a
+      navigation change; losing the way to revoke one from a phone would be a
+      change to what this product promises (`CLAUDE.md`: never weaken
+      revocability). So: no `devices` section, and Profile answers for it.
+    */
+    const keys = settingsSectionsFor("personal").map((section) => section.key);
+    expect(keys).not.toContain("devices");
+    expect(isSettingsSection("devices")).toBe(false);
+    expect(
+      matchSettingsSections(settingsSectionsFor("personal"), "revoke laptop").map(
+        (section) => section.key,
+      ),
+    ).toEqual(["profile"]);
   });
 
   test("and are recognisable without knowing the list", () => {
@@ -124,7 +186,7 @@ describe("searching the list", () => {
     // is in no section's vocabulary. People type sentences at a search box.
     const all = settingsSectionsFor("personal");
     expect(matchSettingsSections(all, "delete my account").map((s) => s.key)).toContain(
-      "account",
+      "profile",
     );
     // Still a filter, not a shrug: a real word that matches nothing still
     // empties the list.
@@ -151,8 +213,8 @@ describe("searching the list", () => {
     page that also holds a forwarding address.
   */
   test.each([
-    ["sign out", "account"],
-    ["delete my account", "account"],
+    ["sign out", "profile"],
+    ["delete my account", "profile"],
     ["gmail", "email"],
     ["mailbox", "email"],
     ["forward", "email"],
@@ -164,7 +226,6 @@ describe("searching the list", () => {
     ["zoom", "meetings"],
     ["recording", "meetings"],
     ["transcript", "meetings"],
-    ["invite", "invitations"],
     ["claude", "apps"],
     ["revoke", "apps"],
     ["username", "profile"],
@@ -198,10 +259,21 @@ describe("searching the list", () => {
     ["public", "privacy"],
     ["hide", "privacy"],
     ["permissions", "privacy"],
-    ["mac", "devices"],
-    ["laptop", "devices"],
-    ["dark mode", "appearance"],
-    ["light", "appearance"],
+    /*
+      The machine words, repointed rather than deleted — "Your devices" is a
+      card at the foot of Profile now. A word kept for a row that no longer
+      exists returns a section that cannot answer, which is worse than no word.
+    */
+    ["mac", "profile"],
+    ["laptop", "profile"],
+    ["revoke a mac", "profile"],
+    /*
+      Repointed with the row: the picker is gone and the app follows the
+      device, so "dark mode" has to land on the screen that says so. A word
+      that matches nothing is somebody concluding the setting is missing.
+    */
+    ["dark mode", "profile"],
+    ["light", "profile"],
     /*
       Nobody types "premium" — they type what they are trying to do, and none
       of these words are on the row. "storage limit" is the one worth keeping:
@@ -221,6 +293,26 @@ describe("searching the list", () => {
     expect(hits).toContain(key);
   });
 
+  test("and 'invite' opens Invitations, but only while one is waiting", () => {
+    // Off the table above because it is the one query whose answer depends on
+    // the person rather than the context: with nothing pending there is no
+    // row, so there is nothing for the box to return either.
+    const waiting = settingsSectionsFor("personal", { invitations: true });
+    expect(matchSettingsSections(waiting, "invite").map((s) => s.key)).toContain(
+      "invitations",
+    );
+    /*
+      With nothing pending the word still has a destination — People, where
+      you invite somebody — and that is the point: the box goes on answering,
+      it just cannot offer a screen whose only content would be "Nothing
+      pending".
+    */
+    const none = settingsSectionsFor("personal", { invitations: false });
+    const hits = matchSettingsSections(none, "invite").map((s) => s.key);
+    expect(hits).not.toContain("invitations");
+    expect(hits).toEqual(["people"]);
+  });
+
   /*
     The two destructive screens, kept apart.
 
@@ -229,7 +321,8 @@ describe("searching the list", () => {
     workspace off their list must never be handed the screen that closes their
     account. So each is reachable by its own noun and neither answers for the
     other's. This is the assertion that fails if a later edit "helpfully" adds
-    `workspace` to the account row's keywords.
+    `workspace` to Profile's keywords — Profile being where the account
+    controls now live, at the foot of the screen about the person.
   */
   test("deleting a workspace and deleting an account are not the same search", () => {
     const all = settingsSectionsFor("personal");
@@ -237,17 +330,17 @@ describe("searching the list", () => {
       matchSettingsSections(all, query).map((section) => section.key);
 
     expect(keysFor("delete workspace")).toEqual(["advanced"]);
-    expect(keysFor("delete my account")).toEqual(["account"]);
+    expect(keysFor("delete my account")).toEqual(["profile"]);
     // A personal workspace goes with the account it belongs to — the sentence
     // `deletionBlockedReason` gives for refusing it in Advanced — so the noun
     // has to land on the screen that can actually do it. "workspace" is the noun
     // here on purpose: the word is retired from the copy, and people who
     // learned it will go on typing it for years.
-    expect(keysFor("delete my brain")).toEqual(["account"]);
+    expect(keysFor("delete my brain")).toEqual(["profile"]);
     // The bare verb is ambiguous and should say so by offering both, rather
     // than silently picking the more destructive one. That is what it did
     // before: "delete" matched the account row alone.
-    expect(keysFor("delete")).toEqual(expect.arrayContaining(["account", "advanced"]));
+    expect(keysFor("delete")).toEqual(expect.arrayContaining(["profile", "advanced"]));
   });
 
   test("a section is always findable by the words on its own row", () => {
