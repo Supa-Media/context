@@ -1056,7 +1056,6 @@ describe("copying and duplicating", () => {
       from: "2-areas/health.md",
       to: "1-projects/health-copy.md",
       clearance: clearanceOf("private"),
-      now: NOW,
     });
     const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(canSee("1-projects/health-copy.md", "team", manifest.rules, manifest.overrides)).toBe(false);
@@ -1073,7 +1072,6 @@ describe("copying and duplicating", () => {
       from: "2-areas/clinic",
       to: "1-projects/clinic",
       clearance: clearanceOf("private"),
-      now: NOW,
     });
     const manifest = parsePrivacyManifest(store.snapshot()[PRIVACY_KEY]);
     expect(canSee("1-projects/clinic/deep/more.md", "team", manifest.rules, manifest.overrides)).toBe(false);

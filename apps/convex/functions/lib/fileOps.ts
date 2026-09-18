@@ -3204,12 +3204,12 @@ async function remapPrivacy(
       if (hasOverride(current.overrides, move.from)) continue;
       const was = wasVisibleAs.get(move.from);
       if (was === undefined) continue;
-      overrides = nextOverrides(
-        move.to,
-        narrowerVisibility(was, visibilityOf(move.to, deduped)),
-        deduped,
-        overrides,
-      );
+      // `narrowerVisibility` is typed for two optional arguments, so it answers
+      // optionally; both of these are present, and the guard says so rather
+      // than asserting it.
+      const carry = narrowerVisibility(was, visibilityOf(move.to, deduped));
+      if (carry === undefined) continue;
+      overrides = nextOverrides(move.to, carry, deduped, overrides);
     }
     return { rules: deduped, overrides };
   });
