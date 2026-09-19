@@ -1365,3 +1365,100 @@ open another's credential"; `apps/mcp/test/providerCredential.test.mjs` fails
 "a token cannot reach another tenant's model account" and "a refusal is a 200
 with a null, never a status the caller can count"; and
 `apps/convex/__tests__/structure.test.ts` fails on the enumeration itself.
+
+### A moved note leaves a forwarding address, and it is a trail rather than an index
+
+`links.js` already rewrites every reference **inside** the bucket when
+something moves: rename a folder and the wikilinks and Markdown links in every
+note that can see it follow, by default. That is the whole of the problem for
+references we can reach, and none of it for references we cannot. A share link
+pasted into a thread last month, a deep link in somebody's chat log, a path an
+agent wrote down — none of those live in a file, so no rewrite reaches them,
+and until this landed every one of them died the first time a context was
+tidied. Quietly, and to the wrong person: whoever moved the note is not whoever
+is holding the link.
+
+So a move appends to `.context/forwarding.json`: `{ from, to, kind, at }`,
+written by the gateway and by the console through one module
+(`apps/mcp/src/forwarding.js`, imported by `fileOps.ts` exactly as the search
+modules are), so a rename through the app and the same rename through an MCP
+client leave the same trail.
+
+**The shape is a trail between paths, not an index of references, and that is
+the decision.** An index — "who links to what" — is the obvious way to make a
+move cheap, and it is the wrong thing to keep in a bucket that Obsidian,
+`rclone` and a text editor also write. It would be a second copy of every link
+in the context, drifting the moment somebody edits a note outside the gateway,
+and a *stale* copy of a reference is worse than no copy because it names a
+relationship that no longer exists. The links stay in the files, where they are
+canonical and where the customer can read them without us (non-negotiable #3).
+What is kept is the one fact a holder of a stale path needs, which is a fact
+about the move rather than about any reference: where the thing went.
+
+Four properties carry it, and each fails a test if removed:
+
+- **A folder move is one entry.** Renaming `2-areas/` writes a single prefix
+  rule, so the ledger's size follows the number of *moves* rather than the
+  number of files, and a nine-thousand-note rename is one row. The prefix
+  matches on a segment boundary, so `2-areas-old/x.md` is never carried by a
+  rule written for `2-areas` — the same trailing-slash care `withinSharedFolder`
+  takes.
+- **Chains collapse as they are recorded.** Recording `b → c` rewrites an
+  existing `a → b` into `a → c`, and an entry that would point at itself is
+  dropped, so a note moved back where it started forwards nowhere rather than in
+  a circle.
+- **The most specific rule wins, never the newest.** An exact entry outranks a
+  folder entry, because a note that left a folder before the folder moved has
+  two possible answers and only its own is true — and between two folder
+  entries that both contain a path, the longer prefix wins for the same reason.
+  Move `2-areas/apps` out to `1-projects/apps`, then rename `2-areas`, and the
+  newer rule is the wrong answer for everything under `apps`.
+- **It is bounded and it expires rather than breaks.** Past
+  `FORWARDING_ENTRY_CAP` the oldest entries are dropped, and a cold forwarding
+  address is a link that stops working — which is what it did before this
+  existed.
+
+**It is never the only copy of anything**, which is what makes it safe to cap
+and safe to lose. Delete the file and the bucket is unchanged: every in-bucket
+link still resolves, because those were rewritten in place at move time. A
+write failure is therefore swallowed rather than raised — by the time it runs
+the objects have already moved, and an exception would fail an operation that
+has already succeeded. The write is still conditional (`onlyIf`), because two
+moves landing at once must not lose one to last-writer-wins; a store that
+cannot do conditional writes simply does not keep the address.
+
+**An absent ledger is a valid state, so this is not a layout migration.** The
+on-bucket layout is a versioned stable format and changing it needs dual reads
+and a verified migration. Adding a plumbing file whose absence already means
+"no forwarding addresses" changes no existing key, is dual-read by
+construction, and leaves a bucket that has never seen this code working exactly
+as it did. A *future* change to the file's own shape is what needs the
+migration, which is why it carries a `version` and why an unknown version reads
+as empty rather than being guessed at.
+
+**Two orders, and collapsing them would be a bug.** `readFile` takes
+`forward: "never" | "onMiss"`. A deep link is `onMiss` — a path means what it
+says today, so a note that exists where the address points wins, and only a
+dead address is forwarded, which also keeps the extra GET off every successful
+read. A share needs the opposite order and resolves through the `forward`
+operation before it reads anything, argued in
+[privacy-and-sharing](./privacy-and-sharing.md).
+
+**What a "simplification" of this would cost.** Writing one entry per file in a
+folder move turns a PARA reorganisation into thousands of rows in a file every
+share read fetches. Matching the prefix with `startsWith` hands
+`2-areas-old/x.md` to a rule written for `2-areas`. Dropping the collapse makes
+a five-move note a five-hop resolution and lets a cycle exist. Resolving
+overlapping folder rules by recency rather than by longest prefix sends
+everything under a subfolder that moved out first to wherever its old parent
+was later renamed. Letting
+`recordForwarding` throw fails moves that already happened. Growing this into a
+reference index puts a drifting second copy of the customer's links in their
+own bucket and breaks non-negotiable #3's "never the only copy of anything" in
+the other direction. `apps/mcp/test/forwarding.test.mjs` fails, in particular
+"a folder move is one entry, not one per file", "a sibling whose name merely
+starts the same is not carried", "a chain resolves to the end of the chain" and
+"the oldest expired rather than corrupting the file"; the wired half of
+`apps/mcp/test/links.test.mjs` fails "a path renamed and then carried by a
+folder move still arrives" and "the forwarding ledger cannot be read as a note";
+and `apps/convex/__tests__/shareSurvivesMove.test.ts` fails throughout.

@@ -126,6 +126,23 @@ export type Command =
   | "reopenTab"
   | "toggleExplorer"
   | "toggleFocus"
+  /**
+   * Somewhere you were, and the way back out of it.
+   *
+   * The same stack the note's own `‹ ›` walk (`files/history.ts`) — an *order
+   * of visits*, which is not the tab strip's *set of open notes* and is why
+   * `prevTab` below is a different command rather than this one under another
+   * name. Two tabs can be open while you have moved between them six times.
+   *
+   * ⌘[ and ⌘] because that is what a browser binds, and on the web the browser
+   * binds them over the top of this: there the chord and the address bar are
+   * walking the same note-to-note history anyway (`useNoteUrl` pushes a
+   * navigation), so whichever answers, the person lands where they expect. In
+   * the desktop app there is no browser chrome to answer at all, and this is
+   * the only keyboard route to a control that otherwise has to be clicked.
+   */
+  | "goBack"
+  | "goForward"
   | "nextTab"
   | "prevTab"
   | "tab1"
@@ -253,6 +270,16 @@ export const BINDINGS: readonly Binding[] = [
   { command: "toggleFocus", key: "\\", mod: true, scopes: GLOBAL },
   { command: "nextTab", key: "arrowright", mod: true, alt: true, scopes: GLOBAL },
   { command: "prevTab", key: "arrowleft", mod: true, alt: true, scopes: GLOBAL },
+  /**
+   * `GLOBAL`, so the chord works with the caret in a note.
+   *
+   * Going back from a note you are typing in is the ordinary case — you
+   * followed a link out of it and want to return — and the text-field rule
+   * this table opens with is about *bare* keys, not modified ones. See "a
+   * binding fires only where it is declared" in `keymap.test.ts`.
+   */
+  { command: "goBack", key: "[", mod: true, scopes: GLOBAL },
+  { command: "goForward", key: "]", mod: true, scopes: GLOBAL },
   ...TAB_COMMANDS.map(
     (command, index): Binding => ({
       command,

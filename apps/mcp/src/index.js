@@ -125,6 +125,7 @@ import {
   getWithLegacyFallback,
   migrateStorageLayout,
 } from "./storageLayout.js";
+import { forwardPath, readForwarding, recordForwarding } from "./forwarding.js";
 import {
   describeDrawing,
   isDrawingPath,
@@ -4185,6 +4186,10 @@ async function createLogicalFolderMove(store, scope, source, destination, object
     return toolError(`conflict: destination already contains objects: ${destination}/`);
   }
   await persistPrivacyFolderMove(store, source, destination);
+  // At the logical cutover, not when the copy finishes: the folder reads as
+  // moved from here on, so a link that arrives in between must forward too.
+  // One folder entry covers every object under it — see `forwarding.js`.
+  await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
   const now = new Date().toISOString();
   const id = `move-${crypto.randomUUID()}`;
   const job = {
@@ -5383,10 +5388,39 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   // link covers — so the anchor is dropped here, exactly as the console's
   // `noteFromQuery` drops it. Without this the one key search prints for a
   // message is the one key `read_note` answers "not found" for.
-  const path = splitMessageAnchor(named).path;
-  if (!path) return toolError("invalid path");
-  if (!canSee(path, scope, rules, overrides)) return toolError("not found");
-  const { object: obj } = await getVisibleMovedNote(store, scope, rules, overrides, path);
+  const requested = splitMessageAnchor(named).path;
+  if (!requested) return toolError("invalid path");
+  if (!canSee(requested, scope, rules, overrides)) return toolError("not found");
+  let path = requested;
+  let obj = (await getVisibleMovedNote(store, scope, rules, overrides, path)).object;
+  if (!obj) {
+    /*
+      A STALE PATH IS FORWARDED, BUT ONLY AFTER IT HAS MISSED.
+
+      The address somebody is holding may be where the note *was* — a link from
+      an old chat, a path an agent wrote down, a folder that has since been
+      renamed. `forwarding.js` knows where it went, so the miss is worth one
+      more lookup before answering "not found".
+
+      **On a miss, never before it.** A path means what it says today: if a
+      note now lives at the requested path, that note is the answer, even when
+      something else once lived there. Only an address that resolves to nothing
+      has anything to gain from a forwarding table — which also keeps the extra
+      GET off every successful read.
+
+      `canSee` is re-asked at the destination, so this cannot widen anything:
+      a note forwarded into a private folder is not found, exactly as it would
+      be if the caller had asked for its current path directly.
+    */
+    const forwarded = forwardPath(await readForwarding(store), path);
+    if (forwarded !== path && canSee(forwarded, scope, rules, overrides)) {
+      const landed = await getVisibleMovedNote(store, scope, rules, overrides, forwarded);
+      if (landed.object) {
+        obj = landed.object;
+        path = forwarded;
+      }
+    }
+  }
   if (!obj) return toolError("not found");
   const stored = await obj.text();
   // Decrypted here, at request time, and nowhere else. The caller is handed the
@@ -5422,6 +5456,10 @@ async function toolReadNote(store, scope, rules, overrides, pathArg) {
   }
   return toolText(
     `etag: ${obj.etag}\npath: ${path}\nvisibility: ${effectiveVisibility(path, rules, overrides)}${marker}` +
+      // Said out loud rather than served silently: a caller that arrived on a
+      // stale address is holding one somewhere, and the next write must use
+      // the path it is being given rather than the one it asked for.
+      `${path === requested ? "" : `\nmoved_from: ${requested}`}` +
       `${drawingEmbedLine(opened.text)}\n\n${opened.text}`
   );
 }
@@ -8971,6 +9009,7 @@ async function toolArchiveNote(store, scope, rules, overrides, pathArg, expected
     The alternative is a bucket where every archive silently breaks every link
     into it, which is how people learn not to archive.
   */
+  await recordForwarding(store, [{ from: path, to: dest, kind: "note" }]);
   const references = await rewriteReferences(
     store,
     scope,
@@ -9171,6 +9210,7 @@ async function toolMoveNote(store, scope, rules, overrides, sourceArg, destinati
     return toolError("conflict: source changed since it was copied");
   }
   await clearExactVisibility(store, source);
+  await recordForwarding(store, [{ from: source, to: destination, kind: "note" }]);
   const references = await rewriteReferences(
     store,
     scope,
@@ -9532,6 +9572,10 @@ async function toolMoveNotes(store, scope, rules, overrides, movesArg, dryRun) {
     for (const move of preflight) await clearExactVisibility(store, move.source).catch(() => {});
   }
 
+  await recordForwarding(
+    store,
+    preflight.map((move) => ({ from: move.source, to: move.destination, kind: "note" }))
+  );
   const references = await rewriteReferences(
     store,
     scope,
@@ -9698,6 +9742,7 @@ async function toolMoveFolder(store, scope, rules, overrides, sourceArg, destina
     }
   }
   for (const { source: path } of moves) await clearExactVisibility(store, path).catch(() => {});
+  await recordForwarding(store, [{ from: source, to: destination, kind: "folder" }]);
   const references = await rewriteReferences(
     store,
     scope,

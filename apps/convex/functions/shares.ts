@@ -1806,9 +1806,45 @@ export const readSharedNote = action({
       throw shareUnavailable();
     }
 
-    const requested =
-      args.path === undefined ? grant.entryPath : normalizePath(args.path);
-    if (requested === null) throw anonymousSafe(actorUserId, shareUnavailable());
+    const asked = args.path === undefined ? grant.entryPath : normalizePath(args.path);
+    if (asked === null) throw anonymousSafe(actorUserId, shareUnavailable());
+
+    /*
+      A SHARE FOLLOWS THE NOTE, NOT THE PATH IT WAS MINTED ON.
+
+      The row stores `entryPath` because that is what the owner pointed at. A
+      note is not a string, though: it gets renamed, tidied into another
+      folder, archived — and a link already pasted into a thread is one nobody
+      can rewrite. So both halves are resolved through the bucket's forwarding
+      ledger before anything else happens, and everything below works in live
+      paths: the folder bound, the traversal comparison, the reads.
+
+      **Ledger first, live path second, and that order is the security half.**
+      A link minted on `1-projects/foo.md` names *that note*. Checking the live
+      path first would hand the link to whatever note happens to sit there now
+      — a different author's note inheriting an audience they never chose, and
+      the owner of the original with no way to see it had happened. Resolving
+      first means a share either reaches the note it was minted on or reaches
+      nothing.
+
+      It cannot widen: every read below still goes through `runFileOperation`
+      at `team` scope with no granted names, re-derived from the live
+      `privacy.md`. A note forwarded into a private folder is as absent as it
+      would be if the reader had asked for its current path.
+
+      One extra operation per share read, and it is deliberate. `shares.ts`
+      decides the folder bound before spending a GET, so a bound checked
+      against a stale prefix while the read forwarded to a live one would be
+      two answers to one question. See the `forward` operation in `files.ts`.
+    */
+    const live = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: grant.workspaceId,
+      scope: "team",
+      operation: { kind: "forward", paths: [grant.entryPath, asked] },
+    });
+    const [entryPath, requested] =
+      live.kind === "forwarded" ? live.paths : [grant.entryPath, asked];
+    const shareGrant = { ...grant, entryPath };
 
     /*
       A FOLDER SHARE IS BOUNDED BY ITS PREFIX, AND NOTHING ELSE AUTHORIZES A HOP.
@@ -1835,10 +1871,10 @@ export const readSharedNote = action({
       restricted model.
     */
     if (grant.entryKind === "folder") {
-      if (!withinSharedFolder(grant.entryPath, requested)) {
+      if (!withinSharedFolder(entryPath, requested)) {
         throw anonymousSafe(actorUserId, shareUnavailable());
       }
-      return await readWithinSharedFolder(ctx, grant, requested, actorUserId);
+      return await readWithinSharedFolder(ctx, shareGrant, requested, actorUserId);
     }
 
     // The entry note is read on every request. It is what step 3 is checked
@@ -1849,13 +1885,13 @@ export const readSharedNote = action({
     const entry = await readThroughShare(
       ctx,
       grant.workspaceId,
-      grant.entryPath,
+      entryPath,
       actorUserId,
       grant.openToAnyone,
     );
-    const links = linkedNotePaths(entry.text, grant.entryPath);
+    const links = linkedNotePaths(entry.text, entryPath);
 
-    if (requested !== grant.entryPath) {
+    if (requested !== entryPath) {
       // `SHARE_TRAVERSAL_DEPTH` is 1: the entry note's own links and nothing
       // further. See the constant.
       if (!links.includes(requested)) throw anonymousSafe(actorUserId, shareUnavailable());
@@ -1871,7 +1907,7 @@ export const readSharedNote = action({
         text: target.text,
         kind: "note" as const,
         entries: [],
-        entryPath: grant.entryPath,
+        entryPath,
         links,
         openToAnyone: grant.openToAnyone,
         editableInContext: grant.editableInContext,
@@ -1879,11 +1915,11 @@ export const readSharedNote = action({
     }
 
     return {
-      path: grant.entryPath,
+      path: entryPath,
       text: entry.text,
       kind: "note" as const,
       entries: [],
-      entryPath: grant.entryPath,
+      entryPath,
       links,
       openToAnyone: grant.openToAnyone,
       editableInContext: grant.editableInContext,
