@@ -309,6 +309,13 @@ function planWrapOnly(
  * line the grammar requires. On an empty line it lands where the caret is.
  */
 export function insertTable(view: EditorView, rows: number, cols: number): boolean {
+  /*
+    Refused here rather than left to `EditorState.readOnly` to drop the
+    transaction. It always did drop it, but the caret this command places
+    afterwards is computed from a table that was never inserted, and pointing a
+    selection past the end of the document throws.
+  */
+  if (view.state.readOnly) return false;
   const columns = Math.max(1, Math.trunc(cols));
   const bodyRows = Math.max(0, Math.trunc(rows));
 
@@ -326,18 +333,16 @@ export function insertTable(view: EditorView, rows: number, cols: number): boole
       {
         changes: { from: at, to: at, insert: `${lead}${table}\n` },
         /*
-          Two characters past the opening pipe is the first header cell's own
-          text, which is where somebody who has just chosen "4 × 3" is about to
-          type. Not the start of the table: a caret sitting on a `|` looks like
-          it is in the cell and types outside it.
-
-          This is now the fallback rather than the answer: the table is drawn
-          as a grid the moment it exists, so the caret lands inside a block
-          nobody can see. `focusGridCell` below puts it in the drawn cell
-          instead, and this selection is what is left when there is no grid —
-          a table the grid refused, or a surface without the extension.
+          Past the table's own last character, so the grid is drawn: the end
+          of a table's last line is where the keystroke that made it a table
+          leaves the caret, and `writingTable` reads that as a table being
+          written and shows its source. One character further on is the line
+          below, which is where somebody who asked for a finished table is. The caret is then put in the grid's first cell
+          below, and only a surface with no grid falls back to the position
+          this command used before there were any — two characters past the
+          opening pipe, which is the first header cell's own text.
         */
-        selection: EditorSelection.cursor(at + lead.length + 2),
+        selection: EditorSelection.cursor(at + lead.length + table.length + 1),
       },
       { scrollIntoView: true, userEvent: "input" },
     ),
@@ -353,5 +358,16 @@ export function insertTable(view: EditorView, rows: number, cols: number): boole
     when the caret is in the document and takes it out of the cell when it is
     not. Pinned by the WebKit spec, which typed into a grid nobody was in.
   */
-  return focusGridCell(view, at + lead.length, -1, 0);
+  if (focusGridCell(view, at + lead.length, -1, 0)) return true;
+
+  /*
+    No grid: a surface without Live Preview, or a table it refused. The caret
+    goes where it went before there were grids — two characters past the
+    opening pipe, which is the first header cell's own text. The dispatch above
+    left it after the table, because `tableGrids` undraws the table the
+    document's caret is inside and the whole point of the line above is that
+    there is a cell to put the caret in.
+  */
+  view.dispatch({ selection: EditorSelection.cursor(at + lead.length + 2) });
+  return false;
 }

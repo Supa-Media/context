@@ -1433,6 +1433,19 @@ function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
  * `editability` has already taken the caret away and a control that would only
  * ever fail is not drawn (`imageBlock`'s rule, and the same one).
  *
+ * ## Except the table the document's own caret is inside
+ *
+ * One reveal survives at the table's own size, and typing a table by hand is
+ * what it is for: the moment `| --- | --- |` is finished the block parses, and
+ * a grid drawn over it would swallow the lines the person is still writing —
+ * measured in a browser, the next two rows landed in a paragraph *under* the
+ * table. That is not the flicker the old rule feared, because a caret in a
+ * cell is **not** a caret in the document: editing a cell leaves
+ * `state.selection` outside the table, so the grid a person is working in
+ * never gives way under them. The document's caret gets inside a table only by
+ * writing one — `atomicRanges` steps over a drawn one — so this is exactly the
+ * case of a table being typed.
+ *
  * A table that does not start at the margin is left alone, for the reason
  * `htmlPreviews` gives: a block widget replaces whole lines, and one indented
  * inside a list item does not occupy them.
@@ -1441,6 +1454,8 @@ function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
  */
 export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
   const grids: TableGrid[] = [];
+  // The one table that is not drawn, and `writingTable` is the whole rule.
+  const writing = state.field(writingTable, false) ?? null;
   syntaxTree(state).iterate({
     from: 0,
     to: state.doc.length,
@@ -1454,6 +1469,7 @@ export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
       ) {
         return;
       }
+      if (writing !== null && writing === table.from) return;
       const grid = readTable(state, table);
       if (grid !== null) grids.push(grid);
     },
@@ -2103,6 +2119,16 @@ function makeCellEditable(
     if (drawn !== undefined) drawn.focused = { row, column };
     armControls(wrap);
     /*
+      Whatever was being typed is handed over: a caret in a cell is how
+      somebody says they are done writing the pipes. Without this, the table
+      you had just finished typing would still be revealed as source behind the
+      cell you clicked, and the click would land on a grid that is about to
+      disappear. See `writingTable`.
+    */
+    if (!view.state.readOnly && (view.state.field(writingTable, false) ?? null) !== null) {
+      view.dispatch({ effects: stopWritingTable() });
+    }
+    /*
       THE REVEAL, at the size of a cell. The characters of the cell replace its
       drawing, so what the person edits is the source and what is written back
       is the characters they typed — no serializer, which is the whole promise
@@ -2200,7 +2226,15 @@ function makeCellEditable(
       const region = regionOf(view, wrap);
       cell.blur();
       view.focus();
-      if (region !== null) view.dispatch({ selection: { anchor: region.to } });
+      if (region !== null) {
+        view.dispatch({
+          selection: { anchor: region.to },
+          // The caret lands *at* the table's end, which is a position inside
+          // it as far as `writingTable` is concerned. Saying so explicitly is
+          // what keeps the grid drawn behind the caret that just left it.
+          effects: stopWritingTable(),
+        });
+      }
       return;
     }
 
@@ -2659,6 +2693,108 @@ function nodeAt(node: SyntaxNode | null, name: string): SyntaxNode | null {
  * `decorationsFor` is a pure function of `EditorState` and that is what makes
  * it testable at all.
  */
+/**
+ * THE TABLE SOMEBODY IS TYPING, WHICH IS THE ONE THAT IS NOT DRAWN.
+ *
+ * Found in a browser and by nothing else: a table becomes a table the moment
+ * `| - | - |` parses, which is in the *middle* of typing the delimiter row.
+ * The grid was drawn over the two lines, the caret was left at the end of a
+ * line that is no longer on screen, and the rest of what the person typed went
+ * in somewhere they could not see. Measured: `| --- | --- |` finished as
+ * `-- |` on its own line with a two-column grid above it.
+ *
+ * So one table gives way, and it is identified rather than inferred from where
+ * the caret is. Position alone cannot answer this: a caret at the end of the
+ * delimiter row and a caret parked there by Escape are the same number, and
+ * they want opposite answers.
+ *
+ * - A **document change** with the caret in a table says that table is being
+ *   written. That is the keystroke case and nothing else produces it, because
+ *   `atomicRanges` means the caret cannot walk into a drawn one.
+ * - A **selection that leaves it** puts it back. Clicking away, arrowing out,
+ *   anything deliberate.
+ * - An **effect** puts it back explicitly, for the two gestures that hand the
+ *   table over rather than leave it: Escape out of a cell, and a cell taking
+ *   focus.
+ *
+ * Arrowing *within* the source keeps it revealed, which is the same courtesy
+ * every other construct in this file extends to the thing you are editing.
+ */
+const setWritingTable = StateEffect.define<number | null>();
+
+/** Stop revealing the source of whatever table was being written. */
+export function stopWritingTable() {
+  return setWritingTable.of(null);
+}
+
+/**
+ * Whether the caret is *in* a table rather than beside it.
+ *
+ * Asymmetric, and both halves were found by a test rather than reasoned out.
+ * The first character is where arriving from above leaves you and where
+ * `openingCaret` parks, so a caret there is before the table. The last is
+ * where the keystroke that made these lines a table leaves you, so a caret
+ * there is in it.
+ */
+function inTable(head: number, table: { from: number; to: number }): boolean {
+  return head > table.from && head <= table.to;
+}
+
+/** The `Table` node covering `pos`, ends included. */
+function tableAround(state: EditorState, pos: number): { from: number; to: number } | null {
+  for (const side of [-1, 1] as const) {
+    let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, side);
+    for (; node !== null; node = node.parent) {
+      if (node.name === "Table") return { from: node.from, to: node.to };
+    }
+  }
+  return null;
+}
+
+export const writingTable = StateField.define<number | null>({
+  create: () => null,
+  update(value, transaction) {
+    for (const effect of transaction.effects) {
+      if (effect.is(setWritingTable)) return effect.value;
+    }
+    if (transaction.state.readOnly) return null;
+
+    if (transaction.docChanged) {
+      /*
+        The caret after the change, not before it: the character just typed is
+        what may have made these lines a table, and the node is read from the
+        state that has it.
+
+        Two conditions beyond "a table is there", and each answers a case that
+        got this wrong. The change has to **touch the table**, or an edit
+        somewhere else in the note would reveal a table the caret happens to
+        sit at the start of — `openingCaret` parks at the first line, which on
+        plenty of notes is a table's own first character. And the caret has to
+        be **past** that first character: arriving at a table from above is
+        being beside it, while the end of its last line is where the keystroke
+        that made it one leaves you.
+      */
+      const head = transaction.state.selection.main.head;
+      const table = tableAround(transaction.state, head);
+      if (
+        table !== null &&
+        inTable(head, table) &&
+        transaction.changes.touchesRange(table.from, table.to) !== false
+      ) {
+        return table.from;
+      }
+    }
+
+    const at = value === null ? null : transaction.changes.mapPos(value, -1);
+    if (at === null) return null;
+    if (!transaction.selection && !transaction.docChanged) return at;
+
+    const table = tableAround(transaction.state, at);
+    if (table === null) return null;
+    return inTable(transaction.state.selection.main.head, table) ? table.from : null;
+  },
+});
+
 const setEditorEngaged = StateEffect.define<boolean>();
 
 /**
@@ -3214,6 +3350,8 @@ export function livePreview() {
   // to answer a press. See `taskToggle`.
   return [
     editorEngaged,
+    // The table being typed, which is the only one not drawn as a grid.
+    writingTable,
     /*
       A drawn table is one object rather than a run of characters — the same
       sentence `imageBlock.ts` makes about a row of images, and it matters more
@@ -3594,6 +3732,27 @@ export const livePreviewStyles = `
   max-width: 100%;
 }
 /*
+  ROOM FOR THE CHROME, which the first version of this deliberately did not
+  reserve -- and looking at it in a browser is what settled the argument. The
+  bar was pinned above the frame with a negative offset so an editable table
+  occupied exactly what a reader's does. In the running app it was drawn over
+  the last line of the paragraph above and then cut in half by this box, whose
+  overflow-x makes overflow-y a clip too. Half a control over somebody's
+  sentence is worse than a table that sits a line lower while it can be edited,
+  so the space is reserved, and only while the grid is live.
+*/
+.cm-lp-grid-live { padding-top: 1.7em; }
+/*
+  AND ROOM ACROSS, for the same reason and found the same way. The frame
+  shrinks to the table, an absolutely positioned box cannot be wider than the
+  box it is positioned in, and a two-column table of single characters is
+  narrower than four buttons -- so in the browser the bar wrapped every label
+  down its own column and drew "+ r o w" on top of "+ c o l". The frame keeps
+  a floor wide enough for the chrome while the grid is live; the table inside
+  it is still sized by its own content.
+*/
+.cm-lp-grid-live .cm-lp-grid-frame { min-width: 12em; }
+/*
   Something to aim at. An empty cell in an editable grid is a box a person
   clicks into, and a box with no width cannot be clicked -- while the reader's
   dash, which exists so an empty cell is not mistaken for a broken one, would
@@ -3612,8 +3771,14 @@ export const livePreviewStyles = `
 }
 .cm-lp-grid-controls {
   position: absolute;
-  top: -0.85em;
-  right: 0;
+  /*
+    Inside the padding above rather than outside the box, and against the left
+    edge rather than the right: a table wider than the measure scrolls inside
+    its own box, and chrome pinned to the far edge of a wide one is chrome
+    nobody can reach without scrolling to it first.
+  */
+  top: -1.5em;
+  left: 0;
   display: flex;
   gap: 4px;
   /*
@@ -3631,6 +3796,7 @@ export const livePreviewStyles = `
 }
 .cm-lp-grid-control {
   font-family: var(--lp-body);
+  white-space: nowrap;
   font-size: 0.66em;
   line-height: 1;
   padding: 3px 6px;

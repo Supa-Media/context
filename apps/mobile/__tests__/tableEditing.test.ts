@@ -29,6 +29,7 @@ import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { editorExtensions } from "../features/console/files/editorSetup";
+import { engageEditor } from "../features/console/files/livePreview";
 import { insertTable } from "../features/console/files/markdownFormat";
 
 const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
@@ -408,6 +409,108 @@ describe("the caret steps over a drawn table rather than into it", () => {
     const start = DOC.indexOf("| a |");
     const moved = view.moveByChar(EditorSelection.cursor(start), true);
     expect(moved.head).toBe(DOC.indexOf("| 1 | 2 |") + "| 1 | 2 |".length);
+    view.destroy();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE ONE REVEAL THAT SURVIVES AT THE TABLE'S OWN SIZE.
+ *
+ * Found in a browser, not here: typing a table by hand stopped working the
+ * moment the delimiter row was finished, because the block parsed, the grid
+ * was drawn over it, and the next two rows landed in a paragraph under the
+ * table. A table the *document's* caret is inside is left as its own pipes.
+ *
+ * It does not undraw a grid somebody is working in, because a caret in a cell
+ * is not a caret in the document — the cell is a widget's own editable DOM and
+ * `state.selection` stays outside the table while it is used.
+ */
+describe("a table being typed is left as the characters being typed", () => {
+  /** Type at the caret, the way a keystroke reaches the document. */
+  function typeInto(view: EditorView, text: string): void {
+    const at = view.state.selection.main.head;
+    view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at + text.length } });
+  }
+
+  test("finishing the delimiter row does not swallow the rows after it", () => {
+    /*
+      The browser case, reproduced. `| - | - |` parses as a table in the
+      middle of typing the dashes, so the grid used to appear right there,
+      take the two lines off the screen, and leave the rest of what was typed
+      going in somewhere nobody could see: measured in Chromium, the delimiter
+      row finished as `-- |` under a two-column grid.
+    */
+    const view = mount({ doc: "" });
+    view.dispatch({ effects: engageEditor(true) });
+    typeInto(view, "| a | b |\n");
+    typeInto(view, "| --- | --- |");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    expect(view.dom.textContent).toContain("| --- | --- |");
+
+    typeInto(view, "\n| 1 | 2 |");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    expect(view.state.doc.toString()).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |");
+
+    // And the moment the caret leaves, it is a grid with that row in it.
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(cellOf(view, 0, 0).textContent).toBe("1");
+    view.destroy();
+  });
+
+  test("arrowing about inside the one being written keeps its pipes", () => {
+    const view = mount({ doc: "" });
+    view.dispatch({ effects: engageEditor(true) });
+    typeInto(view, "| a | b |\n| --- | --- |");
+    // A selection-only move that stays in the table is fixing a character,
+    // not finishing: the courtesy every construct here extends to the thing
+    // you are editing.
+    view.dispatch({ selection: { anchor: 4 } });
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    view.destroy();
+  });
+
+  test("an edit elsewhere does not reveal a table the caret merely starts at", () => {
+    /*
+      `openingCaret` parks at the first line of the writing, which on plenty of
+      notes is a table's own first character. An edit further down the note is
+      not somebody typing that table.
+    */
+    const doc = `${TABLE}\n\ntail\n`;
+    const view = mount({ doc });
+    view.dispatch({ effects: engageEditor(true) });
+    view.dispatch({ selection: { anchor: 0 } });
+    view.dispatch({ changes: { from: doc.length - 1, insert: " more" } });
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
+    view.destroy();
+  });
+
+  test("a cell taking the caret hands the table over", () => {
+    /*
+      Otherwise the table somebody has just finished typing would still be
+      revealed as source behind the cell they clicked.
+    */
+    const view = mount({ doc: "" });
+    view.dispatch({ effects: engageEditor(true) });
+    typeInto(view, "| a | b |\n| --- | --- |\n| 1 | 2 |");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+
+    view.dispatch({ selection: { anchor: 0 } });
+    const cell = cellOf(view, 0, 0);
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
+    view.destroy();
+  });
+
+  test("and Escape leaves the grid drawn behind the caret it just handed back", () => {
+    // The caret lands at the table's own end, which is a position inside it —
+    // so the gesture says so explicitly rather than relying on where it lands.
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    press(cell, "Escape");
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
     view.destroy();
   });
 });
