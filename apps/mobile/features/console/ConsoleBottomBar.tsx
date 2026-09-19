@@ -4,10 +4,15 @@ import { canGoBack, canGoForward, type HistoryState } from "./files/history";
 import type { ConsoleData } from "./types";
 
 /**
- * THE PHONE'S SEVEN KEYS.
+ * THE PHONE'S SIX KEYS.
  *
- * Lifted out of `app/(app)/console/_layout.tsx` unchanged — every comment
- * below is the one it was written with, and not a line of its behaviour moved.
+ * Lifted out of `app/(app)/console/_layout.tsx` — every comment below is the one
+ * it was written with, and nothing about the bar's geometry moved with it.
+ *
+ * It was seven. The seventh was a microphone that opened the meeting sheet, and
+ * it is gone: *"we no longer need a dedicated mic button on the bottom row, just
+ * a plus button that opens different options"*. Recording is one of the things
+ * the `+` now offers, so the row lost a key rather than a capability.
  *
  * It left the route file for two reasons, and the second is the one that
  * prompted it:
@@ -32,8 +37,7 @@ export function ConsoleBottomBar({
   onStep,
   onSearch,
   onOpenRecent,
-  onNewNote,
-  onStartMeeting,
+  onCreate,
 }: {
   data: ConsoleData;
   /** Where you have been, for `‹` and `›`. */
@@ -48,10 +52,14 @@ export function ConsoleBottomBar({
   onStep: (delta: -1 | 1) => void;
   onSearch: () => void;
   onOpenRecent: () => void;
-  /** Raises the naming dialog for a destination — see the `new` action. */
-  onNewNote: (folder: string) => void;
-  /** Opens the meeting destination sheet. It does not start recording. */
-  onStartMeeting: () => void;
+  /**
+   * Raises the create sheet for a destination — see the `new` action.
+   *
+   * `null` where that sheet would have no rows at all: the caller wires them, so
+   * the caller is the one that can answer it (`files/createSheet.ts`). A `+` that
+   * opens a sheet holding nothing but Cancel is worse than no `+`.
+   */
+  onCreate: ((folder: string) => void) | null;
 }) {
   const files = data.files;
   // The same rule the explorer's own `+` uses, from the same function: a
@@ -122,15 +130,7 @@ export function ConsoleBottomBar({
         },
         { id: "search", label: "Search notes", icon: "search" as const, onPress: onSearch },
         /*
-          Absent, not dimmed. `BottomBar` argues that a fixed strip must not
-          move items out from under a thumb, and that is right for Save, which
-          is unavailable for a moment. `canEdit` is not a moment — it is the
-          whole console, for the whole session — and `menu.ts` states the rule
-          for exactly this case: read-only means the control is **gone**, not
-          present and refusing.
-        */
-        /*
-          The same dialog the explorer's own `+` raises, not a second contract.
+          ONE KEY FOR EVERYTHING YOU START.
 
           This used to call `createNote(folder, "Untitled")` directly, which
           made one icon mean two different things on one screen: the drawer's
@@ -141,25 +141,32 @@ export function ConsoleBottomBar({
           bucket root, and a second press failed on the name collision rather
           than making a second note.
 
-          `ExplorerDialogs` already renders `NamePrompt` with the sentence that
-          answers all of that: "It will be created in 1-projects as markdown."
+          It then raised a chooser of three files, and now raises the sheet that
+          offers all five things a `+` can start, because the row beside it went:
+          *"we no longer need a dedicated mic button on the bottom row, just a
+          plus button that opens different options"*. Same rows, same order, from
+          the same function as `CreateButton`'s menu — see `CreatePrompt` and
+          `files/createSheet.ts`.
 
-          **And it asks which of the two this is.** The explorer's toolbar has
-          a button each for a note and a folder; this bar has room for one key,
-          and that key used to mean *note* — which left no way to make a folder
-          on a phone at all, in the bar or anywhere else. It now raises the
-          chooser, which is the honest reading of a `+`. See `CreatePrompt`.
+          **Present for a read-only context too, where it used to be absent.**
+          `menu.ts`'s rule — read-only means the control is *gone*, not present
+          and refusing — still holds, a row lower down: the sheet draws no Note,
+          Drawing or Folder row without `canEdit`, and a meeting is something a
+          reader can still start. Dropping the key on `canEdit` would take
+          meeting capture off every shared context somebody reads, which is what
+          the seventh key used to guarantee it had. `null` is still absent, for
+          the one case where there is genuinely nothing behind it.
         */
-        ...(files.canEdit
-          ? [
+        ...(onCreate === null
+          ? []
+          : [
               {
                 id: "new",
-                label: "New note or folder",
+                label: "Create",
                 icon: "plus" as const,
-                onPress: () => onNewNote(folder),
+                onPress: () => onCreate(folder),
               },
-            ]
-          : []),
+            ]),
         /*
           Recent, in the slot the tab count used to hold.
 
@@ -210,33 +217,6 @@ export function ConsoleBottomBar({
           disabled: files.editor.status !== "dirty" && files.editor.status !== "error",
           marker: files.editor.status === "dirty" || files.editor.status === "error",
           onPress: files.save,
-        },
-        /*
-          The seventh key, and the only one here that is not about the note.
-
-          `BottomBar`'s rule was "navigation is not its job", written when the
-          rail was where destinations lived. The rail is gone from a phone, and
-          this row is the one surface a thumb is always on — so exactly one
-          destination sits here, last, behind a separator that says the six
-          before it are a group and this is not.
-
-          It asks before it records. `startMeetingFlow` opens the sheet that
-          names where the notes will land and what happens to the audio; the
-          microphone opens only when somebody confirms there.
-
-          **It is also the only microphone a phone draws at rest**, which is a
-          property of this row rather than of this key: the note editor's
-          floating microphone stands down while this bar is on the glass
-          (`VoiceButton`'s `microphoneElsewhere`), because the two sat 24pt apart
-          wearing the same glyph and raising different sheets. Anything added
-          here that opens a microphone has to answer that first.
-        */
-        {
-          id: "meeting",
-          label: "Record a meeting",
-          icon: "mic" as const,
-          separated: true,
-          onPress: onStartMeeting,
         },
       ]}
     />

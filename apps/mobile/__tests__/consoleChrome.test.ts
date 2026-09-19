@@ -40,6 +40,8 @@ let mockPathname = "/console/@seyi";
  * `undefined` for the moment before it answers at all.
  */
 let mockModelConnected: boolean | undefined = true;
+/** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
+const created: string[] = [];
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
@@ -156,6 +158,8 @@ function mockConsoleData(): never {
     paste: () => {},
     createNote: () => {},
     createFolder: () => {},
+    /* Recorded, so the `+` sheet's rows can be shown to reach the browser. */
+    createUntitled: (folder: string, kind: string) => created.push(`${kind}:${folder}`),
     rename: () => {},
     move: () => {},
     duplicate: () => {},
@@ -419,9 +423,15 @@ describe("on a phone", () => {
     // The two things that replaced the panels, and neither is behind a control.
     expect(app.find("context-strip")).not.toBeNull();
     expect(app.find("bottom-bar")).not.toBeNull();
-    // The seventh key: the one destination on a row of note verbs.
-    expect(app.find("bottom-bar-meeting")).not.toBeNull();
-    expect(app.find("bottom-bar-separator")).not.toBeNull();
+    /*
+      The `+`, which is the row's one way into making anything and — since the
+      microphone key went — into recording a meeting too. It is unconditional,
+      so this holds for a read-only context as well as this one.
+    */
+    expect(app.find("bottom-bar-new")).not.toBeNull();
+    // And the key it replaced is gone, with the rule that separated it.
+    expect(app.find("bottom-bar-meeting")).toBeNull();
+    expect(app.find("bottom-bar-separator")).toBeNull();
     // And the account, pinned at the leading end of the top row.
     expect(app.find("account-menu")).not.toBeNull();
 
@@ -457,12 +467,12 @@ describe("on a phone", () => {
     );
     expect(labels).toContain("Search notes");
     /*
-      "New note or folder", not "New note". A phone has no explorer, so this one
-      key is the only way to create anything — and while it said "note" there
-      was no way to make a folder on a phone at all. It raises the chooser now;
-      see `CreatePrompt`.
+      "Create", not "New note" and not "New note or folder". A phone has no
+      explorer, so this one key is the only way to start anything — a note, a
+      drawing, a folder, and now a meeting, since the microphone beside it went.
+      It raises the sheet; see `CreatePrompt`.
     */
-    expect(labels).toContain("New note or folder");
+    expect(labels).toContain("Create");
     // The bar is really on the screen, and not merely a set of labels somewhere
     // in the tree. It used to be enough to assert the console had rendered
     // *any* text — and then it was not, because the top bar became a toggle and
@@ -878,37 +888,51 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
-  test("a phone draws no + at all, because its bottom row already carries both", () => {
+  test("a phone draws no floating + at all, because its bottom row carries one", () => {
+    /*
+      The row's own `+` is the phone's create surface — and since the microphone
+      key went, its meeting route too. A second floating control 24pt above that
+      row is the defect `oneMicrophone.test.ts` exists for, arriving again with a
+      different glyph on it.
+    */
     const app = mountConsole(390);
     expect(app.find("console-create")).toBeNull();
-    expect(app.find("bottom-bar-meeting")).not.toBeNull();
+    expect(app.find("bottom-bar-new")).not.toBeNull();
+    expect(app.find("bottom-bar-meeting")).toBeNull();
     app.unmount();
   });
 
-  test("the app's other place is the last key, and pressing it records", () => {
+  test("the app's other place is a row in the + sheet, and choosing it records", () => {
     /*
-      THE SEVENTH KEY, AFTER THE SHEET WENT.
+      THE SEVENTH KEY, AFTER THE SHEET WENT — AND AFTER THE KEY WENT.
 
-      It used to raise a destination sheet — two rows, an audience line, a
-      Start — and this test asserted the sheet, because
-      `docs/decisions/meetings.md` calls a control that silently starts
-      recording "the same product with the indicator removed". The owner
-      removed the question (*"no need to ask people it will just confuse
-      them"*), and what the decision actually protects moved rather than going
-      with it: the press records and lands on the meeting's own screen, which
-      is the indicator — a clock, a meter, a transport and the note it is
-      becoming.
+      It used to be its own microphone at the end of the row, and before that it
+      raised a destination sheet with two rows, an audience line and a Start.
+      Both are gone, for the owner's reasons in order: *"no need to ask people it
+      will just confuse them"*, and then *"we no longer need a dedicated mic
+      button on the bottom row, just a plus button that opens different
+      options"*.
 
-      So what is asserted here is the *absence of the sheet* and the presence
-      of a recording. This fixture's console has no meetings controller
-      configured, so the press cannot reach a microphone; what it must do is
-      say so rather than doing nothing at all, which is `meetingsFlow.test.ts`'s
-      refusal arriving through the real bottom row.
+      What `docs/decisions/meetings.md` actually protects survived both. It calls
+      a control that silently starts recording "the same product with the
+      indicator removed", and the indicator is where it went: the press records
+      and lands on the meeting's own screen — a clock, a meter, a transport and
+      the note it is becoming. What the phone must keep is a **route**, and this
+      is the route: one press for the `+`, one for Meeting.
+
+      So what is asserted is that the two presses reach a recording, and that
+      neither raises the retired destination sheet. This fixture's console has no
+      meetings controller configured, so the attempt cannot reach a microphone;
+      what it must do is say so rather than doing nothing at all, which is
+      `meetingsFlow.test.ts`'s refusal arriving through the real row.
     */
     const app = mountConsole(390);
     expect(sheetUp()).toBe(false);
 
-    app.press(app.find("bottom-bar-meeting"));
+    app.press(app.find("bottom-bar-new"));
+    const meeting = document.body.querySelector<HTMLElement>('[aria-label="New meeting"]');
+    expect(meeting).not.toBeNull();
+    app.press(meeting);
 
     expect(sheetUp()).toBe(false);
     expect(document.body.querySelector('[data-testid="meeting-refusal"]')).not.toBeNull();
@@ -917,6 +941,35 @@ describe("the phone reaches a destination with nothing opened first", () => {
     // sheet's `closeNav()` used to carry for the panel it replaced.
     app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-refusal-close"]'));
     expect(document.body.querySelector('[data-testid="meeting-refusal"]')).toBeNull();
+
+    app.unmount();
+  });
+
+  /**
+   * AND THE FILES ARE IN THE SAME SHEET, WITH NOTHING ASKING FOR A NAME.
+   *
+   * The `+` is the only route to creating anything on a phone, so what it offers
+   * is the whole of that capability — and the note is made on the press rather
+   * than after a text field, which is what the owner asked for: *"for new note,
+   * new drawing etc should not ask you to title it"*.
+   */
+  test("the + offers the three files, and Note writes one without asking", () => {
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+
+    const labelled = (label: string) =>
+      document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+    for (const row of ["New note", "New drawing", "New folder"]) {
+      expect(labelled(row)).not.toBeNull();
+    }
+
+    created.length = 0;
+    app.press(labelled("New note"));
+    // It reached the browser as an untitled note in the destination folder —
+    // and no field and no sheet were in the way.
+    expect(created).toEqual(["note:"]);
+    expect(document.body.querySelector("input, textarea")).toBeNull();
+    expect(labelled("New note")).toBeNull();
 
     app.unmount();
   });

@@ -359,6 +359,7 @@ function browser(
     createNote: record("createNote"),
     createDrawing: record("createDrawing"),
     createFolder: record("createFolder"),
+    createUntitled: record("createUntitled"),
     rename: record("rename"),
     move: record("move"),
     moveDestinations: elsewhere.moveDestinations ?? [],
