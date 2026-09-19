@@ -33,6 +33,7 @@ import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
 import { runForwardingChecks } from "./forwarding.test.mjs";
+import { runPresenceChecks } from "./presence.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
@@ -4540,6 +4541,12 @@ await runDayPlacementChecks(check);
 // order without the swap-and-restore discipline the block above needs.
 await runGoogleChatChecks(check);
 await runChatContributionStoreChecks(check);
+
+// Presence: the pure roster module in full, then `GET /presence` up to the
+// point it hands a socket to its Durable Object. Its own control-plane stub and
+// its own buckets, and it installs and restores the fetch global itself, so it
+// runs here rather than inside a block that owns that global.
+await runPresenceChecks(check);
 await runCalendarContributionStoreChecks(check);
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");

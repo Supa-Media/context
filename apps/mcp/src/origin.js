@@ -82,7 +82,12 @@ export function isTransportPath(path) {
   // reachable from a browser, and a turn can spend the customer's model account
   // and file a proposal — so a page on another origin that could POST to it
   // would be able to do both with somebody else's session.
-  return path === "/mcp" || path === "/inbox" || path === "/agent";
+  // `/presence` is here for the same reason, and for one more that is specific
+  // to it: it is the only route in this worker a browser opens as a *socket*,
+  // and a WebSocket handshake is not subject to CORS at all. A page on any
+  // origin can open one and read every frame it receives, so if this route were
+  // not origin-checked here, the check would not exist anywhere.
+  return path === "/mcp" || path === "/inbox" || path === "/agent" || path === "/presence";
 }
 
 /**

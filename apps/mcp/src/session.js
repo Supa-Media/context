@@ -254,6 +254,13 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   // have been the workspace every agent turn in the product appeared to be
   // addressed to, and, because ingestion is on the apex, the mailbox too.
   "agent",
+  // The presence socket, `GET /presence`. Third instance of the same defect
+  // `meetings` and `agent` above record, and listed here before it could become
+  // one: without this line `/presence` reads as "the context called presence",
+  // so whoever claimed that handle would have been the workspace every open
+  // editor in the product appeared to be joining — and, because ingestion is on
+  // the apex, would hold the mailbox too.
+  "presence",
 ]);
 
 /* --------------------------- session resolution --------------------------- */

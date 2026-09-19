@@ -1,0 +1,538 @@
+/**
+ * WHO ELSE IS IN THIS NOTE — `src/presence.js`, `src/presenceRoom.js`, and the
+ * `GET /presence` route.
+ *
+ * Presence is a *read* that happens to be a socket, and every check below is
+ * written from that sentence. A caller who could not read the note cannot join
+ * its room; a caller who can gets a roster of names and carets and nothing
+ * else. Two properties are load-bearing enough to be worth saying before the
+ * checks that prove them:
+ *
+ *  1. **No note text crosses this channel.** A client sends two integers and
+ *     the server relays two integers. The checks assert the *shape* of a
+ *     relayed frame rather than trusting the comment: a cursor frame carrying
+ *     a `text` field arrives with that field gone.
+ *  2. **A client cannot name itself, or pick its room.** The display name comes
+ *     off the resolved session and the room key off the workspace that session
+ *     resolved to, so a client that sends its own `x-presence-member` header or
+ *     names another workspace in the URL gets neither.
+ *
+ * The room itself is a Durable Object and there is no `WebSocketPair` in node,
+ * so what runs here is the pure state module in full plus the route up to the
+ * point of dispatch — which is exactly where every refusal lives. The frames
+ * the room sends are `presence.js` functions and are checked directly.
+ *
+ * ## Sabotage record
+ *
+ * Run as temporary local edits and reverted. Counts are FAIL lines across the
+ * whole gateway suite. Five of nine planned cases were run before the loop was
+ * stopped to get this branch pushed; the four unrun ones are named below with
+ * no number rather than with a guess, and are the next thing to do here.
+ *
+ *   `canSee` dropped from the route (any readable token joins any room)        2
+ *   room key built from a workspace named in the URL rather than the session's 0
+ *   `x-presence-member` copied from the client instead of overwritten          1
+ *   the byte ceiling measured with `String.length` rather than encoded bytes   1
+ *   `normalizeOffset` accepting a non-integer unchanged                        1
+ *   control characters left in a display name                              (unrun)
+ *   `expire` never dropping an idle member                                 (unrun)
+ *   `/presence` removed from `isTransportPath`                             (unrun)
+ *   `presence` removed from RESERVED_FIRST_SEGMENTS                        (unrun)
+ *
+ * **The second row is why this discipline is worth the time.** Teaching the
+ * route to read a workspace out of the query string reddened NOTHING: every
+ * tenancy check here varied the *token*, so all of them passed while the URL
+ * quietly picked the room. "Another workspace's token addresses its own room"
+ * is true and was never the whole question. The two checks that now cover it —
+ * a workspace named in the query string, and a slug for a context the grant
+ * does not cover — exist because of that zero and not because anybody thought
+ * of them while writing the route.
+ */
+
+import worker from "../src/index.js";
+import { CONTROL_PLANE_ORIGIN, GATEWAY_SECRET, createControlPlaneStub } from "./controlPlaneStub.mjs";
+import { createWorkerCtx } from "./workerCtx.mjs";
+import {
+  MAX_CLIENT_FRAME_BYTES,
+  MAX_MEMBERS_PER_ROOM,
+  MAX_OFFSET,
+  admit,
+  applyCursor,
+  colorFor,
+  createRoom,
+  decodeClientFrame,
+  expire,
+  forget,
+  normalizeDisplayName,
+  normalizeOffset,
+  roomKey,
+  roster,
+  touch,
+} from "../src/presence.js";
+
+const OWNER_TOKEN = `cat_presence_owner_${"0".repeat(14)}`;
+const TEAM_TOKEN = `cat_presence_team_${"0".repeat(15)}`;
+const OTHER_TOKEN = `cat_presence_other_${"0".repeat(14)}`;
+
+/** One team folder and one private note inside it, so a refusal is the rule. */
+const MANIFEST =
+  "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
+  "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
+  "folder_defaults:\n  index.md: team\n  1-projects: team\n\n" +
+  "note_overrides:\n  1-projects/rates.md: private\n```\n\n" +
+  "<!-- END BRAIN PRIVACY RULES -->\n";
+
+function createBucket() {
+  const objects = new Map();
+  let etags = 0;
+  return {
+    seed(key, body) {
+      objects.set(key, { body, etag: `e${++etags}`, uploaded: new Date() });
+    },
+    async get(key) {
+      const stored = objects.get(key);
+      if (!stored) return null;
+      return {
+        etag: stored.etag,
+        text: async () => stored.body,
+        arrayBuffer: async () => new TextEncoder().encode(stored.body).buffer,
+      };
+    },
+    async put(key, value, options = {}) {
+      const expected = options?.onlyIf?.etagMatches;
+      if (expected && objects.get(key)?.etag !== expected) return null;
+      if (options?.onlyIf?.absent && objects.has(key)) return null;
+      const body = typeof value === "string" ? value : new TextDecoder().decode(value);
+      objects.set(key, { body, etag: `e${++etags}`, uploaded: new Date() });
+      return { etag: `e${etags}` };
+    },
+    async delete(key) {
+      objects.delete(key);
+      return {};
+    },
+    async list({ prefix } = {}) {
+      return {
+        objects: [...objects.keys()]
+          .filter((key) => !prefix || key.startsWith(prefix))
+          .map((key) => ({
+            key,
+            size: objects.get(key).body.length,
+            uploaded: objects.get(key).uploaded,
+            etag: objects.get(key).etag,
+          })),
+        truncated: false,
+      };
+    },
+  };
+}
+
+/**
+ * A Durable Object namespace that records rather than connects.
+ *
+ * The route's job ends at "address this room, with this member" — the socket
+ * itself is the runtime's. So the stub keeps the name the route derived and the
+ * header it set, which between them are the two things a client must not be
+ * able to influence.
+ */
+function createRoomNamespaceStub() {
+  const calls = [];
+  return {
+    calls,
+    idFromName(name) {
+      return { name, toString: () => name };
+    },
+    get(id) {
+      return {
+        async fetch(request) {
+          calls.push({
+            name: id.name,
+            member: request.headers.get("x-presence-member"),
+            url: request.url,
+          });
+          return new Response("joined", { status: 200 });
+        },
+      };
+    },
+  };
+}
+
+async function presenceRequest(env, token, query, init = {}) {
+  const { ctx, settle } = createWorkerCtx();
+  const headers = { Upgrade: "websocket", ...(init.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  // `path` overrides the route entirely, for the one check that has to address
+  // `/@slug/presence` rather than `/presence`.
+  const target = init.path || `/presence${query}`;
+  const response = await worker.fetch(
+    new Request(`https://mcp.context.test${target}`, {
+      method: init.method || "GET",
+      headers,
+    }),
+    env,
+    ctx,
+  );
+  const text = await response.text();
+  await settle();
+  return { status: response.status, text };
+}
+
+export async function runPresenceChecks(check) {
+  /* ======================= the pure state module ======================== */
+
+  /* -- room keys separate tenants, and cannot be forged ------------------- */
+
+  check(
+    "the same note path in two workspaces is two different rooms",
+    roomKey("ws_a", "1-projects/foo.md") !== roomKey("ws_b", "1-projects/foo.md"),
+  );
+  check(
+    "a path cannot be shaped to collide with another workspace's room",
+    // Without percent-encoding, ("ws_a", "b/1.md") and ("ws_a/b", "1.md") both
+    // read as "ws_a/b/1.md". Two tenants in one room is the failure this whole
+    // module would be remembered for, so it is checked rather than reasoned
+    // about.
+    roomKey("ws_a", "b/1.md") !== roomKey("ws_a/b", "1.md"),
+  );
+  check(
+    "a room key is stable for the same pair",
+    roomKey("ws_a", "1-projects/foo.md") === roomKey("ws_a", "1-projects/foo.md"),
+  );
+
+  /* -- a frame from a client is hostile until parsed ---------------------- */
+
+  check("a non-string frame is refused", decodeClientFrame({ t: "cursor" }).ok === false);
+  check("a frame that is not JSON is refused", decodeClientFrame("not json").ok === false);
+  check("an array frame is refused", decodeClientFrame("[1,2,3]").ok === false);
+  check("a null frame is refused", decodeClientFrame("null").ok === false);
+  check("an unknown frame type is refused", decodeClientFrame('{"t":"edit"}').ok === false);
+  check(
+    "a cursor frame with a non-numeric offset is refused",
+    decodeClientFrame('{"t":"cursor","a":"3","h":4}').ok === false,
+  );
+  check(
+    "a cursor frame with a NaN offset is refused",
+    // JSON has no NaN literal, so this is the shape that actually arrives: a
+    // number that survives JSON.parse and is not finite.
+    normalizeOffset(Number.NaN) === null && normalizeOffset(Number.POSITIVE_INFINITY) === null,
+  );
+
+  const oversized = JSON.stringify({ t: "cursor", a: 1, h: 1, pad: "x".repeat(MAX_CLIENT_FRAME_BYTES) });
+  check("a frame past the byte ceiling is refused", decodeClientFrame(oversized).ok === false);
+  const astral = JSON.stringify({ t: "cursor", a: 1, h: 1, pad: "𝔘".repeat(300) });
+  check(
+    "the byte ceiling counts encoded bytes, not UTF-16 units",
+    // 300 astral characters are 600 `String.length` units and 1200 bytes. A
+    // ceiling measured on `.length` would let this through at four bytes per
+    // character, which is the whole point of measuring the encoding.
+    astral.length < MAX_CLIENT_FRAME_BYTES * 2 && decodeClientFrame(astral).ok === false,
+  );
+
+  const accepted = decodeClientFrame('{"t":"cursor","a":12,"h":18,"text":"the note body"}');
+  check("a well-formed cursor frame is accepted", accepted.ok === true);
+  check(
+    "a cursor frame carries offsets and nothing else",
+    // The property the whole feature rests on: a client that tries to put note
+    // text on this channel finds the field is simply not carried.
+    accepted.ok &&
+      Object.keys(accepted.msg).sort().join(",") === "a,h,t" &&
+      accepted.msg.text === undefined,
+  );
+  check("a ping is accepted", decodeClientFrame('{"t":"ping"}').ok === true);
+  check("a bye is accepted", decodeClientFrame('{"t":"bye"}').ok === true);
+
+  check("a negative offset is clamped to the start", normalizeOffset(-5) === 0);
+  check("a fractional offset is truncated to an integer", normalizeOffset(4.9) === 4);
+  check("an absurd offset is clamped to the ceiling", normalizeOffset(1e12) === MAX_OFFSET);
+
+  /* -- a name is drawn into somebody else's editor ------------------------ */
+
+  check(
+    "control characters are stripped from a display name",
+    normalizeDisplayName("Se\u0000yi\nX") === "SeyiX",
+  );
+  check(
+    "a bidi override is stripped from a display name",
+    // A name that can reorder the line it is drawn in can make one person's
+    // label read as another's.
+    normalizeDisplayName("‮real-name") === "real-name",
+  );
+  check("an empty display name becomes a placeholder", normalizeDisplayName("   ") === "Someone");
+  check("a non-string display name becomes a placeholder", normalizeDisplayName(null) === "Someone");
+  check(
+    "a very long display name is truncated rather than refused",
+    normalizeDisplayName("n".repeat(500)).length === 64,
+  );
+
+  /* -- the roster ---------------------------------------------------------- */
+
+  const room = createRoom();
+  const first = admit(room, { id: "m1", name: "@ana", colorSeed: "tab-1", now: 1_000 });
+  const second = admit(room, { id: "m2", name: "@bo", colorSeed: "tab-2", now: 1_000 });
+  check("a member is admitted", first.ok === true && second.ok === true);
+  check(
+    "a duplicate member id is refused",
+    admit(room, { id: "m1", name: "@ana", now: 1_000 }).ok === false,
+  );
+
+  check(
+    "a colour follows the seed, so a reconnect keeps it",
+    // A reconnect five minutes later is a new member id. Without the seed the
+    // caret would change colour, which reads as a stranger arriving.
+    colorFor("tab-1") === first.member.color,
+  );
+  check(
+    "a colour does not depend on who else is in the room",
+    colorFor("tab-2") === second.member.color,
+  );
+  check(
+    "a colour seed long enough to be a payload is ignored",
+    admit(createRoom(), { id: "m9", name: "@x", colorSeed: "z".repeat(500), now: 1 }).member
+      .color === colorFor("m9"),
+  );
+
+  check(
+    "the roster carries no heartbeat clock",
+    // `seen` is how the room decides a member is gone. Putting it on the wire
+    // would tell every peer when everybody else last typed, which is a
+    // keystroke-level signal about a person and is nobody's business.
+    roster(room).every((member) => member.seen === undefined),
+  );
+  check(
+    "the roster carries id, name, colour and caret",
+    roster(room).every(
+      (member) => Object.keys(member).sort().join(",") === "a,color,h,id,name",
+    ),
+  );
+
+  const moved = applyCursor(room, "m1", { t: "cursor", a: 5, h: 9 }, 2_000);
+  check("a cursor moves the member it belongs to", moved.a === 5 && moved.h === 9);
+  check(
+    "a cursor frame for a member who is not in the room is dropped",
+    applyCursor(room, "ghost", { t: "cursor", a: 1, h: 1 }, 2_000) === null,
+  );
+
+  check("a ping keeps a member alive", touch(room, "m2", 40_000) === true);
+  const dropped = expire(room, 50_000);
+  check(
+    "a member who stopped speaking is expired",
+    dropped.length === 1 && dropped[0] === "m1",
+  );
+  check("a member who pinged is kept", room.members.has("m2"));
+  check("forgetting a member twice is idempotent", forget(room, "m2") === true && forget(room, "m2") === false);
+
+  const full = createRoom();
+  for (let i = 0; i < MAX_MEMBERS_PER_ROOM; i += 1) {
+    admit(full, { id: `f${i}`, name: `@p${i}`, now: 1 });
+  }
+  const overflow = admit(full, { id: "one-too-many", name: "@late", now: 1 });
+  check(
+    "a full room refuses with a reason rather than silently",
+    overflow.ok === false && overflow.reason === "room_full",
+  );
+
+  /* ============================== the route ============================== */
+
+  const controlPlane = createControlPlaneStub();
+  const restore = controlPlane.install();
+  try {
+    const bucket = createBucket();
+    const otherBucket = createBucket();
+    controlPlane.addWorkspace("ws_presence", "presencetest", {
+      provider: "r2-binding",
+      bindingName: "PRESENCE_BUCKET",
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      status: "active",
+    });
+    controlPlane.addWorkspace("ws_other", "othertest", {
+      provider: "r2-binding",
+      bindingName: "OTHER_BUCKET",
+      capabilities: { conditionalWrite: true, conditionalCreate: true, conditionalDelete: true },
+      status: "active",
+    });
+    await controlPlane.addGrant({
+      accessToken: OWNER_TOKEN,
+      workspaceId: "ws_presence",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_presence_owner",
+      userId: "user_presence_owner",
+    });
+    await controlPlane.addGrant({
+      accessToken: TEAM_TOKEN,
+      workspaceId: "ws_presence",
+      role: "editor",
+      scopes: ["context:read", "context:write"],
+      clientId: "mcp_client_presence_team",
+      userId: "user_presence_team",
+    });
+    await controlPlane.addGrant({
+      accessToken: OTHER_TOKEN,
+      workspaceId: "ws_other",
+      role: "owner",
+      scopes: ["context:read", "context:write", "context:private"],
+      clientId: "mcp_client_presence_other",
+      userId: "user_presence_other",
+    });
+
+    bucket.seed("privacy.md", MANIFEST);
+    bucket.seed("index.md", "# front page");
+    bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
+    bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
+    otherBucket.seed("privacy.md", MANIFEST);
+    otherBucket.seed("1-projects/roadmap.md", "a different workspace's roadmap");
+
+    const rooms = createRoomNamespaceStub();
+    const env = {
+      CONTROL_PLANE_URL: CONTROL_PLANE_ORIGIN,
+      GATEWAY_SECRET,
+      NATIVE_BINDINGS: "PRESENCE_BUCKET,OTHER_BUCKET",
+      PRESENCE_BUCKET: bucket,
+      OTHER_BUCKET: otherBucket,
+      PRESENCE_ROOM: rooms,
+    };
+
+    /* -- non-vacuity: the happy path actually reaches a room --------------- */
+
+    const joined = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md&seed=tab-a");
+    check("a team connection joins a team note's room", joined.status === 200);
+    check(
+      "the room addressed is the one the session's workspace names",
+      rooms.calls.at(-1)?.name === roomKey("ws_presence", "1-projects/roadmap.md"),
+    );
+
+    const member = JSON.parse(rooms.calls.at(-1)?.member || "null");
+    check(
+      "the member's name comes from the session, as their own handle",
+      // The acting person's handle is the slug of their personal workspace. The
+      // stub gives this grant none, so the check is that the name is derived
+      // rather than accepted: it is never the string the client sent.
+      typeof member?.name === "string" && member.name.length > 0,
+    );
+    check("the colour seed is carried through", member?.colorSeed === "tab-a");
+
+    /* -- a client cannot name itself --------------------------------------- */
+
+    await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md", {
+      headers: { "x-presence-member": JSON.stringify({ name: "@theowner", colorSeed: "x" }) },
+    });
+    const forged = JSON.parse(rooms.calls.at(-1)?.member || "null");
+    check(
+      "a client's own member header is overwritten, not honoured",
+      forged?.name !== "@theowner",
+    );
+
+    /* -- presence is a read, and refuses exactly like one ------------------ */
+
+    const privateNote = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/rates.md");
+    check(
+      "a team connection cannot join a private note's room",
+      privateNote.status === 404,
+    );
+    const missingNote = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/nothing.md");
+    check(
+      "a private note and a missing note refuse identically",
+      // The refusal must not be an oracle for "this note exists". Same status,
+      // same body, or the socket answers a question the read path will not.
+      missingNote.status === privateNote.status && missingNote.text === privateNote.text,
+    );
+    const ownerJoins = await presenceRequest(env, OWNER_TOKEN, "?note=1-projects/rates.md");
+    check(
+      "the owner joins the private note's room",
+      // Non-vacuity for the two refusals above: the note is reachable by
+      // somebody, so 404 is the rule and not a broken manifest.
+      ownerJoins.status === 200,
+    );
+
+    /* -- one tenant cannot reach another's room ---------------------------- */
+
+    const callsBefore = rooms.calls.length;
+    await presenceRequest(env, OTHER_TOKEN, "?note=1-projects/roadmap.md");
+    check(
+      "another workspace's token addresses its own room, never the first's",
+      rooms.calls.length === callsBefore + 1 &&
+        rooms.calls.at(-1)?.name === roomKey("ws_other", "1-projects/roadmap.md"),
+    );
+
+    // ...and the URL cannot pick the room either. This pair is the half the
+    // check above does not cover, and it is here because sabotage said so:
+    // teaching the route to read a workspace out of the query string reddened
+    // NOTHING, since every check until now varied the token and none varied the
+    // URL. A room is addressed from the grant, so a query parameter naming
+    // another workspace is ignored and a slug naming one the grant does not
+    // cover is refused outright.
+    const beforeParam = rooms.calls.length;
+    await presenceRequest(
+      env,
+      TEAM_TOKEN,
+      "?note=1-projects/roadmap.md&ws=ws_other&workspaceId=ws_other&workspace=othertest",
+    );
+    check(
+      "a workspace named in the query string does not move the room",
+      rooms.calls.length === beforeParam + 1 &&
+        rooms.calls.at(-1)?.name === roomKey("ws_presence", "1-projects/roadmap.md"),
+    );
+
+    const beforeSlug = rooms.calls.length;
+    const foreignSlug = await presenceRequest(
+      env,
+      TEAM_TOKEN,
+      "",
+      { path: "/@othertest/presence?note=1-projects/roadmap.md" },
+    );
+    check(
+      "a slug naming a workspace this grant does not cover is refused",
+      foreignSlug.status === 403 && rooms.calls.length === beforeSlug,
+    );
+
+    /* -- the refusals before any of that ----------------------------------- */
+
+    const anonymous = await presenceRequest(env, null, "?note=1-projects/roadmap.md");
+    check("an unauthenticated socket is refused", anonymous.status === 401);
+
+    const wrongMethod = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md", {
+      method: "POST",
+    });
+    check("a non-GET presence request is refused", wrongMethod.status === 405);
+
+    const noUpgrade = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md", {
+      headers: { Upgrade: "" },
+    });
+    check("a presence request without an upgrade is refused", noUpgrade.status === 426);
+
+    const traversal = await presenceRequest(env, TEAM_TOKEN, "?note=../../etc/passwd");
+    check("a traversing note path is refused", traversal.status === 400);
+    const encodedTraversal = await presenceRequest(env, TEAM_TOKEN, "?note=%2e%2e%2ffoo.md");
+    check("a percent-encoded traversal is refused too", encodedTraversal.status === 400);
+    const newline = await presenceRequest(env, TEAM_TOKEN, "?note=a%0Ab.md");
+    check("a note path with a newline is refused", newline.status === 400);
+    const noNote = await presenceRequest(env, TEAM_TOKEN, "");
+    check("a presence request naming no note is refused", noNote.status === 400);
+
+    /* -- a browser origin is checked, because a socket has no CORS --------- */
+
+    const badOrigin = await presenceRequest(env, TEAM_TOKEN, "?note=1-projects/roadmap.md", {
+      headers: { Origin: "https://evil.test" },
+    });
+    check(
+      "a socket from an unlisted browser origin is refused",
+      // A WebSocket handshake is not subject to CORS, so a page on any origin
+      // could otherwise open this and read every frame in the room.
+      badOrigin.status === 403,
+    );
+
+    /* -- a deployment without the binding degrades honestly ---------------- */
+
+    const { PRESENCE_ROOM: _unbound, ...envWithoutRooms } = env;
+    const unavailable = await presenceRequest(
+      envWithoutRooms,
+      TEAM_TOKEN,
+      "?note=1-projects/roadmap.md",
+    );
+    check(
+      "a deployment with no presence binding answers 501 rather than throwing",
+      unavailable.status === 501,
+    );
+  } finally {
+    restore();
+  }
+}

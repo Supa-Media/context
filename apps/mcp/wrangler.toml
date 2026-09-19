@@ -74,6 +74,32 @@ ALLOWED_ORIGINS = "https://context.lc"
 # deferred half included, still stays inside it.
 SEARCH_SUBREQUEST_BUDGET = "600"
 
+# ── Presence: who else has this note open ───────────────────────────────────
+#
+# One Durable Object per note, addressed by `idFromName(workspaceId + path)`.
+# Unlike the per-workspace search databases — which are created at runtime and
+# therefore cannot be bindings at all (`src/search/d1/client.js`) — a Durable
+# Object namespace is ONE binding covering unlimited instances, so the ceiling
+# that forced search onto the HTTP API does not apply here.
+#
+# The object has no storage and holds no credential: the roster is rebuilt from
+# the live sockets on every wake, so there is nothing to migrate, nothing to
+# delete when the last person leaves, and nothing of one tenant that can outlive
+# a request into another. A note nobody has opened was never instantiated.
+#
+# Self-hosting: Durable Objects need a paid Workers plan. Leave this commented
+# out on the free tier — `GET /presence` then answers 501 and every note still
+# opens, saves and conflicts exactly as before.
+[[durable_objects.bindings]]
+name = "PRESENCE_ROOM"
+class_name = "PresenceRoom"
+
+# SQLite-backed, which is the current default class for a new namespace. This
+# object writes no rows; the storage API is touched only for the sweep alarm.
+[[migrations]]
+tag = "v1-presence"
+new_sqlite_classes = ["PresenceRoom"]
+
 [[queues.producers]]
 binding = "GATEWAY_JOBS"
 queue = "context-gateway-jobs"
