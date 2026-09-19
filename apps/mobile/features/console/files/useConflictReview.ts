@@ -1,11 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   offerMerge,
   type MergeRefusal,
 } from "../../offline/resolution";
 import type { Merge3Result } from "../../offline/merge";
+import { raceTimeout } from "../storage/timeout";
+import { isServerRefusal } from "./browser";
 import type { EditorState } from "./editor";
 import type { OpenNote } from "./types";
+
+/** A conflict read should recover before somebody reaches for refresh. */
+export const CONFLICT_READ_RETRY_MS = 1_500;
+/** Convex actions do not reject when the device only looks online. */
+export const CONFLICT_READ_TIMEOUT_MS = 8_000;
 
 /**
  * Everything a person needs in front of them to answer a conflict.
@@ -16,11 +23,15 @@ import type { OpenNote } from "./types";
  * anything better than "yours or theirs, blind" the console has to hold the
  * text that is actually in the bucket — to show it, and to merge against it.
  * So this reads the note again, at the moment somebody is looking at the
- * decision, and **that read is what every subsequent save is checked against**:
+ * decision, and **that read is what every subsequent update is checked against**:
  * the version on screen is the version the write is conditional on. If it moves
  * again between the read and the save, the write comes back as a conflict and
  * this whole surface reappears with fresh content, which is the correct
  * outcome rather than a failure.
+ *
+ * A remotely deleted note is the one exception because there is no body to
+ * read: the rejected write itself established absence. Recreating it is a
+ * create-only write, which is the absence-equivalent conditional check.
  *
  * ## Why that read must not touch the cache
  *
@@ -44,6 +55,8 @@ export interface ConflictReview {
   mine: string;
   /** The body in the bucket, once it has been read. */
   theirs: string | null;
+  /** The rejected write established that the bucket path no longer exists. */
+  theirsDeleted: boolean;
   /**
    * The etag `theirs` was read at.
    *
@@ -55,6 +68,8 @@ export interface ConflictReview {
   reading: boolean;
   /** Why it could not be read, when it could not. */
   unreadable: string | null;
+  /** Retry a transient read immediately instead of refreshing the whole app. */
+  retry?: () => void;
   /** The proposal, when an honest one could be made. */
   merge: Merge3Result | null;
   /** Why there is no Merge button. `null` exactly when `merge` is present. */
@@ -66,19 +81,24 @@ export interface ConflictReview {
 }
 
 interface Fetched {
+  /** The conflict round these bytes belong to. */
+  round: string | null;
   theirs: string | null;
   theirsEtag: string | null;
   reading: boolean;
   unreadable: string | null;
+  retryable: boolean;
   /** The cache's ancestor, and the etag it is held at. */
   cached: { text: string; etag: string } | null;
 }
 
 const IDLE: Fetched = {
+  round: null,
   theirs: null,
   theirsEtag: null,
   reading: false,
   unreadable: null,
+  retryable: false,
   cached: null,
 };
 
@@ -99,6 +119,7 @@ export function useConflictReview(input: {
 }): ConflictReview | null {
   const { editor, online } = input;
   const [fetched, setFetched] = useState<Fetched>(IDLE);
+  const [retryGeneration, setRetryGeneration] = useState(0);
 
   /*
     Through refs, for the reason every callback in `useFileBrowser` reads the
@@ -116,6 +137,14 @@ export function useConflictReview(input: {
   const conflicted = editor.status === "conflict" && editor.path !== null;
   const path = conflicted ? editor.path : null;
   /*
+    A CONFLICT without `currentEtag` is the backend's deletion contract: the
+    draft carried an expected etag, but the path is absent. This is not inferred
+    from a later FILE_NOT_FOUND read (which can also mean hidden or forbidden),
+    so it is safe to expose as a deliberate choice rather than an unreadable
+    bucket version.
+  */
+  const theirsDeleted = conflicted && editor.conflictEtag === undefined;
+  /*
     The identity of *this* conflict, not of the note.
 
     `conflictEtag` is in it because a second conflict on the same note — the
@@ -124,6 +153,17 @@ export function useConflictReview(input: {
     Without it the surface would keep showing the version from the first round.
   */
   const round = path === null ? null : `${path} ${editor.conflictEtag ?? ""}`;
+  const retryRoundRef = useRef<string | null>(null);
+  const retryFailuresRef = useRef(0);
+  if (retryRoundRef.current !== round) {
+    retryRoundRef.current = round;
+    retryFailuresRef.current = 0;
+  }
+
+  const retry = useCallback(() => {
+    retryFailuresRef.current = 0;
+    setRetryGeneration((generation) => generation + 1);
+  }, []);
 
   useEffect(() => {
     if (round === null || path === null) {
@@ -131,7 +171,12 @@ export function useConflictReview(input: {
       return;
     }
     let cancelled = false;
-    setFetched({ ...IDLE, reading: online });
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    setFetched((current) =>
+      current.round === round && current.theirs !== null
+        ? { ...current, reading: online, retryable: false }
+        : { ...IDLE, round, reading: online },
+    );
 
     void (async () => {
       // The ancestor first, and always — it is read off the device, so it
@@ -141,77 +186,139 @@ export function useConflictReview(input: {
         .catch(() => null);
       if (cancelled) return;
 
-      if (!online) {
-        setFetched({ ...IDLE, cached: ancestor });
+      if (theirsDeleted) {
+        retryFailuresRef.current = 0;
+        setFetched({
+          ...IDLE,
+          round,
+          cached: ancestor,
+        });
         return;
       }
 
-      try {
-        const note = await fetchRef.current(path);
+      if (!online) {
+        // Keep a version already shown for this conflict. Losing signal after
+        // the review loaded must not erase the safe decision in front of the
+        // person or make them wait for the same bytes twice.
+        setFetched((current) =>
+          current.round !== round || current.theirs === null
+            ? { ...IDLE, round, cached: ancestor }
+            : { ...current, reading: false, retryable: false, cached: ancestor },
+        );
+        return;
+      }
+
+      const settled = await raceTimeout(fetchRef.current(path), {
+        ms: CONFLICT_READ_TIMEOUT_MS,
+        schedule: (fn, ms) => setTimeout(fn, ms),
+        cancel: (handle) => clearTimeout(handle),
+      });
+
+      if (settled.kind === "value") {
         if (cancelled) return;
+        retryFailuresRef.current = 0;
         setFetched({
-          theirs: note.text,
-          theirsEtag: note.etag,
+          round,
+          theirs: settled.value.text,
+          theirsEtag: settled.value.etag,
           reading: false,
           unreadable: null,
+          retryable: false,
           cached: ancestor,
         });
-      } catch {
-        if (cancelled) return;
+        return;
+      }
+
+      if (cancelled) return;
+      const retryable = settled.kind === "timeout" || !isServerRefusal(settled.error);
+      setFetched({
+        ...IDLE,
+        round,
+        cached: ancestor,
+        retryable,
+        unreadable: retryable
+          ? "The version in your bucket could not be read just now, so it cannot be shown or merged. Your draft is safe, and this screen will retry automatically."
+          : "The version in your bucket could not be read, so it cannot be shown or merged. Your draft is still safe on this device.",
+      });
+
+      if (retryable) {
+        const delay = Math.min(
+          CONFLICT_READ_RETRY_MS * 2 ** retryFailuresRef.current,
+          30_000,
+        );
+        retryFailuresRef.current += 1;
+        retryTimer = setTimeout(() => {
+          if (!cancelled) setRetryGeneration((generation) => generation + 1);
+        }, delay);
+      }
+
+      /*
+        A read failure is recoverable in place. The old one-shot effect left
+        this surface frozen until a hard refresh because neither the conflict
+        identity nor coarse reachability changed after a transient gateway or
+        provider error. Retrying reads is safe: it writes nothing, and every
+        eventual choice is still conditional on the exact etag returned here.
+
+        Server refusals are not retried. A new connection cannot repair lost
+        membership or a hidden path, and repeatedly probing one would turn an
+        authorization answer into traffic without helping the person.
+      */
+      if (settled.kind === "failed" && isServerRefusal(settled.error)) {
         /*
           Deliberately not the thrown message. This is one of the two sides of
           a decision somebody is about to make, so the sentence has to say what
           it means for the decision rather than what the storage layer said.
 
-          **And deliberately not gated on `isServerRefusal`**, unlike the three
-          read paths in `useFileBrowser`. The rule those follow is that a copy
-          on the device may never overrule an answer from the server, and it
-          holds here without a check: the cached ancestor is not shown. It only
-          reaches `offerMerge`, which refuses with `"offline"` the moment
-          `theirs` is absent, so a failed read produces no merge and no bucket
-          text at all — just the fixed sentence below. What stays on screen is
-          the person's own draft, which was already there.
+          A server refusal is classified only to prevent a pointless retry. It
+          never opens a cache fallback: the cached ancestor is not shown and it
+          only reaches `offerMerge`, which refuses with `"offline"` the moment
+          `theirs` is absent. A failed read therefore produces no merge and no
+          bucket text at all. What stays on screen is the person's own draft,
+          which was already there.
 
           Reaching for the discriminator anyway would cost the one thing this
           panel exists for. Somebody whose membership was revoked mid-conflict
           still has unsaved typing in front of them, and blanking the panel
           would be the console taking it away at exactly the moment they need
-          to copy it out. `keepMine` is refused by the server like any other
-          write, which is where that decision belongs.
+          to copy it out. The decision controls remain unavailable because no
+          bucket version was shown; the draft remains available to copy out.
         */
-        setFetched({
-          ...IDLE,
-          cached: ancestor,
-          unreadable:
-            "The version in your bucket could not be read just now, so it cannot be shown or merged. Keeping yours is still checked against it.",
-        });
+        retryFailuresRef.current = 0;
       }
     })();
 
     return () => {
       cancelled = true;
+      if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [online, path, round]);
+  }, [online, path, retryGeneration, round, theirsDeleted]);
 
   return useMemo(() => {
     if (!conflicted || path === null) return null;
+    // Effects clear the old round after paint; never expose its body or etag
+    // during that render, because either could enable a decision for the wrong
+    // version of this note.
+    const current = fetched.round === round ? fetched : IDLE;
     const offer = offerMerge({
-      cached: fetched.cached,
+      cached: current.cached,
       draftBase: draftBaseRef.current ?? null,
       mine: editor.draft,
-      theirs: fetched.theirs,
+      theirs: current.theirs,
+      theirsDeleted,
     });
     return {
       path,
       mine: editor.draft,
-      theirs: fetched.theirs,
-      theirsEtag: fetched.theirsEtag,
-      reading: fetched.reading,
-      unreadable: fetched.unreadable,
+      theirs: current.theirs,
+      theirsEtag: current.theirsEtag,
+      theirsDeleted,
+      reading: current.reading,
+      unreadable: current.unreadable,
+      retry: current.retryable && online ? retry : undefined,
       merge: offer.merge,
       mergeRefusal: offer.refusal,
       conditionalWrite: input.conditionalWrite,
       message: editor.message,
     };
-  }, [conflicted, editor.draft, editor.message, fetched, input.conditionalWrite, path]);
+  }, [conflicted, editor.draft, editor.message, fetched, input.conditionalWrite, online, path, retry, round, theirsDeleted]);
 }

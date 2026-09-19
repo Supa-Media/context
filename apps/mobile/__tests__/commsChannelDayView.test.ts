@@ -135,7 +135,11 @@ describe("ChannelDayView", () => {
     jest.restoreAllMocks();
   });
 
-  function mount(files: FileBrowser, anchor: string | null): HTMLElement {
+  function mount(
+    files: FileBrowser,
+    anchor: string | null,
+    path = "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md",
+  ): HTMLElement {
     const container = document.createElement("div");
     document.body.appendChild(container);
     const root: Root = createRoot(container);
@@ -149,6 +153,7 @@ describe("ChannelDayView", () => {
           channel: "email",
           account: "name-at-example-com",
           date: "2026-09-07",
+          path,
           files,
           anchor,
         }),
@@ -156,6 +161,30 @@ describe("ChannelDayView", () => {
     });
     return container;
   }
+
+  test("a legacy flat day is read from the path that was selected", async () => {
+    const requested: string[] = [];
+    const legacy = "0-inbox/email/name-at-example-com/2026-09-07.md";
+    const readRaw: FileBrowser["readRaw"] = async (path) => {
+      requested.push(path);
+      return {
+        text: [
+          "---",
+          'type: "channel-day"',
+          "parts: 1",
+          "---",
+          "",
+          "# 2026-09-07",
+        ].join("\n"),
+        etag: "e1",
+      };
+    };
+
+    mount(browser(readRaw), null, legacy);
+    await flushMicrotasks();
+
+    expect(requested).toEqual([legacy]);
+  });
 
   test("a hostile `parts` claim in part 1's frontmatter does not fetch every part it names", async () => {
     // Part 1's own note is a message this scope can genuinely see; its
