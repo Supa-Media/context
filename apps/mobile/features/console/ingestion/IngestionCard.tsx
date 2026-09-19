@@ -3,16 +3,13 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button } from "../../design/components/Button";
 import { Card, Grow, Row } from "../../design/components/Card";
 import { CopyField } from "../../design/components/CopyField";
-import { Field } from "../../design/components/Field";
 import { ChoiceGroup, FormError, Notice, TextField } from "../../design/components/Input";
 import { Pill } from "../../design/components/Pill";
 import { Text } from "../../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { useCopy } from "../../design/useCopy";
 import {
-  ATTACHMENT_POLICIES,
   addSender,
-  describeAttachmentPolicy,
   describeDraftProblem,
   describeIngestionAbsence,
   describeSenderPolicy,
@@ -20,13 +17,11 @@ import {
   draftOf,
   isDirty,
   isSenderProblem,
-  normaliseFolder,
   receivesMail,
   refusalMessage,
   removeSender,
   senderEntries,
   senderLabel,
-  type AttachmentPolicy,
   type IngestionDraft,
   type IngestionState,
   type SenderEntry,
@@ -96,12 +91,9 @@ import { pointerType as t } from "../../design/tokens";
 export function IngestionCard({
   state,
   fallbackAddress,
-  /** Folders currently loaded in the tree, offered as one-tap targets. */
-  folders,
 }: {
   state: IngestionState;
   fallbackAddress: string;
-  folders: readonly string[];
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -163,6 +155,8 @@ export function IngestionCard({
               <Text variant="mono" style={styles.inlineMono}>
                 {shown?.targetFolder ?? "0-inbox/"}
               </Text>
+              , filed under the day it was sent. Attachments are described in the note and
+              never written to your bucket.
             </Text>
           ) : (
             /*
@@ -228,53 +222,6 @@ export function IngestionCard({
       {shown !== null ? (
         <View style={styles.settings}>
           {canEdit ? (
-            <TextField
-              label="Target folder"
-              value={draft?.targetFolder ?? shown.targetFolder}
-              onChangeText={(value) =>
-                setDraft((current) => (current === null ? current : { ...current, targetFolder: value }))
-              }
-              onBlur={() =>
-                setDraft((current) =>
-                  current === null
-                    ? current
-                    : { ...current, targetFolder: normaliseFolder(current.targetFolder) },
-                )
-              }
-              autoCapitalize="none"
-              autoCorrect={false}
-              placeholder="0-inbox/"
-              hint="Any folder in your workspace. It does not have to exist yet."
-              error={folderProblem ?? undefined}
-              testID="ingestion-folder"
-            />
-          ) : (
-            <Field label="Target folder" value={shown.targetFolder} />
-          )}
-
-          {/*
-            One-tap targets from the tree that is already loaded. The root is
-            deliberately not offered: mail landing beside index.md and
-            privacy.md is nobody's filing system.
-          */}
-          {canEdit && quickPicks(folders).length > 0 ? (
-            <View style={styles.quickPicks}>
-              {quickPicks(folders).map((folder) => (
-                <Button
-                  key={folder}
-                  label={`${folder}/`}
-                  accessibilityLabel={`Deliver mail to ${folder}`}
-                  onPress={() =>
-                    setDraft((current) =>
-                      current === null ? current : { ...current, targetFolder: `${folder}/` },
-                    )
-                  }
-                />
-              ))}
-            </View>
-          ) : null}
-
-          {canEdit ? (
             <ChoiceGroup
               label="Who may send to it"
               /*
@@ -315,42 +262,6 @@ export function IngestionCard({
               </Text>
             </View>
           )}
-
-          {canEdit ? (
-            <ChoiceGroup
-              label="What happens to attachments"
-              hint="Files arrive from the same unverified sender as the text. This is what Context does with them."
-              value={shown.attachmentPolicy}
-              onChange={(value) =>
-                setDraft((current) =>
-                  current === null
-                    ? current
-                    : { ...current, attachmentPolicy: value as AttachmentPolicy },
-                )
-              }
-              options={ATTACHMENT_POLICIES.map((policy) => ({
-                value: policy,
-                ...describeAttachmentPolicy(policy),
-              }))}
-              testID="ingestion-attachments"
-            />
-          ) : (
-            <View style={styles.readOnlyBlock}>
-              <Text variant="eyebrow">Attachments</Text>
-              <Text variant="rowSub">
-                {describeAttachmentPolicy(shown.attachmentPolicy).label}
-              </Text>
-            </View>
-          )}
-
-          {shown.attachmentPolicy === "store" ? (
-            <Notice tone="warn">
-              <Text variant="check" style={styles.warnText}>
-                Images sent to this address are written into your bucket. They came from
-                whoever sent the mail, and nothing checked them.
-              </Text>
-            </Notice>
-          ) : null}
 
           {shown.allowAnySender ? (
             <Notice tone="warn">
@@ -484,11 +395,6 @@ export function IngestionCard({
   );
 }
 
-/** Top-level folders from the loaded tree, root excluded. */
-function quickPicks(folders: readonly string[]): string[] {
-  return folders.filter((folder) => folder !== "" && !folder.includes("/")).slice(0, 6);
-}
-
 /** One allowed address or domain, removable where the console may act. */
 function SenderChip({
   entry,
@@ -513,7 +419,6 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   rowSub: { marginTop: 2 },
   spaced: { marginTop: 11 },
   settings: { marginTop: 17, gap: 15 },
-  quickPicks: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: -6 },
   readOnlyBlock: { gap: 2 },
   senders: { gap: 10 },
   chips: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },

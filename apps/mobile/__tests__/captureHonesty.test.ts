@@ -171,7 +171,6 @@ function card(state: IngestionState): Rendered {
     createElement(IngestionCard, {
       state,
       fallbackAddress: "seyi@context.lc",
-      folders: ["0-inbox", "1-projects"],
     }),
   );
 }

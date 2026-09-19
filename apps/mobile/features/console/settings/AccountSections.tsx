@@ -7,7 +7,8 @@ import { Text } from "../../design/components/Text";
 import { space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
 import { ConnectClients } from "../clients/ConnectClients";
-import { ClientRow } from "../clients/ClientRow";
+import { ClientGroupRow } from "../clients/ClientGroupRow";
+import { groupClients } from "../clients/grouped";
 import { DeleteAccountCard } from "./DeleteAccountCard";
 import { atName } from "../format";
 import type { ConsoleData } from "../types";
@@ -270,7 +271,15 @@ export function ConnectedAppsCard({ data }: { data: ConsoleData }) {
           <Grow>
             <Text variant="rowTitle">Connected</Text>
           </Grow>
-          <Pill tone="neutral">{`${data.clients.length} active`}</Pill>
+          {/*
+            Both numbers, because they answer different questions: how many
+            apps can reach this context, and how many separate grants they
+            hold between them. One without the other is the number that
+            surprises somebody.
+          */}
+          <Pill tone="neutral">
+            {`${groupClients(data.clients).length} apps · ${data.clients.length} connections`}
+          </Pill>
         </Row>
         {data.clients.length === 0 ? (
           <Row divided>
@@ -283,8 +292,13 @@ export function ConnectedAppsCard({ data }: { data: ConsoleData }) {
             </Grow>
           </Row>
         ) : null}
-        {data.clients.map((client) => (
-          <ClientRow key={client.id} client={client} />
+        {/*
+          One row per app, not per grant. Every machine, browser profile and
+          re-auth mints its own grant, so this list was seventeen rows on a
+          real workspace with eight of them called Claude — see `grouped.ts`.
+        */}
+        {groupClients(data.clients).map((group) => (
+          <ClientGroupRow key={group.name} group={group} />
         ))}
       </Card>
     </View>
