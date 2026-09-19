@@ -64,7 +64,11 @@ export type EditorMenuId =
   | "numberedList"
   | "task"
   | "quote"
-  | "table";
+  | "table"
+  /** Speak into the note, at the caret. */
+  | "dictate"
+  /** Hand the note to the agent, in the console's right panel. */
+  | "ask";
 
 export interface EditorMenuContext {
   /** False for `privacy.md`, an encrypted note, and a reader in someone else's context. */
@@ -73,6 +77,23 @@ export interface EditorMenuContext {
   hasSelection: boolean;
   /** `⌘B` rather than `Ctrl+B`. Read from the browser by the caller. */
   apple: boolean;
+  /**
+   * Whether this surface can dictate into the note, and can ask about it.
+   *
+   * **Two flags rather than one "in the console" flag**, because they are true
+   * in different places. Dictation needs a microphone and a writable note; the
+   * agent needs a right panel for an answer to land in, which a phone does not
+   * have (`Regions.aside`) whatever the microphone says. A single flag would
+   * make one of them wrong on some surface, and the surface where it is wrong
+   * is the one nobody is testing on.
+   *
+   * Absent means absent. The landing page's demo console, the fixtures, and
+   * anything mounted outside the console supply neither, and the rows are gone
+   * rather than present and inert — this file's first rule, applied to two
+   * more capabilities.
+   */
+  canDictate?: boolean;
+  canAsk?: boolean;
 }
 
 /** The chord a row prints, or nothing — which `describeBinding` treats as legitimate. */
@@ -103,6 +124,38 @@ export function editorMenuItems(context: EditorMenuContext): MenuItem<EditorMenu
   if (hasSelection) {
     if (canEdit) items.push({ id: "cut", label: "Cut" });
     items.push({ id: "copy", label: "Copy" });
+  }
+
+  /*
+    THE TWO VOICE ROWS, AT THE TOP OF THE VERBS RATHER THAN THE BOTTOM.
+
+    They are what somebody came to this menu *for* — the formatting rows below
+    are all one chord away and are here for discovery, while these two have no
+    chord and no other door in the note. Obsidian puts its own plugin verbs in
+    the same place for the same reason.
+
+    **Dictate is a write and Ask is not**, which is why they are gated
+    separately and why the second survives a read-only note. Asking about
+    `privacy.md`, an encrypted note, or somebody else's context is an ordinary
+    thing to want, and the agent reads through its own grant either way — the
+    console's read-only-ness is about *typing*, not about what may be read.
+  */
+  const voice: MenuItem<EditorMenuId>[] = [];
+  if (context.canDictate === true && canEdit) {
+    voice.push({
+      id: "dictate",
+      label: "Dictate here",
+      // The outcome, because the verb alone does not say where the words land
+      // — and "here" is doing a lot of work for somebody who right-clicked in
+      // a different paragraph from the one their caret was in.
+      detail: "Your words land at the cursor",
+    });
+  }
+  if (context.canAsk === true) {
+    voice.push({ id: "ask", label: "Ask about this note" });
+  }
+  if (voice.length > 0) {
+    items.push({ ...voice[0]!, separatorBefore: items.length > 0 }, ...voice.slice(1));
   }
 
   if (!canEdit) return items;

@@ -99,11 +99,20 @@ export function VoiceButton({
   place,
   engine,
   agent,
+  startDictation = null,
   now = Date.now,
 }: {
   page: VoicePage;
   /** The live editor, read at the moment a phrase arrives. See `useDictation`. */
   controls: () => EditorControls | null;
+  /**
+   * A request for the microphone from somewhere other than this button.
+   *
+   * The note's right-click menu is the caller. A counter rather than a
+   * boolean, because asking twice is ordinary and a flag looks unchanged the
+   * second time; `null` is "nobody has asked", which is every other surface.
+   */
+  startDictation?: number | null;
   compact: boolean;
   /** Hands off to `useMeetingFlow`, which owns the meeting's own consent sheet. */
   onRecordMeeting: () => void;
@@ -190,6 +199,25 @@ export function VoiceButton({
     setAsking(false);
     start();
   }, [start]);
+
+  /**
+   * Dictation started from somewhere other than this control.
+   *
+   * The note's right-click menu is the caller: somebody pointed at a line and
+   * asked for the microphone there, and the sheet this button raises would be
+   * a second question after they had already answered it.
+   *
+   * A counter rather than a boolean, for `AsidePanel`'s reason: asking for the
+   * microphone twice is an ordinary thing to do, and a flag looks unchanged
+   * the second time. `start` is read through a ref so the effect depends on
+   * the *event* and not on a callback that changes with the engine.
+   */
+  const startRef = useRef(start);
+  startRef.current = start;
+  useEffect(() => {
+    if (startDictation === null) return;
+    startRef.current();
+  }, [startDictation]);
 
   const beginMeeting = useCallback(() => {
     setAsking(false);

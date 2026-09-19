@@ -306,6 +306,14 @@ export function NoteEditor({
   */
   const [focused, setFocused] = useState(false);
   /**
+   * When the right-click menu last asked for the microphone, or `null`.
+   *
+   * Held here rather than in `LiveEditor` because the microphone belongs to
+   * `VoiceButton`, which is this component's child — so this is the one place
+   * that can see both the menu and the control it reaches.
+   */
+  const [dictateAsked, setDictateAsked] = useState<number | null>(null);
+  /**
    * How wide the document column is, so the Properties row can start where the
    * note's first character does.
    *
@@ -791,6 +799,20 @@ export function NoteEditor({
             onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
             onSuggest={onSuggest}
             onPickSuggestion={onPickSuggestion}
+            /*
+              The two voice rows on the note's right-click menu. Absent where
+              there is nothing behind them — no voice host is no microphone,
+              and no `onAskAgent` is no right panel — and `editorMenuItems`
+              then draws no row rather than one that does nothing.
+
+              The caret the menu was opened at is deliberately dropped: the
+              dictation this starts inserts at the live caret, which the menu
+              has already moved to the click (see `LiveEditor.web.tsx`), so
+              carrying the number would be a second answer to a question that
+              is already settled.
+            */
+            onDictate={voice === null ? undefined : () => setDictateAsked(Date.now())}
+            onAsk={voice?.onAskAgent ?? undefined}
             onPreviewLinks={onPreviewLinks}
             onSubmitForm={onSubmitForm}
             onReadFormResponses={onReadFormResponses}
@@ -1157,6 +1179,13 @@ export function NoteEditor({
             which is mounted or not as a whole.
           */
           agent={voice.agent}
+          /*
+            The right-click menu's Dictate row, reaching the microphone this
+            button owns. It is the same `start()` the sheet calls, so there is
+            one dictation and one set of rules about when it may run — the menu
+            is a second *door*, never a second implementation.
+          */
+          startDictation={dictateAsked}
           onRecordMeeting={voice.onRecordMeeting}
         />
       )}

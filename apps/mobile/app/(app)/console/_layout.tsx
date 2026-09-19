@@ -624,6 +624,14 @@ export default function ConsoleLayout() {
    * and this layout is the one thing above both.
    */
   const [asked, setAsked] = useState<{ text: string; at: number } | null>(null);
+  /**
+   * When something last asked for the panel to be opened, without a question.
+   *
+   * The note's right-click menu is the caller. A counter rather than a
+   * boolean, for the reason `asked` carries one: asking twice is ordinary, and
+   * the second ask must not look like a re-render. `null` is "nobody has".
+   */
+  const [openAsideAt, setOpenAsideAt] = useState<number | null>(null);
 
   const agentEngine = useAgentEngine({
     workspaceId: data.selectedContextId,
@@ -647,6 +655,14 @@ export default function ConsoleLayout() {
       },
       onRecordMeeting: startMeetingFlow,
       /*
+        The note's right-click menu, reaching the right panel. Absent on the
+        demo console — there is no engine behind it — and the row is then gone
+        rather than pressable and inert. Whether the *density* has a panel is
+        `OpenAsideOn`'s to answer, because that is a frame question and this is
+        above the frame.
+      */
+      onAskAgent: data.demo ? undefined : () => setOpenAsideAt(Date.now()),
+      /*
         The one place holding both halves the engine needs: the workspace the
         grant is minted for, and the endpoint its `/agent` route is derived
         from. `NoteEditor` has never seen either, and the surfaces that render
@@ -654,7 +670,7 @@ export default function ConsoleLayout() {
       */
       agent: agentEngine,
     }),
-    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine],
+    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo],
   );
 
   /**
@@ -1446,6 +1462,13 @@ export default function ConsoleLayout() {
           onDismiss={data.files.dismissToast}
         />
 
+        {/*
+          The panel, opened by anything above the frame that cannot reach
+          `useFrame` — today the note's right-click menu. It renders nothing;
+          it exists to be *inside* `AppFrame`, which is where the command is.
+        */}
+        <OpenAsideOn at={openAsideAt} />
+
         {paletteOpen ? (
           <PaletteWithAsk
             onAsked={(query) => setAsked({ text: query, at: Date.now() })}
@@ -1546,6 +1569,29 @@ export default function ConsoleLayout() {
  * leaves the browser's own behaviour alone — that is why `preventDefault` is
  * conditional on a `true` in the first place.
  */
+/**
+ * Open the right panel when somebody above the frame asks.
+ *
+ * A component with no output, for `PaletteWithAsk`'s reason: `useFrame` only
+ * answers inside `AppFrame`, and the console layout is above it. The counter
+ * is the event — see where it is held — and `toggleAside` is a no-op at a
+ * density with no panel, so a phone's menu row being absent and this doing
+ * nothing are the same guard read from two sides.
+ */
+function OpenAsideOn({ at }: { at: number | null }) {
+  const frame = useFrame();
+  const open = frame.state.asideOpen;
+  const toggle = frame.toggleAside;
+  useEffect(() => {
+    if (at === null || open) return;
+    toggle();
+    // `open` is deliberately absent: it changes as a *result* of this, and
+    // listing it would make the effect re-run on its own outcome.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [at, toggle]);
+  return null;
+}
+
 /**
  * The palette, with a way to reach the right panel.
  *
