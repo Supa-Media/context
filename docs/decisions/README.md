@@ -35,6 +35,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A bucket born on the layout has nothing to migrate, and is not asked to
 - A move between two contexts is three calls, not one function holding two keys
 - The model key is a fourth credential route, not a fifth sibling on the binding
+- A moved note leaves a forwarding address, and it is a trail rather than an index
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -86,6 +87,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
 - A note carried into another context lands at the narrower of the two ends
+- A share follows the note, not the path it was minted on
 
 ## [Per-note encryption](./encryption.md)
 

@@ -74,6 +74,7 @@ import { HISTORY_PREFIX, IMAGE_PREFIX, legacyStorageKey } from "@context/shared/
 // `apps/mcp` targets the Workers runtime, which is Convex's runtime too, so
 // these run here unmodified over the same store `provisioning.ts` already
 // builds from a binding.
+import { forwardPath, readForwarding, recordForwarding } from "../../../mcp/src/forwarding.js";
 import { createSearchBudget } from "../../../mcp/src/search/maintain.js";
 import { loadDocmapPaths, syncShardedIndex } from "../../../mcp/src/search/shards.js";
 import { searchIndexedNotes } from "../../../mcp/src/search/visible.js";
@@ -976,10 +977,39 @@ export interface FileContents {
 
 export async function readFile(
   store: FileStore,
-  options: { path: string; clearance: Clearance },
+  options: { path: string; clearance: Clearance; forward?: "never" | "onMiss" },
 ): Promise<FileContents> {
   const path = requirePath(options.path);
-  return await readVisibleFile(store, await loadPrivacyState(store), path, options.clearance);
+  const state = await loadPrivacyState(store);
+  if (options.forward !== "onMiss") {
+    return await readVisibleFile(store, state, path, options.clearance);
+  }
+
+  /*
+    A STALE ADDRESS IS FORWARDED, AFTER IT HAS MISSED AND NEVER BEFORE.
+
+    A path means what it says *today*: if a note lives where the address
+    points, that note is the answer, even when something else once lived there.
+    Only an address that resolves to nothing has anything to gain from the
+    forwarding ledger — which also keeps the extra GET off every successful
+    read.
+
+    A share is the one caller that needs the opposite order, because its grant
+    was minted on a *note* rather than on a string. It resolves through the
+    `forward` operation before it reads, for the reasons in `shares.ts`; the
+    two orders are deliberately not one rule.
+
+    The destination still goes through `readVisibleFile`, so `canSee` is
+    re-asked there and a forward can never widen what a caller reaches.
+  */
+  try {
+    return await readVisibleFile(store, state, path, options.clearance);
+  } catch (error) {
+    if (!(error instanceof FileOpError) || error.code !== "FILE_NOT_FOUND") throw error;
+    const forwarded = forwardPath(await readForwarding(store), path);
+    if (forwarded === path) throw error;
+    return await readVisibleFile(store, state, forwarded, options.clearance);
+  }
 }
 
 /**
@@ -2473,6 +2503,29 @@ export async function movePath(
     folderMove,
     survivors: walk.withheld,
   });
+
+  /*
+    A FORWARDING ADDRESS, FOR THE REFERENCES A REWRITE CANNOT REACH.
+
+    `rewriteReferences` below fixes every link inside the bucket. It cannot
+    touch the ones held elsewhere — a share link already sent, a deep link in
+    somebody's chat log — so the move also records where things went. See
+    `apps/mcp/src/forwarding.js` for why this is a trail between paths rather
+    than an index of who points at what.
+
+    **A folder move is one entry**, not one per file it carried: a nine
+    thousand note rename must not write nine thousand rows, and a prefix rule
+    forwards the whole subtree. It is the same engine the gateway records with,
+    imported rather than ported, so a rename through the console and the same
+    rename through an MCP client leave the same trail.
+  */
+  await recordForwarding(
+    store,
+    folderMove
+      ? [{ from, to, kind: "folder" as const }]
+      : pairs.map((pair) => ({ from: pair.source, to: pair.destination, kind: "note" as const })),
+    { now: options.now },
+  );
 
   const references = await rewriteReferences(store, {
     clearance: options.clearance,
