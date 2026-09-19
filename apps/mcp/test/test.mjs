@@ -31,6 +31,7 @@ import { runMoveWithoutConditionalDeleteChecks } from "./moveWithoutConditionalD
 import { runBulkFolderMoveVisibilityChecks } from "./bulkFolderMoveVisibility.test.mjs";
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
+import { runActivityChecks } from "./activity.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
@@ -450,7 +451,7 @@ const tools = await rpc("priv-token", "tools/list");
 // personal connection's. 35 adds the owner-only storage-layout migration. 37
 // with `list_contacts` and `read_contact` — the same pair a layer further
 // over, over the people those days were with rather than the days.
-check("37 tools listed", tools.result?.tools.length === 37);
+check("38 tools listed", tools.result?.tools.length === 38);
 check(
   "storage migration is advertised only to an owner-tier connection",
   tools.result.tools.some((tool) => tool.name === "migrate_storage_layout") &&
@@ -562,7 +563,7 @@ await contextStore.put(
 const listWithFormsOff = await rpc("priv-token", "tools/list");
 check(
   "a Context plugin turned off takes its tools out of the listing",
-  listWithFormsOff.result?.tools.length === 33 &&
+  listWithFormsOff.result?.tools.length === 34 &&
     !listWithFormsOff.result.tools.some((tool) => tool.name === "submit_form")
 );
 check(
@@ -608,12 +609,12 @@ check(
 await contextStore.put(enablementKey, "{ half a file");
 check(
   "a settings file that does not parse leaves every tool where it was",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 37
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 38
 );
 await contextStore.delete(enablementKey);
 check(
   "and removing the file restores the full listing",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 37
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 38
 );
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
@@ -1327,7 +1328,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 37);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 38);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1553,7 +1554,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 37
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 38
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -4386,6 +4387,11 @@ await runContextPluginChecks(check);
 // worker of its own — see the file header for why it does not share this
 // fixture.
 await runLinkChecks(check);
+
+// `activity.md`: the feed as a file in the customer's bucket. Pure format and
+// substance rules first, then a worker of its own — it writes to the root of
+// the bucket on every call, so it cannot share this fixture either.
+await runActivityChecks(check);
 await runDrawingChecks(check);
 
 /*

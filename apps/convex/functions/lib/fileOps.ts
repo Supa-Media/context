@@ -1109,6 +1109,23 @@ export interface WriteResult {
   path: string;
   etag: string;
   /**
+   * What was written, in bytes, for `activity.md`.
+   *
+   * `byteLength`, not `String.length`: the activity file's substance test is a
+   * byte threshold, and it must not be laxer for a note written in English
+   * than for one written in Yoruba.
+   *
+   * There is deliberately no `previousBytes` beside it. The store's `get`
+   * returns a handle without a size, so knowing what was there before would
+   * mean reading the old body on every save — a second full read per
+   * keystroke-triggered autosave, to answer a question the activity file
+   * already answers another way: an unknown size counts as substantial, and
+   * the merge window collapses a typing session into one line whatever the
+   * sizes were. The gateway, which has the old body in hand for its own
+   * conflict message, does send both.
+   */
+  bytes: number;
+  /**
    * How the conflict check was performed.
    *
    * `conditional` — the backend enforced `If-Match`, so a concurrent write
@@ -1416,6 +1433,7 @@ export async function writeFile(
   return {
     path,
     etag: put.etag,
+    bytes: byteLength(options.text),
     conflictCheck: conditional || conditionalCreate ? "conditional" : "read-compare",
   };
 }
@@ -1523,6 +1541,7 @@ export async function removeNoteEncryption(
   return {
     path,
     etag: put.etag,
+    bytes: byteLength(options.text),
     conflictCheck: conditional ? "conditional" : "read-compare",
   };
 }
@@ -4085,6 +4104,31 @@ export interface VisibilityResult {
  * writing a redundant line, so the exception list stays a statement of what is
  * unusual. See `nextOverrides`.
  */
+/**
+ * Set one path's visibility without asking whose hand it is.
+ *
+ * `setVisibility` is a caller's verb: it refuses anybody but the owner,
+ * because rewriting `privacy.md` is the owner's alone. This is the product's
+ * own, used for exactly one file — `activity.md`, which Context writes and
+ * must keep private whatever folder default it lands under, because it names
+ * paths from every corner of the context.
+ *
+ * Deliberately not exported through any action or operation. A second door
+ * into the manifest that skips the clearance check is only safe while its one
+ * caller is a constant, so the path is a parameter for testability and there
+ * is exactly one value anything passes.
+ */
+export async function setExactVisibility(
+  store: FileStore,
+  path: string,
+  visibility: Visibility,
+): Promise<void> {
+  await mutateManifest(store, (current) => ({
+    rules: current.rules,
+    overrides: nextOverrides(path, visibility, current.rules, current.overrides),
+  }));
+}
+
 export async function setVisibility(
   store: FileStore,
   options: { path: string; visibility: Visibility; clearance: Clearance },

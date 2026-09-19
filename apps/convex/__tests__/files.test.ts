@@ -24,6 +24,7 @@ import { api, internal } from "../_generated/api";
 import * as fileFunctions from "../functions/files";
 import type { Id } from "../_generated/dataModel";
 import { DELETE_CONFIRMATION } from "../functions/lib/fileOps";
+import { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { encryptSecret, requireKeyset } from "../functions/lib/crypto";
@@ -2333,7 +2334,20 @@ describe("the offline mirror sees exactly what its reader may", () => {
     });
 
     expect(owner.entries.map((entry) => entry.path).sort()).toEqual(
-      ["1-projects/README.md", "1-projects/shared.md", "2-areas/README.md", "2-areas/private-note.md", "index.md", PRIVACY_KEY].sort(),
+      // `activity.md` is here because the writes above produced one, and it is
+      // the owner's: it is a note at the root of their own bucket, so the
+      // mirror carries it and the activity page works on a plane. The member's
+      // manifest below is the other half of that — it is private, so it is
+      // absent there, with no gap where it would have been.
+      [
+        "1-projects/README.md",
+        "1-projects/shared.md",
+        "2-areas/README.md",
+        "2-areas/private-note.md",
+        ACTIVITY_PATH,
+        "index.md",
+        PRIVACY_KEY,
+      ].sort(),
     );
     expect(member.entries.map((entry) => entry.path)).toEqual([
       "1-projects/README.md",
@@ -2652,6 +2666,13 @@ describe("a stranger cannot reach another workspace's files", () => {
       // oracle of a different shape: "empty" for a real context and "not
       // found" for an invented one.
       (workspaceId) => as.action(api.functions.files.syncManifest, { workspaceId }),
+      // The activity file's three doors. Reading the list is a bucket read;
+      // the other two only touch the membership row, and refuse in the same
+      // shape rather than answering `null` for somebody else's context.
+      (workspaceId) => as.action(api.functions.files.listActivity, { workspaceId }),
+      (workspaceId) => as.query(api.functions.files.activityLastSeen, { workspaceId }),
+      (workspaceId) =>
+        as.mutation(api.functions.files.markActivitySeen, { workspaceId }),
       (workspaceId) =>
         as.action(api.functions.files.readNotes, {
           workspaceId,
