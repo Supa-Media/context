@@ -492,8 +492,22 @@ describe("the census counts the estate", () => {
   test("the growth curve reaches back past the window", async () => {
     const t = convexTest(schema, modules);
     const { userId, as } = await staff(t);
-    await seedContext(t, userId, "old", "personal", at(200));
-    await seedContext(t, userId, "new", "personal", at(1));
+    /*
+      SEEDED AGAINST THE REAL CLOCK, not the fixture noon the rest of this file
+      uses. `censusReport` builds its window from `Date.now()` (admin.ts), so a
+      fixture pinned to a fixed date only stays inside a seven-day window while
+      the real date is near it: this test passed until 2026-09-18 and failed
+      from 2026-09-19, when the window's first day became the day the "new"
+      context was seeded and the curve started at 2 rather than 1.
+
+      A date-dependent test is one that eventually reports a defect nobody
+      introduced, on a day nobody chose — so the offsets are what this test is
+      actually about (one context older than the window, one inside it but not
+      on its first day) rather than dates that happen to satisfy that today.
+    */
+    const now = Date.now();
+    await seedContext(t, userId, "old", "personal", now - 200 * DAY);
+    await seedContext(t, userId, "new", "personal", now - 1 * DAY);
 
     const report = await as.query(api.functions.admin.censusReport, { days: 7 });
     const curve = report.contexts.cumulative;
