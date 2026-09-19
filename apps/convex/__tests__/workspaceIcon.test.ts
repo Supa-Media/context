@@ -181,11 +181,21 @@ describe("an emoji icon", () => {
   });
 
   test("a single emoji is a structure, not a length", () => {
+    /*
+      The joiners and the override are written as escapes rather than typed,
+      because `check-no-identifiers.mjs` refuses a literal invisible or
+      directional character anywhere in the tracked tree — and its reason is the
+      right one for this file in particular: a test whose subject *is* an
+      invisible character must say which one it means, or a reviewer is taking
+      it on faith that the thing between two emoji is a ZWJ.
+    */
     // Multi-code-point sequences that are genuinely one glyph.
     expect(isSingleEmoji("👍🏽")).toBe(true); // skin-tone modifier
     expect(isSingleEmoji("🇬🇧")).toBe(true); // a pair of regional indicators
-    expect(isSingleEmoji("👩‍💻")).toBe(true); // a ZWJ sequence
-    expect(isSingleEmoji("👨‍👩‍👧‍👦")).toBe(true); // four people, one glyph
+    expect(isSingleEmoji("\u{1F469}\u200D\u{1F4BB}")).toBe(true); // a ZWJ sequence
+    expect(
+      isSingleEmoji("\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}"),
+    ).toBe(true); // four people, one glyph
     expect(isSingleEmoji("3️⃣")).toBe(true); // a keycap
     expect(isSingleEmoji("❤️")).toBe(true); // a variation selector
   });
@@ -200,11 +210,11 @@ describe("an emoji icon", () => {
     expect(isSingleEmoji(" 🧠")).toBe(false);
     expect(isSingleEmoji("🧠a")).toBe(false);
     // The layout attacks, which no length check catches.
-    expect(isSingleEmoji("‮evil")).toBe(false); // RTL override
+    expect(isSingleEmoji("\u202Eevil")).toBe(false); // RTL override
     expect(isSingleEmoji("é́́́")).toBe(false); // combining stack
     expect(isSingleEmoji("🇬")).toBe(false); // half a flag is not a flag
     // A hundred joins is one "grapheme" and a kilobyte on every row.
-    expect(isSingleEmoji(Array(50).fill("🧠").join("‍"))).toBe(false);
+    expect(isSingleEmoji(Array(50).fill("🧠").join("\u200D"))).toBe(false);
   });
 
   test("the mutation refuses what the validator refuses", async () => {
