@@ -113,6 +113,13 @@ function bridgeLike(overrides = {}) {
       requestFullDiskAccess: async () => {},
       onChange: noop,
     },
+    // Version 7. Nothing credential-shaped in either verb — the member is the
+    // newest chance to have got that wrong, so it is here in the bridge every
+    // other check in this file is built from.
+    agent: {
+      status: async () => ({ available: false, name: null }),
+      ask: async () => ({ ok: true, answer: "", provider: "claude-code", steps: [] }),
+    },
     ...overrides,
   };
 }
@@ -443,7 +450,7 @@ export function runBridgeChecks(check) {
     getDesktopBridge({ desktop: Object.freeze({ ...bridgeLike(), imessage: undefined, version: 3 }) }) !== null,
   );
   check(
-    "A VERSION-4 SHELL IS STILL A BRIDGE, though this bundle is version 6",
+    "A VERSION-4 SHELL IS STILL A BRIDGE, though this bundle is version 7",
     getDesktopBridge({ desktop: version4Bridge() }) !== null &&
       refusalFor(version4Bridge()) === null,
   );
@@ -460,8 +467,20 @@ export function runBridgeChecks(check) {
     refusalFor(frozenBridge({ imessage: { setEnabled: async () => {} } })) === "surface-incomplete",
   );
   check(
+    "A VERSION-7 SHELL WITHOUT `agent` IS REFUSED — it promised it",
+    refusalFor(Object.freeze({ ...bridgeLike(), agent: undefined, version: 7 })) === "surface-incomplete",
+  );
+  check(
+    "...and one whose `agent` cannot be asked is refused too",
+    refusalFor(frozenBridge({ agent: { status: async () => ({}) } })) === "surface-incomplete",
+  );
+  check(
+    "...but a VERSION-6 shell with no `agent` is fine, and takes the gateway road",
+    refusalFor(Object.freeze({ ...bridgeLike(), agent: undefined, version: 6 })) === null,
+  );
+  check(
     "...and this bundle's own version is accepted by its own table",
-    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 6,
+    refusalFor(frozenBridge({})) === null && BRIDGE_VERSION === 7,
   );
   check(
     "a version between the floor and the ceiling is still not an integer version",

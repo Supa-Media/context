@@ -34,6 +34,9 @@ import {
   type DesktopShell,
   type DetectionView,
   type ImessageStatus,
+  type LocalAgentAsk,
+  type LocalAgentReply,
+  type LocalAgentStatus,
   type MachineApprovalResult,
   type MeetingWrite,
   type MeetingWriteAck,
@@ -60,6 +63,8 @@ export interface FakeDesktopBridge {
   imessageSetEnabledCalls: boolean[];
   /** How many times the page asked the shell to guide the person to Full Disk Access. */
   imessageFullDiskAccessRequests: number;
+  /** Every question the page sent the local agent, in order. */
+  agentAsks: LocalAgentAsk[];
   emitSegment(segment: TranscriptSegment): void;
   emitLevel(level: AudioLevel): void;
   emitCaptureState(update: CaptureStateUpdate): void;
@@ -120,6 +125,16 @@ export interface FakeBridgeOptions {
   noMachineApproval?: boolean;
   /** The status `imessage.status()` and the initial push answer. */
   imessage?: ImessageStatus;
+  /** What `agent.status()` answers. Default: no CLI on this machine. */
+  localAgent?: LocalAgentStatus;
+  /** What `agent.ask()` answers. Default: an ordinary successful turn. */
+  localAnswer?: LocalAgentReply;
+  /**
+   * Answer no `agent` member at all — a shell older than **version 7**, which
+   * is every shell in anybody's Applications folder today. It answers version
+   * **6**, the highest that legitimately has none, for `noImessage`'s reason.
+   */
+  noAgent?: boolean;
   /**
    * Answer no `imessage` member at all — a shell older than **version 5**,
    * which is every shell in anybody's Applications folder today.
@@ -166,6 +181,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
   const pendingApprovals = new Set<(pending: PendingMachineApproval | null) => void>();
   const imessageListeners = new Set<(status: ImessageStatus) => void>();
   let pending: PendingMachineApproval | null = options.pendingApproval ?? null;
+  const agentAsks: LocalAgentAsk[] = [];
   let imessageStatus: ImessageStatus = options.imessage ?? {
     enabled: false,
     permission: "unknown",
@@ -359,6 +375,40 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
             onChange: (handler: (status: ImessageStatus) => void) => subscribe(imessageListeners, handler),
           }),
         }),
+    /*
+      The version-7 member. Answers "no CLI here" by default, which is the
+      ordinary machine: most people have no `claude` installed, and a fake
+      whose default was "yes" would let a test pass while asserting the
+      uncommon case.
+
+      Note what is absent from both verbs — anything credential-shaped. The
+      validator refuses a bridge carrying a name like `token` or `credential`
+      as a substring, and this member is the newest chance to have got that
+      wrong, so the reference fake showing the right shape is what the
+      packaged assertion checks against.
+    */
+    ...(options.noAgent === true
+      ? {}
+      : {
+          agent: Object.freeze({
+            async status(): Promise<LocalAgentStatus> {
+              calls.push("agent.status");
+              return options.localAgent ?? { available: false, name: null };
+            },
+            async ask(request: LocalAgentAsk): Promise<LocalAgentReply> {
+              calls.push("agent.ask");
+              agentAsks.push(request);
+              return (
+                options.localAnswer ?? {
+                  ok: true,
+                  answer: "from the CLI on this machine",
+                  provider: "claude-code",
+                  steps: [],
+                }
+              );
+            },
+          }),
+        }),
   });
 
   return {
@@ -367,6 +417,7 @@ export function fakeDesktopBridge(options: FakeBridgeOptions = {}): FakeDesktopB
     writes,
     approvals,
     imessageSetEnabledCalls,
+    agentAsks,
     get imessageFullDiskAccessRequests() {
       return imessageFullDiskAccessRequests;
     },
