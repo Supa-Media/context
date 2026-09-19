@@ -6208,3 +6208,47 @@ A **person** still has no picture. `AccountBlock`'s `Avatar` is a 26pt circle
 with initials in it and stays that way — this is a fact about a workspace, and
 the two are different objects, which is the same reason they were never one
 component.
+
+## The allowed-sender list stays beside the address it gates
+
+Integrations stopped being a page of settings on 2026-09-18 (#710): three
+Google panels became one list of connected things, and every control on it went
+— the per-service destination fields, the eighteen schedule buttons, the
+attachment policy, the target-folder picker. One stayed, and after the page
+shipped there was a real question about whether it belonged somewhere else, a
+Privacy or Security screen among them.
+
+**It stays on Integrations, directly under the ingestion address**, and the
+reasons are in this order:
+
+- **The list has no meaning apart from the address.** "Who may write into this
+  context by email" is unreadable on a page that does not show the address they
+  would write to. Beside it, it needs no explanation at all — the address, then
+  who may use it.
+- **Splitting a control from the thing it controls is a known defect in this
+  console, not a hypothetical.** The storage-update banner asked the same
+  question of every new workspace (#718) because a fact was rendered somewhere
+  that did not hold the fact it was about.
+- **Ingestion is a property of a personal workspace** — a shared context has no
+  capture address at all — and Integrations is already the page that knows
+  that, refuses in its own words, and says why. A privacy screen would have to
+  re-derive it.
+- **It is the one control that is not a convenience.** Everything else removed
+  was a preference with a good default; this one decides who can put notes into
+  somebody's bucket, and the alternative to a list is an open drop-box on a
+  semi-public address. A control of that weight is worth drawing where the
+  reader is already looking at what it protects.
+
+**Nothing about the security semantics rides on the placement**, and that is
+what makes this reversible rather than load-bearing: the boundary is enforced
+server-side in `functions/lib/ingestion.ts`, and the page draws what the policy
+row already says. Moving the row later is a one-screen change.
+
+The check is `the one control left on the page is the one that says who may
+write into the bucket`, in `settingsOverlayRender.test.ts` — asserted on the
+*page*, not on the panel, because a guard that mounts a component in isolation
+proves the component and not the call site. Its neighbour, `...and the accounts
+and the forwarding address are the other half of it`, exists for the same
+reason: `sourcesPanel.test.ts` stays green with `SourcesPanel` deleted from
+`SettingsPane` entirely, which is measured — removing that one line fails
+exactly these two checks and none of the eleven that mount the panel directly.
