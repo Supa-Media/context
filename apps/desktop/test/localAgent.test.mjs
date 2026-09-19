@@ -43,16 +43,24 @@
  * answer and not the one the test was written for.
  */
 
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
   ALLOWED_TOOLS,
   LOCAL_MESSAGES,
   MCP_SERVER_NAME,
+  SCRATCH_PREFIX,
   WITHHELD_LOCALLY,
+  abandonedRuns,
   askPlan,
   localAgentFor,
   mcpConfigFor,
   readLocalAnswer,
 } from "../src/core/agent/localCli.ts";
+import { sweepAbandonedRuns } from "../src/main/localAgent.ts";
 
 const TOKEN = "fake-grant-token-not-a-real-one";
 const ENDPOINT = "https://gateway.invalid/mcp";
@@ -64,7 +72,7 @@ const input = {
   appendSystemPrompt: "They are reading 1-projects/pricing.md.",
 };
 
-export function runLocalAgentChecks(check) {
+export async function runLocalAgentChecks(check) {
   // -- is there one at all ---------------------------------------------------
   {
     check(
@@ -146,5 +154,108 @@ export function runLocalAgentChecks(check) {
 
     const blank = readLocalAnswer(true, JSON.stringify({ result: "   ", is_error: false }));
     check("a blank answer is not an answer", blank === LOCAL_MESSAGES.empty);
+  }
+
+  /*
+    -- A RUN THAT NEVER CAME BACK DOES NOT LEAVE ITS GRANT BEHIND -------------
+
+    `main/localAgent.ts` writes the bearer token for this context to a 0600 file
+    so `--mcp-config` can be given a path rather than the JSON, and unlinks it
+    in a `finally` — *"including when the run throws or times out, because a
+    credential left on disk after a crash is the same credential whether or not
+    the crash was our fault."*
+
+    That sentence names a case the mechanism cannot reach. A `finally` runs on a
+    throw and on a timeout; it does not run when the process is killed. A
+    force-quit, a main-process crash or a machine losing power during a turn —
+    up to three minutes of window — leaves `<userData>/context-agent-XXXX/mcp.json`
+    holding a live grant, and nothing ever looked for one: `context-agent-`
+    appeared in exactly one place in the tree, the `mkdtemp` that creates it.
+
+    The temp file is a weaker store than the keychain the token normally lives
+    in, which is the point of the keychain, so a leftover makes that weakening
+    permanent.
+
+    Two halves, for the reason the rest of this file splits: the name rule is
+    pure and the removal is the filesystem's.
+  */
+  {
+    check(
+      "the scratch prefix is one constant, so the sweep and the mkdtemp cannot drift",
+      typeof SCRATCH_PREFIX === "string" && SCRATCH_PREFIX.length > 0,
+    );
+    check(
+      "a directory left by a run of ours is recognised by name",
+      typeof abandonedRuns === "function" &&
+        JSON.stringify(abandonedRuns([`${SCRATCH_PREFIX}a1b2`, "mirror", `${SCRATCH_PREFIX}c3`])) ===
+          JSON.stringify([`${SCRATCH_PREFIX}a1b2`, `${SCRATCH_PREFIX}c3`]),
+    );
+    check(
+      "...and nothing else under userData is, including a near miss",
+      typeof abandonedRuns === "function" &&
+        abandonedRuns(["mirror", "Cache", "settings.json", "context-agentless", ""]).length === 0,
+    );
+  }
+
+  {
+    const root = await mkdtemp(join(tmpdir(), "context-sweep-check-"));
+    const abandoned = join(root, `${SCRATCH_PREFIX}crashed`);
+    await mkdir(abandoned);
+    /*
+      The real shape, not a marker file: this is the document a killed run
+      leaves, and it carries the grant. Asserting on the token rather than on
+      the directory is what makes the check about the credential.
+    */
+    await writeFile(join(abandoned, "mcp.json"), JSON.stringify(mcpConfigFor(ENDPOINT, TOKEN)));
+    const keep = join(root, "mirror");
+    await mkdir(keep);
+    await writeFile(join(keep, "index.json"), "{}");
+
+    try {
+      if (typeof sweepAbandonedRuns === "function") await sweepAbandonedRuns(root);
+    } catch {
+      // Reported by the checks below rather than by aborting the run: a suite
+      // that dies names nothing, which is worse than a suite that fails.
+    }
+
+    check("a grant left behind by a killed run is gone", !existsSync(abandoned));
+    check("...and the rest of userData is untouched", existsSync(join(keep, "index.json")));
+
+    await rm(root, { recursive: true, force: true });
+  }
+
+  {
+    /*
+      AND SOMETHING CALLS IT.
+
+      `main/index.ts` is Electron and this suite is not, so the sweep's one call
+      site is in the half no check here can mount — which is precisely how a
+      guard ends up existing and doing nothing. The lesson is one this review
+      wrote down a week ago in the console: a check that mounts the thing cannot
+      see the call site that does not mount it.
+
+      So the source is read. Comments are stripped first rather than matched
+      around: a guard that a sentence in a docblock can satisfy is a guard a
+      deletion leaves green, and the sentence above this one names the function.
+    */
+    const source = await readFile(new URL("../src/main/index.ts", import.meta.url), "utf8");
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    check(
+      "the startup path calls the sweep, not merely imports it",
+      /\bsweepAbandonedRuns\s*\(/.test(code),
+    );
+  }
+
+  {
+    // A root that is not there is the ordinary first launch, not a failure.
+    let threw = false;
+    try {
+      if (typeof sweepAbandonedRuns === "function") {
+        await sweepAbandonedRuns(join(tmpdir(), "context-sweep-absent-root-xyz"));
+      }
+    } catch {
+      threw = true;
+    }
+    check("a userData that does not exist yet is not an error", threw === false);
   }
 }

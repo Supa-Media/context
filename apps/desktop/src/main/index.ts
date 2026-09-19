@@ -64,7 +64,7 @@ import {
   grantCoversMeetings,
 } from "../core/sync/connection.ts";
 import { keychainTokenStore } from "./tokenStore.ts";
-import { createLocalAgent } from "./localAgent.ts";
+import { createLocalAgent, sweepAbandonedRuns } from "./localAgent.ts";
 import { run as runCommand } from "../platform/exec.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
@@ -714,6 +714,20 @@ async function main(): Promise<void> {
       claudeBinary = null;
     }
   }
+
+  /*
+    Anything a previous run left behind, before this one starts making more.
+
+    A local turn writes the context's bearer grant to a 0600 file so the CLI
+    can be handed a path instead of the JSON, and unlinks it in a `finally`.
+    That covers a throw and a timeout and cannot cover being killed, which is
+    the case its own comment names — so a force-quit mid-question left a live
+    grant in `userData` with nothing looking for it. See `sweepAbandonedRuns`.
+
+    Not awaited: it is cleanup of a previous process, nothing this launch does
+    depends on it, and a slow disk must not hold up a window.
+  */
+  void sweepAbandonedRuns(app.getPath("userData"));
 
   const localAgent = createLocalAgent({
     scratchRoot: app.getPath("userData"),
