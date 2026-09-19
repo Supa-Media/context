@@ -268,6 +268,20 @@ export const resolveGrantByAccessToken = internalQuery({
     v.object({
       grantId: v.id("oauthGrants"),
       clientId: v.string(),
+      /**
+       * What the client called itself when it registered.
+       *
+       * Display text, and the gateway treats it as nothing else: it is what
+       * lets a line in `activity.md` read "@sayo's Claude added three notes"
+       * rather than naming a registration id nobody recognises. Every
+       * authorization decision on both sides reads `clientId`, which we
+       * issued; this is client-asserted, as `registerClient` says.
+       *
+       * `null` where the client row is gone — a registration removed while a
+       * grant it minted is still live. The name is missing; nothing else
+       * changes.
+       */
+      clientName: v.union(v.string(), v.null()),
       actorUserId: v.id("users"),
       scopes: v.array(v.string()),
       expiresAt: v.number(),
@@ -288,9 +302,14 @@ export const resolveGrantByAccessToken = internalQuery({
   handler: async (ctx, args) => {
     const live = await resolveLiveGrant(ctx, args.hashedAccessToken);
     if (live === null) return null;
+    const client = await ctx.db
+      .query("oauthClients")
+      .withIndex("by_clientId", (q) => q.eq("clientId", live.grant.clientId))
+      .unique();
     return {
       grantId: live.grant._id,
       clientId: live.grant.clientId,
+      clientName: client?.clientName ?? null,
       actorUserId: live.grant.userId,
       scopes: live.grant.scopes,
       expiresAt: live.grant.accessTokenExpiresAt as number,

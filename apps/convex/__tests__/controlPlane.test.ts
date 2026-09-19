@@ -321,6 +321,21 @@ describe("the gateway secret is never sufficient", () => {
     expect(await bodyOf(response)).toEqual({ binding: null });
   });
 
+  test("a session carries the client's own name, for the activity file", async () => {
+    const { t } = await twoConnectedTenants();
+    const response = await gatewayPost(t, "/gateway/session", {
+      accessToken: ACCESS_A,
+    });
+    const body = (await bodyOf(response)) as {
+      session: { clientId: string; clientName: string | null };
+    };
+    // The one thing a person recognises. Without it a line in `activity.md`
+    // can only name a registration id, and "mcp_client_alpha added three
+    // notes" is not a sentence anybody reads twice.
+    expect(body.session.clientId).toBe(CLIENT_A);
+    expect(body.session.clientName).toBe(`Client ${CLIENT_A}`);
+  });
+
   test("it resolves no session on its own", async () => {
     const { t } = await twoConnectedTenants();
     const response = await gatewayPost(t, "/gateway/session", {
