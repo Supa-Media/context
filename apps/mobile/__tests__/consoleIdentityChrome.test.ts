@@ -35,6 +35,8 @@ import { createRoot } from "react-dom/client";
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 const mockPushed: string[] = [];
 const mockReplaced: string[] = [];
+/** What the console asked the browser to make, as `<kind>:<folder>`. */
+const mockCreated: string[] = [];
 let mockQuickParams: { quickAction?: string } = {};
 let mockPathname = "/console/@seyi";
 
@@ -177,6 +179,8 @@ function mockConsoleData(): never {
     paste: () => {},
     createNote: () => {},
     createFolder: () => {},
+    /* Recorded: the quick-note link's whole job is to reach this. */
+    createUntitled: (folder: string, kind: string) => mockCreated.push(`${kind}:${folder}`),
     rename: () => {},
     move: () => {},
     duplicate: () => {},
@@ -300,20 +304,42 @@ const DROPBOX_STORAGE: ConsoleStorage = {
 beforeEach(() => {
   mockQuickParams = {};
   mockReplaced.length = 0;
+  mockCreated.length = 0;
 });
 
 /* -------------------------------------------------------------------------- */
 
 describe("the widget note command is consumed", () => {
-  test("opens once, then a remount of the clean history entry stays idle", () => {
+  /**
+   * IT MAKES THE NOTE NOW, RATHER THAN ASKING WHAT TO CALL IT.
+   *
+   * This used to assert the naming prompt's own sentence — "It will be created
+   * in 0-inbox as markdown." — which is exactly the modal the owner asked to be
+   * rid of: a quick-note link is one press from wherever somebody was, and a
+   * text field in front of it is the opposite of quick. The note is
+   * `untitled-<date>` in `0-inbox` and takes the first heading typed into it;
+   * see `features/console/files/untitled.ts`.
+   *
+   * The *consumed-once* half is unchanged and is what the test is really for:
+   * the command is stripped from the history entry before it is acted on, so a
+   * remount or a trip back through history cannot write a second note.
+   */
+  test("creates once, then a remount of the clean history entry stays idle", () => {
     mockQuickParams = { quickAction: "note" };
     const first = mountConsole();
-    expect(document.body.textContent).toContain("It will be created in 0-inbox as markdown.");
+    expect(mockCreated).toEqual(["note:0-inbox"]);
     expect(mockReplaced).toEqual(["/console/@seyi"]);
+    /*
+      And no prompt on the way. Asserted by the sentence the prompt used to
+      print rather than by "there is no input": this layout draws the explorer,
+      whose filter field is an input at rest, so the absence of *inputs* is a
+      claim that was never true here.
+    */
+    expect(document.body.textContent).not.toContain("as markdown");
     first.unmount();
 
     const returned = mountConsole();
-    expect(document.body.textContent).not.toContain("It will be created in 0-inbox as markdown.");
+    expect(mockCreated).toEqual(["note:0-inbox"]);
     expect(mockReplaced).toEqual(["/console/@seyi"]);
     returned.unmount();
   });

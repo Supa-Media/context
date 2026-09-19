@@ -2732,13 +2732,96 @@ awkward corpus and requires identical answers, with a floor on how many of them
 rewrote anything — a corpus that changed nothing would pass by comparing `null`
 to `null`.
 
-**Following a link is ⌘-click, and a plain click still places the caret.** This
-is an editor, and a mistyped path lives *inside* a link; an implementation that
-followed a plain click reads as working and has made those characters
-unreachable. A modifier is invisible, so hovering names the note and the chord.
-On a phone it is a long press, and the press **asks** rather than navigating: a
-press is also how a selection starts, and what it would replace is the note in
-front of somebody, possibly holding an unsaved draft.
+**Following a link is one click, and two gestures reach the text instead.**
+⌥-click places the caret and navigates nothing; so does a click on a link that
+is already showing its source, because live preview unfolds the link the
+selection touches and clicking text puts a caret in it. A ⌘-click (Ctrl off an
+Apple keyboard) or a middle-click opens the note **behind** the one on screen.
+On a phone a tap follows and a long press is a selection again. The tooltip
+names the target note instead of teaching a keystroke.
+
+*This reverses the rule that stood here until 2026-09-19, and the reversal is
+the argument rather than a change of taste.* What stood here was: following is
+⌘-click, a plain click still places the caret, because this is an editor and a
+mistyped path lives inside a link — an implementation that followed a plain
+click reads as working and has made those characters unreachable. The premise
+is still true and the conclusion was wrong, because it rested on a click being
+the *only* way to reach a link's text. It is not: ⌥ reaches it and a caret
+already inside it reaches it, and both are cheap. What the old rule spent to
+protect those characters was the gesture everybody already has — so the feature
+had to announce its own chord in a tooltip to exist at all, which is the shape
+of a feature nobody finds. The owner, reporting it: "I should be able to go to a
+link just by clicking it once, similar to obsidian, shouldnt have to command
+click."
+
+The long press went with it, and that deletion is worth as much as the click.
+A press is also how a selection starts, so it could not navigate on its own —
+it raised a confirmation, and to arrive at all it had to be told apart from a
+scroll *and* from WebKit's own long-press recogniser, which claims a stationary
+touch and announces it by sending `touchcancel`. That cost a timer, a cancel
+floor, a `contextmenu` handler, a rule about which of two signals fires first,
+and a dialog in front of all of it. A tap is over before any recogniser has an
+opinion and is not ambiguous, so the whole apparatus is gone and the platform
+has its long press back.
+
+**A followed link opens a pinned tab, immediately right of the tab it came
+from.** Following used to go through `files.select`, which opens a *preview*
+tab — the one the next selection replaces — so following A → B → C left one tab
+and nothing behind to come back to. Pinned because a followed link is a
+destination rather than a glance; beside its source because the note you were
+reading and the note it sent you to are one train of thought. ⌘-click opens it
+without moving the selection at all, which is what "behind" has to mean.
+
+**`‹ ›` are drawn at every density.** `history.ts` has held the stack since the
+phone's toolbar was built, and `ConsoleBottomBar` — the only thing that drew
+them — renders at `compact` only. So on a desktop the console kept a complete,
+correct, tested history of where somebody had been and offered no way to walk
+it: the route with no way in, again. They sit at the head of the note's path,
+where a browser and Obsidian both put them. The phone keeps them in the bottom
+bar and the breadcrumb draws neither there, because two of one control on a
+390pt screen is what the second drawer toggle was deleted for being.
+
+**A navigation pushes `?note=`; a correction replaces it.** Every write was
+`setParams`, which replaces — so every note had its own URL, the app wrote those
+URLs as you moved, and the address bar was still a label on the current screen
+rather than a record of where anybody had been. The browser's own back button
+left the console from the third note as surely as from the first. A push is a
+real `router.push`, the same call an activity link already made, and it is web
+only: a push on a native stack is a *screen*, and four followed links would be
+four panes stacked on each other.
+
+The cost is a remount: `Slot` is a `StackRouter`, so a pushed address is a new
+route entry and `BrowsePane` is rebuilt. What that loses is the note scroller's
+offset, which the arriving note replaces anyway; the tree, the listings, the
+tab strip and the open draft all belong to the layout, which does not remount.
+A push also only happens while the address is carrying nothing but a context
+and a note, because it rebuilds the address from those two and would otherwise
+drop a `?settings=` beside them.
+
+What tells a navigation from a correction is `FileBrowser.navigations`, a
+counter bumped by a `select` the unsaved-changes guard allowed. The selection changing is not
+enough on its own — a rename moves the path under the open note, and pushing
+that would leave a history entry naming a path that no longer exists. Nobody
+navigated when the last tab closed either, and a back button that returns to an
+empty pane is worse than one that skips it.
+
+**An arrival at a neighbouring place moves the cursor rather than appending.**
+`history.ts` now has `arrived` beside `visited`, because the address bar is a
+second history over the same places: the browser's back changes `?note=` under
+the console, the note it names is opened, and that arrival reaches the same
+effect a click does. Recorded as a fresh visit it would truncate the forward
+tail, so the browser could go back and `›` could never go forward again. The
+cost is stated rather than discovered: deliberately navigating to the note you
+were just on — clicking it in the tree rather than pressing `‹` — now moves the
+cursor back instead of appending a third entry, so `›` afterwards returns to the
+note you left. A browser would have appended and its forward would be dead;
+this is the better of the two, and it is the one that keeps `‹ ›` agreeing with
+what the address bar just did.
+
+Settings sections and app panes are places in `history.ts` and are *not* pushed,
+because `?settings=` is written with `setParams` — so the browser's back may
+skip a settings section that `‹` walks. Two stacks that agree about notes and
+differ about an overlay, honestly, beats one that lies about either.
 
 **The editor does not check that a link's target exists**, and that is forced
 rather than lazy: the tree loads folder by folder, so the console knows the
@@ -2750,8 +2833,14 @@ prose. Following a link to a note that is not there lands on the editor's own
 What a simplification would cost, and the test that catches it: dropping the
 `canSee` filter is two failures in `linkRewrite.test.ts`; substituting instead
 of recomputing relative links is one there and three in the gateway's
-`links.test.mjs`; following a plain click is one in `editorLinks.test.ts`; and
-letting the two engines drift is two in `linkParity.test.ts`.
+`links.test.mjs`; and letting the two engines drift is two in
+`linkParity.test.ts`. On the gestures: dropping the ⌥ check is two failures in
+`editorLinks.test.ts` and dropping `hasFocus` from the caret check is five;
+opening a followed link without honouring `select`'s refusal is one in
+`tabsContextSwitch.test.ts`; pushing every URL write rather than only a
+navigation is six in `noteAddress.test.ts`; making `arrived` an alias for
+`visited` is three in `noteHistory.test.ts`; and taking `‹ ›` back out of the
+breadcrumb is four in `browseHistoryButtons.test.ts`.
 
 ### A route with no way in is a route nobody has
 
@@ -6597,11 +6686,15 @@ than a capture one.
 
 **Five items in three groups.** A meeting, then a note, a drawing and a folder,
 then a chat. The middle group is a group because those three share a
-*destination* — the folder you have selected, by `targetFolder`'s rule — and
-share the naming dialog the tree's own `+` raises. A meeting sits above them
-because it starts a recording rather than a file; a conversation sits below
-because it makes nothing at all. The separators are that grouping and not
-decoration.
+*destination* — the folder you have selected, by `targetFolder`'s rule. A meeting
+sits above them because it starts a recording rather than a file; a conversation
+sits below because it makes nothing at all. The separators are that grouping and
+not decoration.
+
+They also shared a naming dialog when this was written, and two of them no longer
+do: a note and a drawing are made on the press and take their name from what is
+typed into them, and only the folder still asks. See *Nothing is named before it
+is written* below.
 
 **New chat is drawn only where the context has a model key.** The agent answers
 through a key configured on the workspace, so without one the row opens a
@@ -6672,3 +6765,153 @@ visible to any test:
 
 The lesson is the one the fixture's header already carried and had not been
 applied to a new control: a green suite is not evidence about a screen.
+
+## Nothing is named before it is written, and the phone's `+` is the only key
+
+Two things the owner asked for on 2026-09-19, in one sentence, and they are one
+decision: *"when clicking the plus, there is new note, new chat (should be off
+btw if no LLM api key configured), there should also be new folder, and new
+drawing, and then also for new note, new drawing etc should not ask you to title
+it, it should be called untitled-date, but the user should be able to title the
+note while writing in it, this should be the same for mobile, we no longer need
+a dedicated mic button on the bottom row, just a plus button that opens
+different options"*.
+
+The first half of that list is *The corner makes five things* above, and the
+chat gate with it. What follows is the rest.
+
+### A new note is never a dialog
+
+Every route into a new note used to raise `NamePrompt`: the explorer's `+`, a
+row's "New note here", ⌘N, the `?quickAction=note` widget link, and the phone's
+bottom row. **The field asked for the one thing nobody has yet.** A note is named
+after it says something, so the file is created immediately as
+`untitled-<date>.md` and the name catches up: `files/untitled.ts` reads the
+document's first heading, and `useFileBrowser` renames the file to match the
+first time that heading settles into something other than the placeholder.
+
+What a "simplification" of this would cost, in the order the mistakes are likely:
+
+- **Put the prompt back for "safety".** It is not safety. It is a modal in front
+  of the product's primary verb, and it is what made the widget link — one press
+  from anywhere — end in a text field.
+- **Rename on every heading edit rather than once.** The path is what every note
+  link, share row and offline copy is keyed by. A file that moves whenever its
+  title is edited is a file whose links rot while somebody writes. The adoption
+  happens **once**, and after that the heading and the filename are two things
+  the person owns separately, like every other note in the bucket.
+- **Rename on the keystroke, or on `dirty`.** `performSave` captures the path
+  when it is called, so a `moveEntry` that lands mid-write leaves a conditional
+  write aimed at a name the bucket no longer has. It waits for `clean` or
+  `saved` — the two states where nothing is in flight. (`saved` is `clean`
+  wearing a chip that decays, so gating on `clean` alone makes the rename wait
+  on a *UI* timer; written that way first, it never fired at all.) A note created
+  offline is `queued` and is not titled until its drain lands, which is the
+  honest order: the bucket does not have it yet.
+- **Match the *word* `untitled` rather than the date.** A note somebody genuinely
+  called "untitled thoughts" is their name for it. The date tells the two apart —
+  and on top of that only a path this session created without a name is eligible,
+  so opening an old file can never move it.
+- **Sanitize a heading into a filename.** A slash quietly turned into a folder is
+  worse than an untitled note: they can see `untitled-2026-09-19` and fix it, and
+  they cannot see that their note moved. `nameFromTitle` refuses and leaves the
+  name alone.
+- **Use UTC for the date.** A note made at 9pm in New York would be dated
+  tomorrow, on their own screen, in their own bucket.
+- **Name it without loading the destination.** Listings are fetched per folder,
+  so an unopened destination reads as *empty* and every note made into it gets
+  the same unsuffixed name. The quick-note widget files into `0-inbox` on a
+  console that has loaded the root and nothing else, so the second capture of a
+  day was a refusal from the server. `createUntitled` loads the folder first, and
+  `refresh` answers the pages it fetched as well as storing them — `setListings`
+  has not committed when its promise resolves.
+
+**A folder is the deliberate exception and still asks.** The reason a note needs
+no prompt is that it has a title field inside it — its first line — and a folder
+has no inside to type in. `untitled-2026-09-19/` in somebody's bucket, renameable
+only from a row menu they have to find, costs more than one text field.
+
+The checks are `untitledNames.test.ts` (18) and `untitledTitleAdoption.test.ts`
+(11, driven through the real hook against a fake bucket and asserting on what was
+*called*), plus the "made, not asked about" pairs in `menuActions.test.ts`,
+`rowCommands.test.ts`, `createPrompt.test.ts`, `consoleChrome.test.ts` and
+`consoleIdentityChrome.test.ts`.
+
+### The phone's bottom row is six keys, and the `+` is all of them
+
+The row's seventh key was a microphone that opened the meeting flow. It is gone,
+with the separator that marked it off, and recording is a row in the sheet the
+`+` raises — see [meetings](./meetings.md), *The seventh key became a row in the
+`+`*, for what that costs the capture route (nothing) and why.
+
+Two consequences that look like details:
+
+- **The key is unconditional where it was gated on `canEdit`.** That was right
+  while it meant *note*. A meeting is something a member of somebody else's
+  context can still start, so `canEdit` would have taken capture off every shared
+  context somebody reads. The read-only rule moved a row lower: the sheet draws
+  no Note, Drawing or Folder row without it.
+- **And `canCreateAnything` still hides the key when the sheet would have no rows
+  at all.** A `+` that opens a dialog containing one Cancel button is worse than
+  no `+`, and a read-only context on a surface with no meeting flow is exactly
+  where that happens. `files/createSheet.ts` answers both questions — which rows,
+  and whether there are any — because two answers computed in two places is how
+  the second one goes stale.
+
+`createSheet.ts` decides the **phone's** list and not the corner's. The corner's
+menu is mounted only where every row applies (the layout draws it on no
+read-only console and on no demo one), so its list is a literal with its grouping
+argument in its own comments; the sheet's is what varies. Both draw the same rows
+in the same order, and `createSheetRows.test.ts` holds the order as well as the
+conditions, because a `+` whose rows move between the phone and the desktop is
+two controls wearing one glyph.
+
+The checks are `createSheetRows.test.ts` (8), `is six keys, ending at Save, with
+no separator and no microphone` in `bottomRowWidth.test.ts` — which keeps the
+seven-key solve as a probe of `BottomBar`, the shape the geometry must survive if
+a destination is ever added back — and, in `consoleChrome.test.ts`, `the app's
+other place is a row in the + sheet, and choosing it records` and `the + offers
+the three files, and Note writes one without asking`.
+
+### A phone can ask its context a question, and could not before (2026-09-19)
+
+Both `+`s offer a Chat row, and on a phone that row raises `AgentPanel` directly
+rather than the right panel it has none of.
+
+**It was absent, and the absence was never decided.** `CreateButton`'s handler is
+`null` "where a conversation cannot be had", and one of its three reasons read
+*no panel to answer in (a phone)* — which was a true statement about the code and
+not a product choice. The only thing that raised `AgentPanel` was the floating
+microphone `NoteEditor` mounts, and that microphone stands down while the bottom
+row is on the glass (*The seventh key became a row in the `+`*,
+[meetings](./meetings.md)). So the whole route to the agent on a phone was: open a
+note, put the keyboard up until the bottom row hides, press the microphone that
+comes back, choose the agent row. The desktop menu offered it in one press.
+
+**The fix is one line of routing, because the panel was already the right shape.**
+`AgentPanel` is a `Modal`, and its own header says it is one so it can "appear
+identically on a surface that has no console around it at all" — written for the
+fixtures, and it pays for this too. `startNewChat` picks the surface by density;
+the gate above it is unchanged and still `modelConnected === true`, so a context
+with no model key is not offered a conversation on either.
+
+What a "simplification" would cost:
+
+- **Putting `hasAside` back in the gate.** That is the original defect: the row
+  vanishes from the phone's sheet and the only route back is the one through the
+  keyboard. Held by `the + offers a chat, and choosing it opens the panel`.
+- **Mounting the card inside `NoteEditor` instead**, where the microphone raises
+  it. Then it exists over a note and nowhere else — no folder page, no map, no
+  search — which is the complaint the `+` itself was created to answer.
+- **Building a second `agentPage`.** `agentPage`'s comment already asks for one
+  builder, and the object is a set of *references*: a second copy is a second
+  chance to put a note's body in one, which
+  `__tests__/agentPage.test.ts` exists to catch. The layout now builds
+  `agentPlace` once and hands the same object to both surfaces.
+- **Dropping the `key`.** It is the timestamp, so each press is a fresh
+  conversation rather than the last one reopened — which is what "New chat" says.
+
+The checks are `the + offers a chat, and choosing it opens the panel` and `and no
+chat row on a phone in a context with no model key`, in `consoleChrome.test.ts`,
+both driven through the real layout at 390pt. Four sabotages are recorded in that
+file's header.

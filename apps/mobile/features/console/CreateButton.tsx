@@ -36,10 +36,10 @@ import { useColors, useThemedStyles, type Colors, type Shadows } from "../design
  *
  * ## Not on a phone
  *
- * `compact` draws the seven-key bottom row, which already carries New note and
- * the meetings key at thumb height. A floating control 24pt above that row is
- * the defect `oneMicrophone.test.ts` exists for, arriving again with a
- * different glyph on it.
+ * `compact` draws the bottom row, whose own `+` raises the same five rows as a
+ * sheet (`CreatePrompt`) at thumb height. A second floating control 24pt above
+ * that row is the defect `oneMicrophone.test.ts` exists for, arriving again with
+ * a different glyph on it.
  */
 export function CreateButton({
   compact,
@@ -59,12 +59,18 @@ export function CreateButton({
   /**
    * Start a conversation, or `null` where one cannot be had.
    *
-   * Three reasons it is `null`, and the third is the one that changed: no
-   * panel to answer in (a phone), no engine behind it (the demo console), and
-   * **no model key on this context**. A key is what makes the agent able to
-   * answer at all, so offering the row without one is an offer that opens a
-   * composer and errors on the first send — the shape this repo refuses
-   * everywhere else as "a control that appears to work and does nothing".
+   * Two reasons it is `null`: no engine behind it (the demo console), and **no
+   * model key on this context**. A key is what makes the agent able to answer at
+   * all, so offering the row without one is an offer that opens a composer and
+   * errors on the first send — the shape this repo refuses everywhere else as "a
+   * control that appears to work and does nothing".
+   *
+   * It used to be three, and *"no panel to answer in (a phone)"* was the third.
+   * That was a fact about the code rather than a decision, and it is gone: a
+   * phone raises `AgentPanel` — a `Modal`, by its own header's argument — from
+   * the `+` sheet instead of a panel. This component is not drawn at `compact`
+   * at all, so the sentence was never about *this* control; it was about the
+   * value the layout passes, and it made the phone's sheet drop the row.
    *
    * The console reads it from `ConsoleData.modelConnected`, which is
    * `undefined` until the subscription answers: absent, then present, rather

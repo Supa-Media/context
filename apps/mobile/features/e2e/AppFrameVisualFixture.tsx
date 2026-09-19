@@ -297,8 +297,7 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
             onStep={() => {}}
             onSearch={() => {}}
             onOpenRecent={() => {}}
-            onNewNote={() => {}}
-            onStartMeeting={() => {}}
+            onCreate={() => {}}
           />
         }
         /*

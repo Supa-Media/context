@@ -43,14 +43,11 @@ import type { Visibility } from "./types";
  */
 export type Dialog =
   /**
-   * "Something goes in this folder" — which of the two it is has not been asked
-   * yet. Raised by the phone's `+`, which is one key for both; see
-   * `CreatePrompt`. The explorer's own toolbar has room for a button each and
-   * raises the two below directly.
+   * The phone's `+`, which is one key for everything somebody starts from the
+   * console — a note, a drawing, a folder, a chat, a meeting. Only the folder
+   * needs a name, so only the folder goes on to a prompt; see `CreatePrompt`.
    */
   | { kind: "create"; folder: string }
-  | { kind: "newNote"; folder: string }
-  | { kind: "newDrawing"; folder: string }
   | { kind: "newFolder"; folder: string }
   | { kind: "rename"; path: string }
   | { kind: "move"; path: string }
@@ -174,11 +171,18 @@ export function runMenuAction(
       // item is not offered there in the first place.
       context.reveal?.(path);
       return;
+    /*
+      Made, not asked about. Both of these used to raise `NamePrompt`, which put
+      a modal and a text field in front of the one thing somebody wanted — and
+      asked for the piece of information nobody has before they have written
+      anything. The file arrives called `untitled-<date>` and takes its name
+      from its own first heading. See `untitled.ts`.
+    */
     case "newNote":
-      context.setDialog({ kind: "newNote", folder });
+      files.createUntitled(folder, "note");
       return;
     case "newDrawing":
-      context.setDialog({ kind: "newDrawing", folder });
+      files.createUntitled(folder, "drawing");
       return;
     case "newFolder":
       context.setDialog({ kind: "newFolder", folder });

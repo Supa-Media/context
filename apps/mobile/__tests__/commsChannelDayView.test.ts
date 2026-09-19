@@ -53,6 +53,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     selectedPath: null,
     opening: null,
     select: () => true,
+    navigations: 0,
     deselect: () => true,
     search: async () => ({
       hits: [],
@@ -84,6 +85,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     createNote: noop,
     createDrawing: noop,
     createFolder: noop,
+    createUntitled: noop,
     rename: noop,
     move: noop,
     moveDestinations: [],

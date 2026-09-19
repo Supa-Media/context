@@ -70,6 +70,7 @@ function stubBrowser(calls: Call[]): FileBrowser {
     cut: record("cut"),
     paste: record("paste"),
     move: record("move"),
+    createUntitled: record("createUntitled"),
     setVisibility: record("setVisibility"),
   } as unknown as FileBrowser;
 }
@@ -108,7 +109,7 @@ describe("where a creation lands", () => {
   test("a folder row creates inside itself", () => {
     const h = harness();
     h.run("newNote", onRow(dir("1-projects")));
-    expect(h.dialogs).toEqual([{ kind: "newNote", folder: "1-projects" }]);
+    expect(h.calls).toEqual([{ name: "createUntitled", args: ["1-projects", "note"] }]);
   });
 
   test("a note row creates beside itself, in its parent", () => {
@@ -120,19 +121,48 @@ describe("where a creation lands", () => {
   test("a note at the root creates at the root", () => {
     const h = harness();
     h.run("newNote", onRow(note("index.md")));
-    expect(h.dialogs).toEqual([{ kind: "newNote", folder: "" }]);
+    expect(h.calls).toEqual([{ name: "createUntitled", args: ["", "note"] }]);
   });
 
   test("empty space creates in the folder it is the space of", () => {
     const h = harness();
     h.run("newDrawing", { kind: "background", folder: "2-areas" });
-    expect(h.dialogs).toEqual([{ kind: "newDrawing", folder: "2-areas" }]);
+    expect(h.calls).toEqual([{ name: "createUntitled", args: ["2-areas", "drawing"] }]);
   });
 
   test("a breadcrumb creates inside the folder it names", () => {
     const h = harness();
     h.run("newNote", { kind: "crumb", folder: "2-areas/health" });
-    expect(h.dialogs).toEqual([{ kind: "newNote", folder: "2-areas/health" }]);
+    expect(h.calls).toEqual([{ name: "createUntitled", args: ["2-areas/health", "note"] }]);
+  });
+
+  /**
+   * AND NEITHER OF THEM RAISES A DIALOG ANY MORE.
+   *
+   * Both used to set `{ kind: "newNote" }` and let `ExplorerDialogs` ask for a
+   * name. Nothing is named up front now — the file is `untitled-<date>` and
+   * takes the first heading typed into it (`files/untitled.ts`) — so the
+   * assertion that matters is that the dispatcher *acted*: a version that
+   * created the note and also raised a prompt would satisfy every test above.
+   */
+  test("a note and a drawing are made, not asked about", () => {
+    for (const id of ["newNote", "newDrawing"] as const) {
+      const h = harness();
+      h.run(id, onRow(dir("1-projects")));
+      expect(h.dialogs).toEqual([]);
+      expect(h.calls).toHaveLength(1);
+    }
+  });
+
+  /**
+   * The folder is the exception, and it is the one thing on this menu that
+   * still has to be typed: a folder has no first line to title it from.
+   */
+  test("a folder still asks for its name", () => {
+    const h = harness();
+    h.run("newFolder", onRow(dir("1-projects")));
+    expect(h.calls).toEqual([]);
+    expect(h.dialogs).toEqual([{ kind: "newFolder", folder: "1-projects" }]);
   });
 
   test("and pasting lands in the same folder a creation would", () => {

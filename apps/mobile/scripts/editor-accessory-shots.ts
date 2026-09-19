@@ -144,7 +144,6 @@ describe("editor-accessory shots", () => {
         // also no longer follow a link. Wired the same way `NoteEditor`
         // wires it in the real app, unconditionally on `editable`.
         onOpenNote: () => {},
-        onPressNote: () => {},
         notePath: "0-inbox/privacy.md",
         notePaths: ["0-inbox/privacy.md", "3-resources/team.md"],
       }),

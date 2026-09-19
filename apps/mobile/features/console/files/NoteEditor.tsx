@@ -12,11 +12,11 @@ import { accessoryUp } from "./accessory";
 import { describe as describeVisibility } from "./Breadcrumb";
 import { saveButton, type EditorState } from "./editor";
 import { noteHeading, noteHeadingSource, properties, splitNote, type Property } from "./frontmatter";
-import { Confirm } from "./Dialogs";
 import { isDrawingPath } from "@context/drawings";
 import { DrawingEditor } from "./DrawingEditor";
 import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
+import type { NoteLinkOpen } from "./noteLinks";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
 import { LiveEditor, type EditorControls } from "./LiveEditor";
 import type {
@@ -219,12 +219,16 @@ export function NoteEditor({
    * the editor then draws links as plain text rather than as a control that
    * does nothing. See `noteLinks.ts`.
    *
-   * **The confirmation for a long press is this component's, not the caller's.**
-   * A press arrives as an ambiguous gesture and the thing at risk is the note
-   * on screen; the component holding that note is the one that knows whether
-   * there is an unsaved draft in it.
+   * `mode` is the gesture's, not the destination's: `"background"` is a
+   * ⌘-click, and the caller must open the note without moving the person off
+   * this one.
+   *
+   * **The long-press confirmation this component used to own is gone.** It sat
+   * in front of an ambiguous gesture — a press is also how a selection starts —
+   * and the gesture is a tap now, which is not ambiguous. Nothing is at risk
+   * from a tap that was not at risk from a click.
    */
-  onOpenLink?: (path: string) => void;
+  onOpenLink?: (path: string, mode: NoteLinkOpen) => void;
   /** Paths the console knows of, for bare `[[name]]` links. Usually partial. */
   notePaths?: readonly string[];
   /**
@@ -322,15 +326,6 @@ export function NoteEditor({
    * first frame is never wrong in a direction anybody sees.
    */
   const [docWidth, setDocWidth] = useState(0);
-  /**
-   * A link somebody long-pressed, waiting on an answer.
-   *
-   * A press is how a person also starts a text selection, so it cannot navigate
-   * on its own — and what it would replace is the note in front of them,
-   * possibly with an unsaved draft in it. The dialog is the whole difference
-   * between an affordance and a trap.
-   */
-  const [pressed, setPressed] = useState<string | null>(null);
   const controls = useRef<EditorControls | null>(null);
   const frame = useFrame();
   const padding = useSurfacePadding();
@@ -790,13 +785,12 @@ export function NoteEditor({
             notePath={state.path}
             notePaths={notePaths}
             /*
-              A modifier click navigates; a long press asks. The asymmetry is
-              the gesture's, not the destination's — see `noteLinks.ts`. Both
-              are absent when the caller gave us nowhere to go, which is what
-              stops the editor underlining text it cannot act on.
+              A click and a tap go to the note; a ⌘-click opens it behind. The
+              asymmetry is the gesture's, not the destination's — see
+              `noteLinks.ts`. Absent when the caller gave us nowhere to go,
+              which is what stops the editor underlining text it cannot act on.
             */
-            onOpenNote={onOpenLink === undefined ? undefined : (path) => onOpenLink(path)}
-            onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
+            onOpenNote={onOpenLink === undefined ? undefined : onOpenLink}
             onSuggest={onSuggest}
             onPickSuggestion={onPickSuggestion}
             /*
@@ -823,19 +817,6 @@ export function NoteEditor({
             onStoreImage={onStoreImage}
             onImageProblem={onImageProblem}
           />
-          {pressed === null || onOpenLink === undefined ? null : (
-            <Confirm
-              title="Open this note?"
-              body={pressed}
-              confirmLabel="Open"
-              onCancel={() => setPressed(null)}
-              onConfirm={() => {
-                const path = pressed;
-                setPressed(null);
-                onOpenLink(path);
-              }}
-            />
-          )}
           </>
           )}
         </View>
@@ -1139,25 +1120,32 @@ export function NoteEditor({
           controls={() => controls.current}
           compact={compact}
           /*
-            A phone's bottom row carries a microphone of its own — the seventh
-            key — so this one stands down while that row is on the glass, and
-            `barUp` is what says it is not: the accessory bar hides the frame's
-            toolbar (see the `setAccessoryOpen` effect above), which is the same
-            condition read from the side that causes it rather than from the
-            height the frame publishes. Two microphones 24pt apart is the defect
-            this closes; see `VoiceButton` for which of them stays and why.
-          */
-          /*
-            Nothing draws a resting microphone in this corner any more.
+            Nothing draws a resting microphone in this corner any more, and the
+            rule is one sentence on both densities: **while a `+` is on the
+            glass, this stands down.**
 
-            On a phone the seventh key is the microphone, and `barUp` is what
-            says the row is not on the glass — the accessory bar hides the
-            frame's toolbar, and the microphone comes back with the caret. At a
-            pointer density the corner is the console's `+`, which the *layout*
+            At a pointer density that `+` is the console's, which the *layout*
             mounts rather than this editor — so the editor is told, through the
             voice host, rather than deriving it from a width: the E2E fixture
             and the demo console are desktop-width surfaces with no `+` in that
             corner at all. See `VoiceHost.createButton`.
+
+            On a phone it is the bottom row's own `+`, and `barUp` is what says
+            that row is not on the glass: the accessory bar hides the frame's
+            toolbar (see the `setAccessoryOpen` effect above), which is the same
+            condition read from the side that causes it rather than from the
+            height the frame publishes. So the microphone comes back with the
+            caret — which is exactly when dictation has somewhere to type.
+
+            **The phone half used to be argued from a microphone rather than
+            from a `+`.** The row's seventh key was a microphone that opened the
+            meeting flow, 24pt from this one and wearing the same glyph, and
+            standing this one down was how "why are there 2 microphones?" was
+            closed (`oneMicrophone.test.ts`). That key is gone — *"we no longer
+            need a dedicated mic button on the bottom row, just a plus button
+            that opens different options"* — and the condition is unchanged,
+            because what it was really protecting is the corner: one floating
+            control at a time, and the row's `+` is that control.
 
             What this never stands down is a microphone that is already open.
             The live capsule is the only way to stop a run and take back what

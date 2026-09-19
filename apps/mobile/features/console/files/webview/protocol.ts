@@ -309,18 +309,21 @@ export type ToHost =
   /** `Mod-s`, which only a hardware keyboard can produce on iOS. */
   | { v: number; type: "save" }
   /**
-   * A link to another note was followed with the modifier held. Navigate.
-   */
-  | { v: number; type: "open-link"; path: string }
-  /**
-   * A link to another note was long-pressed. **Ask, do not navigate.**
+   * A link to another note was followed. Open it.
    *
-   * A press is an ambiguous gesture — it is also how somebody starts a
-   * selection — and acting on one by replacing the note being edited is the
-   * worst available reading of it. The host puts a confirmation in front of the
-   * person; see `noteLinks.ts`.
+   * `mode` is the *gesture's* answer, not the destination's: `"foreground"` is
+   * a click or a tap and goes there, `"background"` is a ⌘-click or a
+   * middle-click and opens the note behind the one on screen. The host decides
+   * what "behind" means — a tab on a pointer, and nothing at all on a phone,
+   * where there is no strip to put one in.
+   *
+   * **This replaced a `press-link` message**, which a long press sent and the
+   * host answered with a confirmation dialog. The dialog existed because a
+   * press is also how a selection starts, so acting on one would have thrown
+   * away the note being edited on an ambiguous gesture. A tap is not
+   * ambiguous, so both the message and the dialog are gone; see `noteLinks.ts`.
    */
-  | { v: number; type: "press-link"; path: string }
+  | { v: number; type: "open-link"; path: string; mode: "foreground" | "background" }
   /** Focus, so the host can tell the keyboard layer the note is being typed into. */
   | { v: number; type: "focus"; focused: boolean }
   /**
@@ -509,7 +512,6 @@ export const TO_HOST_TYPES: ReadonlySet<ToHost["type"]> = new Set([
   "caret",
   "failed",
   "open-link",
-  "press-link",
   "form-submit",
   "form-responses",
   "form-vote",

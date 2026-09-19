@@ -74,10 +74,10 @@ export const ROW_COMMANDS: readonly RowCommand[] = [
 /**
  * What to do, resolved against the selection.
  *
- * The first six carry the same tags as `Explorer`'s `Dialog` union, so a caller
- * holding one of those hands it straight to `ExplorerDialogs` rather than
- * translating — two spellings of "the rename dialog" is two things to keep in
- * step.
+ * The ones that are still a question carry the same tags as `Explorer`'s
+ * `Dialog` union, so a caller holding one of those hands it straight to
+ * `ExplorerDialogs` rather than translating — two spellings of "the rename
+ * dialog" is two things to keep in step.
  */
 export type RowIntent =
   | { kind: "newNote"; folder: string }
@@ -185,10 +185,22 @@ export function intentForRowCommand(
  */
 export function applyRowIntent(
   intent: RowIntent,
-  files: Pick<FileBrowser, "duplicate" | "copy" | "cut" | "paste" | "move" | "destroy">,
+  files: Pick<
+    FileBrowser,
+    "duplicate" | "copy" | "cut" | "paste" | "move" | "destroy" | "createUntitled"
+  >,
   onDialog: (dialog: Extract<RowIntent, { kind: DialogKind }>) => void,
 ): boolean {
   switch (intent.kind) {
+    /*
+      ⌘N makes the note. It used to raise a naming dialog, which is a modal and
+      a text field between a keystroke and the thing it is for — and the field
+      asks for the one thing nobody has yet. `untitled.ts` has the argument and
+      the name the file gets instead.
+    */
+    case "newNote":
+      files.createUntitled(intent.folder, "note");
+      return true;
     case "duplicate":
       files.duplicate(intent.path);
       return true;
@@ -216,8 +228,11 @@ export function applyRowIntent(
 /**
  * The intents that are a dialog rather than a call.
  *
- * Named so `applyRowIntent`'s `onDialog` is typed as the five it can actually
+ * Named so `applyRowIntent`'s `onDialog` is typed as the four it can actually
  * receive: a callback taking every `RowIntent` would accept `copy`, and the
  * caller would have to handle a case that cannot reach it.
+ *
+ * `newNote` left this list when new notes stopped being named up front — it is
+ * a call now, not a question.
  */
-type DialogKind = "newNote" | "newFolder" | "rename" | "move" | "archive";
+type DialogKind = "newFolder" | "rename" | "move" | "archive";
