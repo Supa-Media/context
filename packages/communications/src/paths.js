@@ -14,15 +14,29 @@
 // workspace, a user or an account, and this module is given nothing it could
 // derive one from.
 //
-// ## There are no date folders, and that is a decision
+// ## A day is filed under its year and its month, and the reader takes both
 //
-// `2026-09-07.md` sits directly in its channel folder. `YYYY/MM/` was built
-// here for meetings, used, and removed as unusable, and daily bundling
-// sharpens that argument rather than reviving it — see
-// `docs/decisions/communications.md`, *There are no `YYYY/MM/` folders*.
-// Unlike `isMeetingNotePath`, the recogniser below accepts one shape only: no
-// bucket anywhere holds a channel-day note, so there is no legacy to migrate,
-// and an unreachable branch reads as a supported format to the next person.
+// `2026-09-07.md` used to sit directly in its channel folder, and the argument
+// for that is still written down — `docs/decisions/communications.md`, *There
+// are no `YYYY/MM/` folders*: nobody reaches a day of mail by walking a
+// folder, they arrive from a Contact page, a search hit, a thread link or
+// `list_channel_days`, so the flat listing was the one access path not worth
+// optimizing. What it costs is 365 files a year per channel, growing without a
+// ceiling, and the owner weighed that against a year listing showing twelve
+// folders and chose the folders (2026-09-18). That is a reversal, argued in
+// the decision file rather than here.
+//
+// The filename keeps its whole date rather than shrinking to `07.md`, the way
+// `isMeetingNotePath` already expects: a note in a search result, a shared
+// link or somebody's Daily Notes pane has to say what it is without its
+// folder, and a note somebody *moves* keeps saying it.
+//
+// **And the recogniser accepts both shapes, permanently.** That is the branch
+// the decision above refused, on the premise that no bucket anywhere held a
+// channel-day note — true when it was written, false now. The change is
+// forward-only: every day written before it stays exactly where it is, in a
+// bucket the customer owns, and a reader that dropped the flat shape would
+// silently stop calling a year of somebody's mail mail.
 
 import { normalizeRoot } from "../../meetings/src/paths.js";
 import {
@@ -155,23 +169,80 @@ export function isCalendarDate(value) {
 }
 
 /**
+ * The channels whose notes are filed under an account, and the ones that are not.
+ *
+ * A person has several mailboxes and several Google accounts, and exactly one
+ * Mac. Chat joined this set on 2026-09-18: two Google accounts were writing
+ * their spaces into one `0-inbox/google-chat/2026-09-07.md`, which read
+ * correctly — every message names its account — but meant one folder rule in
+ * `privacy.md` could not tell a work account's spaces from a personal one's.
+ * That is the same argument the mailbox folder was built on, and it applies
+ * unchanged.
+ *
+ * `email` *requires* the level and has since it was written. `google-chat`
+ * takes it going forward and accepts its absence, because days written before
+ * that date are still in the flat folder and are still Chat.
+ */
+const ACCOUNT_CHANNELS = Object.freeze({ email: "required", "google-chat": "optional" });
+
+/**
  * The folder one channel's notes go in.
  *
- * `email` takes an account level under it and the other channels do not,
- * because a person has several mailboxes and one iMessage. That asymmetry is
- * expressed once, here.
- *
  * @param {string} channel
- * @param {string} [account] The mailbox slug, for `email`.
+ * @param {string} [account] The mailbox slug, for a channel that has one.
  * @returns {string|null} `null` for anything this module will not file into.
  */
 export function channelFolder(channel, account) {
   if (!CHANNELS.includes(channel)) return null;
   const base = CHANNEL_FOLDERS[channel];
-  if (channel !== "email") return account ? null : base;
+  const level = ACCOUNT_CHANNELS[channel];
   const slug = typeof account === "string" ? account : "";
+  if (level === undefined) return slug ? null : base;
+  if (slug === "") return level === "required" ? null : base;
   if (!isMailboxSlug(slug)) return null;
   return `${base}/${slug}`;
+}
+
+/**
+ * The same key with its `YYYY/MM/` folders removed, or `null` if it has none.
+ *
+ * The one thing a writer needs in order to keep the change forward-only: a day
+ * is regenerated on every pass, so a day that already exists flat and is next
+ * written in the tree does not continue — it exists twice, under one date, in
+ * two places that both parse as that day. Every writer therefore asks this for
+ * the flat key and keeps that note when the bucket has one.
+ *
+ * A string transform rather than a second path builder, deliberately: a
+ * builder for the old shape is an invitation to write it again, and the only
+ * question anybody has is "is the old one there".
+ *
+ * @param {string} path
+ * @returns {string|null}
+ */
+export function flatDayPath(path) {
+  if (typeof path !== "string") return null;
+  const segments = path.split("/");
+  const file = segments.pop();
+  const month = segments.pop();
+  const year = segments.pop();
+  if (!/^\d{4}$/.test(year ?? "") || !/^\d{2}$/.test(month ?? "")) return null;
+  // The folders have to agree with the filename in front of them, so a
+  // customer's own `…/2026/09/` archive is never mistaken for one of ours.
+  if (!String(file).startsWith(`${year}-${month}-`)) return null;
+  return [...segments, file].join("/");
+}
+
+/**
+ * `2026/09` — the two folders a day sits under.
+ *
+ * Off the date in the note's own name rather than off a clock, so the folder
+ * and the filename cannot disagree; the reader below enforces the same
+ * agreement in the other direction.
+ *
+ * @param {string} date `YYYY-MM-DD`, already validated by the caller.
+ */
+function datedFolder(date) {
+  return `${date.slice(0, 4)}/${date.slice(5, 7)}`;
 }
 
 /**
@@ -191,9 +262,10 @@ export function channelDestinationFolder(channel, account, folder) {
   if (folder === undefined || folder === null || String(folder).trim() === "") {
     return channelFolder(channel, account);
   }
-  if (!CHANNELS.includes(channel)) return null;
-  if (channel === "email" && !isMailboxSlug(typeof account === "string" ? account : "")) return null;
-  if (channel !== "email" && account) return null;
+  // Delegated rather than re-decided: a custom folder still has to be a folder
+  // this channel could have had, so the account rules are `channelFolder`'s in
+  // both branches and cannot drift apart.
+  if (channelFolder(channel, account) === null) return null;
   const normalized = normalizeRoot(folder).replace(/\/$/g, "");
   return normalized || null;
 }
@@ -215,7 +287,7 @@ export function channelDayNotePath(day, options = {}) {
   if (!Number.isInteger(part) || part < 1) throw new TypeError(`not a part number: ${day.part}`);
   const file = part === 1 ? `${day.date}.md` : `${day.date}-part-${part}.md`;
 
-  return `${normalizeRoot(options.root)}${folder}/${file}`;
+  return `${normalizeRoot(options.root)}${folder}/${datedFolder(day.date)}/${file}`;
 }
 
 /**
@@ -240,29 +312,46 @@ export function parseChannelDayPath(path, options = {}) {
   if (!key.startsWith(`${INBOX_FOLDER}/`)) return null;
 
   const segments = key.split("/");
-  // `0-inbox`, the channel, [the mailbox], the file. Anything deeper is a
-  // folder somebody made, not a shape this module writes.
-  if (segments.length < 3 || segments.length > 4) return null;
+  // `0-inbox`, the channel, [the account], [the year, the month], the file.
+  // Anything deeper is a folder somebody made, not a shape this module writes.
+  if (segments.length < 3 || segments.length > 6) return null;
 
   const [, channelSegment, ...rest] = segments;
-  const file = rest[rest.length - 1];
-  const account = rest.length === 2 ? rest[0] : "";
+  const file = rest.pop();
+
+  const match = DAY_FILE.exec(file ?? "");
+  if (match === null) return null;
+  const date = match[1];
+  if (!isCalendarDate(date)) return null;
+
+  /*
+    The date folders, if this note has them, and they must agree with the name
+    in front of them. A note under `2025/01/` called `2026-09-07.md` is filed
+    under a month it did not happen in — somebody's own folder, or a move that
+    went wrong — and calling it a channel day would put it in a date range
+    listing twice over, under two different dates.
+  */
+  if (rest.length >= 2 && rest[rest.length - 2] === date.slice(0, 4) && rest[rest.length - 1] === date.slice(5, 7)) {
+    rest.length -= 2;
+  }
+
+  // Whatever is left is the account level, and there is at most one of it.
+  if (rest.length > 1) return null;
+  const account = rest.length === 1 ? rest[0] : "";
 
   const channel = CHANNELS.find((name) => CHANNEL_FOLDERS[name] === `${INBOX_FOLDER}/${channelSegment}`);
   if (channel === undefined) return null;
-  // The account level exists for `email` and only for `email`. A three-segment
-  // `0-inbox/email/<fingerprint>.md` is a forwarded capture, which is a
-  // different note shape in the same folder and is deliberately not one of
-  // ours; a four-segment `0-inbox/imessage/x/2026-09-07.md` is somebody's own
-  // folder.
-  if (channel === "email" ? account === "" : account !== "") return null;
-  if (channel === "email" && !isMailboxSlug(account)) return null;
+  /*
+    `channelFolder` holds which channels have an account level and whether it
+    is required, so this is the same rule the writer used rather than a second
+    copy of it. A three-segment `0-inbox/email/<fingerprint>.md` is a forwarded
+    capture — a different note shape in the same folder, deliberately not ours
+    — and `0-inbox/imessage/x/2026-09-07.md` is somebody's own folder; both
+    fall out of that one check.
+  */
+  if (channelFolder(channel, account) === null) return null;
 
-  const match = DAY_FILE.exec(file);
-  if (match === null) return null;
-  if (!isCalendarDate(match[1])) return null;
-
-  return { channel, account, date: match[1], part: match[2] ? Number(match[2]) : 1 };
+  return { channel, account, date, part: match[2] ? Number(match[2]) : 1 };
 }
 
 /**

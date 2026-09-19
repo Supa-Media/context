@@ -283,7 +283,7 @@ export async function runImessageServiceChecks(check, skip) {
     check("...and writes the daily note once there is a new row", wroteNote !== undefined);
     check(
       "...at the fixed iMessage path for the day the fixture's message falls on",
-      wroteNote?.params?.arguments?.path === "0-inbox/imessage/2026-09-07.md",
+      wroteNote?.params?.arguments?.path === "0-inbox/imessage/2026/09/2026-09-07.md",
     );
     check("...as a private note, never team-visible", wroteNote?.params?.arguments?.visibility === "private");
     check("...and the new message really is in it", String(wroteNote?.params?.arguments?.content).includes("second message after a filesystem change"));
@@ -313,11 +313,11 @@ export async function runImessageServiceChecks(check, skip) {
     ]);
     observedChange();
     const deletionRefreshRan = await waitUntil(() => {
-      const stored = offGateway.notes.get("0-inbox/imessage/2026-09-07.md");
+      const stored = offGateway.notes.get("0-inbox/imessage/2026/09/2026-09-07.md");
       return stored !== undefined && !stored.content.includes("second message after a filesystem change");
     });
     check("A WATCHER-TRIGGERED DELETION-ONLY CHANGE REWRITES THE DAY", deletionRefreshRan);
-    check("...and removes the deleted message body through the service path", !offGateway.notes.get("0-inbox/imessage/2026-09-07.md")?.content.includes("second message after a filesystem change"));
+    check("...and removes the deleted message body through the service path", !offGateway.notes.get("0-inbox/imessage/2026/09/2026-09-07.md")?.content.includes("second message after a filesystem change"));
 
     // -- TURNED BACK OFF: it stops --------------------------------------------
     enabled = false;

@@ -2417,12 +2417,24 @@ export function livePreview() {
         it has parsed further, and the same one otherwise.
       */
       const treeChanged = syntaxTree(transaction.state) !== syntaxTree(transaction.startState);
+      /*
+        And which image is selected, which arrives by a fifth route and is the
+        reason clicking a picture did nothing at all for a day: `selectImage`
+        carries no document change, no selection, no `readOnly` and no new
+        tree, so this gate held the old decorations and the toolbar was never
+        drawn. The effect was reaching the field; the field was reaching
+        nothing.
+      */
+      const pickChanged =
+        transaction.startState.field(imageSelection, false) !==
+        transaction.state.field(imageSelection, false);
       if (
         !transaction.docChanged &&
         !transaction.selection &&
         !readOnlyChanged &&
         !treeChanged &&
-        !focusChanged
+        !focusChanged &&
+        !pickChanged
       ) {
         return value;
       }
@@ -3235,8 +3247,16 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   max-width: 100%;
   min-width: 96px;
   flex: 0 1 auto;
-  cursor: default;
 }
+/*
+  THE CURSORS ARE THE INSTRUCTIONS.
+
+  Over a writable image the pointer says "you can pick this up" — grab, and
+  grabbing while it is moving. Over the side handles it says "you can pull this
+  wider". Nothing about the picture says "type here", because you cannot.
+*/
+.cm-lp-image-live { cursor: grab; }
+.cm-lp-image-moving { cursor: grabbing; opacity: 0.5; }
 .cm-lp-image-img {
   display: block;
   width: 100%;
@@ -3244,28 +3264,58 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   border-radius: 8px;
   background: var(--lp-code-bg);
 }
-.cm-lp-image-on .cm-lp-image-img {
+/* A hairline on hover: enough to say the picture is a thing, not a decoration. */
+.cm-lp-image-live:hover .cm-lp-image-img {
+  outline: 1px solid var(--lp-line-strong);
+  outline-offset: 3px;
+}
+.cm-lp-image-on .cm-lp-image-img,
+.cm-lp-image-live.cm-lp-image-on:hover .cm-lp-image-img {
   outline: 2px solid var(--lp-link);
   outline-offset: 3px;
 }
-/* The handles: four corners and two sides, all of them width. */
+/*
+  The handles. The two side bars are on every writable image and appear under
+  the pointer, because resizing is the commonest thing anybody does to a picture
+  and it should not need a click first; the corners belong to the selected one.
+*/
 .cm-lp-image-handle {
   position: absolute;
-  width: 11px;
-  height: 11px;
   padding: 0;
   border: 0;
-  border-radius: 3px;
   background: var(--lp-link);
+  opacity: 0;
   touch-action: none;
+}
+.cm-lp-image-handle-w,
+.cm-lp-image-handle-e {
+  top: calc(50% - 17px);
+  width: 6px;
+  height: 34px;
+  border-radius: 3px;
+  cursor: ew-resize;
+}
+.cm-lp-image-handle-w { left: -5px; }
+.cm-lp-image-handle-e { right: -5px; }
+.cm-lp-image-handle-nw,
+.cm-lp-image-handle-ne,
+.cm-lp-image-handle-sw,
+.cm-lp-image-handle-se {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
 }
 .cm-lp-image-handle-nw { left: -8px; top: -8px; cursor: nwse-resize; }
 .cm-lp-image-handle-ne { right: -8px; top: -8px; cursor: nesw-resize; }
 .cm-lp-image-handle-sw { left: -8px; bottom: -8px; cursor: nesw-resize; }
 .cm-lp-image-handle-se { right: -8px; bottom: -8px; cursor: nwse-resize; }
-.cm-lp-image-handle-w { left: -8px; top: calc(50% - 5px); cursor: ew-resize; }
-.cm-lp-image-handle-e { right: -8px; top: calc(50% - 5px); cursor: ew-resize; }
-/* The size, as the file will hold it. */
+.cm-lp-image-live:hover .cm-lp-image-handle,
+.cm-lp-image-on .cm-lp-image-handle,
+.cm-lp-image-handle:focus-visible {
+  opacity: 1;
+}
+/* A handle under a moving image would be a target chasing the pointer. */
+.cm-lp-image-moving .cm-lp-image-handle { opacity: 0; }
 .cm-lp-image-badge {
   position: absolute;
   right: 8px;
@@ -3367,27 +3417,6 @@ textarea.cm-lp-form-input { resize: vertical; min-height: 5em; }
   font-size: 12px;
   line-height: 1.45;
   color: var(--lp-muted);
-}
-/* Drag this to move the image; six dots, because a bare square read as nothing. */
-.cm-lp-image-grip {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  color: var(--lp-muted);
-  background: var(--lp-code-bg);
-  cursor: grab;
-  touch-action: none;
-}
-.cm-lp-image-moving {
-  opacity: 0.5;
 }
 /*
   Where the line will land. Drawn in the scroller rather than in the row,

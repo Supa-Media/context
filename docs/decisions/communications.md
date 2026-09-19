@@ -127,7 +127,84 @@ configured files its days in the Inbox"` in `chatProduct.test.ts`, and the two
 end-to-end Chat passes in `googleSyncLoop.test.ts` — five checks, confirmed by
 putting the old string back.
 
+### A day is filed under `YYYY/MM/`, and the date stays in the filename
+
+**Reversed on 2026-09-18, by the owner, and the section it reverses is kept
+below** — because the argument it made is still true and is now simply
+outweighed. Read both.
+
+What changed is not the reasoning, it is the weight: a channel day is one file
+per active day and **nothing ages out**, so a mailbox synced for three years is
+a folder with eleven hundred files in it, and `0-inbox/email/<mailbox>/` is a
+folder the customer opens in Obsidian, in Finder, and in whatever sync client
+they point at their own bucket. "A listing is not how anybody reaches a day of
+mail" is right about *reaching* a day and says nothing about what that folder is
+like to live with. The owner weighed the two and chose the folders. So:
+
+    0-inbox/email/<mailbox>/2026/09/2026-09-07.md
+    0-inbox/calendar/<account>/2026/09/2026-09-07.md
+    0-inbox/google-chat/<account>/2026/09/2026-09-07.md
+    0-inbox/imessage/2026/09/2026-09-07.md
+
+**The filename keeps its whole date.** Not `07.md`: a note in a search result,
+behind a shared link, or in somebody's Daily Notes pane has to say what it is
+without its folder, and a note somebody *moves* has to keep saying it.
+`isMeetingNotePath` has accepted exactly this shape since meetings were filed
+this way, so the two recognisers agree rather than disagreeing in a new place.
+
+**Meetings stay flat, and that is not an inconsistency.** The dated tree was
+built for meetings, used, and removed as unusable ([meetings](./meetings.md),
+same section) — a person who records twice a month got two directory levels per
+note, every folder holding one file. A meetings folder grows at the rate
+somebody records; a channel folder grows one file per day whether or not
+anybody does anything. Different rate, different answer.
+
+**Forward-only, so both shapes are read forever.** Nothing already written
+moves: the notes are the customer's, and moving a year of them is
+`move_folder`'s job and their decision. This is the branch the section below
+refused, on the premise that *no bucket anywhere holds a channel-day note* —
+true when it was written, false now. And it needs one more rule than "read
+both", because a day is **regenerated** on every pass rather than appended to:
+a day that already exists flat and is next written in the tree would not
+continue, it would exist twice under one date. So a writer asks the bucket
+first — `apps/mcp/src/communications/dayPlacement.js`, and `flatDayPath` in the
+package — and **a day that already has a note keeps it**. The switch lands per
+day, not per deploy: a bucket synced yesterday has no seam at all.
+
+The checks are `a day already filed flat is written flat, not moved into the
+tree`, `...while a day the same bucket has NOT seen is filed under its month`,
+and `a date folder that disagrees with the filename is nobody's note`.
+
+### The account level reaches Calendar and Chat
+
+Same date, same reason the mailbox folder exists, and it closes a real hole:
+two connected Google accounts wrote **one** `0-inbox/calendar/2026-09-07.md`
+between them. It read correctly — every event names its account — and it cost
+the thing the folder was for. `visibilityOf` is longest-matching-prefix over
+folder defaults, so a folder is the only unit that can say "this account, and
+everything in it, forever". Merged, "my work calendar is team and my personal
+one is private" was not expressible at all, at any number of lines in
+`privacy.md`.
+
+The slug is Gmail's when Gmail has one, so one account is one folder name
+across all three products, and it is **recorded** in the connection's
+`destinationFolder` at connect and never recomputed — a later connect or
+disconnect cannot rename the folder somebody's calendar is already in. A
+connection bound before this keeps the folder its row names, which is what
+makes this forward-only too: `defaultGoogleDestinationFolder` with no slug
+still answers the folder these products have always used.
+
+The check is `calendar defaults to this account's own folder under the calendar
+folder`, and its pair `...and a connection with no recorded slug keeps the
+folder it has always written to`.
+
 ### There are no `YYYY/MM/` folders, and the date is the filename
+
+**Superseded on 2026-09-18 — see the two sections above.** Kept because its
+argument is the one that has to be outweighed again by anybody who wants to
+reverse the reversal, and because its last paragraph is exactly the rule the
+new layout had to break and says why that was expensive.
+
 
 The scoping note nests `2026/09/2026-09-07.md`. **That tree was built here
 once, used, and removed as unusable**, and the argument against it is already

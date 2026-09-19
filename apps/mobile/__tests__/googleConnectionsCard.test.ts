@@ -3,6 +3,25 @@
  * @jest-environment-options {"url": "https://context.lc/"}
  */
 
+/**
+ * One row per Google account, and nothing on it that is a setting.
+ *
+ * This card was drawn three times on one page — once under Email, once under
+ * Calendar, once under Chats — and each copy carried a destination field per
+ * service, a six-button schedule picker and its own Disconnect. Two accounts
+ * meant six cards and eighteen interval buttons for two values.
+ *
+ * What this file pins is the shape that replaced it, and the two claims that
+ * are easy to lose while simplifying:
+ *
+ *  1. **An account is one row**, whatever it carries, with a mark per service.
+ *  2. **The account's health is the account's** — a stale grant is on the row,
+ *     not hidden under whichever of three headings somebody opened.
+ *  3. **Disconnect is an account action** and says so before the second press.
+ *  4. **The owner gate survived the rewrite**: no `actions`, no controls at
+ *     all, rather than controls that are disabled.
+ */
+
 import { describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -10,26 +29,26 @@ import { createRoot } from "react-dom/client";
 import { ThemeProvider } from "../features/design/theme";
 import {
   GoogleConnectionsCard,
+  accountStatus,
+  type GoogleActions,
   type GoogleConnection,
   type GoogleSyncSchedule,
 } from "../features/console/google/GoogleConnectionsCard";
 
-/** A connection that is polled hourly and has actually read mail. */
-const SYNCING_HOURLY: GoogleSyncSchedule = {
-  intervalMinutes: 60,
+/** A connection that has actually read mail. */
+const SYNCING: GoogleSyncSchedule = {
+  intervalMinutes: 5,
   everSynced: true,
   cursorReady: true,
   catchingUp: false,
   lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
-  nextDueAt: Date.parse("2026-09-09T10:00:00.000Z"),
+  nextDueAt: Date.parse("2026-09-09T09:05:00.000Z"),
 };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mockStartCalls: unknown[] = [];
 const mockNavigations: string[] = [];
-const mockDestinationCalls: unknown[] = [];
-const mockIntervalCalls: { connectionId: string; syncIntervalMinutes: number }[] = [];
 
 jest.mock("convex/react", () => ({
   useAction: () => (args: unknown) => {
@@ -47,6 +66,33 @@ jest.mock("../features/console/google/leaveForGoogle", () => ({
   },
 }));
 
+function connection(overrides: Partial<GoogleConnection> = {}): GoogleConnection {
+  return {
+    connectionId: "google_1",
+    email: "person@example.invalid",
+    syncServices: { gmail: true, calendar: true, chat: true },
+    syncStatus: "active",
+    sync: SYNCING,
+    gmail: {
+      backfillDays: 0,
+      folders: ["inbox"],
+      destinationFolder: "0-inbox/email/person-at-example-invalid",
+      destinationPath: "0-inbox/email/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
+      historyCursorReady: true,
+    },
+    ...overrides,
+  };
+}
+
+const disconnects: string[] = [];
+const actions: GoogleActions = {
+  workspaceId: "ws_1",
+  disconnect: async (connectionId: string) => {
+    disconnects.push(connectionId);
+    return null;
+  },
+};
+
 function render(node: ReturnType<typeof createElement>) {
   const container = document.createElement("div");
   document.body.appendChild(container);
@@ -56,6 +102,7 @@ function render(node: ReturnType<typeof createElement>) {
   });
   return {
     container,
+    text: () => container.textContent ?? "",
     click: async (testID: string) => {
       const element = container.querySelector<HTMLElement>(`[data-testid="${testID}"]`);
       if (!element) throw new Error(`missing ${testID}`);
@@ -70,674 +117,175 @@ function render(node: ReturnType<typeof createElement>) {
   };
 }
 
-describe("GoogleConnectionsCard", () => {
-  test("connect sends the selected Google services without a history window", async () => {
-    mockStartCalls.length = 0;
-    mockNavigations.length = 0;
+describe("an account is one row", () => {
+  test("the row is the address, and the card is drawn once however many services it carries", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        actions: {
-          workspaceId: "ws_1",
-          disconnect: async () => null,
-          saveDestination: async () => null,
-          saveSyncInterval: async () => null,
-        },
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-
-    expect(screen.container.textContent).not.toContain("Gmail Backfill");
-    expect(screen.container.textContent).not.toContain("90 days");
-    await screen.click("connect-google");
-
-    expect(mockStartCalls).toHaveLength(1);
-    expect(mockStartCalls[0]).toMatchObject({
-      workspaceId: "ws_1",
-      syncServices: { gmail: true, calendar: true, chat: true },
-    });
-    expect(mockNavigations).toEqual([
-      "https://accounts.google.com/o/oauth2/v2/auth?state=google-state",
-    ]);
+    const text = screen.text();
+    expect(text).toContain("person@example.invalid");
+    // Once. Three copies of the address is the page this rewrite replaced.
+    expect(text.match(/person@example\.invalid/g)).toHaveLength(1);
     screen.unmount();
   });
 
-  test("connected accounts show real sync and destination state", () => {
+  test("the services are marks, one per granted product", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        connections: [
-          {
-            connectionId: "google_1",
-            email: "seyi@supa.media",
-            syncServices: { gmail: true, calendar: true, chat: true },
-            syncStatus: "connected",
-            sync: SYNCING_HOURLY,
-            errorCode: "SCOPES_INCOMPLETE",
-            lastError: "This Google account's authorization no longer covers chat.",
-            gmail: {
-              backfillDays: 90,
-              folders: ["inbox", "sent"],
-              destinationFolder: "0-inbox/email/seyi-at-supa-media",
-              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-              historyCursorReady: false,
-            },
-            calendar: {
-              destinationFolder: "0-inbox/calendar",
-              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
-              syncCursorReady: false,
-            },
-            chat: {
-              destinationFolder: "0-inbox/google-chat",
-              destinationPath: "0-inbox/google-chat/YYYY-MM-DD.md",
-              cursorCount: 2,
-            },
-          },
-        ],
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-
-    const text = screen.container.textContent ?? "";
-    /*
-      The per-account summary line ("Email, Calendar, Chat connected") is gone
-      from the whole-account card, and what replaced it is stronger: each
-      service states its own status and its own destination directly below,
-      so the three assertions here are about the three blocks rather than
-      about a sentence summarising them. On a *narrowed* panel the same list
-      survives as the sentence qualifying Disconnect, which is where it is
-      load-bearing — see `communicationsPanels.test.ts`.
-    */
-    expect(text).not.toContain("Email, Calendar, Chat connected");
-    expect(text).toContain("Email");
-    expect(text).toContain("Connected; waiting for the first scheduled mail pass");
-    expect(text).not.toContain("Start Email");
-    // Where each one writes, stated at rest rather than only inside a field.
-    expect(text).toContain("0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md");
-    expect(text).toContain("0-inbox/calendar/YYYY-MM-DD.md");
-    expect(text).toContain("0-inbox/google-chat/YYYY-MM-DD.md");
-    expect(text).toContain("Calendar");
-    expect(text).toContain("Connected; waiting for the first scheduled calendar pass");
-    expect(text).not.toContain("Start Calendar sync");
-    expect(text).toContain("Chat");
-    expect(text).toContain("Watching 2 Chat spaces");
-    expect(text).not.toContain("Start Chat sync");
-    expect(text).not.toContain("cursor");
-    expect(text).toContain("SCOPES INCOMPLETE");
-    expect(text).toContain("authorization no longer covers chat");
+    const marks = screen.container.querySelectorAll('[data-icon="mail"], [data-icon="calendar"], [data-icon="chat"]');
+    expect(marks).toHaveLength(3);
     screen.unmount();
   });
 
-  test("saving an email destination sends the edited path", async () => {
-    mockDestinationCalls.length = 0;
+  test("...and an account that granted two carries two", () => {
     const screen = render(
       createElement(GoogleConnectionsCard, {
-        actions: {
-          workspaceId: "ws_1",
-          disconnect: async () => null,
-          saveDestination: async (connectionId, service, destinationPath) => {
-            mockDestinationCalls.push({ connectionId, service, destinationPath });
-            return null;
-          },
-          saveSyncInterval: async (connectionId, syncIntervalMinutes) => {
-            mockIntervalCalls.push({ connectionId, syncIntervalMinutes });
-            return null;
-          },
-        },
-        connections: [
-          {
-            connectionId: "google_1",
-            email: "seyi@supa.media",
-            syncServices: { gmail: true, calendar: false, chat: false },
-            syncStatus: "connected",
-            sync: SYNCING_HOURLY,
-            gmail: {
-              backfillDays: 365,
-              folders: ["inbox", "sent"],
-              destinationFolder: "0-inbox/email/seyi-at-supa-media",
-              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-              historyCursorReady: false,
-            },
-          },
-        ],
+        connections: [connection({ syncServices: { gmail: true, calendar: true, chat: false } })],
+        actions,
       }),
     );
-
-    /*
-      The field is behind Change now. Three destinations drawn as open forms is
-      what the account card used to be, and nobody edits three paths at once —
-      so the resting state states the path and Change opens the editor.
-    */
     expect(
-      screen.container.querySelector('[data-testid="google-gmail-destination-google_1"]'),
-    ).toBeNull();
-    await screen.click("edit-google-gmail-destination-google_1");
-
-    const input = screen.container.querySelector<HTMLInputElement>(
-      '[data-testid="google-gmail-destination-google_1"]',
-    );
-    expect(input).not.toBeNull();
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
-        input,
-        "2-areas/communications/email/YYYY-MM-DD.md",
-      );
-      input!.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await screen.click("save-google-gmail-destination-google_1");
-
-    expect(mockDestinationCalls).toEqual([
-      {
-        connectionId: "google_1",
-        service: "gmail",
-        destinationPath: "2-areas/communications/email/YYYY-MM-DD.md",
-      },
-    ]);
+      screen.container.querySelectorAll('[data-icon="mail"], [data-icon="calendar"], [data-icon="chat"]'),
+    ).toHaveLength(2);
     screen.unmount();
   });
 
-  /*
-    The editor, which is the whole of the P8 fix: the field used to be a plain
-    TextField with a hint sentence, no completion, no validation and no
-    preview, and the mutation was the first thing that checked. These four
-    assert the three things that replaced that — and each is a claim about
-    where somebody's mail is about to be written.
-  */
-  describe("the destination editor", () => {
-    function editorScreen(saver = true) {
-      return render(
-        createElement(GoogleConnectionsCard, {
-          folders: ["2-areas", "2-areas/communications", "2-areas/comms-archive", ".audit"],
-          actions: saver
-            ? {
-                workspaceId: "ws_1",
-                disconnect: async () => null,
-                saveDestination: async (connectionId, service, destinationPath) => {
-                  mockDestinationCalls.push({ connectionId, service, destinationPath });
-                  return null;
-                },
-                saveSyncInterval: async () => null,
-              }
-            : undefined,
-          connections: [
-            {
-              connectionId: "google_1",
-              email: "seyi@supa.media",
-              syncServices: { gmail: true, calendar: false, chat: false },
-              syncStatus: "connected",
-              sync: SYNCING_HOURLY,
-              gmail: {
-                backfillDays: 365,
-                folders: ["inbox", "sent"],
-                destinationFolder: "0-inbox/email/seyi-at-supa-media",
-                destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-                historyCursorReady: true,
-              },
-            },
-          ],
-        }),
-      );
-    }
-
-    async function type(screen: ReturnType<typeof render>, value: string) {
-      const input = screen.container.querySelector<HTMLInputElement>(
-        '[data-testid="google-gmail-destination-google_1"]',
-      );
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
-          input,
-          value,
-        );
-        input!.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-    }
-
-    test("offers the folders this console has loaded, and never a reserved one", async () => {
-      const screen = editorScreen();
-      await screen.click("edit-google-gmail-destination-google_1");
-      await type(screen, "2-areas/comm");
-
-      expect(
-        screen.container.querySelector(
-          '[data-testid="google-gmail-suggest-google_1-2-areas/communications"]',
-        ),
-      ).not.toBeNull();
-      // A suggestion the validator would then refuse is worse than none.
-      expect(
-        screen.container.querySelector('[data-testid="google-gmail-suggest-google_1-.audit"]'),
-      ).toBeNull();
-      screen.unmount();
-    });
-
-    test("says what the pattern writes today, which nothing ever did before", async () => {
-      const screen = editorScreen();
-      await screen.click("edit-google-gmail-destination-google_1");
-      await type(screen, "2-areas/communications");
-
-      const preview = screen.container.querySelector(
-        '[data-testid="google-gmail-preview-google_1"]',
-      );
-      expect(preview).not.toBeNull();
-      // The day is the reader's, so the assertion is built the same way rather
-      // than pinned to a date this suite would fail on tomorrow.
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-        now.getDate(),
-      ).padStart(2, "0")}`;
-      expect(preview!.textContent).toContain(`2-areas/communications/${today}.md`);
-      screen.unmount();
-    });
-
-    test("refuses in the server's own words before the round trip, and will not save", async () => {
-      const screen = editorScreen();
-      await screen.click("edit-google-gmail-destination-google_1");
-      await type(screen, ".audit/mail");
-
-      expect(screen.container.textContent).toContain(
-        "That folder is reserved for Context internals.",
-      );
-      const save = screen.container.querySelector<HTMLElement>(
-        '[data-testid="save-google-gmail-destination-google_1"]',
-      );
-      expect(save!.getAttribute("aria-disabled")).toBe("true");
-
-      // And nothing reached the control plane.
-      mockDestinationCalls.length = 0;
-      await screen.click("save-google-gmail-destination-google_1");
-      expect(mockDestinationCalls).toEqual([]);
-      screen.unmount();
-    });
-
-    test("will not save the destination that is already stored, however it is spelled", async () => {
-      const screen = editorScreen();
-      await screen.click("edit-google-gmail-destination-google_1");
-      await type(screen, "0-inbox/email/seyi-at-supa-media/");
-
-      const save = screen.container.querySelector<HTMLElement>(
-        '[data-testid="save-google-gmail-destination-google_1"]',
-      );
-      expect(save!.getAttribute("aria-disabled")).toBe("true");
-      screen.unmount();
-    });
-
-    test("cancelling puts the stored value back", async () => {
-      const screen = editorScreen();
-      await screen.click("edit-google-gmail-destination-google_1");
-      await type(screen, "2-areas/communications");
-      await screen.click("cancel-google-gmail-destination-google_1");
-
-      expect(
-        screen.container.querySelector('[data-testid="google-gmail-destination-google_1"]'),
-      ).toBeNull();
-      expect(screen.container.textContent).toContain(
-        "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-      );
-      screen.unmount();
-    });
-  });
-
-  /*
-    The consequence of Disconnect used to sit beside the button permanently —
-    once per account, on a panel with two of them, making destructive text the
-    loudest thing on the page. It is armed now, like every other irreversible
-    control in this console.
-  */
-  test("what Disconnect takes with it is said between the presses, not beside the button", async () => {
+  test("the marks are named in words for anybody who cannot see them", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "calendar",
-        actions: {
-          workspaceId: "ws_1",
-          disconnect: async () => null,
-          saveDestination: async () => null,
-          saveSyncInterval: async () => null,
-        },
-        connections: [
-          {
-            connectionId: "google_1",
-            email: "seyi@supa.media",
-            syncServices: { gmail: true, calendar: true, chat: false },
-            syncStatus: "active",
-            sync: SYNCING_HOURLY,
-            gmail: {
-              backfillDays: 90,
-              folders: ["inbox"],
-              destinationFolder: "0-inbox/email/seyi-at-supa-media",
-              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-              historyCursorReady: true,
-            },
-            calendar: {
-              destinationFolder: "0-inbox/calendar",
-              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
-              syncCursorReady: true,
-            },
-          },
-        ],
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-
-    // At rest: the quiet line that a narrowed panel genuinely needs, and no
-    // warning shouting from a column of its own.
-    expect(screen.container.textContent).toContain("This account also syncs Email.");
-    expect(screen.container.textContent).not.toContain("Removes the whole account");
-
-    const disconnect = screen.container.querySelector<HTMLElement>(
-      '[aria-label="Disconnect seyi@supa.media, which also stops Email"]',
-    );
-    expect(disconnect).not.toBeNull();
-    await act(async () => {
-      disconnect!.click();
-    });
-
-    expect(screen.container.textContent).toContain("This removes the whole account");
-    expect(screen.container.textContent).toContain("Email stop too");
-    screen.unmount();
-  });
-
-  test("a draining historical Gmail import says it is stopping", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, {
-        connections: [
-          {
-            connectionId: "google_1",
-            email: "seyi@supa.media",
-            syncServices: { gmail: true, calendar: false, chat: false },
-            syncStatus: "backfilling",
-            sync: SYNCING_HOURLY,
-            gmail: {
-              backfillDays: 90,
-              folders: ["inbox", "sent"],
-              destinationFolder: "0-inbox/email/seyi-at-supa-media",
-              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-              historyCursorReady: false,
-            },
-            syncRun: {
-              runId: "run_1",
-              mode: "backfill",
-              services: ["gmail"],
-              status: "running",
-              requestedBackfillDays: 90,
-              totalUnits: 90,
-              completedUnits: 15,
-              itemsFound: 237,
-              daysWithMail: 8,
-              bytesWritten: 2_100_000,
-            },
-          },
-        ],
-      }),
-    );
-
-    const text = screen.container.textContent ?? "";
-    // The summary line went; the block's own status is the claim now.
-    expect(text).not.toContain("Email connected");
-    expect(text).toContain("Stopping historical import · 15 of 90 days scanned · 237 emails found · 8 days had mail · 2.0 MB saved");
-    expect(text).not.toContain("Email running");
-    expect(text).not.toContain("cursor");
-    screen.unmount();
-  });
-
-  test("connected accounts do not render stale details for disabled services", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, {
-        connections: [
-          {
-            connectionId: "google_1",
-            email: "seyi@supa.media",
-            syncServices: { gmail: true, calendar: false, chat: false },
-            syncStatus: "active",
-            sync: SYNCING_HOURLY,
-            gmail: {
-              backfillDays: 365,
-              folders: ["inbox"],
-              destinationFolder: "0-inbox/email/seyi-at-supa-media",
-              destinationPath: "0-inbox/email/seyi-at-supa-media/YYYY-MM-DD.md",
-              historyCursorReady: true,
-            },
-            calendar: {
-              destinationFolder: "0-inbox/calendar",
-              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
-              syncCursorReady: true,
-            },
-          },
-        ],
-      }),
-    );
-
-    const text = screen.container.textContent ?? "";
-    // The summary line went; the block's own status is the claim now.
-    expect(text).not.toContain("Email connected");
-    expect(text).toContain("Watching for new mail");
-    expect(text).not.toContain("Calendar:");
-    expect(text).not.toContain("0-inbox/calendar/YYYY-MM-DD.md");
+    expect(screen.container.innerHTML).toContain("Syncing Email, Calendar and Chat");
     screen.unmount();
   });
 });
 
-/**
- * THE SCHEDULE, WHICH IS THE PART THAT WAS MISSING.
- *
- * A connected mailbox that had never synced once and one syncing perfectly
- * rendered the same card. These checks are what stops that returning: the
- * sentence has to say which of the two this is, and the control that changes
- * it has to be the owner's alone.
- */
-describe("the sync schedule on a connected account", () => {
-  const neverSynced: GoogleSyncSchedule = {
-    intervalMinutes: 15,
-    everSynced: false,
-    cursorReady: false,
-    catchingUp: false,
-  };
-
-  function connection(sync: GoogleSyncSchedule): GoogleConnection {
-    return {
-      connectionId: "google_1",
-      email: "person@example.invalid",
-      syncServices: { gmail: true, calendar: false, chat: false },
-      syncStatus: "active",
-      sync,
-      gmail: {
-        backfillDays: 90,
-        folders: ["inbox", "sent"],
-        destinationFolder: "0-inbox/email/person-at-example-invalid",
-        destinationPath: "0-inbox/email/person-at-example-invalid/YYYY-MM-DD.md",
-        historyCursorReady: true,
-      },
-    };
-  }
-
-  test("a connection that has never synced says so, rather than looking healthy", () => {
+describe("nothing on the row is a setting", () => {
+  test("no destination field, and no path to edit", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [connection(neverSynced)],
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("Every 15 min");
-    expect(text).toContain("never synced yet");
-    expect(text).toContain("due now");
+    expect(screen.text()).not.toContain("Where it lands");
+    expect(screen.container.querySelector('[data-testid^="edit-google-"]')).toBeNull();
     screen.unmount();
   });
 
-  test("...and one that has synced does not", () => {
+  test("no schedule picker — the interval is a fact the page states once, not a choice per account", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [connection(SYNCING_HOURLY)],
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("Every 1 hour");
-    expect(text).not.toContain("never synced");
+    expect(screen.text()).not.toContain("Sync schedule");
+    expect(screen.container.querySelector('[data-testid^="google-sync-interval-"]')).toBeNull();
     screen.unmount();
   });
 
-  test("a pass that has only ever failed is not reported as never having been tried", () => {
+  test("and no product toggles on the way in: Google is asked for all three at once", async () => {
+    mockStartCalls.length = 0;
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [], actions }));
+    await screen.click("connect-google");
+    expect(mockStartCalls[0]).toMatchObject({
+      syncServices: { gmail: true, calendar: true, chat: true },
+    });
+    screen.unmount();
+  });
+});
+
+describe("the account's health belongs to the account", () => {
+  test("a healthy account says so in one line", () => {
+    expect(accountStatus(connection())).toEqual({ tone: "ok", text: "Syncing." });
+  });
+
+  test("a grant that needs reconnecting is critical, and says what to do", () => {
+    const stale = connection({ syncStatus: "reconnect_required" });
+    expect(accountStatus(stale).tone).toBe("crit");
+    expect(accountStatus(stale).text).toContain("Reconnect");
+  });
+
+  test("...and the server's own sentence wins, because it names the reason", () => {
+    const stale = connection({
+      syncStatus: "reconnect_required",
+      lastError: "Google needs to be reconnected before this mailbox can sync.",
+    });
+    expect(accountStatus(stale).text).toBe(
+      "Google needs to be reconnected before this mailbox can sync.",
+    );
+  });
+
+  test("connected and never synced is a state of its own, not an error", () => {
+    const fresh = connection({ sync: { ...SYNCING, everSynced: false, cursorReady: false } });
+    expect(accountStatus(fresh)).toEqual({
+      tone: "warn",
+      text: "Connected; waiting for the first pass.",
+    });
+  });
+
+  test("the reason reaches the row itself rather than a panel somebody has to open", () => {
     const screen = render(
       createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [
-          connection({
-            intervalMinutes: 15,
-            everSynced: false,
-            cursorReady: false,
-            catchingUp: false,
-            lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
-            nextDueAt: Date.parse("2026-09-09T09:15:00.000Z"),
-            lastFailureAt: Date.parse("2026-09-09T09:00:00.000Z"),
-            lastFailureCode: "GOOGLE_ACCESS_REFUSED",
-            lastFailure: "Google refused access to this mailbox.",
-          }),
-        ],
+        connections: [connection({ syncStatus: "reconnect_required" })],
+        actions,
       }),
     );
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("has not synced successfully yet");
-    expect(text).toContain("Google refused access to this mailbox.");
+    expect(screen.text()).toContain("Reconnect this account");
+    screen.unmount();
+  });
+});
+
+describe("disconnect is an account action", () => {
+  test("it arms before it acts", async () => {
+    disconnects.length = 0;
+    const screen = render(
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
+    );
+    await screen.click("disconnect-google-google_1");
+    expect(disconnects).toEqual([]);
+    expect(screen.text()).toContain("Press again");
     screen.unmount();
   });
 
-  test("a Calendar panel shows the account schedule that drives calendar passes", () => {
-    const account = connection(neverSynced);
+  test("...and says which services stop, between the two presses", async () => {
+    disconnects.length = 0;
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "calendar",
-        connections: [
-          {
-            ...account,
-            syncServices: { gmail: true, calendar: true, chat: false },
-            calendar: {
-              destinationFolder: "0-inbox/calendar",
-              destinationPath: "0-inbox/calendar/YYYY-MM-DD.md",
-              syncCursorReady: false,
-            },
-          },
-        ],
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("Sync schedule");
-    expect(text).toContain("Every 15 min");
-    // Calendar's own honest sentence is still there.
-    expect(text).toContain("Connected; waiting for the first scheduled calendar pass");
+    await screen.click("disconnect-google-google_1");
+    expect(screen.text()).toContain("Email, Calendar and Chat stop");
+    await screen.click("disconnect-google-google_1");
+    expect(disconnects).toEqual(["google_1"]);
     screen.unmount();
   });
 
-  test("a baselined mailbox says it is watching, not that it has synced", () => {
+  test("the spoken label carries the same consequence the sighted reader gets", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [
-          connection({
-            intervalMinutes: 15,
-            everSynced: false,
-            cursorReady: true,
-            catchingUp: false,
-            lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
-            nextDueAt: Date.parse("2026-09-09T09:15:00.000Z"),
-          }),
-        ],
-      }),
+      createElement(GoogleConnectionsCard, { connections: [connection()], actions }),
     );
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("watching for new mail; none read yet");
-    expect(text).not.toContain("never synced yet");
+    const button = screen.container.querySelector('[data-testid="disconnect-google-google_1"]');
+    expect(button?.getAttribute("aria-label")).toContain("stops Email, Calendar and Chat");
+    screen.unmount();
+  });
+});
+
+describe("the owner gate", () => {
+  test("no actions means no Add and no Disconnect at all, rather than disabled ones", () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [connection()] }));
+    expect(screen.container.querySelector('[data-testid="connect-google"]')).toBeNull();
+    expect(screen.container.querySelector('[data-testid="disconnect-google-google_1"]')).toBeNull();
+    expect(screen.text()).toContain("Only an owner can connect or remove Google accounts");
     screen.unmount();
   });
 
-  test("a mailbox draining a backlog says so instead of naming a next due time", () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [
-          connection({
-            intervalMinutes: 60,
-            everSynced: true,
-            cursorReady: true,
-            catchingUp: true,
-            lastAttemptAt: Date.parse("2026-09-09T09:00:00.000Z"),
-            nextDueAt: Date.parse("2026-09-09T09:00:00.000Z"),
-          }),
-        ],
-      }),
-    );
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("catching up on older mail");
+  test("an empty list still says what connecting one would do", () => {
+    const screen = render(createElement(GoogleConnectionsCard, { connections: [], actions }));
+    expect(screen.text()).toContain("No Google account connected yet");
     screen.unmount();
   });
 
-  test("the picker is the owner's alone — absent for anybody else, not disabled", () => {
-    const withoutActions = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [connection(neverSynced)],
-      }),
-    );
-    expect(
-      withoutActions.container.querySelector('[data-testid="google-sync-interval-5-google_1"]'),
-    ).toBeNull();
-    // The status itself is still shown: somebody who cannot change the
-    // schedule can still need to know the last pass failed.
-    expect(withoutActions.container.textContent).toContain("Every 15 min");
-    withoutActions.unmount();
-
-    const asOwner = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [connection(neverSynced)],
-        actions: {
-          workspaceId: "ws_1",
-          disconnect: async () => null,
-          saveDestination: async () => null,
-          saveSyncInterval: async () => null,
-        },
-      }),
-    );
-    expect(
-      asOwner.container.querySelector('[data-testid="google-sync-interval-5-google_1"]'),
-    ).not.toBeNull();
-    asOwner.unmount();
-  });
-
-  test("choosing an interval sends exactly that many minutes", async () => {
-    mockIntervalCalls.length = 0;
+  test("loading says so rather than claiming there is nothing", () => {
     const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [connection(neverSynced)],
-        actions: {
-          workspaceId: "ws_1",
-          disconnect: async () => null,
-          saveDestination: async () => null,
-          saveSyncInterval: async (connectionId, syncIntervalMinutes) => {
-            mockIntervalCalls.push({ connectionId, syncIntervalMinutes });
-            return null;
-          },
-        },
-      }),
+      createElement(GoogleConnectionsCard, { connections: [], actions, loading: true }),
     );
-    await screen.click("google-sync-interval-5-google_1");
-    expect(mockIntervalCalls).toEqual([{ connectionId: "google_1", syncIntervalMinutes: 5 }]);
-    screen.unmount();
-  });
-
-  test("a schedule the server refuses is shown, not swallowed", async () => {
-    const screen = render(
-      createElement(GoogleConnectionsCard, {
-        service: "gmail",
-        connections: [connection(neverSynced)],
-        actions: {
-          workspaceId: "ws_1",
-          disconnect: async () => null,
-          saveDestination: async () => null,
-          saveSyncInterval: async () => {
-            throw new Error("Sync can run at most every 5 minutes.");
-          },
-        },
-      }),
-    );
-    await screen.click("google-sync-interval-1440-google_1");
-    const text = screen.container.textContent ?? "";
-    expect(text).toContain("Schedule was not saved");
-    expect(text).toContain("Sync can run at most every 5 minutes.");
+    expect(screen.text()).toContain("Loading Google accounts");
+    expect(screen.text()).not.toContain("No Google account connected yet");
     screen.unmount();
   });
 });

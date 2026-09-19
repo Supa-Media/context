@@ -201,7 +201,15 @@ export const SETTINGS_SECTIONS = [
       all: the forwarding address, and this Mac.
     */
     keywords:
-      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud",
+      /*
+        The brand names matter more than our nouns — nobody types
+        "integrations" looking for Gmail — and the words for controls this page
+        no longer has are deliberately still here: somebody who remembers
+        choosing a folder or a sync schedule types "folder" or "every 15
+        minutes", and landing them on the page that used to ask, which now
+        states the answer, is the only way they find out it is settled.
+      */
+      "integrations integration connect connected sync app apps client claude cursor chatgpt copilot mcp assistant endpoint address revoke disconnect email gmail mailbox inbox forward forwarding capture ingestion sender allowed attachment spam mail google calendar calendars ical events event schedule agenda appointments chat chats imessage messages texts sms spaces dm direct conversation threads mac icloud folder destination lands interval minutes often frequency",
     scope: "context",
     label: "Integrations",
     /*

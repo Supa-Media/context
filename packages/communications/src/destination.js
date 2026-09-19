@@ -44,8 +44,25 @@ import { decodeSegment, normalizeRoot } from "../../meetings/src/paths.js";
  */
 export const DATE_TOKEN = "YYYY-MM-DD";
 
+/** The year and month folders a day sits under, as the pattern spells them. */
+export const YEAR_TOKEN = "YYYY";
+export const MONTH_TOKEN = "MM";
+
 /** Both spellings of the trailing day file, anchored to the end. */
-const DATE_PATTERN_FILE = /\/(?:YYYY-MM-DD|\{date\})\.md$/;
+/*
+  The day file, and the year and month folders in front of it since
+  2026-09-18. Both are stripped to answer "which folder is this", so a pattern
+  this module produced round-trips back to the folder it was built from — the
+  console saves what it renders, and without the `YYYY/MM` half a single save
+  would turn `0-inbox/calendar` into `0-inbox/calendar/YYYY/MM`, and the next
+  one into `…/YYYY/MM/YYYY/MM`.
+
+  The tokens are matched literally rather than as digits, deliberately: a
+  customer folder genuinely called `2-areas/2026/09` is a folder somebody
+  made, and stripping it would file their days two levels above where they
+  asked.
+*/
+const DATE_PATTERN_FILE = /\/(?:YYYY\/MM\/)?(?:YYYY-MM-DD|\{date\})\.md$/;
 
 /**
  * Per segment, not per path.
@@ -168,16 +185,20 @@ function refuse(code, message) {
 }
 
 /**
- * The stored shape: a folder plus the day file.
+ * The stored shape: a folder, the year and month folders, and the day file.
  *
  * One spelling, produced in one place, so a binding written today and one
- * written a year ago read the same.
+ * written a year ago read the same — and since 2026-09-18 that spelling
+ * carries `YYYY/MM/`, because that is where a day is actually written
+ * (`paths.js`). A pattern that said otherwise would be a promise about
+ * somebody's bucket that the sync does not keep, which is the exact defect
+ * this function exists to prevent.
  *
  * @param {string} folder
  * @returns {string}
  */
 export function destinationPattern(folder) {
-  return `${folder}/${DATE_TOKEN}.md`;
+  return `${folder}/${YEAR_TOKEN}/${MONTH_TOKEN}/${DATE_TOKEN}.md`;
 }
 
 /**
@@ -208,7 +229,7 @@ export function resolveDestinationPattern(pattern, date) {
   const year = String(date.getFullYear()).padStart(4, "0");
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
-  return `${result.folder}/${year}-${month}-${day}.md`;
+  return `${result.folder}/${year}/${month}/${year}-${month}-${day}.md`;
 }
 
 /**

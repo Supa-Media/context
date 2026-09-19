@@ -15,9 +15,7 @@ import { relativeTime } from "../format";
 import { PaneHead } from "../ConsoleShell";
 import { PanelHead, SubHead } from "../settings/panels/PanelHead";
 import { atName } from "../format";
-import { EmailPanel } from "../settings/panels/EmailPanel";
-import { CalendarPanel } from "../settings/panels/CalendarPanel";
-import { ChatsPanel } from "../settings/panels/ChatsPanel";
+import { SourcesPanel } from "../settings/panels/SourcesPanel";
 import { MeetingsPanel } from "../settings/panels/MeetingsPanel";
 import { ModelPanel } from "../settings/panels/ModelPanel";
 import { FastSearchCard } from "../search/FastSearchCard";
@@ -454,9 +452,7 @@ export function SettingsPane({
       </SubHead>
       <ConnectedAppsCard data={data} />
 
-      <EmailPanel data={data} />
-      <CalendarPanel data={data} />
-      <ChatsPanel data={data} />
+      <SourcesPanel data={data} />
       </>
       ) : null}
 

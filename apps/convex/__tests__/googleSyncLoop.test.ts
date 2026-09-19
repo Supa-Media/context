@@ -1678,7 +1678,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(row.syncBytesWritten).toBeGreaterThan(0);
 
     const written = backend.snapshot();
-    const day = "0-inbox/email/person-at-example-invalid/2026-09-08.md";
+    const day = "0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md";
     expect(Object.keys(written)).toContain(day);
     expect(written[day]).toContain("Quarterly numbers");
   });
@@ -1718,7 +1718,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect(view.sync.everSynced).toBe(true);
     expect(view.sync.cursorReady).toBe(true);
     const written = backend.snapshot();
-    expect(written["0-inbox/google-chat/2026-09-12.md"]).toContain(
+    expect(written["0-inbox/google-chat/2026/09/2026-09-12.md"]).toContain(
       "Ship the live Chat bridge",
     );
     expect(Object.entries(written)).toContainEqual([
@@ -1781,7 +1781,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     )[0]!;
     expect(view.sync.everSynced).toBe(true);
     expect(view.sync.cursorReady).toBe(true);
-    expect(backend.snapshot()["0-inbox/calendar/2026-09-13.md"]).toContain(
+    expect(backend.snapshot()["0-inbox/calendar/2026/09/2026-09-13.md"]).toContain(
       "Design review",
     );
     expect(google.calls).toEqual(["/calendar/v3/calendars/primary/events"]);
@@ -1852,7 +1852,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect((await readConnection(t, connectionId)).calendar?.syncToken).toBe(
       "calendar-token-1",
     );
-    expect(backend.snapshot()["0-inbox/calendar/2026-09-13.md"]).toBeUndefined();
+    expect(backend.snapshot()["0-inbox/calendar/2026/09/2026-09-13.md"]).toBeUndefined();
     expect(
       Object.keys(backend.snapshot()).some((path) =>
         path.startsWith(".context/communications/calendar/contributions/"),
@@ -1871,7 +1871,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     });
     const siblingResult = await runPass(t, workspaceId, siblingId);
     expect(siblingResult).toMatchObject({ status: "synced", cursorAdvanced: true });
-    const shared = backend.snapshot()["0-inbox/calendar/2026-09-13.md"]!;
+    const shared = backend.snapshot()["0-inbox/calendar/2026/09/2026-09-13.md"]!;
     expect(shared).toContain("person@example.invalid");
     expect(shared).toContain("sibling@example.invalid");
   });
@@ -1914,7 +1914,7 @@ describe("one pass, end to end, through the credential barrier", () => {
     expect((await readConnection(t, connectionId)).chat?.cursors?.["spaces/alpha"]).toBe(
       "2026-09-12T09:00:00.000Z",
     );
-    expect(backend.snapshot()["0-inbox/google-chat/2026-09-12.md"]).toBeUndefined();
+    expect(backend.snapshot()["0-inbox/google-chat/2026/09/2026-09-12.md"]).toBeUndefined();
     expect(
       Object.keys(backend.snapshot()).some((path) =>
         path.startsWith(".context/communications/google-chat/contributions/"),

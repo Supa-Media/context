@@ -75,7 +75,9 @@ import {
   type GoogleProduct,
 } from "./lib/googleOAuth";
 import {
+  accountSlugFor,
   defaultGoogleDestinationFolder,
+  takenAccountSlugs,
   readGoogleClientSecret,
   refuseAttempt,
   requireActor,
@@ -510,9 +512,19 @@ export const applyCalendarConnectionBinding = internalMutation({
         // `defaultGoogleDestinationFolder` answers differently, which would
         // move where an existing customer's days are written without them
         // doing anything.
+        /*
+          This account's own folder, since 2026-09-18 — two Google accounts
+          used to write one file between them, which no folder rule in
+          `privacy.md` could tell apart. Recorded here, like every other
+          destination, so a later connect or disconnect can never rename the
+          folder somebody's calendar is already in.
+        */
         destinationFolder:
           existing?.calendar?.destinationFolder ??
-          defaultGoogleDestinationFolder("calendar", undefined),
+          defaultGoogleDestinationFolder(
+            "calendar",
+            accountSlugFor(args.address, existing, await takenAccountSlugs(ctx, args.workspaceId, args.address)),
+          ),
         syncToken: existing?.calendar?.syncToken,
         lastFullSyncDate: existing?.calendar?.lastFullSyncDate,
         lastSyncedAt: existing?.calendar?.lastSyncedAt,

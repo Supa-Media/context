@@ -26,8 +26,25 @@ import type { Doc } from "../../_generated/dataModel";
  */
 export const MIN_SYNC_INTERVAL_MINUTES = 5;
 
-/** The interval a connection has when its owner has never chosen one. */
-export const DEFAULT_SYNC_INTERVAL_MINUTES = 15;
+/**
+ * The interval every connection runs at, which is the floor.
+ *
+ * It was 15 and a picker offered six values, so a person could ask for mail
+ * every five minutes or once a day. The picker is gone (2026-09-18, the
+ * owner): six buttons per account, on a page that drew every account three
+ * times, was eighteen controls for a question nobody had — and the honest
+ * answer to "how fresh is my context" is one number the product can state
+ * rather than a preference somebody has to find.
+ *
+ * Five, because a connection that syncs slower than the floor is a context
+ * that is quietly stale, and this is the only remaining reason the floor
+ * exists as a separate constant: the refusal below still holds for anything
+ * that reaches the mutation layer from elsewhere.
+ *
+ * The cost is real and was taken deliberately: an account left at the old
+ * default is now polled three times as often.
+ */
+export const DEFAULT_SYNC_INTERVAL_MINUTES = MIN_SYNC_INTERVAL_MINUTES;
 
 /**
  * The longest interval, one day. Not a policy about attention — a bound on
@@ -117,7 +134,15 @@ function lastSyncedAtFor(
   return connection[product]?.lastSyncedAt;
 }
 
-/** The interval in force for a row: the owner's choice, or the default, never below the floor. */
+/**
+ * The interval in force for a row.
+ *
+ * A stored value is still honoured where a row has one — rows written before
+ * the picker was removed carry 15, 60 or 1440, and silently speeding somebody
+ * up to five minutes is a change to their bill's inputs, not a UI cleanup. A
+ * row with none runs at the default, which is now the floor, so every account
+ * connected from here on is checked every five minutes.
+ */
 export function syncIntervalMinutesOf(connection: { syncIntervalMinutes?: number }): number {
   const chosen = connection.syncIntervalMinutes;
   if (typeof chosen !== "number" || !Number.isFinite(chosen)) {

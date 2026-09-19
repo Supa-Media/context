@@ -333,7 +333,7 @@ export function runNoteChecks(check) {
     "a day under the threshold is one part with the plain name",
     (() => {
       const one = planChannelDay(day());
-      return one.length === 1 && one[0].parts === 1 && one[0].path === "0-inbox/email/name-at-example-com/2026-09-07.md";
+      return one.length === 1 && one[0].parts === 1 && one[0].path === "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md";
     })()
   );
   check("the default threshold is the one the decision names", SPLIT_BYTE_THRESHOLD === 512 * 1024);

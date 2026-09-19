@@ -716,7 +716,7 @@ describe("the row shape: products and the nested gmail object", () => {
       gmail: {
         backfillDays: 90,
         folders: ["inbox", "sent"],
-        destinationPath: "0-inbox/email/person-at-example-invalid/YYYY-MM-DD.md",
+        destinationPath: "0-inbox/email/person-at-example-invalid/YYYY/MM/YYYY-MM-DD.md",
         historyCursorReady: false,
       },
     });
@@ -739,14 +739,14 @@ describe("the row shape: products and the nested gmail object", () => {
       workspaceId,
       connectionId,
       service: "gmail",
-      destinationPath: "2-areas/communications/mail/YYYY-MM-DD.md",
+      destinationPath: "2-areas/communications/mail/YYYY/MM/YYYY-MM-DD.md",
     });
 
     const [row] = await asUser(t, owner).query(api.functions.googleConnect.listGoogleConnections, {
       workspaceId,
     });
     expect(row?.gmail?.destinationFolder).toBe("2-areas/communications/mail");
-    expect(row?.gmail?.destinationPath).toBe("2-areas/communications/mail/YYYY-MM-DD.md");
+    expect(row?.gmail?.destinationPath).toBe("2-areas/communications/mail/YYYY/MM/YYYY-MM-DD.md");
 
     const secondConnectionId = await t.mutation(internal.functions.googleConnect.applyGmailConnectionBinding, {
       workspaceId,
@@ -764,7 +764,7 @@ describe("the row shape: products and the nested gmail object", () => {
         workspaceId,
         connectionId: secondConnectionId,
         service: "gmail",
-        destinationPath: "2-areas/communications/mail/YYYY-MM-DD.md",
+        destinationPath: "2-areas/communications/mail/YYYY/MM/YYYY-MM-DD.md",
       }),
     );
     expect(errorCode(conflict)).toBe("GOOGLE_SYNC_DESTINATION_CONFLICT");
@@ -787,7 +787,7 @@ describe("the row shape: products and the nested gmail object", () => {
         workspaceId: shared.workspaceId,
         connectionId: sharedConnectionId,
         service: "gmail",
-        destinationPath: "2-areas/communications/team-mail/YYYY-MM-DD.md",
+        destinationPath: "2-areas/communications/team-mail/YYYY/MM/YYYY-MM-DD.md",
       }),
     );
     expect(errorCode(error)).toBe("NOT_OWNER");
@@ -1664,9 +1664,12 @@ describe("the default destination folder is the package's answer, not a second o
   */
   const DAY = "2026-09-07";
 
+  /** `2026/09` — the folders the package files a day under, since 2026-09-18. */
+  const DATED = `${DAY.slice(0, 4)}/${DAY.slice(5, 7)}`;
+
   test("gmail defaults to the mailbox folder the package writes into", () => {
     const folder = defaultGoogleDestinationFolder("gmail", "person-at-example-invalid");
-    expect(`${folder}/${DAY}.md`).toBe(
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
       channelDayNotePath({ channel: "email", account: "person-at-example-invalid", date: DAY }, {}),
     );
     expect(folder).toBe("0-inbox/email/person-at-example-invalid");
@@ -1678,15 +1681,41 @@ describe("the default destination folder is the package's answer, not a second o
     expect(defaultGoogleDestinationFolder("gmail", undefined)).toBe("0-inbox/email/mailbox");
   });
 
-  test("calendar defaults to the folder the calendar package writes into", () => {
+  /*
+    Calendar and Chat take the account level too, since 2026-09-18 — two
+    Google accounts were writing one file between them, which no folder rule
+    in `privacy.md` could tell apart. The slug is only ever recorded, so an
+    absent one still answers the folder these products have always used: that
+    is what keeps an existing connection writing exactly where it was.
+  */
+  test("calendar defaults to this account's own folder under the calendar folder", () => {
+    const folder = defaultGoogleDestinationFolder("calendar", "person-at-example-invalid");
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
+      calendarDayNotePath({ date: DAY }, { folder }),
+    );
+    expect(folder).toBe("0-inbox/calendar/person-at-example-invalid");
+  });
+
+  test("...and a connection with no recorded slug keeps the folder it has always written to", () => {
     const folder = defaultGoogleDestinationFolder("calendar", undefined);
-    expect(`${folder}/${DAY}.md`).toBe(calendarDayNotePath({ date: DAY }, {}));
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(calendarDayNotePath({ date: DAY }, {}));
     expect(folder).toBe("0-inbox/calendar");
   });
 
-  test("chat defaults to the folder the channel package writes into", () => {
+  test("chat defaults to this account's own folder under the Chat folder", () => {
+    const folder = defaultGoogleDestinationFolder("chat", "person-at-example-invalid");
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
+      channelDayNotePath(
+        { channel: "google-chat", account: "person-at-example-invalid", date: DAY },
+        {},
+      ),
+    );
+    expect(folder).toBe("0-inbox/google-chat/person-at-example-invalid");
+  });
+
+  test("...and Chat too keeps the flat folder when no slug was ever recorded", () => {
     const folder = defaultGoogleDestinationFolder("chat", undefined);
-    expect(`${folder}/${DAY}.md`).toBe(
+    expect(`${folder}/${DATED}/${DAY}.md`).toBe(
       channelDayNotePath({ channel: "google-chat", date: DAY }, {}),
     );
     expect(folder).toBe("0-inbox/google-chat");

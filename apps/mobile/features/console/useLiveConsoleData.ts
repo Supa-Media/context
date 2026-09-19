@@ -429,12 +429,6 @@ export function useLiveConsoleData(): ConsoleData {
   const disconnectGoogle = useMutation(
     api.functions.googleConnect.disconnectGoogleConnection,
   );
-  const updateGoogleSyncDestination = useMutation(
-    api.functions.googleConnect.updateGoogleSyncDestination,
-  );
-  const updateGoogleSyncInterval = useMutation(
-    api.functions.googleSync.updateGoogleSyncInterval,
-  );
   const leaveWorkspace = useMutation(api.functions.workspaces.leaveWorkspace);
   const deleteAccountMutation = useMutation(api.functions.account.deleteAccount);
   // Not destructured: the context is undefined in test harnesses that
@@ -1131,19 +1125,6 @@ export function useLiveConsoleData(): ConsoleData {
               disconnectGoogle({
                 workspaceId: selectedContextId,
                 connectionId: connectionId as Id<"googleConnections">,
-              }),
-            saveDestination: (connectionId, service, destinationPath) =>
-              updateGoogleSyncDestination({
-                workspaceId: selectedContextId,
-                connectionId: connectionId as Id<"googleConnections">,
-                service,
-                destinationPath,
-              }),
-            saveSyncInterval: (connectionId, syncIntervalMinutes) =>
-              updateGoogleSyncInterval({
-                workspaceId: selectedContextId,
-                connectionId: connectionId as Id<"googleConnections">,
-                syncIntervalMinutes,
               }),
           },
     endpoint: MCP_ENDPOINT,

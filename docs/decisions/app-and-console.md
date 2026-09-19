@@ -5746,6 +5746,31 @@ reads as broken to every client at once. The line is drawn immediately, before
 the upload completes, because the object's name is known before the bytes move
 (below), so the optimistic line is the final one rather than a guess.
 
+**The pointer decides between the two verbs, and a resize needs no click at
+all.** Press and release on an image without moving and it is *selected* — ring,
+corner handles, toolbar. Press and travel more than four pixels and you are
+*moving* it, with the insertion caret showing where the line will land. One
+target, two gestures, told apart by what the hand does: it is what Notion and
+Craft do, and it is why the separate drag grip is gone — a 26px square with six
+dots in it was a second thing to find for a gesture the picture itself can
+carry. The side handles are on every writable image and appear under the
+pointer, so the commonest edit is one drag rather than a click and a drag; the
+cursor says the rest (`grab` over the picture, `grabbing` while it moves,
+`ew-resize` over a handle). Putting the image down is the caret going anywhere
+else — one definition of "the cursor is elsewhere", which this editor already
+had — and the image's own toolbar carries no selection, so it stays picked
+under the hand using it.
+
+**A drawn thing that nothing redraws is not drawn at all.** Clicking an image
+did nothing for a day, and the effect was landing correctly the whole time:
+`livePreview`'s decoration field only recomputes when the document, the
+selection, `readOnly`, the tree or the focus changed, and an image being picked
+is none of those, so the field held the pick and the view kept the old
+decorations. The gate now counts a fifth input. `imageInteraction.test.ts`
+exists because no unit test could have caught it — both halves were right on
+their own — so every assertion in it is made against a mounted `EditorView` and
+its DOM.
+
 **An image does not reveal its markup, which is this editor's one exception.**
 Everywhere else in `livePreview.ts` the line the selection is in shows its
 syntax, because you cannot edit syntax you cannot see. An image is where that
