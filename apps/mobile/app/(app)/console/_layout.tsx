@@ -24,6 +24,7 @@ import { ConsoleBottomBar } from "../../../features/console/ConsoleBottomBar";
 import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
 import { AccountBlock, Avatar } from "../../../features/console/AccountBlock";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { ConsoleNavProvider, type ConsoleNav } from "../../../features/console/ConsoleNavContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
 import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
 import { PluginSettingsPane } from "../../../features/console/plugins/PluginSettingsPane";
@@ -45,6 +46,9 @@ import { readFocus, scopeForFocus } from "../../../features/console/keyboardScop
 import { TabStrip } from "../../../features/console/files/TabStrip";
 import { tabAt } from "../../../features/console/files/tabs";
 import {
+  arrived,
+  canGoBack,
+  canGoForward,
   currentPlace,
   emptyHistory,
   hasSomewhereToGo,
@@ -52,7 +56,6 @@ import {
   recentPaths,
   samePlace,
   stepped,
-  visited,
   type HistoryState,
   type Place,
 } from "../../../features/console/files/history";
@@ -361,7 +364,14 @@ export default function ConsoleLayout() {
       if (samePlace(navigatingTo.current, here)) navigatingTo.current = null;
       return;
     }
-    setHistory((current) => visited(current, here));
+    /*
+      `arrived`, not `visited`: on the web this effect is also where a press of
+      the **browser's own back button** lands — it changes `?note=`, the route
+      opens that note, and the selection moves. Recorded as a fresh visit that
+      would truncate the forward tail, so the browser could go back and `›`
+      could never go forward again. See `history.ts`.
+    */
+    setHistory((current) => arrived(current, here));
   }, [here]);
 
   const step = useCallback(
@@ -484,6 +494,26 @@ export default function ConsoleLayout() {
    * so the cheap `.some()` is the one that belongs up here.
    */
   const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
+
+  /**
+   * The two verbs the panes below `<Slot/>` cannot reach on their own.
+   *
+   * `follow` is a link in the open note; `back`/`forward` are the breadcrumb's
+   * `‹ ›`, which until now existed only in the phone's bottom bar. Both live
+   * up here — `useTabs` and `history` are this component's state — and both
+   * are needed inside `BrowsePane`, which is a separate route. See
+   * `ConsoleNavContext`.
+   */
+  const nav = useMemo<ConsoleNav>(
+    () => ({
+      follow: tabs.follow,
+      back: () => step(-1),
+      forward: () => step(1),
+      canBack: canGoBack(history),
+      canForward: canGoForward(history),
+    }),
+    [tabs.follow, step, history],
+  );
 
   /**
    * Close a tab: write what is pending, and ask only about what cannot be.
@@ -786,6 +816,7 @@ export default function ConsoleLayout() {
 
   return (
     <ConsoleDataProvider value={data}>
+      <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {data.pluginRuntime?.host}
       {/*
@@ -1668,6 +1699,7 @@ export default function ConsoleLayout() {
         {meetingSheet}
       </AppFrame>
       </VoiceHostProvider>
+      </ConsoleNavProvider>
     </ConsoleDataProvider>
   );
 }

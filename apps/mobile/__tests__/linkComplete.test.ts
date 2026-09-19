@@ -185,7 +185,7 @@ afterEach(() => {
 /** A mounted editor whose only extension is the completion under test. */
 function mount(doc: string): EditorView {
   const ref: { current: NoteLinkContext } = {
-    current: { path: null, paths: PATHS, onOpen: () => {}, onPress: () => {} },
+    current: { path: null, paths: PATHS, onOpen: () => {} },
   };
   const parent = document.createElement("div");
   document.body.appendChild(parent);

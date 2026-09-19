@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FrameIconButton } from "../../app/AppFrame";
+import { useConsoleNav } from "../ConsoleNavContext";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
 import { densityFor, noteGutterFor } from "../../app/frame";
 import { Button } from "../../design/components/Button";
@@ -142,6 +143,9 @@ export function BrowsePane({
 }) {
   const styles = useThemedStyles(makeStyles);
   const files = data.files;
+  // Following a link, and the breadcrumb's `‹ ›`. `null` outside a console
+  // layout — the landing page's demo pane — see `ConsoleNavContext`.
+  const nav = useConsoleNav();
   const current = selectedContext(data);
   const contextLabel = atName(current?.slug ?? "your context");
 
@@ -1216,13 +1220,26 @@ export function BrowsePane({
         onUseTheirs={files.useTheirs}
         onKeepMine={files.keepMine}
         /*
-          Following a link is the same operation as tapping a note in the tree,
-          and it goes through the same `select` — so the unsaved-changes guard
-          refuses it the same way, the URL follows it (`useNoteAddress`), and
-          the device remembers where it left somebody. A second navigation path
-          here would be a second set of all three.
+          FOLLOWING A LINK IS NOT THE SAME OPERATION AS TAPPING A NOTE IN THE
+          TREE, AND TREATING IT AS ONE IS WHAT LOST THE NOTE YOU CAME FROM.
+
+          This was `files.select`, on the argument that one navigation path
+          means one unsaved-changes guard, one URL mirror and one remembered
+          place. All three of those are still true — `nav.follow` calls the
+          same `select` and honours the same refusal — and the argument was
+          missing the tab: a selection opens a *preview* tab, which the next
+          selection REPLACES, so following a link from A to B and then B to C
+          left one tab and no way back to A but the tree.
+
+          `nav.follow` pins it and puts it right of the tab it came from, and
+          `"background"` (⌘-click) opens it without moving anybody. See
+          `useTabs` and `ConsoleNavContext`.
+
+          `undefined` where there is no console layout above this pane — the
+          landing page's demo — and the editor then draws links as plain text
+          rather than as a control that does nothing.
         */
-        onOpenLink={files.select}
+        onOpenLink={nav?.follow}
         // The file tree's own listings, unioned with the search index's
         // docmap — see `linkPaths` on `FileBrowser` and "L1" in
         // `docs/decisions/app-and-console.md`. `knownNotePaths(files.listings)`
@@ -1312,6 +1329,23 @@ export function BrowsePane({
           <View style={[styles.crumb, { paddingLeft: noteGutterFor(headWidth) }]}>
             <Breadcrumb
               path={selected.path}
+              /*
+                `‹ ›` at the head of the path, on a pointer. The phone's
+                breadcrumb is `pathOnly` and draws neither: its bottom bar has
+                carried the same pair over the same `history.ts` stack all
+                along, and two of one control on a 390pt screen is what the
+                second drawer toggle was deleted for being.
+              */
+              history={
+                nav === null
+                  ? undefined
+                  : {
+                      canBack: nav.canBack,
+                      canForward: nav.canForward,
+                      onBack: nav.back,
+                      onForward: nav.forward,
+                    }
+              }
               /*
                 What the note calls itself, where it calls itself anything.
 

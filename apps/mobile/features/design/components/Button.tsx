@@ -336,6 +336,7 @@ export function PressRow({
   ariaExpanded,
   ariaHasPopup,
   ariaChecked,
+  disabled,
 }: {
   children: ReactNode;
   onPress?: () => void;
@@ -397,6 +398,24 @@ export function PressRow({
    * three-value union rather than the whole ARIA vocabulary.
    */
   ariaChecked?: boolean;
+  /**
+   * A control that is drawn and has nothing behind it.
+   *
+   * The breadcrumb's `‹ ›` are the case: they are dimmed in place at the ends
+   * of a history rather than removed, because two controls that come and go
+   * move every segment beside them — and a row whose `onPress` is simply
+   * absent is inert without *saying* so, which had a screen reader announcing
+   * "Go back, button" on a console with nowhere to go back to. Dimmed and
+   * announced-as-available is a worse lie than absent.
+   *
+   * Passed to `Pressable`'s own `disabled` rather than spelled as an
+   * `aria-disabled` prop beside the two above, because react-native-web's
+   * `Pressable` writes that attribute *itself* from `disabled` — so a hand-set
+   * one is overwritten with `undefined` and the row goes back to lying,
+   * silently. It also takes the row out of the tab order, which is the other
+   * half of what "there is nothing here" means.
+   */
+  disabled?: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -404,6 +423,7 @@ export function PressRow({
   return (
     <Pressable
       role={role}
+      disabled={disabled}
       accessibilityLabel={accessibilityLabel}
       // `aria-selected` is set directly rather than through
       // `accessibilityState`. react-native-web 0.21 no longer maps

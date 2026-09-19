@@ -2732,13 +2732,96 @@ awkward corpus and requires identical answers, with a floor on how many of them
 rewrote anything — a corpus that changed nothing would pass by comparing `null`
 to `null`.
 
-**Following a link is ⌘-click, and a plain click still places the caret.** This
-is an editor, and a mistyped path lives *inside* a link; an implementation that
-followed a plain click reads as working and has made those characters
-unreachable. A modifier is invisible, so hovering names the note and the chord.
-On a phone it is a long press, and the press **asks** rather than navigating: a
-press is also how a selection starts, and what it would replace is the note in
-front of somebody, possibly holding an unsaved draft.
+**Following a link is one click, and two gestures reach the text instead.**
+⌥-click places the caret and navigates nothing; so does a click on a link that
+is already showing its source, because live preview unfolds the link the
+selection touches and clicking text puts a caret in it. A ⌘-click (Ctrl off an
+Apple keyboard) or a middle-click opens the note **behind** the one on screen.
+On a phone a tap follows and a long press is a selection again. The tooltip
+names the target note instead of teaching a keystroke.
+
+*This reverses the rule that stood here until 2026-09-19, and the reversal is
+the argument rather than a change of taste.* What stood here was: following is
+⌘-click, a plain click still places the caret, because this is an editor and a
+mistyped path lives inside a link — an implementation that followed a plain
+click reads as working and has made those characters unreachable. The premise
+is still true and the conclusion was wrong, because it rested on a click being
+the *only* way to reach a link's text. It is not: ⌥ reaches it and a caret
+already inside it reaches it, and both are cheap. What the old rule spent to
+protect those characters was the gesture everybody already has — so the feature
+had to announce its own chord in a tooltip to exist at all, which is the shape
+of a feature nobody finds. The owner, reporting it: "I should be able to go to a
+link just by clicking it once, similar to obsidian, shouldnt have to command
+click."
+
+The long press went with it, and that deletion is worth as much as the click.
+A press is also how a selection starts, so it could not navigate on its own —
+it raised a confirmation, and to arrive at all it had to be told apart from a
+scroll *and* from WebKit's own long-press recogniser, which claims a stationary
+touch and announces it by sending `touchcancel`. That cost a timer, a cancel
+floor, a `contextmenu` handler, a rule about which of two signals fires first,
+and a dialog in front of all of it. A tap is over before any recogniser has an
+opinion and is not ambiguous, so the whole apparatus is gone and the platform
+has its long press back.
+
+**A followed link opens a pinned tab, immediately right of the tab it came
+from.** Following used to go through `files.select`, which opens a *preview*
+tab — the one the next selection replaces — so following A → B → C left one tab
+and nothing behind to come back to. Pinned because a followed link is a
+destination rather than a glance; beside its source because the note you were
+reading and the note it sent you to are one train of thought. ⌘-click opens it
+without moving the selection at all, which is what "behind" has to mean.
+
+**`‹ ›` are drawn at every density.** `history.ts` has held the stack since the
+phone's toolbar was built, and `ConsoleBottomBar` — the only thing that drew
+them — renders at `compact` only. So on a desktop the console kept a complete,
+correct, tested history of where somebody had been and offered no way to walk
+it: the route with no way in, again. They sit at the head of the note's path,
+where a browser and Obsidian both put them. The phone keeps them in the bottom
+bar and the breadcrumb draws neither there, because two of one control on a
+390pt screen is what the second drawer toggle was deleted for being.
+
+**A navigation pushes `?note=`; a correction replaces it.** Every write was
+`setParams`, which replaces — so every note had its own URL, the app wrote those
+URLs as you moved, and the address bar was still a label on the current screen
+rather than a record of where anybody had been. The browser's own back button
+left the console from the third note as surely as from the first. A push is a
+real `router.push`, the same call an activity link already made, and it is web
+only: a push on a native stack is a *screen*, and four followed links would be
+four panes stacked on each other.
+
+The cost is a remount: `Slot` is a `StackRouter`, so a pushed address is a new
+route entry and `BrowsePane` is rebuilt. What that loses is the note scroller's
+offset, which the arriving note replaces anyway; the tree, the listings, the
+tab strip and the open draft all belong to the layout, which does not remount.
+A push also only happens while the address is carrying nothing but a context
+and a note, because it rebuilds the address from those two and would otherwise
+drop a `?settings=` beside them.
+
+What tells a navigation from a correction is `FileBrowser.navigations`, a
+counter bumped by a `select` the unsaved-changes guard allowed. The selection changing is not
+enough on its own — a rename moves the path under the open note, and pushing
+that would leave a history entry naming a path that no longer exists. Nobody
+navigated when the last tab closed either, and a back button that returns to an
+empty pane is worse than one that skips it.
+
+**An arrival at a neighbouring place moves the cursor rather than appending.**
+`history.ts` now has `arrived` beside `visited`, because the address bar is a
+second history over the same places: the browser's back changes `?note=` under
+the console, the note it names is opened, and that arrival reaches the same
+effect a click does. Recorded as a fresh visit it would truncate the forward
+tail, so the browser could go back and `›` could never go forward again. The
+cost is stated rather than discovered: deliberately navigating to the note you
+were just on — clicking it in the tree rather than pressing `‹` — now moves the
+cursor back instead of appending a third entry, so `›` afterwards returns to the
+note you left. A browser would have appended and its forward would be dead;
+this is the better of the two, and it is the one that keeps `‹ ›` agreeing with
+what the address bar just did.
+
+Settings sections and app panes are places in `history.ts` and are *not* pushed,
+because `?settings=` is written with `setParams` — so the browser's back may
+skip a settings section that `‹` walks. Two stacks that agree about notes and
+differ about an overlay, honestly, beats one that lies about either.
 
 **The editor does not check that a link's target exists**, and that is forced
 rather than lazy: the tree loads folder by folder, so the console knows the
@@ -2750,8 +2833,14 @@ prose. Following a link to a note that is not there lands on the editor's own
 What a simplification would cost, and the test that catches it: dropping the
 `canSee` filter is two failures in `linkRewrite.test.ts`; substituting instead
 of recomputing relative links is one there and three in the gateway's
-`links.test.mjs`; following a plain click is one in `editorLinks.test.ts`; and
-letting the two engines drift is two in `linkParity.test.ts`.
+`links.test.mjs`; and letting the two engines drift is two in
+`linkParity.test.ts`. On the gestures: dropping the ⌥ check is two failures in
+`editorLinks.test.ts` and dropping `hasFocus` from the caret check is five;
+opening a followed link without honouring `select`'s refusal is one in
+`tabsContextSwitch.test.ts`; pushing every URL write rather than only a
+navigation is six in `noteAddress.test.ts`; making `arrived` an alias for
+`visited` is three in `noteHistory.test.ts`; and taking `‹ ›` back out of the
+breadcrumb is four in `browseHistoryButtons.test.ts`.
 
 ### A route with no way in is a route nobody has
 

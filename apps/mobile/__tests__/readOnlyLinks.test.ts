@@ -12,7 +12,7 @@
  * renderer is still followable once editing is switched off. This mounts the
  * real `editorExtensions` — the same configuration both `LiveEditor` hosts
  * share — with `editable: false`, the shape `privacy.md` and every shared
- * note actually reach the editor in, and drives a real ⌘-click the way
+ * note actually reach the editor in, and drives a real click the way
  * `editorLinks.test.ts` does for the editable case.
  *
  * Two things matter here, not one: the link opens, *and* nothing about
@@ -40,7 +40,7 @@ afterEach(() => {
 function mount(editable: boolean) {
   const opened: string[] = [];
   const links: NoteLinkRef = {
-    current: { path: NOTE, paths: [NOTE, TARGET], onOpen: (path) => opened.push(path), onPress: () => {} },
+    current: { path: NOTE, paths: [NOTE, TARGET], onOpen: (path) => opened.push(path) },
   };
   const parent = document.createElement("div");
   document.body.appendChild(parent);
@@ -60,32 +60,33 @@ function mount(editable: boolean) {
   return { view, opened };
 }
 
-function metaMousedown(): MouseEvent {
-  return new MouseEvent("mousedown", {
-    bubbles: true,
-    cancelable: true,
-    clientX: 1,
-    clientY: 1,
-    metaKey: true,
-  });
+/**
+ * A plain click, which is what following a link is now.
+ *
+ * It was `metaKey: true` here, and the change is the point rather than an
+ * update: a read-only note is the one people follow links out of most, and
+ * a gesture that has to be taught is worst exactly there.
+ */
+function mousedown(): MouseEvent {
+  return new MouseEvent("mousedown", { bubbles: true, cancelable: true, clientX: 1, clientY: 1 });
 }
 
 describe("R2 — a read-only note keeps its links followable", () => {
-  test("a read-only note still opens a ⌘-clicked link", () => {
+  test("a read-only note still opens a clicked link", () => {
     const { view, opened } = mount(false);
-    view.contentDOM.dispatchEvent(metaMousedown());
+    view.contentDOM.dispatchEvent(mousedown());
     expect(opened).toEqual([TARGET]);
   });
 
   test("an editable note opens the same link the same way — the read-only case is not special-cased into brokenness", () => {
     const { view, opened } = mount(true);
-    view.contentDOM.dispatchEvent(metaMousedown());
+    view.contentDOM.dispatchEvent(mousedown());
     expect(opened).toEqual([TARGET]);
   });
 
   test("following the link on a read-only note does not write to the buffer", () => {
     const { view, opened } = mount(false);
-    view.contentDOM.dispatchEvent(metaMousedown());
+    view.contentDOM.dispatchEvent(mousedown());
     expect(opened).toEqual([TARGET]);
     expect(view.state.doc.toString()).toBe(DOC);
   });
