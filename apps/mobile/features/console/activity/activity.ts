@@ -167,12 +167,37 @@ export function targetOf(entry: ActivityEntry): string | null {
  * right answer for somebody who just joined, and the one that does not require
  * inventing a moment they arrived.
  */
-export function unseenCount(entries: readonly ActivityEntry[], seenAt: number | null): number {
-  if (seenAt === null) return entries.length;
-  return entries.filter((entry) => {
-    const at = Date.parse(entry.at);
-    return Number.isFinite(at) && at > seenAt;
-  }).length;
+export function unseenCount(
+  entries: readonly ActivityEntry[],
+  seenAt: number | null,
+  /** The reader's own `@name`, so their own hand is not news to them. */
+  me?: string | null,
+): number {
+  return entries.filter((entry) => isUnseen(entry, seenAt, me)).length;
+}
+
+/**
+ * Whether one entry is new to this reader.
+ *
+ * Two rules. The first is the timestamp. The second is that **your own hand in
+ * the console is never news to you**: you made that change, you watched it
+ * happen, and a console that tells you three things changed when all three
+ * were yours is a console nobody believes the fourth time.
+ *
+ * Your own *client* is a different matter and stays unread: ChatGPT filing
+ * something into your context while you were not looking is exactly what the
+ * feature was asked for, and "@seyi's ChatGPT" is not @seyi at a keyboard.
+ * That is the whole reason the entry carries `via` separately from `by`.
+ */
+function isUnseen(
+  entry: ActivityEntry,
+  seenAt: number | null,
+  me?: string | null,
+): boolean {
+  if (me !== undefined && me !== null && entry.by === me && entry.via === null) return false;
+  if (seenAt === null) return true;
+  const at = Date.parse(entry.at);
+  return Number.isFinite(at) && at > seenAt;
 }
 
 /**
@@ -239,11 +264,11 @@ export function markedRows(
 export function unseenNotePaths(
   entries: readonly ActivityEntry[],
   seenAt: number | null,
+  me?: string | null,
 ): Set<string> {
   const paths = new Set<string>();
   for (const entry of entries) {
-    const at = Date.parse(entry.at);
-    if (seenAt !== null && (!Number.isFinite(at) || at <= seenAt)) continue;
+    if (!isUnseen(entry, seenAt, me)) continue;
     for (const path of entry.paths) {
       if (path.endsWith(".md")) paths.add(path);
     }
@@ -270,8 +295,10 @@ export function rows(
   entries: readonly ActivityEntry[],
   seenAt: number | null,
   now: number,
+  /** The reader's own `@name` — see `isUnseen`. */
+  me?: string | null,
 ): ActivityRow[] {
-  const unseen = unseenCount(entries, seenAt);
+  const unseen = unseenCount(entries, seenAt, me);
   const out: ActivityRow[] = [];
   let day: string | null = null;
   entries.forEach((entry, index) => {

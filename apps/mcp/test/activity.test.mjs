@@ -47,6 +47,7 @@ import {
   applyEntry,
   describeEntry,
   entryFor,
+  mayBeReportable,
   nextFile,
   parseFile,
   renderFile,
@@ -77,6 +78,31 @@ export async function runActivityChecks(check) {
     "a created note is a line",
     entryFor(change("create_note", ["1-projects/alpha.md"], { team_visible: true }))
       ?.kind === "added",
+  );
+
+  /*
+    The cheap half, asked before anything is read. It has to agree with
+    `entryFor` on the two things it can see — otherwise the optimisation is a
+    filter, and a filter nobody tested is a way to lose changes silently.
+  */
+  check(
+    "the pre-check refuses what entryFor refuses, without reading anything",
+    !mayBeReportable("read_note", ["1-projects/alpha.md"]) &&
+      !mayBeReportable("create_note", [".context/audit/x.json"]) &&
+      !mayBeReportable("create_note", []) &&
+      !mayBeReportable("propose_note", ["1-projects/alpha.md"]) &&
+      mayBeReportable("create_note", ["1-projects/alpha.md"]),
+  );
+  check(
+    "and it is looser rather than stricter: a trivial edit still gets looked at",
+    mayBeReportable("update_note", ["1-projects/alpha.md"]) &&
+      entryFor(
+        change("update_note", ["1-projects/alpha.md"], {
+          team_visible: true,
+          previous_bytes: 100,
+          content_bytes: 101,
+        }),
+      ) === null,
   );
 
   check(

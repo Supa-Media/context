@@ -20,11 +20,10 @@
 
 import {
   ACTIVITY_PATH,
+  mayBeReportable,
   nextFile as nextActivityFile,
   parseFile as parseActivityFile,
   visibleEntries as visibleActivityEntries,
-  isQuietPath,
-  SUBSTANCE,
 } from "@context/shared/src/activity.cjs";
 
 import {
@@ -49,23 +48,6 @@ export interface ActivityChange {
   paths: string[];
   details: Record<string, string | number | boolean | null | undefined>;
   actor: ActivityActor | null;
-}
-
-/**
- * Whether this is worth opening the file for.
- *
- * The cheap half of the substance test, run before any read: an action nobody
- * reports, or a path that is not a note, costs nothing. Everything else costs
- * one `GET` of a file that is usually a few kilobytes, and — thanks to the
- * refresh window in the shared module — usually no write at all.
- */
-export function mayBeReportable(action: string, paths: readonly string[]): boolean {
-  const kind = Object.prototype.hasOwnProperty.call(SUBSTANCE, action)
-    ? SUBSTANCE[action as keyof typeof SUBSTANCE]
-    : null;
-  if (!kind) return false;
-  if (!paths.length) return false;
-  return !paths.some((path) => isQuietPath(path));
 }
 
 /**

@@ -1821,7 +1821,9 @@ export const authorizeFileAccess = internalQuery({
           role: PINNED_CONTEXT_ROLE,
           scope: scopeForRole(PINNED_CONTEXT_ROLE),
           grantedNames: [],
-          actorName: await personalNameFor(ctx, args.actorUserId),
+          // A pinned reader is read-only, so there is nothing for a name to
+          // appear beside. See `personalNameFor`.
+          actorName: null,
         };
       }
     }
@@ -1838,13 +1840,29 @@ export const authorizeFileAccess = internalQuery({
       role: access.membership.role,
       scope: scopeForRole(access.membership.role),
       grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
-      actorName: await personalNameFor(ctx, args.actorUserId),
+      /*
+        Resolved only for a caller who can change something.
+
+        This query is on the path of every file read, and a name is used by
+        exactly one thing: the line `activity.md` writes about a change. The
+        five operations that record one all ask for `editor` or `owner`
+        (`writeNote`, `moveEntry`, `archiveEntry`, and the two visibility
+        actions), and every read asks for `member` — so the tier is already
+        the question "could this call write", and a second flag saying the
+        same thing would be a second thing to keep in step.
+      */
+      actorName:
+        args.minimum === "member" ? null : await personalNameFor(ctx, args.actorUserId),
     };
   },
 });
 
 /**
  * A person's name across every context: their personal workspace's slug.
+ *
+ * Walked rather than indexed, and bounded by how many contexts somebody owns
+ * — one for almost everybody, and the first row is theirs. Called only from
+ * the write tiers above, never on a read.
  *
  * The same answer the gateway's `personalNameFor` gives an AI client, computed
  * from the same two facts — a workspace they own, of kind `personal` — so one

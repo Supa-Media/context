@@ -333,7 +333,9 @@ describe("a pinned reader may read and may not write", () => {
       // membership, and `grantedNamesFor` answers from `workspaceMembers`,
       // which a pinned reader has no row in. So a folder named to a group is
       // absent to them exactly as a private one is.
-    ).toEqual({ role: "member", scope: "team", grantedNames: [], actorName: "@sayo" });
+    )// `actorName` is null at `member`: it is resolved only for a caller who
+    // could write, and this one cannot. See `personalNameFor`.
+    .toEqual({ role: "member", scope: "team", grantedNames: [], actorName: null });
   });
 
   test("`team` scope, so a private note of ours stays private", async () => {
@@ -388,7 +390,8 @@ describe("a pinned reader may read and may not write", () => {
       role: "owner",
       scope: "private",
       grantedNames: ["staff-personal"],
-      actorName: "@staff-personal",
+      // Asked at `member`, so no name is resolved — see the check above.
+      actorName: null,
     });
   });
 

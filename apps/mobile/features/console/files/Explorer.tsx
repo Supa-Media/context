@@ -831,12 +831,18 @@ export function Explorer({
         <PressRow
           accessibilityLabel={`${activityLabel}. Show what changed`}
           onPress={() => {
-            const opened = activityOpen === null;
-            setActivityOpen(opened ? Date.now() : null);
+            const opening = activityOpen === null;
+            setActivityOpen(opening ? Date.now() : null);
+            // Re-read on the way in. The entries arrived when this console
+            // did, and everything that has happened since — including this
+            // person's own last hour of work — is in the file rather than in
+            // state. One small read, on a press, is the cheapest honest
+            // answer; the alternative is a subscription over a file.
+            if (opening) activity.refresh();
             // Marked on close rather than on open: a list that clears its own
             // marker the instant it appears is one you cannot look away from
             // and come back to.
-            if (!opened) activity.markSeen();
+            else activity.markSeen();
           }}
           ariaExpanded={activityOpen !== null}
           ariaHasPopup="menu"

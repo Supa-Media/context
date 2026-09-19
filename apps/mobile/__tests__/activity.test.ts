@@ -122,6 +122,30 @@ describe("what is new to this reader", () => {
   });
 });
 
+describe("your own hand", () => {
+  const mine = entry({ by: "@me", via: null });
+  const myClient = entry({ by: "@me", via: "ChatGPT" });
+  const theirs = entry({ by: "@sayo", via: null });
+
+  test("is not news to you, however long ago you last looked", () => {
+    expect(unseenCount([mine, theirs], null, "@me")).toBe(1);
+  });
+
+  test("but your own client is, because you were not watching it", () => {
+    expect(unseenCount([myClient], null, "@me")).toBe(1);
+  });
+
+  test("and a console with no name for you counts everything, which is the safe way to be wrong", () => {
+    expect(unseenCount([mine, theirs], null, null)).toBe(2);
+  });
+
+  test("your own note carries no dot in the tree", () => {
+    expect(
+      unseenNotePaths([mine], null, "@me").has("1-projects/alpha/notes.md"),
+    ).toBe(false);
+  });
+});
+
 describe("the line at the foot of the tree", () => {
   const counts = "12 notes, 8 folders";
 

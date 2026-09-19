@@ -764,7 +764,16 @@ export function useLiveConsoleData(): ConsoleData {
     one surface a frame behind — the frame where the paths on screen belong to
     the context somebody just left.
   */
-  const activity = useActivity(membershipContextId ?? null);
+  /** The viewer's own `@name`, or null for an account with no personal context. */
+  const ownSlug = ownPersonalContext(contexts)?.slug ?? null;
+  const ownName = ownSlug === null ? null : `@${ownSlug}`;
+  const activity = useActivity(
+    membershipContextId ?? null,
+    // The viewer's own name, from their own personal context — the same
+    // `@name` the gateway stamps on what their clients do, which is what makes
+    // "was this me?" answerable at all.
+    ownName,
+  );
 
   // Read for every member — how a context's search is served is not privileged
   // — and the switch attached only where the server said `canChange`. That is

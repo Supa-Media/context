@@ -246,6 +246,15 @@ describe("the list", () => {
     expect(container.querySelector('[data-testid="explorer-activity-list"]')).toBeNull();
   });
 
+  test("opening it re-reads the file, because state is older than the bucket", () => {
+    const seen: Seen = { marked: 0, opened: [] };
+    let refreshed = 0;
+    const activity = { ...view([entry()], Date.now() - 600_000, seen), refresh: () => { refreshed += 1; } };
+    const container = mount(activity);
+    press(container.querySelector('[data-testid="explorer-activity"]')!);
+    expect(refreshed).toBe(1);
+  });
+
   test("opening the list does not mark it read", () => {
     const seen: Seen = { marked: 0, opened: [] };
     const container = mount(view([entry()], Date.now() - 600_000, seen));

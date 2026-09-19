@@ -30,17 +30,18 @@ export type { ActivityView } from "./activity";
  * over a file, and the list is at most one small read per visit.
  */
 
-export const EMPTY_ACTIVITY: ActivityView = {
-  entries: [],
-  seenAt: null,
-  unseen: 0,
-  unseenPaths: new Set(),
-  loaded: false,
-  refresh: () => {},
-  markSeen: () => {},
-};
 
-export function useActivity(workspaceId: Id<"workspaces"> | null): ActivityView {
+export function useActivity(
+  workspaceId: Id<"workspaces"> | null,
+  /**
+   * The reader's own `@name`, so their own console edits are not news to them.
+   *
+   * `null` where the console has not resolved one — an account with no
+   * personal context, or a first paint. The cost of not knowing is one line
+   * that reads as unread until they look, which is the safe direction.
+   */
+  me: string | null = null,
+): ActivityView {
   const list = useAction(api.functions.files.listActivity);
   const mark = useMutation(api.functions.files.markActivitySeen);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
@@ -113,12 +114,12 @@ export function useActivity(workspaceId: Id<"workspaces"> | null): ActivityView 
     () => ({
       entries,
       seenAt,
-      unseen: unseenCount(entries, seenAt),
-      unseenPaths: unseenNotePaths(entries, seenAt),
+      unseen: unseenCount(entries, seenAt, me),
+      unseenPaths: unseenNotePaths(entries, seenAt, me),
       loaded,
       refresh,
       markSeen,
     }),
-    [entries, seenAt, loaded, refresh, markSeen],
+    [entries, seenAt, me, loaded, refresh, markSeen],
   );
 }

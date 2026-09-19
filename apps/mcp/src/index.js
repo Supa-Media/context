@@ -132,6 +132,7 @@ import {
  */
 import {
   ACTIVITY_PATH,
+  mayBeReportable as mayBeActivity,
   nextFile as nextActivityFile,
   parseFile as parseActivityFile,
   describeEntry as describeActivityEntry,
@@ -4844,6 +4845,11 @@ async function recordChange(store, action, actorScope, paths, details = {}) {
  */
 async function recordActivity(store, change) {
   try {
+    // Before the read, not after it. Most changes are not reportable at all —
+    // a proposal, a sync job's arrival, a write under `.context/` — and the
+    // expensive half of recording one is the read that used to happen before
+    // this question was asked.
+    if (!mayBeActivity(change.action, change.paths)) return;
     const actor = store.actor
       ? { name: store.actor.name || null, client: store.actor.client || null }
       : null;

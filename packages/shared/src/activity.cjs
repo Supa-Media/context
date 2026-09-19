@@ -249,6 +249,32 @@ function nameOf(path) {
 }
 
 /**
+ * Whether this change is worth opening the file for.
+ *
+ * The cheap half of `entryFor`: the action table and the path rule, both
+ * answerable without reading anything. It exists because the expensive half of
+ * recording a change is the read that comes before the decision, and the
+ * decision is `null` for most changes — a read, a proposal, a sync job's
+ * arrival, a write under `.context/`. Both writers call this first, so the
+ * ordinary change pays nothing at all.
+ *
+ * It is deliberately *looser* than `entryFor`: the size test and the
+ * visibility test need details this cannot see. A `true` here means "worth
+ * looking", never "this will be a line".
+ */
+function mayBeReportable(action, paths) {
+  const kind = Object.prototype.hasOwnProperty.call(SUBSTANCE, action)
+    ? SUBSTANCE[action]
+    : null;
+  if (!kind) return false;
+  const touched = (Array.isArray(paths) ? paths : []).filter(
+    (path) => typeof path === "string" && path !== "",
+  );
+  if (!touched.length) return false;
+  return !touched.some(isQuietPath);
+}
+
+/**
  * One change, as the entry it becomes — or `null`, which is the common answer.
  *
  * Takes the same three things both writers already have: what happened, which
@@ -737,6 +763,7 @@ module.exports = {
   entryFor,
   folderOf,
   isQuietPath,
+  mayBeReportable,
   nameOf,
   nextFile,
   parseFile,
