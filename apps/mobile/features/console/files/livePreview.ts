@@ -1934,6 +1934,33 @@ function dispatchPlan(view: EditorView, plan: TransactionSpec | null): boolean {
   return true;
 }
 
+/**
+ * Put the caret in a cell of the grid drawn for the table at `from`.
+ *
+ * The one thing outside this file that has to reach inside a grid: something
+ * that *makes* a table — the size picker's "4 × 3" — has to leave the person
+ * in its first cell, and after this change there is no caret position in the
+ * source for it to use. The table's start is the handle, because that is what
+ * the command that inserted it knows.
+ *
+ * Returns whether a cell took the caret, so a caller can keep whatever it was
+ * doing before when the grid is not there: a read-only note, or a table the
+ * grid refused.
+ */
+export function focusGridCell(
+  view: EditorView,
+  from: number,
+  row: number,
+  column: number,
+): boolean {
+  const wraps = view.dom.querySelectorAll<HTMLElement>(".cm-lp-grid");
+  for (const wrap of wraps) {
+    if (drawnGrids.get(wrap)?.grid.from !== from) continue;
+    return focusCell(wrap, row, column, "end");
+  }
+  return false;
+}
+
 /** Put the caret in a cell of a grid that is on screen. */
 function focusCell(
   wrap: HTMLElement,

@@ -29,6 +29,7 @@ import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { editorExtensions } from "../features/console/files/editorSetup";
+import { insertTable } from "../features/console/files/markdownFormat";
 
 const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
 const DOC = `# Title\n\n${TABLE}\n\nafter\n`;
@@ -404,6 +405,26 @@ describe("the caret steps over a drawn table rather than into it", () => {
     const start = DOC.indexOf("| a |");
     const moved = view.moveByChar(EditorSelection.cursor(start), true);
     expect(moved.head).toBe(DOC.indexOf("| 1 | 2 |") + "| 1 | 2 |".length);
+    view.destroy();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+describe("a table somebody has just asked for", () => {
+  test("lands them in its first cell rather than inside a block they cannot see", () => {
+    /*
+      "4 × 3" used to put the caret two characters past the opening pipe, which
+      was the first header cell's own text. There is no such position any more:
+      the grid is drawn the moment the table exists, so the source the caret
+      was aimed at is behind a widget. The cell takes it instead.
+    */
+    const view = mount({ doc: "" });
+    insertTable(view, 2, 3);
+    const first = cellOf(view, -1, 0);
+    expect(document.activeElement).toBe(first);
+    type(first, "name");
+    expect(view.state.doc.toString().split("\n")[0]).toBe("| name |     |     |");
     view.destroy();
   });
 });

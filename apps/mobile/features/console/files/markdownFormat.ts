@@ -33,6 +33,8 @@
 import { EditorSelection, type ChangeSpec, type SelectionRange } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
+import { focusGridCell } from "./livePreview";
+
 /**
  * The marker pairs, named once.
  *
@@ -288,12 +290,14 @@ function planWrapOnly(
  *
  * ## Why it is padded with spaces
  *
- * `|  |  |` is a valid table and it is unreadable in the source, which is what
- * the person is looking at while they fill it in — the rendered grid is a
- * read-only treatment (`livePreview.ts`), so an author never sees it. Three
- * spaces is the width of the `---` under it, so an empty table's columns line
- * up in the monospace face tables are already set in and stay lined up for a
- * cell of up to three characters.
+ * `|  |  |` is a valid table and it is unreadable in the source. That used to
+ * be what the author was looking at while they filled it in; it is not any
+ * more — the grid is drawn while the note is being written and the cells are
+ * typed into directly (`livePreview.ts`). The padding stays anyway, for the
+ * reader this product cannot see: the file is open in Obsidian, in a text
+ * editor and in `git diff`, and three spaces is the width of the `---` under
+ * it, so an empty table's columns line up in the monospace face and stay lined
+ * up for a cell of up to three characters.
  *
  * ## Why it may insert two newlines before itself
  *
@@ -325,10 +329,23 @@ export function insertTable(view: EditorView, rows: number, cols: number): void 
           text, which is where somebody who has just chosen "4 × 3" is about to
           type. Not the start of the table: a caret sitting on a `|` looks like
           it is in the cell and types outside it.
+
+          This is now the fallback rather than the answer: the table is drawn
+          as a grid the moment it exists, so the caret lands inside a block
+          nobody can see. `focusGridCell` below puts it in the drawn cell
+          instead, and this selection is what is left when there is no grid —
+          a table the grid refused, or a surface without the extension.
         */
         selection: EditorSelection.cursor(at + lead.length + 2),
       },
       { scrollIntoView: true, userEvent: "input" },
     ),
   );
+
+  /*
+    After the dispatch, because the grid is drawn by the transaction this
+    command just made: CodeMirror updates its DOM synchronously, so the cell
+    exists by the time this line runs.
+  */
+  focusGridCell(view, at + lead.length, -1, 0);
 }
