@@ -4704,6 +4704,77 @@ is the reason the widget patches its own DOM instead of letting CodeMirror
 rebuild it — every keystroke is a document change, and a rebuilt widget loses
 the caret on every letter.
 
+### A control on a table belongs to the row or the column it acts on
+
+The first editable grid carried a bar of four buttons above it — add row, add
+column, delete row, delete column — acting on **the last cell that had the
+caret**. The report it earned was *"deleting a row is not really possible"*,
+and driving it in a browser found two failures rather than one.
+
+The obvious gesture, hover the table and press *delete row*, does nothing at
+all: the button is disabled until a cell has been focused, and a disabled
+button explains nothing. And once a cell *had* been focused, the button stayed
+armed after the caret left the table entirely — so a press deleted a row chosen
+by something the person had stopped thinking about three clicks ago. Measured:
+a click in a paragraph above the table, then a press, took a row out.
+
+Both are the same mistake, and it is worth naming because it is not about
+tables: **a destructive control whose target is not on screen.** Arming it on
+remembered state made it worse rather than safer, because the remembered state
+outlived every cue that it existed.
+
+So every control hangs off the thing it acts on. A handle in a gutter beside a
+row opens that row's menu and tints that row while it is open; a handle in the
+strip above a column does the same for the column; the corner handle is the
+table's. The handles are **cells of the table** rather than boxes positioned
+over it, so each one is laid out by the table itself beside its own row at
+whatever width that column came out — the alternative is measuring a grid that
+is rebuilt on every keystroke. A reader's table has no gutter and no strip.
+
+Two things stay plain buttons, because a menu could not make them clearer:
+`+ row` and `+ col` append at the end.
+
+**The menus are also where the verbs nobody had live.** A table needs more than
+four of them, and the set is what somebody retyping a table by hand is doing:
+insert above/below and left/right (the append could reach neither end), move a
+row or a column (the alternative is retyping it), set a column's alignment —
+which GFM keeps in the delimiter row, the one row the grid never draws, so
+before this there was **no way to set it from the app at all** — and delete the
+table, which nothing could do, because `atomicRanges` keeps the caret out of a
+drawn one.
+
+**"Edit as text" is the escape hatch and is the reason the rest can stay
+small.** It hands one table back as its own pipes, which is the state
+`writingTable` already models for a table being typed, so leaving is the same
+gesture. Anything the menus have no verb for — a stray escape, a row the parser
+refuses, a wholesale rewrite — is one press away instead of a reason to open
+another app.
+
+**Undo is what makes a destructive menu safe, and it did not work.**
+`ignoreEvent` keeps every keystroke made inside the widget away from the
+editor's keymap, so ⌘Z in a cell reached the browser's own contenteditable
+history, which knows nothing about the document: it would put characters back
+into the element while the file kept the change. The cell answers ⌘Z and ⌘⇧Z
+itself now, letting go of focus first so the redraw is free to draw the
+document that came back. Shift-Enter is answered there too, as the `<br>` that
+is the only way a Markdown cell holds two lines.
+
+**What a browser caught that 7,600 checks did not:** a menu drawn on the
+document body is outside the element the `--lp-*` palette is declared on, and
+an unknown custom property invalidates its whole declaration rather than
+falling back — so the menu had no background and the note's text showed
+through it. The same defect this log already records as *white text on a white
+ground*, reached from the other direction. The palette now travels to the
+element, read off the handle. It is on the body deliberately: inside the grid
+it would be clipped by the same scroller that cut the first chrome in half.
+
+**What would reverse this** is any control that acts on a row it did not name.
+The tests are *the handle of the second row takes out the second row* — pinned
+separately, because a handle that forgot its index passed every other case in
+the file, which presses row one — *and it is that row, not the one somebody
+last had the caret in*, and *the menu is drawn in the note's own palette,
+outside the note* in `apps/mobile/e2e/webkit/tables.spec.ts`.
+
 ### A note may declare the mode it opens in, and the person still outranks it
 
 Reading mode is a *session* mode and the section above it says why: it is how
@@ -7000,6 +7071,69 @@ costs a sentence rather than a false fact. This reverses the first design's
 "no agent summaries", which was wrong on the evidence — the meeting asked for
 exactly this and the owner's answer to whether a team might not want it was
 *"I think we should enforce it"*.
+
+**The list is a default, and the Markdown is a press away.** The first version
+had no way to the file at all: the console drew the list and the editor was
+unreachable on that path. For a feature whose own footer says *"a note in your
+own storage"*, that was the product saying "your file, our screen" — so the
+file now declares `view: read` in its frontmatter (which Obsidian honours too)
+and `declaredView` holds the same default by path for every file written before
+the line existed, and the pencil opens the source like any other note's. An
+owner who types `view: edit` into their own `activity.md` lands in the source
+from then on, because a default a person has overruled in writing is not a
+default any more. This is **not** the drawing's trade next to it and must not be
+confused with it: one keystroke in a drawing's base64 destroys the diagram, so
+`DrawingEditor` genuinely refuses the text editor. Nothing here is destroyed by
+typing, so refusing would be taste dressed as safety.
+
+**Editing it is the owner's, and viewing it is everyone's.** Hand-editing this
+file is editing the record of who changed what — the authority `canShare` and
+`canSetVisibility` are, not the "may write notes" an editor has — so
+`canEditActivity` gates the pencil. That is the *affordance*; the guard is
+older and stronger, and unchanged: the file is stored `private`, so a member or
+an editor cannot read it at all and is served the filtered rendering through
+`readActivity`. "Members view" has always meant the rendering, and it has to:
+the raw file names paths from every corner of a context.
+
+**The writer splices rather than regenerates, and that is what makes the
+sentence true.** `renderFile` rebuilt the whole file from a template on every
+write, so anything a person typed into it survived until the next agent wrote a
+line — an honest description of which is "you may edit this until something
+happens". Now the contract is one sentence, and it is stated in the file
+itself: **between the markers is the machine's, everything else is yours.** The
+region between them is rebuilt from `.context/audit/` because a derived copy
+that drifts is worse than no copy; everything either side is carried through
+untouched, forever. `a later write keeps prose above the markers` and `and
+keeps what is below them` fail without it. The one shape it will not guess at
+is a file whose markers were deleted: there is no boundary to find, so it lays
+down a fresh header rather than deciding for itself where somebody's text
+ended.
+
+**A row somebody broke is named, not swept up.** Editing a row's words is free
+— the `<!--ctx …-->` comment is what is read. Deleting that comment, or
+breaking its JSON, makes the row stop existing for every reader, and the next
+change drops it. The console counts those (`strayRows`) and says so, because
+silence is how a person edits a file, watches rows vanish and concludes the
+product ate them. What it does **not** offer is the obvious button: a one-press
+"fix" that deletes what somebody typed is the product taking the file back the
+moment it looks untidy, in the one feature whose whole subject is that the file
+is theirs. So it hands over a prompt to give an AI client, and that prompt
+forbids the one thing a client must never do here — invent a `<!--ctx -->`
+comment, which is the record, and a fabricated one is a fabricated fact about
+somebody's context. `and forbids inventing a record` fails if that line goes.
+
+**The column is the note's column.** `noteColumnWidth` and `layout.notePadX`,
+centred — the same measure `LiveEditor` spends in CSS and `noteGutterFor`
+describes, not a resemblance: the pencil swaps the list for that editor over
+the same file, and text that moved sideways at the press would make the two
+read as different documents. It shipped as a hard 760 pinned to the left edge,
+and was found in a screenshot rather than by any of 7,600 tests, because
+react-native-web compiles styles to classes and jsdom lays nothing out. That
+claim now lives in `e2e/webkit/activityPage.spec.ts`, and the demo tree carries
+an `activity.md` — a real `renderFile` output, not a hand-drawn one — so there
+is a page for a browser to open at all. It is the third time on this feature
+that the fixture not being able to show the thing under review was the whole
+defect.
 
 **Three numbers decide what is substantial, and they are thresholds rather
 than tuning.** They live in one place — `packages/shared/src/activity.cjs`, the

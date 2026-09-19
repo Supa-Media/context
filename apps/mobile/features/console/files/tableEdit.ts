@@ -338,3 +338,205 @@ export function planDeleteColumn(
   }
   return changes.length === 0 ? null : { changes };
 }
+
+/* -------------------------------------------------------------------------- */
+/*            the rest of what a table needs doing to it, as plans            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A row, inserted above or below the one named.
+ *
+ * `planAddRow` appends after a row and is what the `+ row` control runs.
+ * This is the same write with a side, because a handle that belongs to one row
+ * has to be able to put a row *before* it: the first body row is otherwise the
+ * one position in a table nobody can insert at.
+ */
+export function planInsertRow(
+  state: EditorState,
+  region: TableRegion,
+  at: number,
+  where: "above" | "below",
+): TransactionSpec | null {
+  return planAddRow(state, region, where === "below" ? at : at - 1);
+}
+
+/**
+ * A column, inserted to the left or the right of the one named.
+ *
+ * Same argument as `planInsertRow`: `planAddColumn` puts one after a column,
+ * and the first column needs somewhere to insert before it.
+ */
+export function planInsertColumn(
+  state: EditorState,
+  region: TableRegion,
+  at: number,
+  where: "left" | "right",
+): TransactionSpec | null {
+  if (where === "right") return planAddColumn(state, region, at);
+  if (state.readOnly) return null;
+  const lines = linesOf(state, region);
+  if (!looksLikeTable(lines)) return null;
+
+  /*
+    Written out rather than delegating to `planAddColumn(at - 1)`: that clamps
+    a negative index back to the first column, so "left of the first" came out
+    as "right of the first" — which is the one position the append could not
+    reach and the whole reason this function exists.
+
+    The insertion point is the start of the cell, which is just after the pipe
+    that opens it, so the new column lands in front of that pipe's column.
+  */
+  const changes = lines.map((line, index) => {
+    const cells = splitRow(line.text);
+    const cell = cells[Math.min(Math.max(at, 0), Math.max(cells.length - 1, 0))];
+    const offset = cell === undefined ? line.text.length : cell.from;
+    const insert = index === 1 ? " --- |" : "  |";
+    return { from: line.from + offset, to: line.from + offset, insert };
+  });
+  return { changes };
+}
+
+/**
+ * Two rows, swapped.
+ *
+ * Whole lines rather than cell by cell, so a row keeps its own spacing, its
+ * escapes and anything the grid does not draw. The two lines can be different
+ * lengths, so this is written as two replacements rather than a move: a change
+ * set is applied to the document it was planned against, and "delete there,
+ * insert here" would need the second offset to already know about the first.
+ */
+export function planMoveRow(
+  state: EditorState,
+  region: TableRegion,
+  at: number,
+  by: -1 | 1,
+): TransactionSpec | null {
+  if (state.readOnly) return null;
+  const lines = linesOf(state, region);
+  if (!looksLikeTable(lines)) return null;
+
+  const from = at + 2;
+  const to = at + by + 2;
+  // Off either end is a control that cannot act, and its own menu says so by
+  // leaving the item out. Refused here as well, for a caller that did not ask.
+  if (at < 0 || from >= lines.length || to < 2 || to >= lines.length) return null;
+
+  const first = lines[Math.min(from, to)];
+  const second = lines[Math.max(from, to)];
+  return {
+    changes: [
+      { from: first.from, to: first.to, insert: second.text },
+      { from: second.from, to: second.to, insert: first.text },
+    ],
+  };
+}
+
+/**
+ * Two columns, swapped — in every line of the table, delimiter row included.
+ *
+ * Cell text rather than cell ranges, because the two cells are different
+ * widths on every line and a table whose columns are aligned by hand should
+ * come out aligned by hand. The alignment markers travel with the column,
+ * which is what makes this a move of the column rather than of its contents.
+ */
+export function planMoveColumn(
+  state: EditorState,
+  region: TableRegion,
+  at: number,
+  by: -1 | 1,
+): TransactionSpec | null {
+  if (state.readOnly) return null;
+  const lines = linesOf(state, region);
+  if (!looksLikeTable(lines)) return null;
+
+  const width = splitRow(lines[0].text).length;
+  const to = at + by;
+  if (at < 0 || at >= width || to < 0 || to >= width) return null;
+
+  const changes: Array<{ from: number; to: number; insert: string }> = [];
+  for (const line of lines) {
+    const cells = splitRow(line.text);
+    const left = cells[Math.min(at, to)];
+    const right = cells[Math.max(at, to)];
+    // A short row has nothing in one of the two columns; it is left alone
+    // rather than padded, which is the rule the rest of this file follows.
+    if (left === undefined || right === undefined) continue;
+    changes.push({
+      from: line.from + left.from,
+      to: line.from + left.to,
+      insert: line.text.slice(right.from, right.to),
+    });
+    changes.push({
+      from: line.from + right.from,
+      to: line.from + right.to,
+      insert: line.text.slice(left.from, left.to),
+    });
+  }
+  return changes.length === 0 ? null : { changes };
+}
+
+/** What a column's dashes say about its alignment. */
+export type ColumnAlign = "left" | "center" | "right" | null;
+
+/**
+ * A column's alignment, written into the one place GFM keeps it.
+ *
+ * The delimiter row is the only expression of alignment a Markdown table has,
+ * and there is no other way to set it from the app: the row is drawn as a grid
+ * and is never on screen. The dashes are kept at the width they were, so a
+ * hand-aligned table does not lose its shape to a change of alignment.
+ */
+export function planAlignColumn(
+  state: EditorState,
+  region: TableRegion,
+  column: number,
+  align: ColumnAlign,
+): TransactionSpec | null {
+  if (state.readOnly) return null;
+  const lines = linesOf(state, region);
+  if (!looksLikeTable(lines)) return null;
+
+  const delimiter = lines[1];
+  const cells = splitRow(delimiter.text);
+  const cell = cells[column];
+  if (cell === undefined) return null;
+
+  const current = delimiter.text.slice(cell.from, cell.to);
+  const dashes = Math.max(current.replace(/[^-]/g, "").length, 3);
+  const body =
+    align === "left"
+      ? `:${"-".repeat(dashes - 1)}`
+      : align === "right"
+        ? `${"-".repeat(dashes - 1)}:`
+        : align === "center"
+          ? `:${"-".repeat(Math.max(dashes - 2, 1))}:`
+          : "-".repeat(dashes);
+  const insert = ` ${body} `;
+  if (current === insert) return null;
+  return { changes: { from: delimiter.from + cell.from, to: delimiter.from + cell.to, insert } };
+}
+
+/**
+ * The whole table, taken out.
+ *
+ * The only way to remove one once it is drawn, short of selecting around it:
+ * the grid is an atomic range, so a caret cannot get inside it to select the
+ * lines by hand. The blank line after it goes too when there is one, because a
+ * deletion that leaves two blank lines behind is a second thing to tidy.
+ */
+export function planDeleteTable(
+  state: EditorState,
+  region: TableRegion,
+): TransactionSpec | null {
+  if (state.readOnly) return null;
+  const lines = linesOf(state, region);
+  if (!looksLikeTable(lines)) return null;
+
+  const first = lines[0];
+  const last = lines[lines.length - 1];
+  let to = Math.min(last.to + 1, state.doc.length);
+  if (to < state.doc.length && state.doc.lineAt(to).text.trim() === "") {
+    to = Math.min(state.doc.lineAt(to).to + 1, state.doc.length);
+  }
+  return { changes: { from: first.from, to } };
+}

@@ -39,7 +39,7 @@ import {
 } from "../storage/StorageMigration";
 import { ShareDialog } from "../files/ShareDialog";
 import { audienceContextOf } from "../privacy/audience";
-import { capabilitiesForRole } from "../capabilities";
+import { canEditActivity, capabilitiesForRole } from "../capabilities";
 import { consoleOrigin } from "../files/shareOrigin";
 import { noteHeading } from "../files/frontmatter";
 import { entryAt, findEntry, treeRowFor } from "../files/tree";
@@ -227,6 +227,7 @@ export function BrowsePane({
   useDeclaredView(
     files.editor.path === null ? null : `${files.contextId ?? ""}:${files.editor.path}`,
     files.editor.draft,
+    files.editor.path,
   );
   const [sharing, setSharing] = useState<string | null>(null);
   /**
@@ -1275,6 +1276,15 @@ export function BrowsePane({
         */
         activity={data.activity}
         activityShared={(data.members?.members?.length ?? 1) > 1}
+        /*
+          Owner-only, and the rule is `capabilities.ts`'s rather than this
+          expression's. Editing the activity file by hand is editing the record
+          of who changed what — the authority Share and visibility are, not the
+          "may write notes" an editor has. The server refuses everyone else
+          anyway: the file is private, so a member or an editor never reads it
+          and is served the filtered rendering instead.
+        */
+        activityEditable={canEditActivity(capabilitiesForRole(current?.role))}
         onOpenNote={(path) => files.select(path)}
         /*
           The one write a `member` gets. `canEdit` above is false for that role

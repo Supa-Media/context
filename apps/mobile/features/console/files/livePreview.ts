@@ -84,9 +84,15 @@ import { unescapeCell } from "../../../../mcp/src/forms.js";
 import {
   planAddColumn,
   planAddRow,
+  planAlignColumn,
   planCellEdit,
   planDeleteColumn,
   planDeleteRow,
+  planDeleteTable,
+  planInsertColumn,
+  planInsertRow,
+  planMoveColumn,
+  planMoveRow,
   type CellSpan,
   type TableRegion,
 } from "./tableEdit";
@@ -96,8 +102,29 @@ import {
   module, so the shared half had to stop living there. See `markerToggle.ts`.
 */
 import { MARKERS, planToggle, type MarkerName } from "./markerToggle";
+/*
+  The controls a drawn table wears. A separate module for the reason its own
+  header gives: they hang off rows and columns rather than off the table, and
+  what they draw and how a menu behaves is testable without an editor.
+*/
+import {
+  appendButton,
+  closeGridMenu,
+  columnHandle,
+  rowHandle,
+  tableHandle,
+  type GridAction,
+  type GridChromeHost,
+} from "./tableChrome";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
+/*
+  Undo, for the one place the editor's own keymap cannot reach: a keystroke
+  made inside a cell never gets to it (`ignoreEvent`), and the browser's
+  contenteditable history knows nothing about the document. See the cell's
+  keydown handler.
+*/
+import { redo, undo } from "@codemirror/commands";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
@@ -1597,7 +1624,7 @@ export class TableGridWidget extends WidgetType {
     const frame = document.createElement("div");
     frame.className = "cm-lp-grid-frame";
     frame.append(this.drawTable(view, wrap));
-    if (this.canEdit) frame.append(this.drawControls(view, wrap));
+    if (this.canEdit) frame.append(this.drawAppends(view, wrap));
     wrap.append(frame);
     return wrap;
   }
@@ -1642,8 +1669,13 @@ export class TableGridWidget extends WidgetType {
     if (reshaped) {
       dom.className = this.canEdit ? "cm-lp-grid cm-lp-grid-live" : "cm-lp-grid";
       const frame = table.parentElement ?? dom;
+      /*
+        A menu open over a table whose shape has just changed is a menu
+        pointing at a row that may not exist; it is closed with the redraw.
+      */
+      closeGridMenu();
       frame.replaceChildren(this.drawTable(view, dom));
-      if (this.canEdit) frame.append(this.drawControls(view, dom));
+      if (this.canEdit) frame.append(this.drawAppends(view, dom));
       return true;
     }
 
@@ -1665,9 +1697,40 @@ export class TableGridWidget extends WidgetType {
   private drawTable(view: EditorView, wrap: HTMLElement): HTMLElement {
     const table = document.createElement("table");
     table.className = "cm-lp-grid-table";
+    const host = this.canEdit ? this.chromeHost(view, wrap) : null;
 
     const head = document.createElement("thead");
+
+    /*
+      The handles are cells of the table rather than boxes floating over it.
+      A gutter column on the left and a strip across the top mean every handle
+      is laid out by the table itself, beside the row or above the column it
+      acts on, at whatever width that column turned out to be — the
+      alternative is measuring the grid and positioning nine buttons against
+      it, which is wrong for a frame every keystroke rebuilds.
+
+      Only while the note can be edited. A reader's table has no gutter and no
+      strip, so it is exactly the table it always was.
+    */
+    if (host !== null) {
+      const strip = document.createElement("tr");
+      strip.className = "cm-lp-grid-strip";
+      const corner = document.createElement("th");
+      corner.className = "cm-lp-grid-corner";
+      corner.append(tableHandle(host));
+      strip.append(corner);
+      this.grid.header.forEach((_cell, column) => {
+        const slot = document.createElement("th");
+        slot.className = "cm-lp-grid-colslot";
+        slot.dataset.lpColumnHandle = String(column);
+        slot.append(columnHandle(host, column));
+        strip.append(slot);
+      });
+      head.append(strip);
+    }
+
     const headRow = document.createElement("tr");
+    if (host !== null) headRow.append(gutterCell("th"));
     this.grid.header.forEach((cell, column) => {
       headRow.append(this.drawCell(view, wrap, "th", cell, HEADER_ROW, column));
     });
@@ -1677,6 +1740,11 @@ export class TableGridWidget extends WidgetType {
     const body = document.createElement("tbody");
     this.grid.rows.forEach((row, index) => {
       const tr = document.createElement("tr");
+      if (host !== null) {
+        const gutter = gutterCell("td");
+        gutter.append(rowHandle(host, index));
+        tr.append(gutter);
+      }
       row.forEach((cell, column) => {
         tr.append(this.drawCell(view, wrap, "td", cell, index, column));
       });
@@ -1725,81 +1793,139 @@ export class TableGridWidget extends WidgetType {
    * and the cell losing focus is how the widget would forget which row the
    * person meant a fraction of a second before being asked to delete it.
    */
-  private drawControls(view: EditorView, wrap: HTMLElement): HTMLElement {
+  /**
+   * What the handles ask, answered from the table as it is **now**.
+   *
+   * Never from the grid this widget was built with: a person can press two
+   * menu items before a redraw, and a plan made against the first one's
+   * document would delete a row that has already moved. Same argument as
+   * `ImageRowWidget.rowNow`, and the reason every action re-reads the region.
+   */
+  private chromeHost(view: EditorView, wrap: HTMLElement): GridChromeHost {
+    const now = () => drawnGrids.get(wrap)?.grid ?? this.grid;
+    return {
+      rows: () => now().rows.length,
+      columns: () => now().header.length,
+      align: (column) => now().align[column] ?? null,
+      cellsOfRow: (row) => [...wrap.querySelectorAll<HTMLElement>(`[data-lp-row="${row}"]`)],
+      cellsOfColumn: (column) => [
+        ...wrap.querySelectorAll<HTMLElement>(`[data-lp-column="${column}"]`),
+      ],
+      run: (action) => this.runAction(view, wrap, action),
+    };
+  }
+
+  /**
+   * One thing a person asked of the table's shape, done.
+   *
+   * Every branch ends by putting the caret somewhere sensible, and that is not
+   * a nicety: a structural change is undone with ⌘Z, and ⌘Z goes to whatever
+   * has focus. After a press on a menu item that is the menu, which is gone —
+   * so the grid hands focus to a cell that still exists, or to the note.
+   */
+  private runAction(view: EditorView, wrap: HTMLElement, action: GridAction): void {
+    const region = regionOf(view, wrap);
+    if (region === null || view.state.readOnly) return;
+    const state = view.state;
+
+    switch (action.kind) {
+      case "insert-row": {
+        if (!dispatchPlan(view, planInsertRow(state, region, action.at, action.where))) return;
+        focusCell(wrap, action.where === "below" ? action.at + 1 : action.at, 0, "end");
+        return;
+      }
+      case "delete-row": {
+        if (!dispatchPlan(view, planDeleteRow(state, region, action.at))) return;
+        // The row below took this one's index, or the one above is the last.
+        const rows = drawnGrids.get(wrap)?.grid.rows.length ?? 0;
+        focusCell(wrap, Math.min(action.at, rows - 1), 0, "end");
+        return;
+      }
+      case "move-row": {
+        if (!dispatchPlan(view, planMoveRow(state, region, action.at, action.by))) return;
+        // The caret follows the row rather than staying at the index.
+        focusCell(wrap, action.at + action.by, 0, "end");
+        return;
+      }
+      case "insert-column": {
+        if (!dispatchPlan(view, planInsertColumn(state, region, action.at, action.where))) return;
+        focusCell(wrap, HEADER_ROW, action.where === "right" ? action.at + 1 : action.at, "end");
+        return;
+      }
+      case "delete-column": {
+        if (!dispatchPlan(view, planDeleteColumn(state, region, action.at))) return;
+        const columns = drawnGrids.get(wrap)?.grid.header.length ?? 0;
+        focusCell(wrap, HEADER_ROW, Math.min(action.at, columns - 1), "end");
+        return;
+      }
+      case "move-column": {
+        if (!dispatchPlan(view, planMoveColumn(state, region, action.at, action.by))) return;
+        focusCell(wrap, HEADER_ROW, action.at + action.by, "end");
+        return;
+      }
+      case "align-column": {
+        dispatchPlan(view, planAlignColumn(state, region, action.at, action.align));
+        return;
+      }
+      case "edit-source": {
+        /*
+          The escape hatch, and the one action that writes nothing. The table
+          gives way to its own pipes and the caret goes into them, which is
+          the state `writingTable` already models for a table being typed —
+          so leaving is the same gesture as leaving one you just wrote.
+        */
+        view.focus();
+        view.dispatch({
+          selection: { anchor: Math.min(region.to, view.state.doc.length) },
+          effects: showTableSource(region.from),
+          scrollIntoView: true,
+        });
+        return;
+      }
+      case "delete-table": {
+        const at = region.from;
+        if (!dispatchPlan(view, planDeleteTable(state, region))) return;
+        view.focus();
+        view.dispatch({ selection: { anchor: Math.min(at, view.state.doc.length) } });
+        return;
+      }
+    }
+  }
+
+  /** The two appends, which need no menu to say what they will do. */
+  private drawAppends(view: EditorView, wrap: HTMLElement): HTMLElement {
     const bar = document.createElement("div");
     bar.className = "cm-lp-grid-controls";
-
-    const button = (label: string, glyph: string, run: () => void): HTMLButtonElement => {
-      const element = document.createElement("button");
-      element.type = "button";
-      element.className = "cm-lp-grid-control";
-      element.title = label;
-      element.setAttribute("aria-label", label);
-      element.textContent = glyph;
-      element.addEventListener("mousedown", (event) => event.preventDefault());
-      element.addEventListener("click", (event) => {
-        event.preventDefault();
-        run();
-      });
-      return element;
-    };
-
-    /*
-      Clamped to the table as it is now, not as it was when the cell was
-      focused: a deletion can take the row out from under the coordinates, and
-      a control that planned against the row that no longer exists would delete
-      the one that took its place.
-    */
-    const target = (): { row: number; column: number } => {
-      const drawn = drawnGrids.get(wrap);
-      const rows = drawn?.grid.rows.length ?? this.grid.rows.length;
-      const columns = drawn?.grid.header.length ?? this.grid.header.length;
-      const focused = drawn?.focused ?? null;
-      // Nothing focused: the end of the table, which is what a bare `+` means.
-      const row = focused === null ? rows - 1 : focused.row;
-      const column = focused === null ? columns - 1 : focused.column;
-      return {
-        row: Math.min(Math.max(row, HEADER_ROW), rows - 1),
-        column: Math.min(Math.max(column, 0), Math.max(columns - 1, 0)),
-      };
-    };
-
     bar.append(
-      button("Add row below", "+ row", () => {
-        const at = target();
+      appendButton("Add row at the end", "+ row", () => {
         const region = regionOf(view, wrap);
         if (region === null) return;
-        if (!dispatchPlan(view, planAddRow(view.state, region, at.row))) return;
-        focusCell(wrap, at.row + 1, 0, "end");
+        const rows = drawnGrids.get(wrap)?.grid.rows.length ?? this.grid.rows.length;
+        if (!dispatchPlan(view, planAddRow(view.state, region, rows - 1))) return;
+        focusCell(wrap, rows, 0, "end");
       }),
-    );
-    bar.append(
-      button("Add column to the right", "+ col", () => {
-        const at = target();
+      appendButton("Add column at the end", "+ col", () => {
         const region = regionOf(view, wrap);
         if (region === null) return;
-        if (!dispatchPlan(view, planAddColumn(view.state, region, at.column))) return;
-        focusCell(wrap, at.row, at.column + 1, "end");
+        const columns = drawnGrids.get(wrap)?.grid.header.length ?? this.grid.header.length;
+        if (!dispatchPlan(view, planAddColumn(view.state, region, columns - 1))) return;
+        focusCell(wrap, HEADER_ROW, columns, "end");
       }),
     );
-
-    const deleteRow = button("Delete row", "− row", () => {
-      const at = target();
-      const region = regionOf(view, wrap);
-      if (region === null || at.row < 0) return;
-      dispatchPlan(view, planDeleteRow(view.state, region, at.row));
-    });
-    const deleteColumn = button("Delete column", "− col", () => {
-      const at = target();
-      const region = regionOf(view, wrap);
-      if (region === null) return;
-      dispatchPlan(view, planDeleteColumn(view.state, region, at.column));
-    });
-    deleteRow.classList.add("cm-lp-grid-delete-row");
-    deleteColumn.classList.add("cm-lp-grid-delete-column");
-    bar.append(deleteRow, deleteColumn);
-    armControls(wrap, bar);
     return bar;
+  }
+
+  /**
+   * The grid is going off the screen, so its menus go with it.
+   *
+   * A menu is drawn on the document's body rather than inside the grid, which
+   * is what keeps it out of the scroller that would clip it — and means
+   * nothing removes it when CodeMirror throws the widget away. Scrolling a
+   * table out of the viewport does exactly that, and the menu left behind
+   * would act on a row through a handle that is no longer anywhere.
+   */
+  destroy(): void {
+    closeGridMenu();
   }
 
   /*
@@ -1821,6 +1947,13 @@ export class TableGridWidget extends WidgetType {
   ignoreMutation(): boolean {
     return true;
   }
+}
+
+/** A cell of the handle gutter: chrome, never content, never editable. */
+function gutterCell(tag: "th" | "td"): HTMLElement {
+  const cell = document.createElement(tag);
+  cell.className = "cm-lp-grid-gutter";
+  return cell;
 }
 
 /**
@@ -1869,27 +2002,6 @@ function paintCell(cell: HTMLElement, runs: readonly CellRun[], align: CellAlign
       cell.append(span);
     });
   }
-}
-
-/**
- * The two deletions, armed or not by what has been focused.
- *
- * Called when the controls are drawn and again whenever a cell takes focus,
- * because the controls are *not* redrawn for a focus change — nothing about
- * the document changed, so no decoration was rebuilt, and a button that only
- * learned what it could delete on the next keystroke would be disabled for the
- * whole of the first press. (That is not hypothetical: it is what this did
- * before `tableEditing.test.ts` pressed the button.)
- */
-function armControls(wrap: HTMLElement, bar?: HTMLElement): void {
-  const controls = bar ?? wrap.querySelector<HTMLElement>(".cm-lp-grid-controls");
-  if (controls === null || controls === undefined) return;
-  const focused = drawnGrids.get(wrap)?.focused ?? null;
-  const row = controls.querySelector<HTMLButtonElement>(".cm-lp-grid-delete-row");
-  const column = controls.querySelector<HTMLButtonElement>(".cm-lp-grid-delete-column");
-  // The header is not a row, so a caret in it arms the column button alone.
-  if (row !== null) row.disabled = focused === null || focused.row < 0;
-  if (column !== null) column.disabled = focused === null;
 }
 
 /** Which cells of a grid are padding rather than characters, as a signature. */
@@ -1989,6 +2101,43 @@ function cellSelection(cell: HTMLElement): { from: number; to: number } | null {
     return { from, to: from + range.toString().length };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Type into a cell at its caret, for the keys that mean text rather than a
+ * command — Shift-Enter, and a paste.
+ */
+function insertInCell(cell: HTMLElement, text: string): void {
+  const view = cell.ownerDocument.defaultView;
+  const selection = view?.getSelection?.() ?? null;
+  /*
+    The end of the cell when there is no usable caret *in this cell*. A
+    selection left somewhere else — another cell, a node a redraw removed —
+    is not a caret here, and inserting at it would put the person's break in a
+    table they are not looking at. Found by a jsdom suite where one test's
+    selection outlived its editor, which is the same thing a stale range is in
+    a browser.
+  */
+  const inside =
+    selection !== null &&
+    selection.rangeCount > 0 &&
+    cell.contains(selection.getRangeAt(0).startContainer);
+  if (!inside || selection === null) {
+    cell.textContent = (cell.textContent ?? "") + text;
+    return;
+  }
+  try {
+    const range = selection.getRangeAt(0);
+    range.deleteContents();
+    const node = cell.ownerDocument.createTextNode(text);
+    range.insertNode(node);
+    range.setStartAfter(node);
+    range.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch {
+    cell.textContent = (cell.textContent ?? "") + text;
   }
 }
 
@@ -2236,7 +2385,6 @@ function makeCellEditable(
   cell.addEventListener("focus", () => {
     const drawn = drawnGrids.get(wrap);
     if (drawn !== undefined) drawn.focused = { row, column };
-    armControls(wrap);
     /*
       Whatever was being typed is handed over: a caret in a cell is how
       somebody says they are done writing the pipes. Without this, the table
@@ -2344,8 +2492,44 @@ function makeCellEditable(
       return;
     }
 
+    /*
+      ⌘Z, which nothing else would answer. `ignoreEvent` keeps every keystroke
+      made in a cell away from the editor's keymap, and what is left is the
+      browser's own contenteditable history — which would put characters back
+      into this element while the file kept the change. It matters more here
+      than anywhere: the menus delete rows and columns, and undo is the whole
+      of what makes a destructive control safe to press.
+
+      The cell is let go of first. The document is about to become one the
+      grid draws differently, and a focused cell is the one thing a redraw
+      leaves alone.
+    */
+    if ((event as KeyboardEvent).metaKey || (event as KeyboardEvent).ctrlKey) {
+      const lower = key.toLowerCase();
+      const isUndo = lower === "z" && !shift;
+      const isRedo = (lower === "z" && shift) || lower === "y";
+      if (isUndo || isRedo) {
+        event.preventDefault();
+        cell.blur();
+        view.focus();
+        (isUndo ? undo : redo)(view);
+        return;
+      }
+    }
+
     if (key === "Enter") {
       event.preventDefault();
+      /*
+        Shift-Enter is a line break inside the cell, which in a table is the
+        `<br>` the cell reader already draws — the only way a cell holds two
+        lines, and otherwise something a person has to know to type.
+      */
+      if (shift) {
+        insertInCell(cell, "<br>");
+        const span = cellSpanNow(view, wrap, row, column);
+        if (span !== null) dispatchPlan(view, planCellEdit(view.state, span, cell.textContent ?? ""));
+        return;
+      }
       if (row + 1 <= depth() - 1 && moveTo(row + 1, column, "end")) return;
       addRowBelow(column);
       return;
@@ -2860,6 +3044,19 @@ const setWritingTable = StateEffect.define<number | null>();
 /** Stop revealing the source of whatever table was being written. */
 export function stopWritingTable() {
   return setWritingTable.of(null);
+}
+
+/**
+ * Show one table as its own pipes, because somebody asked to edit it as text.
+ *
+ * The same state a table being typed is in, reached deliberately from the
+ * table's own menu. It is the escape hatch for everything the controls have
+ * no verb for, and without it a drawn table is a block a person cannot get
+ * inside: `atomicRanges` keeps the caret out, so there would be no way to
+ * repair a table the grid draws but nobody meant.
+ */
+export function showTableSource(from: number) {
+  return setWritingTable.of(from);
 }
 
 /**
@@ -3840,9 +4037,16 @@ export const livePreviewStyles = `
 */
 .cm-lp-grid-table tr > :first-child { padding-left: 0; }
 .cm-lp-grid-table tr > :last-child { padding-right: 0; }
-.cm-lp-grid-left { text-align: left; }
-.cm-lp-grid-center { text-align: center; }
-.cm-lp-grid-right { text-align: right; }
+/*
+  Scoped to the table rather than left as bare classes, because the header's
+  own rule above sets text-align and was winning on equal specificity: a
+  column aligned right had right-aligned values under a left-aligned heading,
+  which is not what the delimiter row says and not what any other renderer
+  does with it.
+*/
+.cm-lp-grid-table .cm-lp-grid-left { text-align: left; }
+.cm-lp-grid-table .cm-lp-grid-center { text-align: center; }
+.cm-lp-grid-table .cm-lp-grid-right { text-align: right; }
 /*
   An empty cell says so. Drawn as nothing it is indistinguishable from a column
   that failed to render, and a reader cannot tell which they are looking at.
@@ -3929,7 +4133,7 @@ export const livePreviewStyles = `
   opacity: 1;
   pointer-events: auto;
 }
-.cm-lp-grid-control {
+.cm-lp-grid-add {
   font-family: var(--lp-body);
   white-space: nowrap;
   font-size: 0.66em;
@@ -3941,13 +4145,99 @@ export const livePreviewStyles = `
   border-radius: 4px;
   cursor: pointer;
 }
-.cm-lp-grid-control:hover:not(:disabled) { color: var(--lp-content); }
+.cm-lp-grid-add:hover { color: var(--lp-content); }
 /*
-  A deletion needs a row or a column named, and nothing is named until a cell
-  has been focused. Disabled rather than hidden: a control that comes and goes
-  is one nobody learns.
+  THE HANDLES, which are cells of the table rather than boxes over it.
+
+  The gutter column and the strip above the header are laid out by the table
+  itself, so a handle is always beside its own row or above its own column at
+  whatever width that column came out. They take room only while the note can
+  be edited, and a reader's table has neither.
 */
-.cm-lp-grid-control:disabled { opacity: 0.4; cursor: default; }
+.cm-lp-grid-gutter, .cm-lp-grid-corner, .cm-lp-grid-colslot {
+  padding: 0 !important;
+  border: none !important;
+  width: 1.2em;
+  vertical-align: middle;
+  text-align: center;
+  background: none;
+}
+.cm-lp-grid-colslot { width: auto; height: 1.1em; }
+.cm-lp-grid-handle {
+  font-family: var(--lp-body);
+  font-size: 0.8em;
+  line-height: 1;
+  padding: 1px 2px;
+  color: var(--lp-muted);
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  /*
+    Invisible until the row or column it belongs to is wanted, and *still
+    there*: a handle that is display:none cannot be tabbed to and moves the
+    table every time a pointer crosses it.
+  */
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.cm-lp-grid-table tr:hover .cm-lp-grid-handle,
+.cm-lp-grid-strip:hover .cm-lp-grid-handle,
+.cm-lp-grid-frame:focus-within .cm-lp-grid-handle,
+.cm-lp-grid-handle:focus { opacity: 1; }
+.cm-lp-grid-handle:hover { color: var(--lp-content); background: var(--lp-code-bg); }
+/*
+  The row or column a menu is about, said on the table rather than only in the
+  menu's own wording. The control that this replaced acted on a row nobody
+  could see, which is the whole reason the chrome was rewritten.
+*/
+.cm-lp-grid-target { background: var(--lp-focus-ring); }
+.cm-lp-grid-menu {
+  z-index: 40;
+  min-width: 11em;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.14);
+  font-family: var(--lp-body);
+  font-size: 0.8em;
+}
+.cm-lp-grid-menu-item {
+  appearance: none;
+  text-align: left;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--lp-content);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.cm-lp-grid-menu-item:hover, .cm-lp-grid-menu-item:focus {
+  background: var(--lp-code-bg);
+  outline: none;
+}
+/* The alignment a column already has, marked rather than repeated elsewhere. */
+.cm-lp-grid-menu-current::after { content: " ✓"; color: var(--lp-muted); }
+.cm-lp-grid-menu-destructive { color: var(--lp-danger); }
+/*
+  A FINGER IS NOT A POINTER, and this chrome is reached by both: the phone
+  cannot hover, so a handle appears with the caret there and is then tapped.
+  At the pointer size that tap target is about ten pixels, which is under
+  every touch floor this app has. Widened where the input is coarse rather
+  than everywhere, because on a desktop the same size would be chrome
+  shouting over the note.
+*/
+@media (pointer: coarse) {
+  .cm-lp-grid-handle { font-size: 1em; padding: 6px; }
+  .cm-lp-grid-gutter, .cm-lp-grid-corner { width: 1.9em; }
+  .cm-lp-grid-menu-item { padding: 11px 12px; }
+  .cm-lp-grid-add { padding: 7px 10px; }
+}
 .cm-lp-rule { color: var(--lp-muted); }
 /*
   A FORM, DRAWN FROM ITS DECLARATION.

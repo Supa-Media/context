@@ -39,6 +39,7 @@ import {
   renderChannelDayNote,
   renderContactNote,
 } from "@context/communications";
+import { renderFile } from "@context/shared/src/activity.cjs";
 import type { CommunicationEvent } from "@context/communications/protocol";
 import type { FileEntry, FolderListing, Visibility } from "./files/types";
 import type { IngestionSettings } from "./ingestion/settings";
@@ -113,6 +114,43 @@ const DEMO_EDGES: MapEdge[] = [
 ];
 
 export const DEMO_GRAPH: MapGraph = { nodes: DEMO_NODES, edges: DEMO_EDGES };
+
+/**
+ * What the demo context's `activity.md` says, once.
+ *
+ * Both the rendered file in `NOTE_BODIES` and the console's own activity view
+ * are built from this array, so the page can never show a row the file does
+ * not contain. One row carries an agent's summary and one does not, because
+ * those are the two shapes a row has and a demo that shows one of them is a
+ * demo of half the feature.
+ *
+ * Dated to the rest of the demo's world — `1-projects/context-lc.md` is
+ * `updated: 2026-08-26` — rather than to `Date.now()`, so the page reads as a
+ * context somebody worked in on a particular day rather than one that mints
+ * fresh history every time the marketing page is loaded.
+ */
+export const DEMO_ACTIVITY = [
+  {
+    at: "2026-08-26T09:12:00.000Z",
+    kind: "added",
+    paths: ["1-projects/dc-chapter.md"],
+    n: 1,
+    vis: "team" as const,
+    by: "@seyi",
+    via: "Claude",
+    note: "notes from the chapter call",
+  },
+  {
+    at: "2026-08-26T08:40:00.000Z",
+    kind: "revised",
+    paths: ["1-projects/context-lc.md"],
+    n: 1,
+    vis: "team" as const,
+    by: "@seyi",
+    via: null,
+    note: null,
+  },
+];
 
 /**
  * The demo account's four tiles.
@@ -497,6 +535,20 @@ const SEYI_TREE: DemoContextTree = {
       folder("3-resources", "private"),
       folder("4-archive", "private"),
       file("index.md"),
+      /*
+        The activity file, at the root beside the other two, because that is
+        where it is in a real bucket — and because the board could not show the
+        page it opens into until it was here. `ActivityPage` is the console's
+        one document view nothing in a browser had ever drawn, which is how a
+        column pinned to the left edge at a hard 760 shipped and was found in a
+        screenshot instead of in CI.
+
+        Private, like the real one: it names paths from every corner of a
+        context, so a member is served the filtered rendering and never the
+        file. `NOTE_BODIES` carries a real rendered file for it, machine
+        comments and all.
+      */
+      file("activity.md"),
       file("privacy.md", { readOnly: true }),
     ]),
     "0-inbox": listing("0-inbox", "private", [
@@ -597,6 +649,20 @@ const SEYI_TREE: DemoContextTree = {
       So the wording is a persona's and the line breaks are the browser's. Do
       not re-wrap this.
     */
+    /*
+      The activity file, rendered from `DEMO_ACTIVITY` by the real `renderFile`
+      — not a hand-drawn approximation. Built from the module so the demo
+      cannot drift from the format: the fixture's first draft of the
+      *indicator*'s data named notes in a folder the demo has never had, drew
+      no dot, and the board reported on itself. A literal here would be the
+      same mistake one level down, in a file whose whole point is that a parser
+      reads it.
+
+      The file and the console's view of it come from **one** array for the
+      same reason. Two lists would be two chances for the page to show rows the
+      file does not contain.
+    */
+    "activity.md": renderFile(DEMO_ACTIVITY),
     "1-projects/context-lc.md": [
       "---",
       "updated: 2026-08-26",

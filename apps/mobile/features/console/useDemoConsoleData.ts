@@ -1,5 +1,11 @@
 import { useCallback, useState } from "react";
-import { DEMO_GRAPH, DEMO_INGESTION, DEMO_STATS, MCP_ENDPOINT } from "./placeholderData";
+import {
+  DEMO_ACTIVITY,
+  DEMO_GRAPH,
+  DEMO_INGESTION,
+  DEMO_STATS,
+  MCP_ENDPOINT,
+} from "./placeholderData";
 import { useDemoFileBrowser } from "./files/useDemoFileBrowser";
 import { viewerIdentity } from "./identity";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
@@ -509,6 +515,33 @@ export function useDemoConsoleData(): ConsoleData {
       loading: false,
     },
     files,
+    /*
+      THE ACTIVITY VIEW, SO THE DEMO'S OWN `activity.md` OPENS AS A LIST.
+
+      The tree carries the file now (`placeholderData`), and without this the
+      landing page would open it in the text editor — a visitor's first sight
+      of the feature being a wall of `<!--ctx {…}-->`. `NoteEditor` draws the
+      list only where the console actually has the list, which is the honest
+      fallback everywhere else and the wrong one here.
+
+      **Deliberately nothing unread**: `seenAt` is now, so the foot of the tree
+      stays the note count and no row carries a dot. The indicator is a thing
+      that happens to a context somebody works in, and a marketing page that
+      opened with an unread badge would be nagging a visitor about somebody
+      else's workspace. The page itself is what this is for.
+
+      `markSeen` and `refresh` are no-ops for the same reason `revoke` and
+      `storageActions` are absent: nothing on this console may act.
+    */
+    activity: {
+      entries: DEMO_ACTIVITY,
+      seenAt: Date.now(),
+      unseen: 0,
+      unseenPaths: new Set<string>(),
+      loaded: true,
+      refresh: () => {},
+      markSeen: () => {},
+    },
     // Names, but no controls — `actions` absent exactly like `storageActions`
     // and the clients' `revoke`. A demo console must never offer a button that
     // pretends to act, and inviting somebody is the least reversible of them.

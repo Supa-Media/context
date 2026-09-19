@@ -56,6 +56,7 @@ export function guestStyles(): string {
   --lp-line: rgba(0,0,0,0.09);
   --lp-line-strong: rgba(0,0,0,0.18);
   --lp-focus-ring: rgba(0,0,0,0.08);
+  --lp-danger: #B23A2B;
   --lp-caret: #222222;
   --lp-selection: rgba(0,0,0,0.14);
   --lp-mono: ui-monospace, Menlo, monospace;
