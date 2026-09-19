@@ -4704,6 +4704,77 @@ is the reason the widget patches its own DOM instead of letting CodeMirror
 rebuild it — every keystroke is a document change, and a rebuilt widget loses
 the caret on every letter.
 
+### A control on a table belongs to the row or the column it acts on
+
+The first editable grid carried a bar of four buttons above it — add row, add
+column, delete row, delete column — acting on **the last cell that had the
+caret**. The report it earned was *"deleting a row is not really possible"*,
+and driving it in a browser found two failures rather than one.
+
+The obvious gesture, hover the table and press *delete row*, does nothing at
+all: the button is disabled until a cell has been focused, and a disabled
+button explains nothing. And once a cell *had* been focused, the button stayed
+armed after the caret left the table entirely — so a press deleted a row chosen
+by something the person had stopped thinking about three clicks ago. Measured:
+a click in a paragraph above the table, then a press, took a row out.
+
+Both are the same mistake, and it is worth naming because it is not about
+tables: **a destructive control whose target is not on screen.** Arming it on
+remembered state made it worse rather than safer, because the remembered state
+outlived every cue that it existed.
+
+So every control hangs off the thing it acts on. A handle in a gutter beside a
+row opens that row's menu and tints that row while it is open; a handle in the
+strip above a column does the same for the column; the corner handle is the
+table's. The handles are **cells of the table** rather than boxes positioned
+over it, so each one is laid out by the table itself beside its own row at
+whatever width that column came out — the alternative is measuring a grid that
+is rebuilt on every keystroke. A reader's table has no gutter and no strip.
+
+Two things stay plain buttons, because a menu could not make them clearer:
+`+ row` and `+ col` append at the end.
+
+**The menus are also where the verbs nobody had live.** A table needs more than
+four of them, and the set is what somebody retyping a table by hand is doing:
+insert above/below and left/right (the append could reach neither end), move a
+row or a column (the alternative is retyping it), set a column's alignment —
+which GFM keeps in the delimiter row, the one row the grid never draws, so
+before this there was **no way to set it from the app at all** — and delete the
+table, which nothing could do, because `atomicRanges` keeps the caret out of a
+drawn one.
+
+**"Edit as text" is the escape hatch and is the reason the rest can stay
+small.** It hands one table back as its own pipes, which is the state
+`writingTable` already models for a table being typed, so leaving is the same
+gesture. Anything the menus have no verb for — a stray escape, a row the parser
+refuses, a wholesale rewrite — is one press away instead of a reason to open
+another app.
+
+**Undo is what makes a destructive menu safe, and it did not work.**
+`ignoreEvent` keeps every keystroke made inside the widget away from the
+editor's keymap, so ⌘Z in a cell reached the browser's own contenteditable
+history, which knows nothing about the document: it would put characters back
+into the element while the file kept the change. The cell answers ⌘Z and ⌘⇧Z
+itself now, letting go of focus first so the redraw is free to draw the
+document that came back. Shift-Enter is answered there too, as the `<br>` that
+is the only way a Markdown cell holds two lines.
+
+**What a browser caught that 7,600 checks did not:** a menu drawn on the
+document body is outside the element the `--lp-*` palette is declared on, and
+an unknown custom property invalidates its whole declaration rather than
+falling back — so the menu had no background and the note's text showed
+through it. The same defect this log already records as *white text on a white
+ground*, reached from the other direction. The palette now travels to the
+element, read off the handle. It is on the body deliberately: inside the grid
+it would be clipped by the same scroller that cut the first chrome in half.
+
+**What would reverse this** is any control that acts on a row it did not name.
+The tests are *the handle of the second row takes out the second row* — pinned
+separately, because a handle that forgot its index passed every other case in
+the file, which presses row one — *and it is that row, not the one somebody
+last had the caret in*, and *the menu is drawn in the note's own palette,
+outside the note* in `apps/mobile/e2e/webkit/tables.spec.ts`.
+
 ### A note may declare the mode it opens in, and the person still outranks it
 
 Reading mode is a *session* mode and the section above it says why: it is how

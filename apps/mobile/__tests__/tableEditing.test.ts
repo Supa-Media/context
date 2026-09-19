@@ -24,7 +24,7 @@
  *                                   until a cell has been focused
  */
 
-import { describe, expect, test } from "@jest/globals";
+import { afterEach, describe, expect, test } from "@jest/globals";
 import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
@@ -73,6 +73,19 @@ function type(cell: HTMLElement, text: string): void {
 function press(cell: HTMLElement, key: string, shift = false): void {
   cell.dispatchEvent(new window.KeyboardEvent("keydown", { key, shiftKey: shift, bubbles: true }));
 }
+
+/*
+  Every test mounts an editor into `document.body` and some of them open a
+  menu, which is drawn on the body rather than inside the grid's own scroller.
+  Left there, the next test's `document.querySelector` finds the last one's —
+  the leak `app-and-console.md` records from the console-chrome work, and one
+  that also leaves a selection pointing into a destroyed view.
+*/
+afterEach(() => {
+  document.querySelectorAll(".cm-lp-grid-menu").forEach((menu) => menu.remove());
+  document.body.replaceChildren();
+  window.getSelection()?.removeAllRanges();
+});
 
 function control(view: EditorView, label: string): HTMLButtonElement {
   const button = view.dom.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
@@ -311,80 +324,193 @@ describe("the keys that mean somewhere else in the table", () => {
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * THE SHAPE OF THE TABLE, AND THE CONTROL THAT NAMES ITS OWN TARGET.
+ *
+ * What this replaced was a bar of four buttons acting on "the last cell that
+ * had the caret", and the report it earned was *deleting a row is not really
+ * possible*. Measured in a browser, two things were true of it: the obvious
+ * gesture — hover the table, press delete row — did nothing at all because
+ * the button was disabled until a cell had been focused, and once one had
+ * been, the button stayed armed after the caret left the table and deleted a
+ * row chosen by something nobody was looking at.
+ *
+ * So the controls belong to the rows and columns now. A handle in the gutter
+ * beside a row acts on that row; one above a column acts on that column; the
+ * corner acts on the table.
+ */
 describe("the shape of the table is editable too", () => {
-  test("a row is added under the focused one", () => {
-    const view = mount();
-    cellOf(view, 0, 0).dispatchEvent(new window.FocusEvent("focus"));
-    control(view, "Add row below").click();
-    expect(view.state.doc.toString()).toContain("| 1 | 2 |\n|  |  |");
-    view.destroy();
-  });
+  /** Press a handle and return the menu it opened. */
+  function openMenu(view: EditorView, label: string): HTMLElement {
+    const handle = view.dom.querySelector<HTMLElement>(`button[aria-label="${label}"]`);
+    if (handle === null) throw new Error(`no handle labelled ${label}`);
+    handle.click();
+    const menu = document.querySelector<HTMLElement>(".cm-lp-grid-menu");
+    if (menu === null) throw new Error(`pressing ${label} opened no menu`);
+    return menu;
+  }
 
-  test("a column is added to every line, dashes included", () => {
-    const view = mount();
-    cellOf(view, 0, 1).dispatchEvent(new window.FocusEvent("focus"));
-    control(view, "Add column to the right").click();
-    expect(view.state.doc.toString()).toContain(
-      "| a | b |  |\n| --- | --- | --- |\n| 1 | 2 |  |",
+  function choose(menu: HTMLElement, label: string): void {
+    const item = [...menu.querySelectorAll<HTMLElement>(".cm-lp-grid-menu-item")].find(
+      (row) => row.textContent === label,
     );
-    // And the grid redrew with the column in it rather than falling apart.
-    expect(view.dom.querySelectorAll('[data-lp-row="0"]').length).toBe(3);
+    if (item === undefined) {
+      throw new Error(
+        `no item "${label}" — the menu offers ${[...menu.querySelectorAll(".cm-lp-grid-menu-item")]
+          .map((row) => row.textContent)
+          .join(", ")}`,
+      );
+    }
+    item.click();
+  }
+
+  test("every row has a handle of its own, and it says which row it is", () => {
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |"].join("\n") });
+    const labels = [...view.dom.querySelectorAll("button[aria-label]")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
+    expect(labels).toContain("Row 1 actions");
+    expect(labels).toContain("Row 2 actions");
+    expect(labels).toContain("Column 1 actions");
+    expect(labels).toContain("Table actions");
     view.destroy();
   });
 
-  test("the deletions stay disabled until a cell has been focused", () => {
-    // "Delete row" with no row named has to guess, and the guess is a row of
-    // somebody's note.
-    const view = mount();
-    expect(control(view, "Delete row").disabled).toBe(true);
-    expect(control(view, "Delete column").disabled).toBe(true);
+  test("a row is deleted by its own handle, with no cell focused first", () => {
+    // The gesture that used to do nothing: no caret anywhere near the table.
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |"].join("\n") });
+    choose(openMenu(view, "Row 1 actions"), "Delete row");
+    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 2 |"].join("\n"));
     view.destroy();
   });
 
-  test("and then take out the row or the column that cell is in", () => {
-    const view = mount({ doc: ["| a | b |", "| - | - |", "| 1 | 2 |", "| 3 | 4 |"].join("\n") });
-    cellOf(view, 0, 0).dispatchEvent(new window.FocusEvent("focus"));
-    control(view, "Delete row").click();
-    expect(view.state.doc.toString()).toBe(["| a | b |", "| - | - |", "| 3 | 4 |"].join("\n"));
-
-    cellOf(view, 0, 1).dispatchEvent(new window.FocusEvent("focus"));
-    control(view, "Delete column").click();
-    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 3 |"].join("\n"));
-    view.destroy();
-  });
-
-  test("a row that gains a real cell can be typed into without reopening the note", () => {
+  test("and it is that row, not the one somebody last had the caret in", () => {
     /*
-      A repaint writes text into cells that are already wired up; it does not
-      wire one up. A change from somewhere else — a sync, an undo — that fills
-      a short row has to rebuild, or the cell stays uneditable with nothing on
-      screen saying why.
+      The second half of the defect: the old bar deleted by remembered
+      coordinates, so a caret in row 2 and a press of delete took row 2 out
+      however far away the pointer was.
     */
-    const doc = ["| a | b |", "| --- | --- |", "| 1 |"].join("\n");
-    const view = mount({ doc });
-    expect(cellOf(view, 0, 1).getAttribute("contenteditable")).toBeNull();
-
-    const line = view.state.doc.line(3);
-    view.dispatch({ changes: { from: line.from, to: line.to, insert: "| 1 | 2 |" } });
-
-    expect(cellOf(view, 0, 1).getAttribute("contenteditable")).toBe("true");
-    type(cellOf(view, 0, 1), "two");
-    expect(view.state.doc.toString()).toContain("| 1 | two |");
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |", "| 3 |"].join("\n") });
+    cellOf(view, 2, 0).dispatchEvent(new window.FocusEvent("focus"));
+    choose(openMenu(view, "Row 1 actions"), "Delete row");
+    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 2 |", "| 3 |"].join("\n"));
     view.destroy();
   });
 
-  test("a grid that grew is still the same element, so its controls still work", () => {
+  test("the handle of the second row takes out the second row", () => {
     /*
-      A shape change rebuilds the table inside the *same* wrapper. If it did
-      not, the button that added the row would be holding an element that is no
-      longer in the document, and the second press would do nothing at all.
+      Pinned separately from the case above, and by a sabotage: a handle that
+      forgot its own index and always acted on the first row passed every
+      other test in this file, because every other one presses "Row 1".
     */
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |", "| 3 |"].join("\n") });
+    choose(openMenu(view, "Row 2 actions"), "Delete row");
+    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 1 |", "| 3 |"].join("\n"));
+    view.destroy();
+  });
+
+  test("and the second column's handle takes out the second column", () => {
+    const view = mount({ doc: ["| a | b | c |", "| - | - | - |", "| 1 | 2 | 3 |"].join("\n") });
+    choose(openMenu(view, "Column 2 actions"), "Insert column left");
+    expect(view.state.doc.toString()).toBe(
+      ["| a |  | b | c |", "| - | --- | - | - |", "| 1 |  | 2 | 3 |"].join("\n"),
+    );
+    view.destroy();
+  });
+
+  test("a row can be inserted above, which the append could never reach", () => {
     const view = mount();
-    const wrap = view.dom.querySelector(".cm-lp-grid")!;
-    control(view, "Add row below").click();
-    control(view, "Add row below").click();
-    expect(view.dom.querySelector(".cm-lp-grid")).toBe(wrap);
-    expect(view.state.doc.toString().split("\n").filter((line) => line === "|  |  |").length).toBe(2);
+    choose(openMenu(view, "Row 1 actions"), "Insert row above");
+    expect(view.state.doc.toString()).toContain("| --- | --- |\n|  |  |\n| 1 | 2 |");
+    view.destroy();
+  });
+
+  test("and moved, which is the alternative to retyping it", () => {
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |"].join("\n") });
+    choose(openMenu(view, "Row 1 actions"), "Move row down");
+    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 2 |", "| 1 |"].join("\n"));
+    view.destroy();
+  });
+
+  test("the first row is not offered a move up, because there is nowhere to go", () => {
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |"].join("\n") });
+    const labels = [...openMenu(view, "Row 1 actions").querySelectorAll(".cm-lp-grid-menu-item")].map(
+      (row) => row.textContent,
+    );
+    expect(labels).toEqual(["Insert row above", "Insert row below", "Move row down", "Delete row"]);
+    view.destroy();
+  });
+
+  test("a column's handle deletes, inserts and moves its own column", () => {
+    const view = mount({ doc: ["| a | b | c |", "| - | - | - |", "| 1 | 2 | 3 |"].join("\n") });
+    choose(openMenu(view, "Column 2 actions"), "Delete column");
+    expect(view.state.doc.toString()).toBe(
+      ["| a | c |", "| - | - |", "| 1 | 3 |"].join("\n"),
+    );
+    view.destroy();
+  });
+
+  test("and sets the alignment, which lives in the one row nobody can see", () => {
+    const view = mount();
+    choose(openMenu(view, "Column 2 actions"), "Align right");
+    expect(view.state.doc.toString()).toContain("| --- | --: |");
+    // The menu says which one is on, so the state is legible next time.
+    const menu = openMenu(view, "Column 2 actions");
+    const current = menu.querySelector(".cm-lp-grid-menu-current");
+    expect(current?.textContent).toBe("Align right");
+    view.destroy();
+  });
+
+  test("the last column is not offered a deletion: what is left is not a table", () => {
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |"].join("\n") });
+    const labels = [...openMenu(view, "Column 1 actions").querySelectorAll(".cm-lp-grid-menu-item")]
+      .map((row) => row.textContent);
+    expect(labels).not.toContain("Delete column");
+    view.destroy();
+  });
+
+  test("the corner deletes the whole table, which nothing else could", () => {
+    // The caret cannot get inside an atomic range to select the lines by hand.
+    const view = mount({ doc: `# Title\n\n${TABLE}\n\nafter\n` });
+    choose(openMenu(view, "Table actions"), "Delete table");
+    expect(view.state.doc.toString()).toBe("# Title\n\nafter\n");
+    view.destroy();
+  });
+
+  test("and hands the pipes back, for everything the menus have no verb for", () => {
+    const view = mount();
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
+    choose(openMenu(view, "Table actions"), "Edit as text");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    expect(view.dom.textContent).toContain("| --- | --- |");
+    view.destroy();
+  });
+
+  test("the row a menu is about is marked while it is open", () => {
+    // The old control acted on a row nobody could see. This one says which.
+    const view = mount();
+    openMenu(view, "Row 1 actions");
+    expect(cellOf(view, 0, 0).classList.contains("cm-lp-grid-target")).toBe(true);
+    // Escape closes it and takes the mark off.
+    document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    expect(document.querySelector(".cm-lp-grid-menu")).toBeNull();
+    expect(cellOf(view, 0, 0).classList.contains("cm-lp-grid-target")).toBe(false);
+    view.destroy();
+  });
+
+  test("the two appends are buttons, because a menu cannot make them clearer", () => {
+    const view = mount();
+    control(view, "Add row at the end").click();
+    expect(view.state.doc.toString()).toContain("| 1 | 2 |\n|  |  |");
+    control(view, "Add column at the end").click();
+    expect(view.state.doc.toString()).toContain("| a | b |  |");
+    view.destroy();
+  });
+
+  test("a reader gets no handles at all", () => {
+    const view = mount({ editable: false });
+    expect(view.dom.querySelector(".cm-lp-grid-handle")).toBeNull();
+    expect(view.dom.querySelector(".cm-lp-grid-gutter")).toBeNull();
     view.destroy();
   });
 });
@@ -613,6 +739,72 @@ describe("the formatting verbs reach the cell that has the caret", () => {
     view.dispatch({ selection: { anchor: 2, head: 7 } });
     toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
     expect(view.state.doc.toString()).toContain("**Title**");
+    view.destroy();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * UNDO, WHICH NOTHING ELSE IN A CELL WOULD ANSWER.
+ *
+ * `ignoreEvent` keeps every keystroke made inside the widget away from the
+ * editor's keymap, so ⌘Z in a cell reached the browser's own contenteditable
+ * history — which would put characters back into the element while the file
+ * kept the change. It matters most where the menus do: a destructive control
+ * is only safe to press if the press can be taken back.
+ */
+describe("undo reaches the document from inside a cell", () => {
+  test("⌘Z takes back what was typed in a cell", () => {
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    type(cell, "changed");
+    expect(view.state.doc.toString()).toContain("| changed | 2 |");
+
+    press(cell, "z");
+    // A bare `z` is a letter, not a chord: the document is untouched.
+    expect(view.state.doc.toString()).toContain("| changed | 2 |");
+
+    cell.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }),
+    );
+    expect(view.state.doc.toString()).toContain("| 1 | 2 |");
+    view.destroy();
+  });
+
+  test("and takes back a row a menu deleted", () => {
+    const view = mount({ doc: ["| a |", "| - |", "| 1 |", "| 2 |"].join("\n") });
+    const handle = view.dom.querySelector<HTMLElement>('button[aria-label="Row 1 actions"]')!;
+    handle.click();
+    const item = [...document.querySelectorAll<HTMLElement>(".cm-lp-grid-menu-item")].find(
+      (row) => row.textContent === "Delete row",
+    )!;
+    item.click();
+    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 2 |"].join("\n"));
+
+    // The caret was handed to a cell that still exists, so the chord lands
+    // where a person would press it.
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(
+      new window.KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }),
+    );
+    expect(view.state.doc.toString()).toBe(["| a |", "| - |", "| 1 |", "| 2 |"].join("\n"));
+    view.destroy();
+  });
+
+  test("Shift-Enter is a line break in the cell rather than a new row", () => {
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    // The caret at the end of the cell, which is where focus leaves it.
+    press(cell, "Enter", true);
+    expect(view.state.doc.toString()).toContain("| 1<br> | 2 |");
+    // And the table still has one body row: Enter alone would have added one.
+    expect(view.dom.querySelectorAll("tbody tr").length).toBe(1);
     view.destroy();
   });
 });

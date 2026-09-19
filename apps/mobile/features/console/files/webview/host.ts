@@ -90,6 +90,8 @@ export function themeVars(
     // The wash behind a focused control. `accentDim` is already that colour;
     // `--lp-selection` is the same value for the same reason.
     "--lp-focus-ring": colors.accentDim,
+    // What a destructive menu item is drawn in; `crit` is the rust family.
+    "--lp-danger": colors.crit,
     "--lp-caret": colors.text,
     "--lp-selection": colors.accentDim,
     // `fonts.body` is `undefined` on native on purpose — there are no bundled

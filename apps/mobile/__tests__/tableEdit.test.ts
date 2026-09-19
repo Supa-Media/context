@@ -23,9 +23,15 @@ import {
   encodeCellInput,
   planAddColumn,
   planAddRow,
+  planAlignColumn,
   planCellEdit,
   planDeleteColumn,
   planDeleteRow,
+  planDeleteTable,
+  planInsertColumn,
+  planInsertRow,
+  planMoveColumn,
+  planMoveRow,
   rowCount,
   splitRow,
 } from "../features/console/files/tableEdit";
@@ -315,5 +321,156 @@ describe("the table a plan was asked about is the one in the document", () => {
     // One line, so there is no delimiter row to add a column to.
     expect(planAddColumn(state, whole(doc), 0)).toBeNull();
     expect(planAddRow(state, whole(doc), 0)).toBeNull();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * THE REST OF WHAT A TABLE NEEDS DOING TO IT.
+ *
+ * The first version of the grid could add a row or a column and delete one,
+ * and the report that followed was "deleting a row is not really possible" —
+ * which was about the control rather than the write, but the set was short
+ * either way. A row you cannot move is a row you retype; a column whose
+ * alignment lives in a delimiter row nobody can see cannot be set at all; and
+ * a table drawn as a grid cannot be deleted, because the caret cannot get
+ * inside an atomic range to select it.
+ */
+describe("a row or a column, inserted on a side", () => {
+  test("above the first row, which append could not reach", () => {
+    const state = stateFor(TABLE);
+    expect(applied(state, planInsertRow(state, whole(TABLE), 0, "above"))).toBe(
+      ["| a | b |", "| --- | --- |", "|  |  |", "| 1 | 2 |"].join("\n"),
+    );
+  });
+
+  test("and below it", () => {
+    const state = stateFor(TABLE);
+    expect(applied(state, planInsertRow(state, whole(TABLE), 0, "below"))).toBe(
+      ["| a | b |", "| --- | --- |", "| 1 | 2 |", "|  |  |"].join("\n"),
+    );
+  });
+
+  test("to the left of the first column, which append could not reach either", () => {
+    const state = stateFor(TABLE);
+    expect(applied(state, planInsertColumn(state, whole(TABLE), 0, "left"))).toBe(
+      ["|  | a | b |", "| --- | --- | --- |", "|  | 1 | 2 |"].join("\n"),
+    );
+  });
+
+  test("and to the right of it", () => {
+    const state = stateFor(TABLE);
+    expect(applied(state, planInsertColumn(state, whole(TABLE), 0, "right"))).toBe(
+      ["| a |  | b |", "| --- | --- | --- |", "| 1 |  | 2 |"].join("\n"),
+    );
+  });
+});
+
+describe("a row, moved", () => {
+  const THREE = ["| a |", "| - |", "| 1 |", "| 2 |", "| 3 |"].join("\n");
+
+  test("down, as whole lines", () => {
+    const state = stateFor(THREE);
+    expect(applied(state, planMoveRow(state, whole(THREE), 0, 1))).toBe(
+      ["| a |", "| - |", "| 2 |", "| 1 |", "| 3 |"].join("\n"),
+    );
+  });
+
+  test("up", () => {
+    const state = stateFor(THREE);
+    expect(applied(state, planMoveRow(state, whole(THREE), 2, -1))).toBe(
+      ["| a |", "| - |", "| 1 |", "| 3 |", "| 2 |"].join("\n"),
+    );
+  });
+
+  test("and never into the header or past the end", () => {
+    const state = stateFor(THREE);
+    expect(planMoveRow(state, whole(THREE), 0, -1)).toBeNull();
+    expect(planMoveRow(state, whole(THREE), 2, 1)).toBeNull();
+  });
+
+  test("a row of different length keeps every character it had", () => {
+    const doc = ["| a |", "| - |", "| short |", "| a much longer cell |"].join("\n");
+    const state = stateFor(doc);
+    expect(applied(state, planMoveRow(state, whole(doc), 0, 1))).toBe(
+      ["| a |", "| - |", "| a much longer cell |", "| short |"].join("\n"),
+    );
+  });
+});
+
+describe("a column, moved", () => {
+  const WIDE = ["| a | b | c |", "| :-- | --- | --: |", "| 1 | 2 | 3 |"].join("\n");
+
+  test("right, in every line including the dashes", () => {
+    const state = stateFor(WIDE);
+    expect(applied(state, planMoveColumn(state, whole(WIDE), 0, 1))).toBe(
+      ["| b | a | c |", "| --- | :-- | --: |", "| 2 | 1 | 3 |"].join("\n"),
+    );
+  });
+
+  test("so the alignment travels with the column rather than staying put", () => {
+    const state = stateFor(WIDE);
+    const next = applied(state, planMoveColumn(state, whole(WIDE), 2, -1))!;
+    expect(tableGrids(stateFor(next))[0].align).toEqual(["left", "right", null]);
+  });
+
+  test("and never off either end", () => {
+    const state = stateFor(WIDE);
+    expect(planMoveColumn(state, whole(WIDE), 0, -1)).toBeNull();
+    expect(planMoveColumn(state, whole(WIDE), 2, 1)).toBeNull();
+  });
+});
+
+describe("a column's alignment, which lives in a row nobody can see", () => {
+  test("left, centre, right and back to none", () => {
+    const state = stateFor(TABLE);
+    const left = applied(state, planAlignColumn(state, whole(TABLE), 0, "left"))!;
+    expect(left.split("\n")[1]).toBe("| :-- | --- |");
+
+    const centre = stateFor(left);
+    const both = applied(centre, planAlignColumn(centre, whole(left), 1, "center"))!;
+    expect(both.split("\n")[1]).toBe("| :-- | :-: |");
+
+    const back = stateFor(both);
+    expect(applied(back, planAlignColumn(back, whole(both), 0, null))!.split("\n")[1]).toBe(
+      "| --- | :-: |",
+    );
+  });
+
+  test("and the grid reads back what was written", () => {
+    const state = stateFor(TABLE);
+    const next = applied(state, planAlignColumn(state, whole(TABLE), 1, "right"))!;
+    expect(tableGrids(stateFor(next))[0].align).toEqual([null, "right"]);
+  });
+
+  test("a table hand-aligned to wide dashes keeps its width", () => {
+    const doc = ["| name    | qty |", "| ------- | --- |", "| apples  | 3   |"].join("\n");
+    const state = stateFor(doc);
+    expect(applied(state, planAlignColumn(state, whole(doc), 0, "right"))!.split("\n")[1]).toBe(
+      "| ------: | --- |",
+    );
+  });
+});
+
+describe("the whole table, deleted", () => {
+  test("goes with the blank line under it", () => {
+    const doc = `intro\n\n${TABLE}\n\ntail\n`;
+    const state = stateFor(doc);
+    const region = tableGrids(state)[0];
+    expect(applied(state, planDeleteTable(state, region))).toBe("intro\n\ntail\n");
+  });
+
+  test("and is the only way out of one, because the caret cannot get inside", () => {
+    const state = stateFor(TABLE);
+    expect(applied(state, planDeleteTable(state, whole(TABLE)))).toBe("");
+  });
+
+  test("but not in a note nobody can write to", () => {
+    const state = stateFor(TABLE, { readOnly: true });
+    expect(planDeleteTable(state, whole(TABLE))).toBeNull();
+    expect(planMoveRow(state, whole(TABLE), 0, 1)).toBeNull();
+    expect(planAlignColumn(state, whole(TABLE), 0, "left")).toBeNull();
+    expect(planInsertRow(state, whole(TABLE), 0, "above")).toBeNull();
   });
 });

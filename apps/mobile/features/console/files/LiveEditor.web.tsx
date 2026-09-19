@@ -352,6 +352,13 @@ function ensureStyles(colors: Colors): void {
      pixel of border changing colour. */
   --lp-focus-ring: ${colors.accentDim};
   /*
+    What a menu item that removes something is drawn in. The rust family
+    tokens.ts reserves for conflict, revoked and failed; Delete row is the
+    first thing in the editor that destroys anything on a press. (No backticks
+    in this comment: it is inside a template literal and one would end it.)
+  */
+  --lp-danger: ${colors.crit};
+  /*
     What the note is drawn *on*. The editor itself is transparent (below), so
     this names the surface behind it rather than painting one. The checkbox's
     tick is cut out of the filled box in this colour.
