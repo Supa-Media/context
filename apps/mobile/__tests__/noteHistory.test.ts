@@ -12,6 +12,7 @@ import {
   placeOf,
   recentPaths,
   settingsPlace,
+  arrived,
   stepped,
   visited,
   type HistoryState,
@@ -123,6 +124,63 @@ describe("where you have been", () => {
  * than kept beside it: a second log would be a second model of "which notes am
  * I working with" on a 390pt screen, which is exactly the thing being removed.
  */
+describe("arriving somewhere the browser's own back button sent you", () => {
+  /**
+   * `arrived` exists because the address bar is a second history over the same
+   * places. A navigation pushes `?note=`, so the browser's back walks it, the
+   * URL changes under the console, and the note it names is opened — an
+   * arrival that reaches the same effect a click does.
+   *
+   * Recorded as a fresh visit, that arrival would **truncate the forward
+   * tail**: the browser could go back and this list could never go forward
+   * again, and the two would drift apart on the first press.
+   */
+  test("stepping back through the browser moves the cursor, it does not truncate", () => {
+    const state = walk("a.md", "b.md", "c.md");
+    const back = arrived(state, notePlace("b.md"));
+    expect(currentPath(back)).toBe("b.md");
+    // The tail survives, which is the whole difference from `visited`.
+    expect(canGoForward(back)).toBe(true);
+    expect(currentPath(stepped(back, 1))).toBe("c.md");
+    // SABOTAGE: `arrived = visited`. `canGoForward` is false here.
+    expect(visited(state, notePlace("b.md")).entries).toHaveLength(4);
+  });
+
+  test("stepping forward through the browser moves the cursor too", () => {
+    const state = stepped(stepped(walk("a.md", "b.md", "c.md"), -1), -1);
+    expect(currentPath(state)).toBe("a.md");
+    const forward = arrived(state, notePlace("b.md"));
+    expect(currentPath(forward)).toBe("b.md");
+    expect(forward.entries).toHaveLength(3);
+  });
+
+  test("arriving where you already are changes nothing", () => {
+    const state = walk("a.md", "b.md");
+    expect(arrived(state, notePlace("b.md"))).toBe(state);
+  });
+
+  test("anywhere that is not a neighbour is an ordinary visit", () => {
+    // The control that keeps this from swallowing navigation itself: opening
+    // a note two steps back in the list is somewhere you went, and the
+    // entries ahead of the cursor are a prediction about a branch you left.
+    const state = stepped(walk("a.md", "b.md", "c.md"), -1);
+    const jumped = arrived(state, notePlace("d.md"));
+    expect(jumped.entries.map((place) => (place.kind === "path" ? place.path : place.kind))).toEqual(
+      ["a.md", "b.md", "d.md"],
+    );
+    expect(canGoForward(jumped)).toBe(false);
+  });
+
+  test("it reconciles every kind of place, not only notes", () => {
+    // Settings sections and app panes are places with their own URLs too, so
+    // a back that lands on one has to move the cursor rather than append.
+    const state = walkPlaces(notePlace("a.md"), settingsPlace("storage"), appPlace("search"));
+    const back = arrived(state, settingsPlace("storage"));
+    expect(currentPlace(back)).toEqual(settingsPlace("storage"));
+    expect(canGoForward(back)).toBe(true);
+  });
+});
+
 describe("recent, for the sheet", () => {
   test("most recent first, which is the reverse of the walk", () => {
     expect(recentPaths(walk("a.md", "b.md", "c.md"))).toEqual(["c.md", "b.md", "a.md"]);

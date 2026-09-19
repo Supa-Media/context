@@ -131,6 +131,82 @@ describe("opening something already open", () => {
 /*                              dirty and saved                               */
 /* -------------------------------------------------------------------------- */
 
+describe("a followed link lands beside the tab it came from", () => {
+  /**
+   * `at: "afterActive"`, and it is what makes a followed link a *destination*
+   * rather than a glance.
+   *
+   * Before this the editor followed a link through `files.select`, which opens
+   * a preview tab — so following A → B → C left one tab and nothing behind to
+   * come back to. The owner's words: "when clicking on internal links, it
+   * should open up a new tab".
+   */
+  test("pinned, immediately right of the active tab, and activated", () => {
+    const state = run(
+      pinned("a.md", "b.md", "c.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "link.md", mode: "pinned", at: "afterActive" },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "link.md", "b.md", "c.md"]);
+    expect(state.activePath).toBe("link.md");
+    // Pinned, so the next single click somewhere else does not replace it.
+    expect(state.tabs.find((tab) => tab.path === "link.md")?.preview).toBe(false);
+  });
+
+  test("the default is still the end of the strip, for everything that is not a link", () => {
+    // Walking a folder, and ⌘⇧T, both want the end: a tab that appears in the
+    // middle of a strip somebody is reading left to right is a tab they have
+    // to find.
+    const state = run(
+      pinned("a.md", "b.md", "c.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "later.md", mode: "pinned" },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "b.md", "c.md", "later.md"]);
+  });
+
+  test("right of nothing is the end, so the first tab in an empty strip still opens", () => {
+    const state = run(emptyTabs, {
+      type: "opened",
+      path: "a.md",
+      mode: "pinned",
+      at: "afterActive",
+    });
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md"]);
+    expect(state.activePath).toBe("a.md");
+  });
+});
+
+describe("⌘-click opens the note behind the one on screen", () => {
+  test("the tab appears and the active one does not move", () => {
+    /*
+      `activate: false`. Expressible in the action rather than by re-activating
+      the old tab afterwards, because that second dispatch is a second render
+      in which the strip has already moved — a flicker onto a note nobody asked
+      to see.
+    */
+    const state = run(
+      pinned("a.md", "b.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "behind.md", mode: "pinned", at: "afterActive", activate: false },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "behind.md", "b.md"]);
+    expect(state.activePath).toBe("a.md");
+  });
+
+  test("a background open of a tab that is already open moves nothing at all", () => {
+    // The only reading of ⌘-click that does not surprise: the tab is there,
+    // you asked not to go to it, and you are still where you were.
+    const state = run(
+      pinned("a.md", "b.md"),
+      { type: "activated", path: "a.md" },
+      { type: "opened", path: "b.md", mode: "pinned", at: "afterActive", activate: false },
+    );
+    expect(state.tabs.map((tab) => tab.path)).toEqual(["a.md", "b.md"]);
+    expect(state.activePath).toBe("a.md");
+  });
+});
+
 describe("editing", () => {
   /** A tab the next single click would replace is no place for a draft. */
   test("typing into a preview tab pins it as well as marking it dirty", () => {

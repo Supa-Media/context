@@ -272,10 +272,13 @@ export interface HostSink {
   onCaret?: (caret: { top: number; bottom: number }) => void;
   /** The guest failed to start. A blank rectangle otherwise. */
   onFailed?: (message: string) => void;
-  /** A link to another note was followed with a modifier held. Navigate. */
-  onOpenNote?: (path: string) => void;
-  /** One was long-pressed. **Ask first** — see the `press-link` message. */
-  onPressNote?: (path: string) => void;
+  /**
+   * A link to another note was followed. See the `open-link` message.
+   *
+   * `"background"` is a ⌘-click or middle-click and must not move the person:
+   * the note opens in a tab behind the one they are reading.
+   */
+  onOpenNote?: (path: string, mode: "foreground" | "background") => void;
   /**
    * A form block on the note was filled in and submitted.
    *
@@ -571,15 +574,12 @@ export function createHostBridge(send: (raw: string) => void, sink: HostSink): H
           sink.onFailed?.(message.message);
           return;
         /*
-          Neither is gated on `editable`: following a link is reading, and a
-          note somebody may only read is exactly the note they are most likely
-          to be following links out of.
+          Not gated on `editable`: following a link is reading, and a note
+          somebody may only read is exactly the note they are most likely to be
+          following links out of.
         */
         case "open-link":
-          sink.onOpenNote?.(message.path);
-          return;
-        case "press-link":
-          sink.onPressNote?.(message.path);
+          sink.onOpenNote?.(message.path, message.mode);
           return;
         /*
           Also not gated on `editable`, and for a stronger reason than the two

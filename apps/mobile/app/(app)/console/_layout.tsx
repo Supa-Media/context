@@ -24,6 +24,7 @@ import { ConsoleBottomBar } from "../../../features/console/ConsoleBottomBar";
 import { SwitcherMenu } from "../../../features/console/SwitcherMenu";
 import { AccountBlock, Avatar } from "../../../features/console/AccountBlock";
 import { ConsoleDataProvider } from "../../../features/console/ConsoleDataContext";
+import { ConsoleNavProvider, type ConsoleNav } from "../../../features/console/ConsoleNavContext";
 import { PluginSuggestDialog } from "../../../features/console/plugins/PluginSuggestDialog";
 import { PluginTextDialog } from "../../../features/console/plugins/PluginTextDialog";
 import { PluginSettingsPane } from "../../../features/console/plugins/PluginSettingsPane";
@@ -45,6 +46,9 @@ import { readFocus, scopeForFocus } from "../../../features/console/keyboardScop
 import { TabStrip } from "../../../features/console/files/TabStrip";
 import { tabAt } from "../../../features/console/files/tabs";
 import {
+  arrived,
+  canGoBack,
+  canGoForward,
   currentPlace,
   emptyHistory,
   hasSomewhereToGo,
@@ -52,11 +56,11 @@ import {
   recentPaths,
   samePlace,
   stepped,
-  visited,
   type HistoryState,
   type Place,
 } from "../../../features/console/files/history";
 import { entryAt, targetFolder } from "../../../features/console/files/tree";
+import { canCreateAnything } from "../../../features/console/files/createSheet";
 import {
   applyRowIntent,
   intentForRowCommand,
@@ -101,6 +105,7 @@ import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { AsidePanel } from "../../../features/console/aside/AsidePanel";
+import { AgentPanel } from "../../../features/agent/AgentPanel";
 import { agentPage } from "../../../features/agent/page";
 import { useOpenNote } from "../../../features/agent/openNote";
 import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
@@ -242,12 +247,18 @@ export default function ConsoleLayout() {
       !data.files.canEdit
     ) return;
     handledQuickNote.current = true;
-    // Remove the command from this history entry before opening the prompt, so
-    // a remount or a trip back through history cannot replay it.
+    // Remove the command from this history entry before acting on it, so a
+    // remount or a trip back through history cannot replay it.
     router.replace(cleanQuickNoteHref);
-    setBarDialog({ kind: "newNote", folder: "0-inbox" });
+    /*
+      Makes the note rather than raising a prompt for its name. The whole point
+      of a quick-note link is that it is one press from wherever somebody was,
+      and a modal asking what to call a note nobody has written yet is the
+      opposite of that. `untitled.ts` has the name it gets and how it loses it.
+    */
+    data.files.createUntitled("0-inbox", "note");
   }, [
-    data.files.canEdit,
+    data.files,
     data.loading,
     cleanQuickNoteHref,
     quickParams.quickAction,
@@ -361,7 +372,14 @@ export default function ConsoleLayout() {
       if (samePlace(navigatingTo.current, here)) navigatingTo.current = null;
       return;
     }
-    setHistory((current) => visited(current, here));
+    /*
+      `arrived`, not `visited`: on the web this effect is also where a press of
+      the **browser's own back button** lands — it changes `?note=`, the route
+      opens that note, and the selection moves. Recorded as a fresh visit that
+      would truncate the forward tail, so the browser could go back and `›`
+      could never go forward again. See `history.ts`.
+    */
+    setHistory((current) => arrived(current, here));
   }, [here]);
 
   const step = useCallback(
@@ -486,6 +504,26 @@ export default function ConsoleLayout() {
   const somewhereToGo = hasSomewhereToGo(history, data.files.selectedPath);
 
   /**
+   * The two verbs the panes below `<Slot/>` cannot reach on their own.
+   *
+   * `follow` is a link in the open note; `back`/`forward` are the breadcrumb's
+   * `‹ ›`, which until now existed only in the phone's bottom bar. Both live
+   * up here — `useTabs` and `history` are this component's state — and both
+   * are needed inside `BrowsePane`, which is a separate route. See
+   * `ConsoleNavContext`.
+   */
+  const nav = useMemo<ConsoleNav>(
+    () => ({
+      follow: tabs.follow,
+      back: () => step(-1),
+      forward: () => step(1),
+      canBack: canGoBack(history),
+      canForward: canGoForward(history),
+    }),
+    [tabs.follow, step, history],
+  );
+
+  /**
    * Close a tab: write what is pending, and ask only about what cannot be.
    *
    * The clean tabs — nearly all of them — still close on one press. A confirm
@@ -578,6 +616,14 @@ export default function ConsoleLayout() {
   const [meetingsAt, setMeetingsAt] = useState<number | null>(null);
   /** When the + menu last asked for a fresh conversation. See `AsidePanel`. */
   const [newChatAt, setNewChatAt] = useState<number | null>(null);
+  /**
+   * When a phone last asked for one, or `null` for "no card on screen".
+   *
+   * A timestamp rather than a boolean, for `asked`'s reason and `meetingsAt`'s:
+   * asking twice in a session is ordinary, and it is also the `key` that gives
+   * the card a fresh conversation each time rather than the last one reopened.
+   */
+  const [phoneChatAt, setPhoneChatAt] = useState<number | null>(null);
   /*
     Whether this console has a right panel at all. `regionsFor` answers
     `hidden` at compact, and `asideToggleFor` is the question asked in the one
@@ -628,6 +674,64 @@ export default function ConsoleLayout() {
   });
 
   /**
+   * A FRESH CONVERSATION, OR `null` WHERE THERE IS NOWHERE FOR ONE TO GO.
+   *
+   * Defined once because two surfaces offer it now — the corner's menu and the
+   * phone's `+` sheet — and two copies of a gate is one copy that eventually
+   * disagrees with the other about when it is open.
+   *
+   * Three conditions, and the third is the owner's: a panel to answer in (so not
+   * a phone), an engine behind it (so not the demo console), and **a model key
+   * on this context** — *"new chat should be off if no LLM api key configured"*.
+   * `=== true` rather than truthiness, because `modelConnected` is `undefined`
+   * until the subscription answers and the row is better absent for that moment
+   * than offered and withdrawn.
+   */
+  const startNewChat = useMemo(
+    () =>
+      !data.demo && data.modelConnected === true
+        ? () => {
+            const at = Date.now();
+            /*
+              TWO SURFACES, ONE OFFER.
+
+              A pointer layout opens the panel beside the note. **A phone opens
+              `AgentPanel` over it**, which is what closed the gap this used to
+              have: `hasAside` was part of the condition above, so the Chat row
+              was simply absent from the phone's `+` while the corner's menu
+              offered it. That was never a decision — it was a fact about the
+              code, because the only thing that raised `AgentPanel` was the
+              floating microphone `NoteEditor` mounts, so the way to the agent on
+              a phone was to open a note, put the keyboard up until the bottom
+              row hid, and press the microphone that came back.
+
+              `AgentPanel` is a `Modal` and says in its own header that it is one
+              so it can "appear identically on a surface that has no console
+              around it at all". So this layout raises it, and neither density
+              has to be told about the other's furniture.
+            */
+            if (!hasAside) return setPhoneChatAt(at);
+            setOpenAsideAt(at);
+            setAsked(null);
+            setNewChatAt(at);
+          }
+        : null,
+    [data.demo, data.modelConnected, hasAside],
+  );
+  /** Recording, or `null` on a console with no controller behind one. */
+  const startMeeting = data.demo ? null : startMeetingFlow;
+  /*
+    Whether the phone's `+` has anything to offer — asked through the same
+    function that decides which rows its sheet draws, so the key and its contents
+    cannot disagree. See `files/createSheet.ts`.
+  */
+  const canCreate = canCreateAnything({
+    canEdit: data.files.canEdit,
+    chat: startNewChat !== null,
+    meeting: startMeeting !== null,
+  });
+
+  /**
    * What the microphone over the note needs, which is only what this layout
    * already knows.
    *
@@ -660,6 +764,34 @@ export default function ConsoleLayout() {
   */
   const liveMeeting = useMeetingsSnapshot().live;
   const openNote = useOpenNote();
+  /**
+   * WHERE THE PERSON IS, FOR THE AGENT — BUILT ONCE.
+   *
+   * Two surfaces answer a question now: the panel beside the note, and the card
+   * a phone raises over it. `agentPage`'s own comment asks for exactly this —
+   * *"the room is assembled in one place, and `agentPage` is that place's only
+   * builder"* — because the object is a set of **references** and a second copy
+   * is a second chance to put a note body in one.
+   *
+   * `meetingLive` is read from the store rather than passed `false` the way
+   * `NoteEditor` passes it, and that is not a disagreement: the editor's own
+   * control returns `null` for the whole of a meeting, so its conversation
+   * cannot be on screen while one runs, and these two can.
+   */
+  const agentPlace = agentPage({
+    context: insideContext ? current : null,
+    /*
+      What the editor published, rather than a reference rebuilt from
+      `selectedEntry`. A tree row carries a path and a visibility and knows
+      nothing about the etag, the encryption or the draft — so three of the five
+      fields would be claims, and `unsaved: false` on a note somebody is typing
+      into is the opposite of the honesty that field exists for.
+    */
+    editor: { reference: openNote },
+    route: pathname,
+    meetingLive: liveMeeting !== null,
+    query: null,
+  });
   /**
    * A question handed over from ⌘K, if one has been.
    *
@@ -786,6 +918,7 @@ export default function ConsoleLayout() {
 
   return (
     <ConsoleDataProvider value={data}>
+      <ConsoleNavProvider value={nav}>
       <VoiceHostProvider value={voiceHost}>
       {data.pluginRuntime?.host}
       {/*
@@ -1078,28 +1211,7 @@ export default function ConsoleLayout() {
           data.demo ? undefined : (
             <AsidePanel
               engine={agentEngine}
-              place={agentPage({
-                context: insideContext ? current : null,
-                /*
-                  What the editor published, rather than a reference rebuilt
-                  from `selectedEntry`. A tree row carries a path and a
-                  visibility and knows nothing about the etag, the encryption
-                  or the draft — so three of the five fields would be claims,
-                  and `unsaved: false` on a note somebody is typing into is
-                  the opposite of the honesty that field exists for.
-                */
-                editor: { reference: openNote },
-                route: pathname,
-                /*
-                  Read from the store here, where `NoteEditor` passes `false`.
-                  That is not a disagreement: the editor's control returns
-                  `null` for the whole of a meeting, so its conversation cannot
-                  be on screen while one runs, and this panel's can — it is a
-                  column beside the note rather than a card over it.
-                */
-                meetingLive: liveMeeting !== null,
-                query: null,
-              })}
+              place={agentPlace}
               asked={asked}
               started={meetingsAt}
               newChat={newChatAt}
@@ -1187,8 +1299,9 @@ export default function ConsoleLayout() {
               onStep={step}
               onSearch={() => setPaletteOpen(true)}
               onOpenRecent={() => setRecentOpen(true)}
-              onNewNote={(folder) => setBarDialog({ kind: "create", folder })}
-              onStartMeeting={startMeetingFlow}
+              onCreate={
+                canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
+              }
             />
           ) : undefined
         }
@@ -1196,6 +1309,7 @@ export default function ConsoleLayout() {
         <Shortcuts
           files={data.files}
           tabs={tabs}
+          nav={nav}
           onCloseTab={closeTab}
           onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
@@ -1465,6 +1579,12 @@ export default function ConsoleLayout() {
           dialog={barDialog}
           onClose={() => setBarDialog(null)}
           /*
+            The two rows of the phone's create sheet that are not files. The same
+            handlers the corner's menu gets, so the two `+`s offer the same
+            things — see `CreatePrompt`.
+          */
+          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat }}
+          /*
             The share dialog raised from the toolbar is the one a phone
             reaches, and it was drawing without the people or the groups —
             which is how it came to be three paragraphs and a keyboard. Read
@@ -1567,30 +1687,47 @@ export default function ConsoleLayout() {
           /*
             The same `targetFolder` rule the tree's own `+` and the phone's
             bottom row both use: a selected folder is the destination, anything
-            else means its parent. It raises the naming dialog rather than
-            writing a file — `ExplorerDialogs` is already mounted below for the
-            toolbar's `+`, and this is that dialog rather than a second one.
+            else means its parent.
+
+            **It writes the file rather than raising a dialog.** The prompt asked
+            for the one thing nobody has before they have written anything; the
+            note arrives called `untitled-<date>` and renames itself to the first
+            heading typed into it. See `files/untitled.ts`.
           */
           onNewNote={() =>
+            data.files.createUntitled(
+              targetFolder(data.files.listings, data.files.selectedPath),
+              "note",
+            )
+          }
+          /*
+            The other two things that land in that same folder. A drawing is made
+            on the press like the note — `untitled-<date>.excalidraw.md`, which is
+            `createUntitled`'s rule and not this control's. **The folder is the
+            one that still asks**, through the dialog the tree's own `+` raises
+            (`ExplorerDialogs` is already mounted below for the toolbar's, and
+            this is that rather than a second one): the reason a note needs no
+            prompt is that it has a title field inside it, and a folder has no
+            inside to type in.
+          */
+          onNewDrawing={() =>
+            data.files.createUntitled(
+              targetFolder(data.files.listings, data.files.selectedPath),
+              "drawing",
+            )
+          }
+          onNewFolder={() =>
             setBarDialog({
-              kind: "newNote",
+              kind: "newFolder",
               folder: targetFolder(data.files.listings, data.files.selectedPath),
             })
           }
           /*
-            A fresh conversation in the right panel. `null` where there is no
-            panel to answer in (a phone) or no engine behind it (the demo
-            console) — absent rather than pressable and inert.
+            A fresh conversation in the right panel — `startNewChat` above, which
+            the phone's `+` sheet also gets, with the three conditions and the
+            owner's reason for the third stated there once.
           */
-          onNewChat={
-            hasAside
-              ? () => {
-                  setOpenAsideAt(Date.now());
-                  setAsked(null);
-                  setNewChatAt(Date.now());
-                }
-              : null
-          }
+          onNewChat={startNewChat}
         />
         )}
 
@@ -1600,6 +1737,31 @@ export default function ConsoleLayout() {
           it exists to be *inside* `AppFrame`, which is where the command is.
         */}
         <OpenAsideOn at={openAsideAt} />
+
+        {/*
+          THE PHONE'S CONVERSATION.
+
+          A phone has no right panel (`hasAside`), so the Chat row in its `+`
+          raises this instead — the same `AgentPanel` the note's own microphone
+          raises, from the same engine and the same `agentPlace`, mounted by the
+          layout so it is reachable on every route rather than only over an open
+          note. See `startNewChat`.
+
+          `key` is the timestamp, so each press starts a fresh conversation
+          rather than reopening the last one — which is what "New chat" says.
+          `compact` is `phone` rather than `true`: the value is only ever read
+          here when `phone` holds, and passing the literal would be a second
+          opinion about the density this component asks for.
+        */}
+        {phoneChatAt === null ? null : (
+          <AgentPanel
+            key={phoneChatAt}
+            engine={agentEngine}
+            place={agentPlace}
+            compact={phone}
+            onClose={() => setPhoneChatAt(null)}
+          />
+        )}
 
         {paletteOpen ? (
           <PaletteWithAsk
@@ -1674,6 +1836,7 @@ export default function ConsoleLayout() {
         {meetingSheet}
       </AppFrame>
       </VoiceHostProvider>
+      </ConsoleNavProvider>
     </ConsoleDataProvider>
   );
 }
@@ -1769,6 +1932,7 @@ function PaletteWithAsk({
 function Shortcuts({
   files,
   tabs,
+  nav,
   onCloseTab,
   onDialog,
   onSearch,
@@ -1776,6 +1940,8 @@ function Shortcuts({
 }: {
   files: FileBrowser;
   tabs: ReturnType<typeof useTabs>;
+  /** ⌘[ and ⌘], over the same history the note's own `‹ ›` walk. */
+  nav: ConsoleNav;
   /** ⌘W. Asks before discarding a draft, exactly as the × does. */
   onCloseTab: (path: string) => void;
   /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
@@ -1840,6 +2006,22 @@ function Shortcuts({
             if (tabs.state.closed.length === 0) return false;
             tabs.reopen();
             return true;
+          /* ---- where you have been -------------------------------------- */
+          case "goBack":
+          case "goForward": {
+            /*
+              `false` at the ends of the history, which is what lets the press
+              reach the browser — on the web ⌘[ is its back chord too, and a
+              console with nowhere of its own to go should not swallow it.
+              The same answer the dimmed `‹ ›` give, through the same state.
+            */
+            const available = command === "goBack" ? nav.canBack : nav.canForward;
+            if (!available) return false;
+            if (command === "goBack") nav.back();
+            else nav.forward();
+            return true;
+          }
+
           case "nextTab":
           case "prevTab": {
             const { tabs: open, activePath } = tabs.state;
@@ -1905,7 +2087,13 @@ function Shortcuts({
           }
         }
       },
-      [files, tabs, onCloseTab, onDialog, frame, onSearch],
+      /*
+        `nav` belongs here rather than being left out as "stable enough": it is
+        memoized on the history state, so it is the one dependency in this list
+        that changes on every navigation — and a stale copy would answer ⌘[
+        with the `canBack` of wherever somebody was two notes ago.
+      */
+      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch],
     ),
   });
 

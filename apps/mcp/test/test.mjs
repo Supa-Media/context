@@ -32,6 +32,7 @@ import { runBulkFolderMoveVisibilityChecks } from "./bulkFolderMoveVisibility.te
 import { runToolArgumentChecks } from "./toolArguments.test.mjs";
 import { runLinkChecks } from "./links.test.mjs";
 import { runActivityChecks } from "./activity.test.mjs";
+import { runForwardingChecks } from "./forwarding.test.mjs";
 import { runDrawingChecks } from "./drawings.test.mjs";
 import { runUsageReportingChecks } from "./usageReporting.test.mjs";
 import { runMeetingChecks } from "./meetings.test.mjs";
@@ -2839,9 +2840,32 @@ check(
 );
 check(
   "logical folder move makes destination readable before physical copy",
-  succeeded(await call("priv-token", "read_note", { path: "1-projects/big-moved/note-000.md" })) &&
-    (await call("priv-token", "read_note", { path: "1-projects/big-move/note-000.md" })).isError
+  succeeded(await call("priv-token", "read_note", { path: "1-projects/big-moved/note-000.md" }))
 );
+/*
+  THE SOURCE PREFIX IS GONE, AND A READ OF IT IS FORWARDED RATHER THAN REFUSED.
+
+  This check asserted `isError` until `forwarding.js` landed. The refusal was
+  never the point — the point is that the source prefix stops being a live
+  location, so a *write* there cannot land (checked below) and a read cannot be
+  served the pre-move bytes and written back to a dead path.
+
+  Forwarding keeps both of those and drops the collateral damage: the caller is
+  handed the note at its *destination*, with `moved_from` naming the address
+  they arrived on, so a client that reads-edits-writes uses the live path. A
+  link pasted before the rename now opens, which is the whole reason the ledger
+  exists. `canSee` is re-asked at the destination, so nothing widens — the
+  private-override check immediately below still passes through the same path.
+*/
+{
+  const stale = await call("priv-token", "read_note", { path: "1-projects/big-move/note-000.md" });
+  check(
+    "a read of the moved-away source is forwarded to the destination, and says so",
+    succeeded(stale) &&
+      stale.content[0].text.includes("path: 1-projects/big-moved/note-000.md") &&
+      stale.content[0].text.includes("moved_from: 1-projects/big-move/note-000.md")
+  );
+}
 check(
   "logical folder move preserves exact private overrides at the destination",
   (await call("pub-token", "read_note", { path: "1-projects/big-moved/note-501.md" })).isError
@@ -4387,6 +4411,7 @@ await runContextPluginChecks(check);
 // worker of its own — see the file header for why it does not share this
 // fixture.
 await runLinkChecks(check);
+await runForwardingChecks(check);
 
 // `activity.md`: the feed as a file in the customer's bucket. Pure format and
 // substance rules first, then a worker of its own — it writes to the root of

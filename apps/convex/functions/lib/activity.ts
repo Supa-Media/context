@@ -33,6 +33,7 @@ import {
   type Visibility,
 } from "./privacy";
 import { loadPrivacyState, setExactVisibility, type FileStore } from "./fileOps";
+import { forwardPath, readForwarding } from "../../../mcp/src/forwarding.js";
 
 export { ACTIVITY_PATH };
 
@@ -141,12 +142,24 @@ export async function readActivity(
   const object = await store.get(ACTIVITY_PATH);
   if (!object) return [];
   const privacy = await loadPrivacyState(store);
+  /*
+    Each path forwarded to where the note is now — the gateway's copy of this
+    carries the argument. In short: a line written on Tuesday names Tuesday's
+    path, and a context tidied on Thursday would leave every one of those rows
+    pointing at nothing. Forwarding also means `canSee` is asked about where
+    the note *is*, so one moved into a private folder drops out of lines
+    written while it was shared.
+  */
+  const forwarding = await readForwarding(store);
   const rules: PrivacyRule[] = privacy.invalid ? [] : privacy.rules;
   const overrides: Map<string, Visibility> = privacy.invalid
     ? new Map()
     : privacy.overrides;
   const names = reader.names ? new Set(reader.names) : undefined;
-  return visibleActivityEntries(parseActivityFile(await object.text()), {
+  const forwarded = (parseActivityFile(await object.text()) as ActivityEntry[]).map(
+    (entry) => ({ ...entry, paths: entry.paths.map((path) => forwardPath(forwarding, path)) }),
+  );
+  return visibleActivityEntries(forwarded, {
     owner: reader.scope === "private",
     canSee: (path: string) => canSee(path, reader.scope, rules, overrides, names),
   }) as ActivityEntry[];

@@ -285,6 +285,36 @@ describe("a person editing in the console", () => {
   });
 });
 
+describe("a line follows its note", () => {
+  test("a row written before a move points at where the note is now", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-one.md",
+      text: BODY,
+    });
+    await asUser(f.t, f.owner).action(api.functions.files.moveEntry, {
+      workspaceId: f.workspaceId,
+      from: "1-projects/week-one.md",
+      to: "1-projects/week-one-renamed.md",
+    });
+
+    const entries = await asUser(f.t, f.owner).action(
+      api.functions.files.listActivity,
+      { workspaceId: f.workspaceId },
+    );
+    // Every row, not just the move's own: the line that says the note was
+    // added was written when it lived somewhere else, and it is the one a
+    // tidy-up would otherwise leave pointing at nothing.
+    expect(entries.flatMap((entry) => entry.paths)).not.toContain(
+      "1-projects/week-one.md",
+    );
+    expect(entries.some((entry) => entry.paths.includes("1-projects/week-one-renamed.md"))).toBe(
+      true,
+    );
+  });
+});
+
 describe("catching up", () => {
   test("starts unread and only ever moves forward", async () => {
     const f = await fixture();

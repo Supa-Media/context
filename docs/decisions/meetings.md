@@ -3807,3 +3807,50 @@ is the workspace's own setting` in `apps/mobile/__tests__/meetingsDestination.te
 (seven checks, including every folder the real `normalizeMeetingFolder`
 refuses), `apps/convex/__tests__/meetingsFolder.test.ts`, and
 `apps/mobile/__tests__/meetingsFolderPanel.test.ts` for the panel's own gating.
+## The seventh key became a row in the `+`, and the route it guarded did not move
+
+Everything above about "the seventh key" describes a microphone at the end of the
+phone's bottom row. On 2026-09-19 the owner removed it: *"we no longer need a
+dedicated mic button on the bottom row, just a plus button that opens different
+options"*. The row is six keys, the separator that marked the key off is gone
+with it, and **recording a meeting is a row in the sheet the `+` raises**
+(`CreatePrompt`, driven by `files/createSheet.ts` — see
+[app-and-console](./app-and-console.md), *Nothing is named before it is written,
+and the phone's `+` is the only key*, and *The corner makes five things* above
+it, which is where the corner's own list is argued).
+
+What that costs and does not cost, because this file spent a lot of words on that
+key:
+
+- **The route survives.** Everything argued above rests on the phone having *a*
+  way into capture and on the only route to a finished meeting hanging off the
+  sheet that way raises. The `+` raises the same flow (`startMeetingFlow`), so
+  both still hold — one press deeper, and now beside the four other things
+  somebody starts.
+- **The "one microphone" rule survives, and was never about the glyph.**
+  `NoteEditor`'s `microphoneElsewhere` still stands the floating microphone down
+  while the bottom row is on the glass, and the floating one still returns with
+  the keyboard accessory bar, at exactly the moment there is a caret. The
+  condition is unchanged because what it protects is *the corner* — one floating
+  control at a time — and the row's `+` is that control now.
+- **The `+` had to stop being gated on `canEdit`.** It was, while it meant
+  *note*. A meeting is something a member of somebody else's context can still
+  start, so that gate would have taken capture off every shared context somebody
+  reads — which is the hole this file's own argument exists to keep shut. The
+  read-only rule moved a row lower: the sheet draws no Note, Drawing or Folder
+  without `canEdit`, and `canCreateAnything` hides the key only when the sheet
+  would have no rows at all.
+- **The width argument gets easier, not harder.** Seven targets plus the rule
+  needed 309pt and spent the pill's padding and part of the sliver at 375 and
+  below. Six need less, and `bottomRowWidth.test.ts` keeps the seven-key solve as
+  a probe of `BottomBar` — the shape the geometry must survive if a destination
+  is ever added back — separately from `CONSOLE_KEYS`, which is what the product
+  draws.
+
+**The tests that fail if it is reversed**: `is six keys, ending at Save, with no
+separator and no microphone` in `apps/mobile/__tests__/bottomRowWidth.test.ts`,
+`the app's other place is a row in the + sheet, and choosing it records` in
+`apps/mobile/__tests__/consoleChrome.test.ts` (driven through the real row, to a
+real refusal from a console with no controller behind it), and the four states of
+`apps/mobile/__tests__/oneMicrophone.test.ts`, every one of which is unchanged by
+this — which is the point.

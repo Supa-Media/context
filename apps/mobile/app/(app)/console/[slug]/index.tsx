@@ -85,7 +85,20 @@ export default function ContextBrowseRoute() {
     data.files,
     { contextId: contextIdForSlug(data.contexts, slug), note },
     data.selectedContextId,
-    useNoteUrl(),
+    /*
+      A navigation pushes, so the browser's own back button walks between
+      notes; a correction replaces. See `useNoteUrl`.
+
+      `pushable` is false while the address carries anything besides the note,
+      because a push rebuilds the address out of the context and the note alone
+      and would drop the rest — closing the settings overlay as a side effect
+      of the open note changing underneath it, which is the defect that overlay
+      exists to avoid. Read as "every key except these two" rather than by
+      naming `settings`: this route is where a console query parameter lands,
+      and the next one added would otherwise be dropped silently by a rule that
+      had never heard of it.
+    */
+    useNoteUrl(slug, Object.keys(params).every((key) => key === "note" || key === "slug")),
   );
   useRememberPlace(placeFor(data.contexts, slug, note));
 

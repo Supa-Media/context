@@ -90,6 +90,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { type Clearance, clearanceOf, privateClearance } from "./lib/clearance";
 import { grantedNamesFor } from "./lib/grantedNames";
 import { resolveAddressedUser } from "./lib/identities";
+import { forwardPath, readForwarding } from "../../mcp/src/forwarding.js";
 import { storeForBinding } from "../../mcp/src/store/factory.js";
 import { inventoryPlugins, listManagedInstalls } from "../../mcp/src/plugins/inventory.js";
 import {
@@ -859,6 +860,12 @@ const notePathsValidator = v.object({
   paths: v.union(v.array(v.string()), v.null()),
 });
 
+/** The answer to `forward`: the same paths, each where it is now. */
+const forwardedValidator = v.object({
+  kind: v.literal("forwarded"),
+  paths: v.array(v.string()),
+});
+
 /**
  * One blended answer: a page of results, and one row per context it asked.
  *
@@ -1062,6 +1069,7 @@ const operationResultValidator = v.union(
   vaultClearResultValidator,
   searchResultsValidator,
   notePathsValidator,
+  forwardedValidator,
   indexMaintainedValidator,
   indexProjectedValidator,
   googleSyncRunValidator,
@@ -1072,7 +1080,32 @@ const operationResultValidator = v.union(
 
 const operationValidator = v.union(
   v.object({ kind: v.literal("list"), path: v.string() }),
-  v.object({ kind: v.literal("read"), path: v.string() }),
+  v.object({
+    kind: v.literal("read"),
+    path: v.string(),
+    /**
+     * Whether a path that has moved is followed to where it went.
+     *
+     * Absent is `never`, which is every caller that predates the forwarding
+     * ledger. `onMiss` is for an address somebody is holding — a deep link, a
+     * remembered path. A share needs the opposite order and resolves through
+     * the `forward` operation instead; `readFile` carries the argument for why
+     * those two orders cannot be one.
+     */
+    forward: v.optional(v.union(v.literal("never"), v.literal("onMiss"))),
+  }),
+  /**
+   * Where these paths are now, according to the bucket's forwarding ledger.
+   *
+   * A read can forward itself (`forward`, above). A share cannot: its bound is
+   * decided in `shares.ts` *before* any bucket access — `withinSharedFolder`
+   * refuses a path outside the shared folder without spending a GET — and a
+   * bound checked against a stale prefix while the read forwards to a live one
+   * would be two different answers to the same question. So the share resolves
+   * both paths first, in one operation, and everything after it works in live
+   * paths.
+   */
+  v.object({ kind: v.literal("forward"), paths: v.array(v.string()) }),
   /** The offline mirror's manifest, one page of it. See `syncManifest`. */
   v.object({ kind: v.literal("manifest"), cursor: v.optional(v.string()) }),
   /** Several `read`s against one load of `privacy.md`. See `readFiles`. */
@@ -1361,7 +1394,8 @@ const operationValidator = v.union(
 type FileOperation =
   | { kind: "readActivity" }
   | { kind: "list"; path: string }
-  | { kind: "read"; path: string }
+  | { kind: "read"; path: string; forward?: "never" | "onMiss" }
+  | { kind: "forward"; paths: string[] }
   | { kind: "manifest"; cursor?: string }
   | { kind: "readMany"; paths: string[] }
   | {
@@ -1496,6 +1530,7 @@ type OperationResult =
       stylesCss: string | null;
     }
   | { kind: "notePaths"; paths: string[] | null }
+  | { kind: "forwarded"; paths: string[] }
   | {
       kind: "indexMaintained";
       pending: number;
@@ -3570,8 +3605,35 @@ export async function executeOperation(
         return { kind: "listing", ...listing };
       }
       case "read": {
-        const file = await readFile(store, { path: operation.path, clearance });
+        const file = await readFile(store, {
+          path: operation.path,
+          clearance,
+          ...(operation.forward === undefined ? {} : { forward: operation.forward }),
+        });
         return { kind: "file", ...file };
+      }
+      case "forward": {
+        /*
+          DELIBERATELY UNFILTERED, AND SAFE ONLY BECAUSE OF WHERE IT GOES.
+
+          This answers "where did this path go" without asking `canSee` about
+          either end, which would be wrong if the answer were ever handed to a
+          caller: a forwarded path is a fact about a note, and where a private
+          note went is not a team reader's business.
+
+          It is never handed to one. `runFileOperation` is internal, the single
+          caller is `readSharedNote`, and everything it does with the answer —
+          the folder bound, then a read at `team` scope through the live
+          `privacy.md` — decides afresh. A path that forwards somewhere the
+          reader may not see comes back as the same `SHARE_UNAVAILABLE` as one
+          that never existed. **Any new caller has to re-argue that**, or ask
+          `canSee` here.
+        */
+        const ledger = await readForwarding(store);
+        return {
+          kind: "forwarded" as const,
+          paths: operation.paths.map((path) => forwardPath(ledger, path)),
+        };
       }
       case "manifest": {
         const manifest = await syncManifestOp(store, {
@@ -4226,7 +4288,15 @@ export const readNote = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
-      operation: { kind: "read", path: args.path },
+      /*
+        A link into the console outlives the path it names. Somebody pastes
+        `?note=2-areas/apps/x.md` into a thread, the folder is renamed to
+        `5-areas`, and the address in the thread is the only copy of it left —
+        no rewrite reaches a chat message. `onMiss` follows the bucket's
+        forwarding ledger once the live path has already missed, so a note
+        that exists where it says wins, and only a dead address is forwarded.
+      */
+      operation: { kind: "read", path: args.path, forward: "onMiss" },
     });
     return result as Extract<OperationResult, { kind: "file" }>;
   },

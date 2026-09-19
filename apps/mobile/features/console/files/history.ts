@@ -169,6 +169,42 @@ export function visited(state: HistoryState, place: Place): HistoryState {
 }
 
 /**
+ * Somewhere arrived at, which may be somewhere this list already holds.
+ *
+ * **The browser's back button is why this is not `visited`.** On the web the
+ * address bar is a second history over the same places: a navigation pushes
+ * `?note=` (see `useNoteUrl`), so pressing the browser's own back walks it,
+ * the URL changes under the console, and `useNoteAddress` opens the note it
+ * names. That arrival reaches the same effect a click does — and recorded as a
+ * fresh visit it would **truncate the forward tail**, so the browser could go
+ * back and this list could never go forward again. The two stacks would drift
+ * apart on the first press.
+ *
+ * So an arrival at the entry immediately behind or ahead of the cursor moves
+ * the cursor instead of appending, which is the same answer `stepped` would
+ * have given for that place. Anywhere else is a visit.
+ *
+ * **What this costs, stated rather than discovered:** deliberately navigating
+ * to the note you were just on — clicking it in the tree rather than pressing
+ * `‹` — now moves the cursor back rather than appending a third entry, so `›`
+ * afterwards returns to the note you left. A browser would have appended, and
+ * its forward would be dead. This is the better of the two behaviours and it
+ * is also the one that keeps `‹ ›` agreeing with what the address bar just
+ * did; the alternative is telling those two stacks apart, which nothing on
+ * this side of the URL can do.
+ */
+export function arrived(state: HistoryState, place: Place): HistoryState {
+  if (samePlace(currentPlace(state), place)) return state;
+  if (samePlace(state.entries[state.at - 1] ?? null, place)) {
+    return { entries: state.entries, at: state.at - 1 };
+  }
+  if (samePlace(state.entries[state.at + 1] ?? null, place)) {
+    return { entries: state.entries, at: state.at + 1 };
+  }
+  return visited(state, place);
+}
+
+/**
  * How many rows the Recent sheet offers.
  *
  * A sheet is `maxHeight: 70%` and scrolls, so the cap is not about fitting —

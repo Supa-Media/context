@@ -35,6 +35,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A bucket born on the layout has nothing to migrate, and is not asked to
 - A move between two contexts is three calls, not one function holding two keys
 - The model key is a fourth credential route, not a fifth sibling on the binding
+- A moved note leaves a forwarding address, and it is a trail rather than an index
 
 ## [Premium, Stripe, and the promise money may not touch](./billing.md)
 
@@ -86,6 +87,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Restricting a folder to *some* of a workspace is not built, and the shape it would take
 - Domain-based membership is not built, and would be an invitation, never a grant
 - A note carried into another context lands at the narrower of the two ends
+- A share follows the note, not the path it was minted on
 
 ## [Per-note encryption](./encryption.md)
 
@@ -207,6 +209,8 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A diagram lives in the note, and the browser is the only thing that makes it safe
 - A phone gets Recent, because it could never get a second tab
 - A connected account is one card, and its consequence is armed
+- Reading mode is the whole rule for a block that replaces its own source
+- A grid is edited in place, and the unit that reveals is the cell
 - A note may declare the mode it opens in, and the person still outranks it
 - The note is a measured column, and the demo note stopped faking one
 - The staff console is shaped for ten customers, and its figures count rows
@@ -217,6 +221,11 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - A status wears a chip; a band is for what you have not been told
 - A workspace can wear a face, and the letter is what it falls back to
+- The allowed-sender list stays beside the address it gates
+- The tree is drawn from the press, and `privacy.md` is what it may not guess
+- What the sidebar can do to a folder, the listing can do to it too
+- Nothing is named before it is written, and the phone's `+` is the only key
+- A phone can ask its context a question, and could not before
 - The feed is a file, and the console is a viewing layer over it
 
 ## [Meetings](./meetings.md)
@@ -255,6 +264,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A segment id names its own meeting, and both sides check it
 - The phone had one barrier where the desktop has four, and both halves are named
 - A refusal is shown with the reason the gateway gave for it
+- The seventh key became a row in the `+`, and the route it guarded did not move
 
 ## [Communications](./communications.md)
 

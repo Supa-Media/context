@@ -32,11 +32,18 @@ import { createRoot } from "react-dom/client";
  * glass, 24pt away.
  *
  * **Which one stands down is not a taste question and was not decided here.**
- * `docs/decisions/meetings.md` records the seventh key as the phone's only way
+ * `docs/decisions/meetings.md` records the bottom row as the phone's only way
  * into meeting capture, and — after somebody recorded a meeting on their phone
  * and could not find it again — the only route to a *finished* meeting hangs off
- * the sheet that key raises. So the key is the phone's microphone, and the
- * floating one yields to it, exactly as it already yields to a recording.
+ * the sheet it raises. So the row owns that corner and the floating one yields
+ * to it, exactly as it already yields to a recording.
+ *
+ * The seventh key has since gone — *"we no longer need a dedicated mic button on
+ * the bottom row, just a plus button that opens different options"* — so the row
+ * carries a `+` where it carried a microphone, and recording is a row in the
+ * sheet that `+` raises. **Every assertion below is unchanged by that**, and
+ * that is the point of writing the condition as "the bottom row is on the
+ * glass": what it protects is one control in one corner, not a glyph.
  *
  * ## Why this is a test of `NoteEditor` and not of `VoiceButton`
  *

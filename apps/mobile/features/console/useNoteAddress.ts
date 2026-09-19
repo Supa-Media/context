@@ -55,11 +55,17 @@ export function useNoteAddress(
     note: string | null;
   },
   selectedContextId: string | null,
-  /** Write the URL. `null` clears `?note=` rather than naming an empty note. */
-  address: (note: string | null) => void,
+  /**
+   * Write the URL. `null` clears `?note=` rather than naming an empty note.
+   *
+   * `mode` decides whether the browser gets a history entry for it — see the
+   * `address` step in `noteAddress.ts` and `useNoteUrl`, which is what makes
+   * the browser's own back button walk between notes.
+   */
+  address: (note: string | null, mode: "push" | "replace") => void,
 ): void {
   const seen = useRef<Reconciled | null>(null);
-  const { select, deselect, contextId, selectedPath } = files;
+  const { select, deselect, contextId, selectedPath, navigations } = files;
   const { contextId: urlContextId, note } = url;
 
   /*
@@ -78,13 +84,14 @@ export function useNoteAddress(
       urlContextId,
       note,
       selected: selectedPath,
+      navigations,
       seen: seen.current,
     });
     if (step.action === "wait") return;
 
     // `contextId === selectedContextId` and that is not null, or the step
     // above was `wait`.
-    seen.current = { contextId: contextId!, note, selected: selectedPath };
+    seen.current = { contextId: contextId!, note, selected: selectedPath, navigations };
 
     if (step.action === "open") select(step.path);
     /*
@@ -106,7 +113,22 @@ export function useNoteAddress(
       selected` is a `hold`) and keeps the device record pointing at the thing
       that needs an answer.
     */
-    else if (step.action === "close" && !deselect()) addressRef.current(selectedPath);
-    else if (step.action === "address") addressRef.current(step.note);
-  }, [contextId, deselect, note, select, selectedContextId, selectedPath, urlContextId]);
+    /*
+      Always a replace. Nobody navigated — the URL tried to close a note the
+      guard would not let go of — so the address is being corrected back onto
+      what is still on screen, and an entry for that correction would be a back
+      button that returns to the close somebody was refused.
+    */
+    else if (step.action === "close" && !deselect()) addressRef.current(selectedPath, "replace");
+    else if (step.action === "address") addressRef.current(step.note, step.mode);
+  }, [
+    contextId,
+    deselect,
+    navigations,
+    note,
+    select,
+    selectedContextId,
+    selectedPath,
+    urlContextId,
+  ]);
 }

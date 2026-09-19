@@ -186,5 +186,22 @@ test("Table… hands over a grid, and a cell writes a table of that size", async
 
   await page.getByTestId("table-size-3x2").click();
   await expect(page.getByTestId("table-size-picker")).toHaveCount(0);
-  await expect(page.locator(".cm-content")).toContainText("| --- | --- | --- |");
+
+  /*
+    The pipes used to be the assertion, because an editable note showed them.
+    A table is now drawn as a table while it is being written, so what "a cell
+    writes a table of that size" means is a grid of that size — three columns
+    over a header and two body rows — and the caret in the first cell of it.
+  */
+  const grid = page.locator(".cm-lp-grid-live table").first();
+  await expect(grid).toBeVisible();
+  // "3 × 2" is three columns and two rows *including the header*, which the
+  // picker's own header says it counts — so one body row under three headings.
+  await expect(grid.locator("th")).toHaveCount(3);
+  await expect(grid.locator("tbody tr")).toHaveCount(1);
+
+  // And it can be typed into where it stands, which is the whole point of
+  // drawing it here rather than only for a reader.
+  await page.keyboard.type("name");
+  await expect(grid.locator("th").first()).toHaveText("name");
 });

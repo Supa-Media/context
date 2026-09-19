@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { AccountBlock } from "./AccountBlock";
 import { SwitcherMenu } from "./SwitcherMenu";
 import { BrowsePane } from "./panes/BrowsePane";
+import { ConsoleNavProvider, type ConsoleNav } from "./ConsoleNavContext";
 import { ContextStrip, CurrentContextPill } from "./ContextStrip";
 import { NavBandProvider } from "./NavBand";
 import type { CheckoutOutcome } from "@context/shared";
@@ -130,6 +131,34 @@ export function E2EFixtureScreen({
 } = {}) {
   const data = useE2EFixtureConsoleData();
   const current = selectedContext(data);
+  /**
+   * Following a link, and a history with nowhere to go.
+   *
+   * Without a provider here `BrowsePane` hands the editor no `onOpenLink` at
+   * all, and the editor then draws links as plain text rather than as a
+   * control that does nothing — so this screen would silently lose the one
+   * construct the WebKit suite's link cases are about. That is this
+   * repository's own recurring failure (a route with no way in) arriving
+   * through a context default, which is why it is wired rather than left.
+   *
+   * `follow` is `select`, because this screen has no tab strip: it reproduces
+   * the *phone* console, where a followed link takes the pane. The two steps
+   * are drawn by the bottom bar over `history.ts`, which belongs to the real
+   * console layout — so they are honestly unavailable here rather than
+   * simulated, and at compact density the breadcrumb draws neither anyway.
+   */
+  const nav = useMemo<ConsoleNav>(
+    () => ({
+      follow: (path) => {
+        data.files.select(path);
+      },
+      back: () => {},
+      forward: () => {},
+      canBack: false,
+      canForward: false,
+    }),
+    [data.files],
+  );
   const [anchor, setAnchor] = useState<string | null>(null);
   const [settings, setSettings] = useState<SettingsSectionKey | null>(null);
   /*
@@ -296,6 +325,7 @@ export function E2EFixtureScreen({
             }}
           >
             <VoiceHostProvider value={voiceHost}>
+            <ConsoleNavProvider value={nav}>
             <BrowsePane
               data={data}
               onOpenSettings={openSettings}
@@ -305,6 +335,7 @@ export function E2EFixtureScreen({
                 data.files.select(path);
               }}
             />
+            </ConsoleNavProvider>
             </VoiceHostProvider>
           </NavBandProvider>
         </View>

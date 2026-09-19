@@ -857,6 +857,24 @@ async function runWiredChecks(check) {
     ),
   );
 
+  /*
+    A LINE FOLLOWS ITS NOTE.
+
+    The row written before a move has to point at where the note is now, or
+    every tidy-up silently breaks the list. `#735`'s forwarding ledger is what
+    makes that answerable, and this is the check that the feed asks it.
+  */
+  await call(OWNER, "move_note", {
+    source: "1-projects/alpha.md",
+    destination: "1-projects/alpha-renamed.md",
+  });
+  const afterMove = textOf(await call(OWNER, "read_activity", {}));
+  check(
+    "a line written before a move points at where the note is now",
+    afterMove.includes("1-projects/alpha-renamed.md") &&
+      !afterMove.includes("added `1-projects/alpha.md`"),
+  );
+
   const listed = textOf(await call(TEAM, "list_notes", { prefix: "" }));
   check(
     "and it is not offered as a note to a team reader",

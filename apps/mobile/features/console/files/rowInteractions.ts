@@ -35,7 +35,13 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
 
   return {
     pressableProps: {
-      onLongPress: () => onMenu({ x: 0, y: 0 }),
+      /*
+        The answer is discarded rather than acted on. On web `false` means
+        "leave the browser's own menu alone"; a touchscreen has no platform
+        menu to leave alone, so a handler that declines simply opens nothing
+        and the long press is spent. `void` keeps the prop's own type.
+      */
+      onLongPress: () => void onMenu({ x: 0, y: 0 }),
       delayLongPress: LONG_PRESS_MS,
     },
   };

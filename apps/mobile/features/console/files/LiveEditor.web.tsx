@@ -59,7 +59,7 @@ import {
   runCommand,
   type HandlerRef,
 } from "./editorSetup";
-import type { NoteLinkContext } from "./noteLinks";
+import type { NoteLinkContext, NoteLinkOpen } from "./noteLinks";
 import type {
   FormOutcome,
   FormHostRef,
@@ -208,17 +208,15 @@ export interface LiveEditorProps {
   /**
    * A link to another note was followed, and how.
    *
-   * `onOpenNote` is a ⌘-click (Ctrl elsewhere) and navigates. `onPressNote` is
-   * a long press, and deliberately does **not** — the host asks first, because
-   * a press is an ambiguous gesture and throwing away the note somebody is
-   * editing on the strength of one is the worst available reading of it. See
+   * A click and a tap are `"foreground"` and go to the note; a ⌘-click and a
+   * middle-click are `"background"` and must leave the person where they are.
+   * ⌥-click never reaches here at all — it belongs to the caret. See
    * `noteLinks.ts`.
    *
-   * Both absent means links are plain text on this surface, which is what the
+   * Absent means links are plain text on this surface, which is what the
    * landing page's demo console wants: it has nowhere to navigate to.
    */
-  onOpenNote?: (path: string) => void;
-  onPressNote?: (path: string) => void;
+  onOpenNote?: (path: string, mode: NoteLinkOpen) => void;
   /** The note being edited, so a relative link knows what it is relative to. */
   notePath?: string | null;
   /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */
@@ -501,7 +499,6 @@ export function LiveEditor({
   onBlur,
   accessibilityLabel,
   onOpenNote,
-  onPressNote,
   notePath,
   notePaths,
   onSubmitForm,
@@ -535,13 +532,11 @@ export function LiveEditor({
     path: notePath ?? null,
     paths: notePaths,
     onOpen: () => {},
-    onPress: () => {},
   });
   links.current = {
     path: notePath ?? null,
     paths: notePaths,
-    onOpen: (path) => onOpenNote?.(path),
-    onPress: (path) => onPressNote?.(path),
+    onOpen: (path, mode) => onOpenNote?.(path, mode),
   };
 
   /*
@@ -709,7 +704,7 @@ export function LiveEditor({
           handlers: bridged,
           // Absent when this surface has nowhere to navigate to; the extension
           // is then not installed at all and links are plain text.
-          links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
+          links: onOpenNote === undefined ? undefined : links,
           forms,
           /*
             Images. Passed unconditionally: the ref is the thing that is empty
@@ -768,16 +763,32 @@ export function LiveEditor({
       because the guest reports its focus over the bridge instead — the two
       surfaces answer the same prop by different routes, and that route is the
       only part of this the two halves do not share. `guest.ts` attaches the
-      identical pair to the identical `contentDOM`.
+      identical pair to the identical element, and its comment carries the
+      argument for which pair: a table cell is `contenteditable` DOM of a
+      widget's, so a caret in a grid is a caret in the note and `contentDOM`
+      does not have focus. `focusin` and `focusout` bubble; `focus` and `blur`
+      do not.
 
       Read off the ref rather than closed over, exactly like `onChange` above
       and for the same reason: this view is built once and would otherwise
       report to the first render's callbacks forever.
     */
-    const reportFocus = () => handlers.current.onFocus?.();
-    const reportBlur = () => handlers.current.onBlur?.();
-    created.contentDOM.addEventListener("focus", reportFocus);
-    created.contentDOM.addEventListener("blur", reportBlur);
+    let focused = false;
+    const reportFocus = () => {
+      if (focused) return;
+      focused = true;
+      handlers.current.onFocus?.();
+    };
+    const reportBlur = (event: FocusEvent) => {
+      // Moving from one cell to the next is not leaving the note.
+      const to = event.relatedTarget;
+      if (to instanceof Node && created.dom.contains(to)) return;
+      if (!focused) return;
+      focused = false;
+      handlers.current.onBlur?.();
+    };
+    created.dom.addEventListener("focusin", reportFocus);
+    created.dom.addEventListener("focusout", reportBlur);
 
     /**
      * Right-click over the note body.
@@ -911,8 +922,8 @@ export function LiveEditor({
 
     return () => {
       handlers.current.controls?.(null);
-      created.contentDOM.removeEventListener("focus", reportFocus);
-      created.contentDOM.removeEventListener("blur", reportBlur);
+      created.dom.removeEventListener("focusin", reportFocus);
+      created.dom.removeEventListener("focusout", reportBlur);
       created.contentDOM.removeEventListener("contextmenu", onContextMenu);
       created.destroy();
       view.current = null;
@@ -1091,8 +1102,13 @@ export function LiveEditor({
     if (current === null || current.state.readOnly) return;
     // `rows` counts the header, which is the row the grid drew; the command
     // takes body rows. The subtraction lives here, once.
-    insertTable(current, rows - 1, columns);
-    current.focus();
+    /*
+      The grid is drawn by the same transaction, and `insertTable` puts the
+      caret in its first cell. Focusing the editor after that would take the
+      caret straight back out of the cell — which is what it did, until a real
+      browser typed into a table nobody was in.
+    */
+    if (!insertTable(current, rows - 1, columns)) current.focus();
   }, []);
   const closeTablePicker = useCallback(() => setTableAt(null), []);
 

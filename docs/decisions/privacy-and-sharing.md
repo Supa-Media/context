@@ -1446,3 +1446,53 @@ landing in a team folder is written private first", "the exception is in the
 manifest before the body is in the bucket", "a note pointed at a group lands
 private, because the name means nothing there", and "an encrypted note stays in
 the context whose key can open it".
+
+### A share follows the note, not the path it was minted on
+
+`shares.entryPath` is a string, and a note is not a string. It gets renamed,
+tidied into another folder, archived — and a link the owner already sent is one
+nobody can rewrite. So `readSharedNote` resolves both the grant's entry path and
+the requested path through the bucket's forwarding ledger before anything else
+happens, and everything after works in live paths: the folder bound, the
+traversal comparison, the reads. The ledger itself is argued in
+[storage-and-credentials](./storage-and-credentials.md), "A moved note leaves a
+forwarding address".
+
+**Ledger first, live path second, and that order is the security half rather
+than a preference.** A link minted on `1-projects/foo.md` names *that note*.
+Checking the live path first would hand the link to whatever note happens to sit
+there now — a different author's note inheriting an audience they never chose,
+and the owner of the original with no way to see it had happened. Resolving
+first means a share either reaches the note it was minted on or reaches nothing.
+That is the opposite order from a deep link, which is `onMiss` because a path
+somebody typed means what it says today, and the two cannot be one rule.
+
+**It cannot widen, and the reason is unchanged.** Every read still goes through
+`runFileOperation` at `team` scope with no granted names, re-derived from the
+live `privacy.md` on every request. A note forwarded into a private folder is as
+absent as it would be if the reader had asked for its current path; a folder
+link still publishes a narrowing of what the folder already published. What
+forwarding restores is the *locator*, never the tier.
+
+**The requested path is the reader's own input, and resolving it discloses
+nothing.** A link holder may ask about any path; the ledger answers the server,
+never them. A note that has moved out of a shared folder forwards to somewhere
+outside the bound and is refused with the same `SHARE_UNAVAILABLE` as a path
+that never existed, so forwarding is not an oracle for where anything went.
+
+**It costs one extra operation per share read**, and that is deliberate. The
+folder bound is decided before a single byte of the customer's bucket is spent,
+so a bound checked against a stale prefix while the read forwarded to a live one
+would be two different answers to one question. Both paths are resolved together
+in one `forward` operation instead.
+
+**What a "simplification" of this would cost.** Trying the live path first
+re-points a sent link at a stranger's note — `shareSurvivesMove.test.ts` fails
+"a different note later created at the old path is not served", and nothing else
+does, which is what makes that check worth its name. Resolving only the entry
+path and not the requested one breaks a folder link the moment its reader
+navigates. Storing the resolved path back onto the share row would put the
+control plane's copy of a path in disagreement with the bucket, which is the
+same mistake as storing visibility there. `shareSurvivesMove.test.ts` fails
+throughout, and `folderLink.test.ts`'s prefix-trap checks are what keep the
+resolution from widening a folder bound.

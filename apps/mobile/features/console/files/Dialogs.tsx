@@ -6,6 +6,7 @@ import { fonts, pointerType as t, radii } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { MoveDestination } from "./browser";
 import { describeNameProblem } from "./paths";
+import { createRows, type CreateRow } from "./createSheet";
 
 /**
  * The console's dialogs.
@@ -44,25 +45,6 @@ function Shell({
 }
 
 /**
- * What `New note` and `New folder` say about where the thing is going, in one
- * place because two surfaces now raise them: the explorer's own pair of
- * buttons, and the chooser below that a phone's `+` opens.
- */
-export function newNoteHint(folder: string): string {
-  return `It will be created in ${folder || "the root of your context"} as markdown.`;
-}
-/**
- * What a person is actually naming, since the file gets two extensions.
- *
- * Said out loud rather than left to be discovered in the tree: `ingest` becomes
- * `ingest.excalidraw.md`, which is the format the Obsidian Excalidraw plugin
- * reads, so a drawing made here opens there and the other way round.
- */
-export function newDrawingHint(folder: string): string {
-  return `It will be created in ${folder || "the root of your context"} as <name>.excalidraw.md, the format Obsidian's Excalidraw plugin reads.`;
-}
-
-/**
  * Said out loud because the file is real and they will meet it somewhere else.
  *
  * The console does not list the placeholder (`isFolderPlaceholder`), so this
@@ -78,63 +60,68 @@ export const NEW_FOLDER_HINT =
  *
  * ## Why this exists
  *
- * The explorer's toolbar carries a New note button and a New folder button
- * side by side. A phone has no explorer — the tree is gone at that density —
- * so its bottom bar carries a single `+`, and that `+` meant *note*. Which
- * left **no way to make a folder on a phone at all**: not in the bar, not in
- * the folder view, not behind a long press. The owner found it by needing one.
+ * A phone has no explorer — the tree is gone at that density — so everything
+ * somebody *starts* from the console has to fit on the bottom row, and the row
+ * has no width for a seventh key (`bottomRowWidth.test.ts`). This is the sheet
+ * the one `+` raises, and it is the phone's copy of `CreateButton`'s menu: the
+ * same rows, in the same order, from the same function (`createSheet.ts`).
  *
- * ## Why a chooser rather than a second button
+ * ## Nothing here asks for a name except the folder
  *
- * `BottomBar`'s own rule is that a fixed strip must not move items out from
- * under a thumb, and it is already seven keys wide at 390pt. An eighth for the
- * rarer of the two operations would cost every other key its width. So the one
- * key asks, which is also the honest reading of `+`: it never said "note".
+ * A note and a drawing are made the moment the row is pressed, called
+ * `untitled-<date>`, and take their name from the first heading typed into
+ * them — *"for new note, new drawing etc should not ask you to title it"*. See
+ * `untitled.ts` for the argument and the rename.
  *
- * The two rows are the whole dialog — picking one swaps this for the same
- * `NamePrompt` the explorer raises, with the same sentence about where the
- * thing is going, because a phone and a desktop disagreeing about that is how
- * two dialogs with one name start to drift.
+ * The folder still goes on to `NamePrompt`, and that is the honest exception
+ * rather than an oversight: the reason a note needs no prompt is that it has a
+ * title field inside it, and a folder has no inside to type in. An
+ * `untitled-2026-09-19/` in somebody's bucket, renameable only from a row menu
+ * they have to find, costs more than one text field.
+ *
+ * ## The meeting is here because the seventh key is gone
+ *
+ * The bottom row used to carry a microphone of its own, last, behind a
+ * separator — *"we no longer need a dedicated mic button on the bottom row,
+ * just a plus button that opens different options"*. Recording is one of the
+ * things you start, so it is a row here like the rest, and the row that key
+ * occupied went back to the six keys either side of it.
  */
 export function CreatePrompt({
   folder,
+  canEdit,
   onCancel,
   onCreateNote,
   onCreateDrawing,
   onCreateFolder,
+  onNewMeeting,
+  onNewChat,
 }: {
   folder: string;
+  /**
+   * Whether this person may write here. A read-only context keeps the `+` — a
+   * meeting is still something they can start — and loses the three rows that
+   * make a file. See `createSheet.ts`.
+   */
+  canEdit: boolean;
   onCancel: () => void;
-  onCreateNote: (name: string) => void;
-  onCreateDrawing: (name: string) => void;
+  /** Both of these make the thing immediately. Nothing is named here. */
+  onCreateNote: () => void;
+  onCreateDrawing: () => void;
   onCreateFolder: (name: string) => void;
+  /**
+   * `null` on a surface with no meeting flow behind it — the fixtures and the
+   * landing page's demo console. Absent rather than pressable and inert, which
+   * is the contract `onNewChat` keeps below and `CreateButton` keeps for both.
+   */
+  onNewMeeting: (() => void) | null;
+  /** `null` with no engine behind it, or no model key connected. */
+  onNewChat: (() => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const [kind, setKind] = useState<"note" | "drawing" | "folder" | null>(null);
+  const [naming, setNaming] = useState(false);
 
-  if (kind === "note") {
-    return (
-      <NamePrompt
-        title="New note"
-        description={newNoteHint(folder)}
-        confirmLabel="Create"
-        onCancel={onCancel}
-        onConfirm={onCreateNote}
-      />
-    );
-  }
-  if (kind === "drawing") {
-    return (
-      <NamePrompt
-        title="New drawing"
-        description={newDrawingHint(folder)}
-        confirmLabel="Create"
-        onCancel={onCancel}
-        onConfirm={onCreateDrawing}
-      />
-    );
-  }
-  if (kind === "folder") {
+  if (naming) {
     return (
       <NamePrompt
         title="New folder"
@@ -152,33 +139,37 @@ export function CreatePrompt({
         {`In ${folder || "the root of your context"}.`}
       </Text>
       <View style={styles.choices}>
-        <PressRow
-          accessibilityLabel="New note"
-          onPress={() => setKind("note")}
-          style={styles.choiceRow}
-          hoverStyle={styles.listRowHover}
-        >
-          <Text variant="body">Note</Text>
-          <Text variant="paneSub">A markdown file you can write in.</Text>
-        </PressRow>
-        <PressRow
-          accessibilityLabel="New drawing"
-          onPress={() => setKind("drawing")}
-          style={styles.choiceRow}
-          hoverStyle={styles.listRowHover}
-        >
-          <Text variant="body">Drawing</Text>
-          <Text variant="paneSub">An Excalidraw canvas. Opens in Obsidian too.</Text>
-        </PressRow>
-        <PressRow
-          accessibilityLabel="New folder"
-          onPress={() => setKind("folder")}
-          style={styles.choiceRow}
-          hoverStyle={styles.listRowHover}
-        >
-          <Text variant="body">Folder</Text>
-          <Text variant="paneSub">A place to file notes. Nest them as deep as you like.</Text>
-        </PressRow>
+        {createRows({
+          canEdit,
+          chat: onNewChat !== null,
+          meeting: onNewMeeting !== null,
+        }).map((row) => (
+          <PressRow
+            key={row}
+            accessibilityLabel={ROW_LABELS[row]}
+            onPress={() => {
+              /*
+                The folder is the one row that stays in the dialog: it swaps this
+                sheet for `NamePrompt`, so closing first would take the prompt
+                with it. Every other row closes and then acts, because the two
+                that write a file open the editor on it — and a modal still on
+                screen over a note somebody is now being shown is the one order
+                that looks like a bug.
+              */
+              if (row === "new-folder") return setNaming(true);
+              onCancel();
+              if (row === "new-note") onCreateNote();
+              if (row === "new-drawing") onCreateDrawing();
+              if (row === "new-chat") onNewChat?.();
+              if (row === "new-meeting") onNewMeeting?.();
+            }}
+            style={styles.choiceRow}
+            hoverStyle={styles.listRowHover}
+          >
+            <Text variant="body">{ROW_TITLES[row]}</Text>
+            <Text variant="paneSub">{ROW_SUBS[row]}</Text>
+          </PressRow>
+        ))}
       </View>
       <View style={styles.actions}>
         <Button label="Cancel" variant="dialog" onPress={onCancel} />
@@ -186,6 +177,36 @@ export function CreatePrompt({
     </Shell>
   );
 }
+
+/**
+ * The accessible name of each row — the same words `CreateButton`'s menu uses,
+ * because a phone and a desktop calling the same thing two names is how one of
+ * them ends up meaning something else.
+ */
+const ROW_LABELS: Record<CreateRow, string> = {
+  "new-meeting": "New meeting",
+  "new-note": "New note",
+  "new-drawing": "New drawing",
+  "new-folder": "New folder",
+  "new-chat": "New chat",
+};
+
+/** The word on the row. Shorter than the label: the sheet has a title. */
+const ROW_TITLES: Record<CreateRow, string> = {
+  "new-meeting": "Meeting",
+  "new-note": "Note",
+  "new-drawing": "Drawing",
+  "new-folder": "Folder",
+  "new-chat": "Chat",
+};
+
+const ROW_SUBS: Record<CreateRow, string> = {
+  "new-meeting": "Records into your inbox. It asks before it listens.",
+  "new-note": "A markdown file you can write in.",
+  "new-drawing": "An Excalidraw canvas. Opens in Obsidian too.",
+  "new-folder": "A place to file notes. Nest them as deep as you like.",
+  "new-chat": "Ask about this note, or your whole context.",
+};
 
 /** Ask for a name. Validated as you type, with the reason next to the field. */
 export function NamePrompt({
