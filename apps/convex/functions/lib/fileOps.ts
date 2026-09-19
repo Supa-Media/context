@@ -68,6 +68,7 @@ import {
 import { type Clearance } from "./clearance";
 import { renderPrivacyManifestForFolders, type ScaffoldStore } from "./scaffold";
 import { indexByName, rewriteLinks } from "@context/shared/src/links";
+import { WORKSPACE_ICON_EXTENSIONS } from "@context/shared/src/workspaceIcon";
 import { HISTORY_PREFIX, IMAGE_PREFIX, legacyStorageKey } from "@context/shared/src/storageLayout.cjs";
 // The gateway's search, imported rather than ported — see `searchNotes` below.
 // `apps/mcp` targets the Workers runtime, which is Convex's runtime too, so
@@ -4671,6 +4672,38 @@ export function pasteImageLeaf(options: { hash: string; contentType: string }): 
     throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
   }
   return `paste-${hash}.${extension}`;
+}
+
+/**
+ * The leaf a workspace's icon photo is stored under, inside `IMAGE_PREFIX`.
+ *
+ * The same store as a paste and a different prefix, for the reason `paste-`
+ * has one: somebody reading the objects in their own bucket can see where each
+ * came from. It is not a namespace and nothing resolves on it — `readImage`
+ * takes leaves, not patterns — so the prefix is a label and the content hash is
+ * still what names the object.
+ *
+ * Content-addressed like a paste, and the same three things follow: setting the
+ * same photo on two workspaces writes one object, a retried upload overwrites
+ * itself, and a picker result with no filename needs no invented one.
+ *
+ * **The type list is narrower than `PASTE_EXTENSIONS`** and that is the
+ * difference worth stating: `WORKSPACE_ICON_EXTENSIONS` drops `gif`, `heic` and
+ * `heif`, because an icon has to draw in a browser and two of those do not. It
+ * is imported from `@context/shared` rather than restated, because the picker
+ * pre-flights the same rule before it uploads and two copies of it would be a
+ * picker offering what this refuses; see its own note for why each type is out.
+ */
+export function workspaceIconLeaf(options: { hash: string; contentType: string }): string {
+  const extension = WORKSPACE_ICON_EXTENSIONS.get(options.contentType);
+  if (extension === undefined) {
+    throw new FileOpError("PATH_INVALID", "That is not an image type an icon can be stored as.");
+  }
+  const hash = options.hash.toLowerCase().replace(/[^a-f0-9]/g, "").slice(0, 16);
+  if (hash.length < 8) {
+    throw new FileOpError("PATH_INVALID", "A stored image needs a content hash for its name.");
+  }
+  return `icon-${hash}.${extension}`;
 }
 
 /** One console search result: a path the caller may see, and lines from it. */
