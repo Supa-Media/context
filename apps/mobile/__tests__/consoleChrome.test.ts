@@ -974,6 +974,77 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
+  /**
+   * A PHONE CAN ASK ITS CONTEXT A QUESTION.
+   *
+   * It could not, and the absence was never decided — it was a fact about the
+   * code that nobody had written down. `CreateButton`'s `onNewChat` is `null`
+   * "where there is no panel for a conversation to open in", and on a phone that
+   * read as *no panel exists*, because the only thing that raised `AgentPanel`
+   * was the floating microphone `NoteEditor` mounts. So the row was absent from
+   * the phone's `+` while the desktop's menu offered it, and the way to the
+   * agent on a phone was: open a note, put the keyboard up so the bottom row
+   * hides, press the microphone that comes back, choose the agent row.
+   *
+   * `AgentPanel` is a `Modal` and says in its own header that it is one
+   * precisely so it can "appear identically on a surface that has no console
+   * around it at all". So the layout raises it, and the Chat row is a row on
+   * both densities.
+   *
+   * ## What this asserts, and why each half is needed
+   *
+   * That the row is **there** and that pressing it **opens the panel**. A test
+   * of only the first passes on a row wired to nothing, which is the shape of
+   * the defect this closes; a test of only the second cannot tell a phone that
+   * offers the row from one that never did.
+   *
+   * ## Sabotage record
+   *
+   * Applied as local edits to `_layout.tsx`, suite run, named tests observed
+   * failing, reverted. Counts are failing tests in this file.
+   *
+   *   the phone's branch dropped, so it opens the aside it does not have    1
+   *   `hasAside` back in the gate, so the row is absent on a phone          1
+   *   the gate no longer reads `modelConnected`                             3
+   *   the panel never mounted                                              1
+   */
+  test("the + offers a chat, and choosing it opens the panel", () => {
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+
+    const chat = document.body.querySelector<HTMLElement>('[aria-label="New chat"]');
+    expect(chat).not.toBeNull();
+    app.press(chat);
+
+    expect(app.find("agent-panel")).not.toBeNull();
+    // And it names the model that will answer, which is `AgentPanel`'s own
+    // disclosure rule rather than this test's: a conversation whose provider is
+    // unstated is one somebody cannot cost.
+    expect(app.find("agent-provider")).not.toBeNull();
+
+    app.unmount();
+  });
+
+  /**
+   * And the gate travels with the row, on both densities.
+   *
+   * The owner's line — *"new chat should be off btw if no LLM api key
+   * configured"* — is `modelConnected`'s, and #733 argues why `undefined` is
+   * absent rather than present. The phone's sheet asks the same question through
+   * the same value, so a context with no key is not offered a conversation here
+   * either.
+   */
+  test("and no chat row on a phone in a context with no model key", () => {
+    mockModelConnected = false;
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+    expect(document.body.querySelector('[aria-label="New chat"]')).toBeNull();
+    // The rest of the sheet is untouched, so this cannot pass on a sheet that
+    // failed to open at all.
+    expect(document.body.querySelector('[aria-label="New note"]')).not.toBeNull();
+    app.unmount();
+  });
+
   test("sign-out is reachable through the account menu, and the trigger is a target a thumb can hit", () => {
     /*
       **It is the only sign-out control in the product**, and before the panels

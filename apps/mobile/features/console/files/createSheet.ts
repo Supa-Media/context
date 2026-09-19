@@ -8,10 +8,10 @@
  *
  * The phone's is the bottom row's one key, and **its list varies**: a read-only
  * context has no files to make, a surface with no meetings controller has
- * nothing to record with, and a phone has no panel for a conversation to open
- * in. That is three conditions, and the key itself has to ask a fourth question
- * before it is drawn — *is there anything here at all?* A `+` that opens a sheet
- * containing nothing but Cancel is worse than no `+`.
+ * nothing to record with, and a context with no model key has nothing to answer
+ * a conversation. That is three conditions, and the key itself has to ask a
+ * fourth question before it is drawn — *is there anything here at all?* A `+`
+ * that opens a sheet containing nothing but Cancel is worse than no `+`.
  *
  * So the varying list is a function, asked by the sheet that draws the rows and
  * by the key that decides whether to offer them. Two answers computed in two
@@ -36,7 +36,14 @@ export interface CreateOffer {
    * not present and refusing.
    */
   canEdit: boolean;
-  /** A panel to answer in, an engine behind it, and a model key on this context. */
+  /**
+   * Somewhere for the answer to appear, an engine behind it, and a model key on
+   * this context.
+   *
+   * "Somewhere" is the panel at a pointer density and a `Modal` on a phone —
+   * `startNewChat` in the console layout picks between them, so this flag is the
+   * same question on both and is no longer false just for being a phone.
+   */
   chat: boolean;
   /** A meetings controller behind the microphone. */
   meeting: boolean;

@@ -105,6 +105,7 @@ import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
 import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { AsidePanel } from "../../../features/console/aside/AsidePanel";
+import { AgentPanel } from "../../../features/agent/AgentPanel";
 import { agentPage } from "../../../features/agent/page";
 import { useOpenNote } from "../../../features/agent/openNote";
 import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
@@ -615,6 +616,14 @@ export default function ConsoleLayout() {
   const [meetingsAt, setMeetingsAt] = useState<number | null>(null);
   /** When the + menu last asked for a fresh conversation. See `AsidePanel`. */
   const [newChatAt, setNewChatAt] = useState<number | null>(null);
+  /**
+   * When a phone last asked for one, or `null` for "no card on screen".
+   *
+   * A timestamp rather than a boolean, for `asked`'s reason and `meetingsAt`'s:
+   * asking twice in a session is ordinary, and it is also the `key` that gives
+   * the card a fresh conversation each time rather than the last one reopened.
+   */
+  const [phoneChatAt, setPhoneChatAt] = useState<number | null>(null);
   /*
     Whether this console has a right panel at all. `regionsFor` answers
     `hidden` at compact, and `asideToggleFor` is the question asked in the one
@@ -680,9 +689,28 @@ export default function ConsoleLayout() {
    */
   const startNewChat = useMemo(
     () =>
-      hasAside && !data.demo && data.modelConnected === true
+      !data.demo && data.modelConnected === true
         ? () => {
             const at = Date.now();
+            /*
+              TWO SURFACES, ONE OFFER.
+
+              A pointer layout opens the panel beside the note. **A phone opens
+              `AgentPanel` over it**, which is what closed the gap this used to
+              have: `hasAside` was part of the condition above, so the Chat row
+              was simply absent from the phone's `+` while the corner's menu
+              offered it. That was never a decision — it was a fact about the
+              code, because the only thing that raised `AgentPanel` was the
+              floating microphone `NoteEditor` mounts, so the way to the agent on
+              a phone was to open a note, put the keyboard up until the bottom
+              row hid, and press the microphone that came back.
+
+              `AgentPanel` is a `Modal` and says in its own header that it is one
+              so it can "appear identically on a surface that has no console
+              around it at all". So this layout raises it, and neither density
+              has to be told about the other's furniture.
+            */
+            if (!hasAside) return setPhoneChatAt(at);
             setOpenAsideAt(at);
             setAsked(null);
             setNewChatAt(at);
@@ -736,6 +764,34 @@ export default function ConsoleLayout() {
   */
   const liveMeeting = useMeetingsSnapshot().live;
   const openNote = useOpenNote();
+  /**
+   * WHERE THE PERSON IS, FOR THE AGENT — BUILT ONCE.
+   *
+   * Two surfaces answer a question now: the panel beside the note, and the card
+   * a phone raises over it. `agentPage`'s own comment asks for exactly this —
+   * *"the room is assembled in one place, and `agentPage` is that place's only
+   * builder"* — because the object is a set of **references** and a second copy
+   * is a second chance to put a note body in one.
+   *
+   * `meetingLive` is read from the store rather than passed `false` the way
+   * `NoteEditor` passes it, and that is not a disagreement: the editor's own
+   * control returns `null` for the whole of a meeting, so its conversation
+   * cannot be on screen while one runs, and these two can.
+   */
+  const agentPlace = agentPage({
+    context: insideContext ? current : null,
+    /*
+      What the editor published, rather than a reference rebuilt from
+      `selectedEntry`. A tree row carries a path and a visibility and knows
+      nothing about the etag, the encryption or the draft — so three of the five
+      fields would be claims, and `unsaved: false` on a note somebody is typing
+      into is the opposite of the honesty that field exists for.
+    */
+    editor: { reference: openNote },
+    route: pathname,
+    meetingLive: liveMeeting !== null,
+    query: null,
+  });
   /**
    * A question handed over from ⌘K, if one has been.
    *
@@ -1155,28 +1211,7 @@ export default function ConsoleLayout() {
           data.demo ? undefined : (
             <AsidePanel
               engine={agentEngine}
-              place={agentPage({
-                context: insideContext ? current : null,
-                /*
-                  What the editor published, rather than a reference rebuilt
-                  from `selectedEntry`. A tree row carries a path and a
-                  visibility and knows nothing about the etag, the encryption
-                  or the draft — so three of the five fields would be claims,
-                  and `unsaved: false` on a note somebody is typing into is
-                  the opposite of the honesty that field exists for.
-                */
-                editor: { reference: openNote },
-                route: pathname,
-                /*
-                  Read from the store here, where `NoteEditor` passes `false`.
-                  That is not a disagreement: the editor's control returns
-                  `null` for the whole of a meeting, so its conversation cannot
-                  be on screen while one runs, and this panel's can — it is a
-                  column beside the note rather than a card over it.
-                */
-                meetingLive: liveMeeting !== null,
-                query: null,
-              })}
+              place={agentPlace}
               asked={asked}
               started={meetingsAt}
               newChat={newChatAt}
@@ -1696,6 +1731,31 @@ export default function ConsoleLayout() {
           it exists to be *inside* `AppFrame`, which is where the command is.
         */}
         <OpenAsideOn at={openAsideAt} />
+
+        {/*
+          THE PHONE'S CONVERSATION.
+
+          A phone has no right panel (`hasAside`), so the Chat row in its `+`
+          raises this instead — the same `AgentPanel` the note's own microphone
+          raises, from the same engine and the same `agentPlace`, mounted by the
+          layout so it is reachable on every route rather than only over an open
+          note. See `startNewChat`.
+
+          `key` is the timestamp, so each press starts a fresh conversation
+          rather than reopening the last one — which is what "New chat" says.
+          `compact` is `phone` rather than `true`: the value is only ever read
+          here when `phone` holds, and passing the literal would be a second
+          opinion about the density this component asks for.
+        */}
+        {phoneChatAt === null ? null : (
+          <AgentPanel
+            key={phoneChatAt}
+            engine={agentEngine}
+            place={agentPlace}
+            compact={phone}
+            onClose={() => setPhoneChatAt(null)}
+          />
+        )}
 
         {paletteOpen ? (
           <PaletteWithAsk

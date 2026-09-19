@@ -115,7 +115,7 @@ export function CreatePrompt({
    * is the contract `onNewChat` keeps below and `CreateButton` keeps for both.
    */
   onNewMeeting: (() => void) | null;
-  /** `null` with no panel to answer in, no engine, or no model key connected. */
+  /** `null` with no engine behind it, or no model key connected. */
   onNewChat: (() => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);

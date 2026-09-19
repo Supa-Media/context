@@ -225,6 +225,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - The tree is drawn from the press, and `privacy.md` is what it may not guess
 - What the sidebar can do to a folder, the listing can do to it too
 - Nothing is named before it is written, and the phone's `+` is the only key
+- A phone can ask its context a question, and could not before
 
 ## [Meetings](./meetings.md)
 
