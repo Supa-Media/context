@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { FileBrowser } from "./browser";
+import type { NoteLinkOpen } from "./noteLinks";
 import { emptyTabs, tabsReducer, tabsToClose, type TabsState } from "./tabs";
 
 /**
@@ -59,6 +60,14 @@ export function useTabs(
   activate: (path: string) => void;
   /** Keep this tab: what "Open in new tab" means when the default is a preview. */
   pin: (path: string) => void;
+  /**
+   * A link in the open note was followed.
+   *
+   * Pinned rather than preview, and placed right of the tab it came from —
+   * see `tabs.ts`. `"background"` is a ⌘-click and does not move the
+   * selection at all.
+   */
+  follow: (path: string, mode: NoteLinkOpen) => void;
   close: (path: string) => void;
   closeOthers: (path: string) => void;
   /** Close everything after this tab, keeping it and everything before it. */
@@ -200,6 +209,35 @@ export function useTabs(
   }, []);
 
   /**
+   * Following a link, which is the one open that is neither a preview nor an
+   * append.
+   *
+   * **Pinned**, because a followed link is a destination rather than a glance:
+   * a preview tab would be replaced by the next thing opened, so walking three
+   * links deep and pressing back twice would find the tabs gone. **Right of
+   * the source tab**, because the note you were reading and the note it sent
+   * you to are one train of thought.
+   *
+   * The dispatch happens while `state.activePath` is still the *source* note,
+   * which is what makes `"afterActive"` mean what it says. `select` runs first
+   * and its answer is honoured: the unsaved-draft guard can refuse, and a
+   * refusal must not leave a tab in the strip for a note the editor never
+   * opened. A background open never asks, because it never leaves the note
+   * the guard is protecting.
+   */
+  const follow = useCallback(
+    (path: string, mode: NoteLinkOpen) => {
+      if (mode === "background") {
+        dispatch({ type: "opened", path, mode: "pinned", at: "afterActive", activate: false });
+        return;
+      }
+      if (!files.select(path)) return;
+      dispatch({ type: "opened", path, mode: "pinned", at: "afterActive" });
+    },
+    [files],
+  );
+
+  /**
    * Closing the active tab has to move the editor, not just the strip.
    *
    * The reducer already picks the neighbour; this follows it. Without it the
@@ -243,5 +281,5 @@ export function useTabs(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.tabs.length]);
 
-  return { state, activate, pin, close, closeOthers, closeToRight, reopen };
+  return { state, activate, pin, follow, close, closeOthers, closeToRight, reopen };
 }

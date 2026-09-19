@@ -59,7 +59,7 @@ import {
   runCommand,
   type HandlerRef,
 } from "./editorSetup";
-import type { NoteLinkContext } from "./noteLinks";
+import type { NoteLinkContext, NoteLinkOpen } from "./noteLinks";
 import type {
   FormOutcome,
   FormHostRef,
@@ -208,17 +208,15 @@ export interface LiveEditorProps {
   /**
    * A link to another note was followed, and how.
    *
-   * `onOpenNote` is a ⌘-click (Ctrl elsewhere) and navigates. `onPressNote` is
-   * a long press, and deliberately does **not** — the host asks first, because
-   * a press is an ambiguous gesture and throwing away the note somebody is
-   * editing on the strength of one is the worst available reading of it. See
+   * A click and a tap are `"foreground"` and go to the note; a ⌘-click and a
+   * middle-click are `"background"` and must leave the person where they are.
+   * ⌥-click never reaches here at all — it belongs to the caret. See
    * `noteLinks.ts`.
    *
-   * Both absent means links are plain text on this surface, which is what the
+   * Absent means links are plain text on this surface, which is what the
    * landing page's demo console wants: it has nowhere to navigate to.
    */
-  onOpenNote?: (path: string) => void;
-  onPressNote?: (path: string) => void;
+  onOpenNote?: (path: string, mode: NoteLinkOpen) => void;
   /** The note being edited, so a relative link knows what it is relative to. */
   notePath?: string | null;
   /** Paths this surface knows of, for bare `[[name]]` links. Usually partial. */
@@ -501,7 +499,6 @@ export function LiveEditor({
   onBlur,
   accessibilityLabel,
   onOpenNote,
-  onPressNote,
   notePath,
   notePaths,
   onSubmitForm,
@@ -535,13 +532,11 @@ export function LiveEditor({
     path: notePath ?? null,
     paths: notePaths,
     onOpen: () => {},
-    onPress: () => {},
   });
   links.current = {
     path: notePath ?? null,
     paths: notePaths,
-    onOpen: (path) => onOpenNote?.(path),
-    onPress: (path) => onPressNote?.(path),
+    onOpen: (path, mode) => onOpenNote?.(path, mode),
   };
 
   /*
@@ -709,7 +704,7 @@ export function LiveEditor({
           handlers: bridged,
           // Absent when this surface has nowhere to navigate to; the extension
           // is then not installed at all and links are plain text.
-          links: onOpenNote === undefined && onPressNote === undefined ? undefined : links,
+          links: onOpenNote === undefined ? undefined : links,
           forms,
           /*
             Images. Passed unconditionally: the ref is the thing that is empty

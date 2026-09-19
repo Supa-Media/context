@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openWeeklyReview, tap } from "./helpers";
+import { openWeeklyReview } from "./helpers";
 
 /**
  * A CALLOUT, IN A REAL ENGINE, BECAUSE THE BUG WAS A PICTURE.
@@ -34,11 +34,26 @@ async function typeCallout(
   ...lines: readonly string[]
 ): Promise<void> {
   /*
-    The editor by its own accessibility label, which `NoteEditor` builds from
-    the note's path — `tap` matches exactly, so the label is spelled out rather
-    than patterned.
+    Focus the editor by tapping its FIRST LINE, not its middle.
+
+    This used to tap the editor itself by its accessibility label — which
+    `tap` resolves to the element's centre, and the centre of this note is the
+    wikilink `placeholderData.ts` puts there. That was harmless while following
+    a link took a long press; a tap now follows it, so the precondition of
+    every test in this file navigated away from the note it was about and the
+    callout was typed into a different one. The failure was honest and the
+    feature was not at fault: a blunt "tap the editor" is not a way to place a
+    caret in a document with links in it.
+
+    The first line is the note's heading, which nothing can follow. Where the
+    caret lands does not matter beyond that, because `Control+End` below moves
+    it to the end regardless — only the focus is the precondition.
   */
-  await tap(page, "2-areas/weekly-review.md markdown");
+  const first = page.locator(".cm-line").first();
+  await expect(first).toBeVisible();
+  const box = await first.boundingBox();
+  if (box === null) throw new Error("the editor's first line has no box to tap");
+  await page.touchscreen.tap(box.x + 6, box.y + box.height / 2);
   await page.keyboard.press("Control+End");
   await page.keyboard.press("End");
   await page.keyboard.press("Enter");

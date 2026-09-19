@@ -70,7 +70,35 @@ export const emptyTabs: TabsState = { tabs: [], activePath: null, closed: [] };
 export const MAX_REOPENABLE = 10;
 
 export type TabsAction =
-  | { type: "opened"; path: string; mode: "preview" | "pinned" }
+  | {
+      type: "opened";
+      path: string;
+      mode: "preview" | "pinned";
+      /**
+       * Where a *new* tab goes in the strip.
+       *
+       * `"end"`, the default, appends — which is what walking a folder or
+       * reopening with ⌘⇧T wants, because a tab that appears in the middle of
+       * a strip you were reading left to right is a tab you have to find.
+       *
+       * `"afterActive"` puts it immediately right of the tab it came from, and
+       * is what **following a link** asks for: the note you are reading and
+       * the note it sent you to are one thing, and they belong next to each
+       * other however many tabs are open beyond them. Browsers have done this
+       * with a followed link for fifteen years.
+       */
+      at?: "end" | "afterActive";
+      /**
+       * Whether the strip moves to it. Default `true`.
+       *
+       * `false` is ⌘-click: the tab opens and the person stays where they
+       * were. It is the whole of what "open behind" means in a data structure
+       * — and it has to be expressible here rather than by re-activating the
+       * old tab afterwards, because that second dispatch is a second render in
+       * which the strip has already moved.
+       */
+      activate?: boolean;
+    }
   | { type: "pinned"; path: string }
   /** Marks the tab dirty and pins it. */
   | { type: "edited"; path: string }
@@ -134,8 +162,25 @@ function without(state: TabsState, path: string): { tabs: Tab[]; activePath: str
   return { tabs, activePath: neighbour?.path ?? null };
 }
 
+/** Insert a tab at the end, or immediately right of the active one. */
+function placed(tabs: readonly Tab[], tab: Tab, at: "end" | "afterActive", active: string | null): Tab[] {
+  if (at === "end") return [...tabs, tab];
+  const source = tabs.findIndex((existing) => existing.path === active);
+  // No active tab is the first tab in an empty strip, and "right of nothing"
+  // is the end. Falling through rather than refusing keeps the link-following
+  // path working on a strip somebody has just emptied.
+  if (source < 0) return [...tabs, tab];
+  return [...tabs.slice(0, source + 1), tab, ...tabs.slice(source + 1)];
+}
+
 /** Open a path, or activate it if it is already open. */
-function open(state: TabsState, path: string, mode: "preview" | "pinned"): TabsState {
+function open(
+  state: TabsState,
+  path: string,
+  mode: "preview" | "pinned",
+  at: "end" | "afterActive" = "end",
+  activate = true,
+): TabsState {
   const existing = state.tabs.find((tab) => tab.path === path);
   if (existing) {
     // Never a duplicate, and never a demotion: a tab you pinned stays pinned
@@ -143,12 +188,22 @@ function open(state: TabsState, path: string, mode: "preview" | "pinned"): TabsS
     const tabs = existing.preview && mode === "pinned"
       ? state.tabs.map((tab) => (tab.path === path ? { ...tab, preview: false } : tab))
       : state.tabs;
-    return { ...state, tabs, activePath: path };
+    /*
+      A background open of a note that is *already* open moves nothing at all,
+      which is the only reading of ⌘-click that does not surprise: the tab is
+      there, you asked not to go to it, and the answer is that you are still
+      where you were.
+    */
+    return { ...state, tabs, activePath: activate ? path : state.activePath };
   }
 
   const tab: Tab = { path, preview: mode === "preview", dirty: false };
   if (mode === "pinned") {
-    return { ...state, tabs: [...state.tabs, tab], activePath: path };
+    return {
+      ...state,
+      tabs: placed(state.tabs, tab, at, state.activePath),
+      activePath: activate ? path : state.activePath,
+    };
   }
 
   // There is only ever one preview tab, and a new preview takes its slot rather
@@ -158,9 +213,9 @@ function open(state: TabsState, path: string, mode: "preview" | "pinned"): TabsS
   // typing into a preview tab pins it (see `edited`).
   const slot = state.tabs.findIndex((existingTab) => existingTab.preview);
   const tabs = slot < 0
-    ? [...state.tabs, tab]
+    ? placed(state.tabs, tab, at, state.activePath)
     : state.tabs.map((existingTab, index) => (index === slot ? tab : existingTab));
-  return { ...state, tabs, activePath: path };
+  return { ...state, tabs, activePath: activate ? path : state.activePath };
 }
 
 /** A change to one open tab. Unknown paths are a no-op, not a crash. */
@@ -177,7 +232,7 @@ export function tabsReducer(state: TabsState, action: TabsAction): TabsState {
     case "reset":
       return emptyTabs;
     case "opened":
-      return open(state, action.path, action.mode);
+      return open(state, action.path, action.mode, action.at ?? "end", action.activate ?? true);
 
     case "pinned":
       return amend(state, action.path, { preview: false });

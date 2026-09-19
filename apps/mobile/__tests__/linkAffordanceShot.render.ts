@@ -32,7 +32,6 @@ describe("link affordance shot", () => {
         path: "1-projects/persistence/overview.md",
         paths: ["1-projects/persistence/overview.md", "2-products/context-lc/overview.md"],
         onOpen: () => {},
-        onPress: () => {},
       },
     };
 

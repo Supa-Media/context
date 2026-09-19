@@ -321,6 +321,16 @@ export function useFileBrowser(options: {
   const [indexedPaths, setIndexedPaths] = useState<readonly string[] | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  /**
+   * How many times `select` has moved somewhere. See `navigations` on
+   * `FileBrowser` for what reads it and why a path alone cannot answer it.
+   *
+   * State rather than a ref, because its consumer is an effect
+   * (`useNoteAddress`) and a ref change does not run one — the whole point is
+   * that the commit carrying a new selection also carries the fact that
+   * somebody navigated to it.
+   */
+  const [navigations, setNavigations] = useState(0);
   /*
     The selection whose contents are still on their way. See `opening` in
     `browser.ts` for what reads it and why the pane cannot infer it from
@@ -1475,6 +1485,8 @@ export function useFileBrowser(options: {
         return false;
       }
       setSelectedPath(path);
+      // Past the guard, so a refused navigation is not one. See `navigations`.
+      setNavigations((count) => count + 1);
       setNotice(null);
 
       /**
@@ -3807,6 +3819,7 @@ export function useFileBrowser(options: {
       selectedPath,
       opening,
       select,
+      navigations,
       deselect,
       search,
       editor,
@@ -3956,6 +3969,7 @@ export function useFileBrowser(options: {
       applyPluginNoteWrite,
       search,
       select,
+      navigations,
       deselect,
       selectedPath,
       opening,

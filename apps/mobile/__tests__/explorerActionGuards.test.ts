@@ -328,6 +328,7 @@ function browser(
     // `select` answers whether the unsaved-changes guard let go; these
     // fixtures have no draft, so it always does.
     select: () => true,
+    navigations: 0,
     deselect: () => true,
     search: async () => ({
       hits: [],
