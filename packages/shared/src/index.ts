@@ -80,3 +80,24 @@ export {
   styleOf,
 } from "./links";
 export type { Link, LinkStyle, RewriteOptions } from "./links";
+
+/**
+ * What a workspace shows in its mark: a photo from its own bucket, a single
+ * emoji, or nothing, which is the letter it has always drawn.
+ *
+ * Here because the two sides own different halves of one rule. The control
+ * plane decides what may be stored — one emoji and no more, an image type a
+ * browser will actually draw — and the console decides what may be offered and
+ * has to pre-flight the same limits before it uploads. Two copies of "is this
+ * one emoji" is the shape that drifts, and the drift is silent: a picker that
+ * offers what the server refuses.
+ */
+export {
+  WORKSPACE_ICON_CONTENT_TYPES,
+  WORKSPACE_ICON_EMOJI,
+  WORKSPACE_ICON_EXTENSIONS,
+  WORKSPACE_ICON_MAX_BYTES,
+  WORKSPACE_ICON_MAX_EMOJI_LENGTH,
+  isSingleEmoji,
+  type WorkspaceIcon,
+} from "./workspaceIcon";

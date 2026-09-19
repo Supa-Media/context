@@ -5,13 +5,14 @@ import { Dot, type DotTone } from "../design/components/Dot";
 import { Icon } from "../design/components/Icon";
 import { Menu } from "../design/components/Menu";
 import { WorkspaceMark } from "./WorkspaceMark";
+import { useWorkspaceIcons } from "./useWorkspaceIcons";
 import { Text } from "../design/components/Text";
 import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { radii, space } from "../design/tokens";
 import type { MenuItem } from "./files/menu";
 import { offerOwnContext } from "../onboarding/route";
 import { isOwnWorkspace, railGroup } from "./rail";
-import type { ConsoleData } from "./types";
+import { selectedContext, type ConsoleData } from "./types";
 
 /**
  * The workspace switcher, and everything the rail used to be a column for.
@@ -126,6 +127,14 @@ export function SwitcherMenu({
   const colors = useColors();
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const chevronOnly = trigger === "chevron";
+  /*
+    The chip's mark is the context you are in, so the icon is that context's —
+    `label` and `tone` arrive as already-flattened props and an icon cannot
+    follow them without a third. `data` is here and knows which one is
+    selected, which is where the other two came from anyway.
+  */
+  const iconFor = useWorkspaceIcons();
+  const current = selectedContext(data) ?? undefined;
 
   /*
     The same call the rail makes, with the same two offers, so the list and
@@ -242,7 +251,9 @@ export function SwitcherMenu({
         }}
         style={chevronOnly ? styles.chevronTrigger : styles.chip}
       >
-        {chevronOnly ? null : <WorkspaceMark label={label} tone={tone} />}
+        {chevronOnly ? null : (
+          <WorkspaceMark label={label} tone={tone} icon={current === undefined ? undefined : iconFor(current)} />
+        )}
         {chevronOnly ? null : (
           <Text variant="wsSwitch" numberOfLines={1}>
             {label}

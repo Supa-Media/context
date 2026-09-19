@@ -2819,6 +2819,28 @@ describe("a stranger cannot reach another workspace's files", () => {
           notePath: "1-projects/a.md",
           leaf: "paste-abcd1234.png",
         }),
+      /*
+        Setting somebody else's workspace's icon photo. Owner-level — stricter
+        than the paste above, because it writes bytes *and* changes what every
+        member of that workspace sees — so a stranger meets the membership
+        refusal before any of that.
+      */
+      (workspaceId) =>
+        as.action(api.functions.files.setWorkspaceIconPhoto, {
+          workspaceId,
+          bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+          contentType: "image/png",
+        }),
+      /*
+        And reading one back. **This is the endpoint with no object argument**
+        — the leaf comes off the workspace row, which is what stops it being a
+        general reader of the opaque image store (`workspaceIcon.test.ts` makes
+        that case in full). Here it is the plainer question: a stranger naming
+        a real workspace must not be able to tell it from one that never
+        existed, and an icon is a picture every *member* is shown, which is
+        exactly the kind of endpoint that gets a looser gate by accident.
+      */
+      (workspaceId) => as.action(api.functions.files.workspaceIconPhoto, { workspaceId }),
     ];
 
     /**

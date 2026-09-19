@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Dot } from "../../../design/components/Dot";
 import { Icon, type IconName } from "../../../design/components/Icon";
@@ -9,6 +10,8 @@ import { storagePillLabel } from "../../storage/pill";
 import { selectedContext, type ConsoleData } from "../../types";
 import { settingsPreview } from "../previews";
 import { settingsSectionLabel, type SettingsSectionKey } from "../sections";
+import { useWorkspaceIcons } from "../../useWorkspaceIcons";
+import { WorkspaceIconPicker, WorkspaceMonogram } from "./WorkspaceIconPicker";
 
 /**
  * Which context this is, whether it is working, and the way to each fact.
@@ -52,6 +55,19 @@ export function OverviewPanel({
   const styles = useThemedStyles(makeStyles);
   const current = selectedContext(data);
   const shared = current?.kind === "shared";
+  const [pickingIcon, setPickingIcon] = useState(false);
+  /*
+    The shared cache, so a photo the rail already fetched is drawn here without
+    a second request.
+  */
+  const iconFor = useWorkspaceIcons();
+  const icon = current === null ? undefined : iconFor(current);
+  /*
+    Owner-only, and absent rather than disabled — the catalogue's own rule. The
+    icon shows in every member's rail, so it belongs with the workspace's name
+    and storage rather than with the notes an editor may write.
+  */
+  const canChooseIcon = current !== null && current.role === "owner" && onSelect !== undefined;
 
   const role =
     current?.role === "owner"
@@ -64,15 +80,32 @@ export function OverviewPanel({
     <View>
       <View style={styles.identity} testID="overview-identity">
         {/*
-          The initial of the name, not an avatar. There are no pictures
-          anywhere in this product and inventing one here would be the only
-          place a context had a face.
+          THIS WAS THE INITIAL OF THE NAME, AND THE NOTE HERE SAID SO: "not an
+          avatar. There are no pictures anywhere in this product and inventing
+          one here would be the only place a context had a face."
+
+          Reversed deliberately, by the owner, and the reason is the one the
+          original could not see: a letter is not an identity. Two contexts
+          whose names start alike — `@seyi` and `@supa` — draw the same letter
+          in the same square in the switcher, which is the control that exists
+          to tell them apart. The face is no longer invented; it is chosen, and
+          the letter is what it falls back to.
         */}
-        <View style={styles.monogram}>
-          <Text variant="noteTitle" style={styles.monogramLetter}>
-            {(current?.slug ?? "?").slice(0, 1).toUpperCase()}
-          </Text>
-        </View>
+        {canChooseIcon ? (
+          <Pressable
+            role="button"
+            accessibilityLabel={
+              pickingIcon ? "Close the icon picker" : "Change this workspace’s icon"
+            }
+            accessibilityState={{ expanded: pickingIcon }}
+            onPress={() => setPickingIcon((open) => !open)}
+            testID="overview-icon-trigger"
+          >
+            <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} />
+          </Pressable>
+        ) : (
+          <WorkspaceMonogram slug={current?.slug ?? "?"} icon={icon} />
+        )}
         <View style={styles.who}>
           <Text variant="noteTitle" numberOfLines={1}>
             {atName(current?.slug ?? "—")}
@@ -84,6 +117,14 @@ export function OverviewPanel({
           </Text>
         </View>
       </View>
+
+      {canChooseIcon && pickingIcon ? (
+        <WorkspaceIconPicker
+          workspaceId={current.id}
+          icon={icon}
+          onClose={() => setPickingIcon(false)}
+        />
+      ) : null}
 
       <HealthStrip data={data} onSelect={onSelect} />
 
@@ -308,17 +349,6 @@ function Fact({
 const makeStyles = (colors: Colors) =>
   StyleSheet.create({
     identity: { flexDirection: "row", alignItems: "center", gap: space.x3 },
-    monogram: {
-      width: 46,
-      height: 46,
-      borderRadius: 15,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.accentDim,
-      borderWidth: 1,
-      borderColor: colors.accent,
-    },
-    monogramLetter: { color: colors.accentText },
     who: { flex: 1, minWidth: 0 },
     whoSub: { marginTop: 1 },
     strip: {

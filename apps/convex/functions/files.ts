@@ -71,6 +71,8 @@ import { ConvexError, v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
 import {
   PINNED_CONTEXT_ROLE,
+  WORKSPACE_ICON_CONTENT_TYPES,
+  WORKSPACE_ICON_MAX_BYTES,
   matchesDestructiveActionAcknowledgement,
 } from "@context/shared";
 import { internal } from "../_generated/api";
@@ -219,6 +221,7 @@ import {
   writeImage,
   readImage,
   pasteImageLeaf,
+  workspaceIconLeaf,
 } from "./lib/fileOps";
 import { PRIVACY_KEY, type Scope, type Visibility } from "./lib/privacy";
 import {
@@ -4781,6 +4784,158 @@ export const readNoteImage = action({
     return {
       bytes: result.bytes,
       contentType: extension === "jpg" || extension === "jpeg" ? "image/jpeg" : `image/${extension}`,
+    };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                      a workspace's icon, in and back out                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Store the photo a workspace draws in its mark.
+ *
+ * **Owner**, not editor. `storeNoteImage` takes an editor because a paste is a
+ * write to the bucket and an editor may write to the bucket. This is a write to
+ * the bucket *and* a change to what the workspace looks like on every member's
+ * screen, so it takes the role that owns the other facts about the workspace —
+ * its name, its storage, its members. The stricter of the two checks wins.
+ *
+ * The name is ours and derived from the bytes, for the reason `storeNoteImage`
+ * gives: a client-supplied leaf is a path to argue about. `writeImage` then
+ * applies the gateway's own leaf rule to whatever `workspaceIconLeaf` produced,
+ * so a careless change to the derivation is refused here rather than writing an
+ * object no reader can ever name.
+ *
+ * ## The cap is this feature's, and it is much smaller than the store's
+ *
+ * `writeImage` allows five megabytes, which is right for a picture somebody
+ * wants to look at and wrong for an 18pt square the console draws once per
+ * workspace per paint. `WORKSPACE_ICON_MAX_BYTES` is checked here, before the
+ * bytes reach the bucket, so a caller that is not our picker cannot make every
+ * future context list a download. The picker crops square and compresses long
+ * before this, and this is the backstop for everything that is not the picker.
+ *
+ * The row is patched only after the write lands, by
+ * `recordWorkspaceIconPhoto` — so a failed upload leaves the old icon standing
+ * rather than pointing the workspace at an object that is not there.
+ */
+export const setWorkspaceIconPhoto = action({
+  args: {
+    workspaceId: v.id("workspaces"),
+    bytes: v.bytes(),
+    contentType: v.string(),
+  },
+  returns: v.object({ leaf: v.string() }),
+  handler: async (ctx, args): Promise<{ leaf: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "owner" },
+    );
+    /*
+      The type is checked before the hash is taken rather than left to
+      `workspaceIconLeaf`, so the refusal names the actual problem. The two
+      agree because they read the same map out of `@context/shared`.
+    */
+    if (!WORKSPACE_ICON_CONTENT_TYPES.has(args.contentType)) {
+      throw new ConvexError({
+        code: "WORKSPACE_ICON_TYPE",
+        message: "A workspace icon must be a PNG, JPEG or WebP.",
+      });
+    }
+    if (args.bytes.byteLength > WORKSPACE_ICON_MAX_BYTES) {
+      throw new ConvexError({
+        code: "WORKSPACE_ICON_TOO_LARGE",
+        message: `A workspace icon must be at most ${WORKSPACE_ICON_MAX_BYTES} bytes.`,
+      });
+    }
+    const leaf = workspaceIconLeaf({
+      hash: await contentHash(args.bytes),
+      contentType: args.contentType,
+    });
+    await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: {
+        kind: "writeImage",
+        leaf,
+        bytes: args.bytes,
+        contentType: args.contentType,
+      },
+    });
+    await ctx.runMutation(internal.functions.workspaces.recordWorkspaceIconPhoto, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+      leaf,
+    });
+    return { leaf };
+  },
+});
+
+/**
+ * Read a workspace's icon photo back.
+ *
+ * **Note what this does not take: a leaf.** `readNoteImage` takes one and gates
+ * it on a note the caller can see that references it, because an image in the
+ * opaque store borrows its visibility from the notes pointing at it. An icon
+ * has no note, and the wrong way to serve one is to loosen that gate.
+ *
+ * So the caller names a *workspace* and the leaf is read off the row by
+ * `workspaceIconLeaf`, which is an internal query with its own membership
+ * check. There is no argument here through which an object can be named, which
+ * makes this strictly narrower than the note path rather than wider: the set of
+ * objects it can return is at most one per workspace, chosen by that
+ * workspace's owner. A test asserts the argument shape, because "there is no
+ * leaf argument" is the property doing the work and a later convenience
+ * parameter would quietly end it.
+ *
+ * `member` is the floor and it is honest: this picture is drawn in the rail of
+ * everyone who can reach the workspace. A non-member gets the same
+ * `WORKSPACE_NOT_FOUND` as for an id that never existed, so this cannot be used
+ * to learn that a workspace exists.
+ *
+ * A workspace with no icon, or with an emoji, gets `FILE_NOT_FOUND` — the same
+ * absence as a photo that was never written, which is what the console draws a
+ * letter for anyway.
+ */
+export const workspaceIconPhoto = action({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.object({ bytes: v.bytes(), contentType: v.string() }),
+  handler: async (ctx, args): Promise<{ bytes: ArrayBuffer; contentType: string }> => {
+    const actorUserId = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const leaf = await ctx.runQuery(internal.functions.workspaces.workspaceIconLeaf, {
+      workspaceId: args.workspaceId,
+      actorUserId,
+    });
+    if (leaf === null) {
+      throw new ConvexError({
+        code: "FILE_NOT_FOUND",
+        message: "That workspace has no icon photo.",
+      });
+    }
+    const result = (await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readImage", leaf },
+    })) as Extract<OperationResult, { kind: "image" }>;
+    /*
+      From the extension, for the reason `readNoteImage` gives: an adapter is
+      not obliged to hand a type back, and a picture served as
+      `application/octet-stream` is a download rather than an image. The leaf
+      came off our own row and through `readImage`'s gate, so the extension here
+      is one of the three.
+    */
+    const extension = leaf.slice(leaf.lastIndexOf(".") + 1).toLowerCase();
+    return {
+      bytes: result.bytes,
+      contentType: extension === "jpg" ? "image/jpeg" : `image/${extension}`,
     };
   },
 });

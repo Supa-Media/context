@@ -121,6 +121,32 @@ const schema = defineSchema({
      * is which folder the first offer points at.
      */
     meetingsFolder: v.optional(v.string()),
+    /**
+     * What this workspace draws in its mark, when its owner has chosen
+     * something better than the first letter of its slug.
+     *
+     * Absent is the default and always will be: the mark falls back to the
+     * letter, which is what every workspace drew before this field existed, so
+     * nothing here needs a migration or a backfill.
+     *
+     * **A photo is a leaf, never bytes.** The image itself lives in the
+     * workspace's own bucket, in the opaque image store under `IMAGE_PREFIX`,
+     * and this records only the name it was written under. The control plane
+     * holds metadata and never note content (`CLAUDE.md` #1), and a
+     * photograph somebody put in their context is content — storing it here
+     * would mean a customer who revokes our credential leaves without it.
+     *
+     * An emoji is not content. It is a handful of code points chosen from a
+     * list we ship, it means nothing outside this row, and there is nothing to
+     * leave with — so it sits here beside `displayName`, which is the same kind
+     * of fact about the same workspace.
+     */
+    icon: v.optional(
+      v.union(
+        v.object({ kind: v.literal("photo"), leaf: v.string() }),
+        v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+      ),
+    ),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_slug", ["slug"]),
