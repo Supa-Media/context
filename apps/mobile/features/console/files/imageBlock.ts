@@ -197,7 +197,22 @@ export const imageSelection = StateField.define<ImagePick | null>({
     for (const effect of transaction.effects) {
       if (effect.is(selectImage)) return effect.value;
     }
-    if (value === null || !transaction.docChanged) return value;
+    if (value === null) return null;
+    /*
+      PUTTING THE IMAGE DOWN IS THE CARET BEING PUT SOMEWHERE ELSE.
+
+      Clicking into the text, arrowing away, starting to type — all of them move
+      the editor's own selection, and all of them mean the person is done with
+      the picture. Reading that rather than watching for a press outside the
+      widget is both simpler and more honest: there is one definition of "the
+      cursor is elsewhere" in this editor and it already exists.
+
+      A resize, an alignment or an alt-text edit carries no selection of its
+      own, so the image stays picked through its own toolbar — which is the
+      behaviour this rule has to get right to be worth having.
+    */
+    if (transaction.selection !== undefined) return null;
+    if (!transaction.docChanged) return value;
     const from = transaction.changes.mapPos(value.from, -1, MapMode.TrackDel);
     return from === null ? null : { from, index: value.index };
   },
@@ -513,7 +528,19 @@ export class ImageRowWidget extends WidgetType {
   ): HTMLElement {
     const chosen = this.selected === index;
     const figure = document.createElement("figure");
-    figure.className = chosen ? "cm-lp-image cm-lp-image-on" : "cm-lp-image";
+    /*
+      `cm-lp-image-live` is what the cursor and the hover handles hang off: a
+      reader gets a picture, a writer gets a picture they can grab. Saying it in
+      a class rather than in inline style keeps the whole affordance in the
+      stylesheet, where the `--lp-*` contract already lives.
+    */
+    figure.className = [
+      "cm-lp-image",
+      this.canEdit ? "cm-lp-image-live" : "",
+      chosen ? "cm-lp-image-on" : "",
+    ]
+      .filter((name) => name !== "")
+      .join(" ");
     if (width !== null) figure.style.width = `${width}px`;
 
     const img = document.createElement("img");
@@ -547,26 +574,123 @@ export class ImageRowWidget extends WidgetType {
     }
 
     /*
-      Selecting is a press on the image, and it is the only thing a press does:
-      `preventDefault` keeps CodeMirror from putting a caret under it, which is
-      what used to turn the picture back into `![[paste-….png]]`.
-    */
-    figure.addEventListener("pointerdown", (event) => {
-      if (!this.canEdit) return;
-      if ((event.target as HTMLElement).closest(".cm-lp-image-bar") !== null) return;
-      event.preventDefault();
-      view.dispatch({ effects: selectImage.of({ from: this.row.from, index }) });
-    });
+      THE WHOLE INTERACTION, AND WHY IT IS THIS ONE.
 
-    if (this.canEdit && chosen) {
-      figure.append(this.drawBar(view, index, width, alt));
-      for (const corner of ["nw", "ne", "sw", "se", "w", "e"] as const) {
-        figure.append(this.drawHandle(view, index, width, corner));
+      An image in a note is a thing you point at, so the pointer decides between
+      the two verbs by what it does rather than by which tiny target it found:
+
+        - press and release without moving  → SELECT it (ring, handles, toolbar)
+        - press and drag past a few pixels  → MOVE it (insertion caret, drop)
+
+      That is Notion's and Craft's behaviour and it is the reason the separate
+      grip button is gone: a 26px square with six dots in it is a second target
+      to find for a gesture the image itself can carry. Resizing needs no
+      selection at all — the side handles appear on hover — so the fast path is
+      one drag, and the toolbar is there for everything a drag cannot say.
+
+      `preventDefault` keeps CodeMirror from putting a caret under the press,
+      which is what used to turn the picture back into `![[paste-….png]]`.
+    */
+    if (this.canEdit) {
+      figure.addEventListener("pointerdown", (event) => {
+        if ((event.target as HTMLElement).closest(".cm-lp-image-bar") !== null) return;
+        if ((event.target as HTMLElement).closest(".cm-lp-image-handle") !== null) return;
+        if ((event.target as HTMLElement).closest(".cm-lp-image-alt") !== null) return;
+        event.preventDefault();
+        event.stopPropagation();
+        this.beginPress(view, figure, index, event);
+      });
+    }
+
+    if (this.canEdit) {
+      /*
+        The side handles are on every image, hidden until the pointer is over it
+        — resizing is the commonest thing anybody does to a picture and it should
+        not need a click first. The corners, the badge and the bar belong to the
+        selected one, because a picture wearing all of that permanently reads as
+        a form control rather than as a picture.
+      */
+      figure.append(this.drawHandle(view, index, width, "w"));
+      figure.append(this.drawHandle(view, index, width, "e"));
+      if (chosen) {
+        figure.append(this.drawBar(view, index, width, alt));
+        for (const corner of ["nw", "ne", "sw", "se"] as const) {
+          figure.append(this.drawHandle(view, index, width, corner));
+        }
+        figure.append(this.drawBadge(img, width));
       }
-      figure.append(this.drawBadge(img, width));
-      figure.append(this.drawGrip(view, index));
     }
     return figure;
+  }
+
+  /**
+   * One press on the image: a click if it stays still, a move if it travels.
+   *
+   * The threshold is what makes both gestures live on one target without either
+   * getting in the other's way — a hand on a trackpad never presses perfectly
+   * still, and four pixels is under what anybody means by "I moved it".
+   */
+  private beginPress(
+    view: EditorView,
+    figure: HTMLElement,
+    index: number,
+    event: PointerEvent | MouseEvent,
+  ): void {
+    const startX = event.clientX;
+    const startY = event.clientY;
+    let dragging = false;
+    let at: number | null = null;
+    const caret = document.createElement("div");
+    caret.className = "cm-lp-image-caret";
+
+    const move = (moveEvent: PointerEvent | MouseEvent) => {
+      const travelled =
+        Math.abs(moveEvent.clientX - startX) + Math.abs(moveEvent.clientY - startY);
+      if (!dragging && travelled < 4) return;
+      if (!dragging) {
+        dragging = true;
+        figure.classList.add("cm-lp-image-moving");
+      }
+      at = view.posAtCoords({ x: moveEvent.clientX, y: moveEvent.clientY });
+      if (at === null) {
+        caret.remove();
+        return;
+      }
+      // Drawn at the foot of the line under the pointer, which is where the
+      // line would land — a caret anywhere else is a promise the drop breaks.
+      const line = view.state.doc.lineAt(at);
+      const box = view.coordsAtPos(line.from);
+      if (box === null) return;
+      const scroller = view.scrollDOM.getBoundingClientRect();
+      caret.style.top = `${box.bottom - scroller.top + view.scrollDOM.scrollTop}px`;
+      view.scrollDOM.append(caret);
+    };
+
+    const end = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", end);
+      caret.remove();
+      figure.classList.remove("cm-lp-image-moving");
+      if (!dragging) {
+        view.dispatch({ effects: selectImage.of({ from: this.row.from, index }) });
+        return;
+      }
+      if (at === null) return;
+      this.dispatch(view, planDrop(view.state, this.rowNow(view), index, at));
+      view.dispatch({ effects: selectImage.of(null) });
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    /*
+      And the mouse pair as well: a `WebView` on an older iOS delivers mouse
+      events for a trackpad and no pointer events at all, and a drag that only
+      listens for one of the two is a drag that never ends on that device.
+    */
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", end);
   }
 
   private drawMissing(message: string): HTMLElement {
@@ -687,86 +811,6 @@ export class ImageRowWidget extends WidgetType {
     bar.append(remove);
 
     return bar;
-  }
-
-  /**
-   * The grip: drag the image somewhere else in the note.
-   *
-   * Two outcomes, decided by `planDrop` from where the pointer let go — beside
-   * the images already on another line, or on a line of its own between two
-   * blocks. Both are one line edit, because a row is a line. The insertion point
-   * is `posAtCoords`, CodeMirror's own answer to "what is under this pointer",
-   * so a drop lands where the editor itself would put a caret.
-   *
-   * On the selected image only, like every other control here, and drawn as six
-   * dots rather than as a bare square — the first version shipped unlabelled
-   * boxes and they read as nothing at all.
-   */
-  private drawGrip(view: EditorView, index: number): HTMLElement {
-    const grip = document.createElement("button");
-    grip.type = "button";
-    grip.className = "cm-lp-image-grip";
-    grip.setAttribute("aria-label", "Move image");
-    const dots = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    dots.setAttribute("viewBox", "0 0 12 18");
-    dots.setAttribute("width", "12");
-    dots.setAttribute("height", "18");
-    dots.setAttribute("aria-hidden", "true");
-    for (const [x, y] of [
-      [3, 3],
-      [9, 3],
-      [3, 9],
-      [9, 9],
-      [3, 15],
-      [9, 15],
-    ]) {
-      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      dot.setAttribute("cx", String(x));
-      dot.setAttribute("cy", String(y));
-      dot.setAttribute("r", "1.6");
-      dot.setAttribute("fill", "currentColor");
-      dots.append(dot);
-    }
-    grip.append(dots);
-    grip.addEventListener("pointerdown", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const figure = grip.parentElement;
-      figure?.classList.add("cm-lp-image-moving");
-      const caret = document.createElement("div");
-      caret.className = "cm-lp-image-caret";
-      let at: number | null = null;
-      const move = (moveEvent: PointerEvent) => {
-        at = view.posAtCoords({ x: moveEvent.clientX, y: moveEvent.clientY });
-        if (at === null) {
-          caret.remove();
-          return;
-        }
-        const line = view.state.doc.lineAt(at);
-        const box = view.coordsAtPos(line.from);
-        if (box === null) return;
-        const scroller = view.scrollDOM.getBoundingClientRect();
-        caret.style.top = `${box.bottom - scroller.top + view.scrollDOM.scrollTop}px`;
-        view.scrollDOM.append(caret);
-      };
-      const end = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", end);
-        caret.remove();
-        figure?.classList.remove("cm-lp-image-moving");
-        if (at === null) return;
-        this.dispatch(view, planDrop(view.state, this.rowNow(view), index, at));
-        view.dispatch({ effects: selectImage.of(null) });
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", end);
-    });
-    /*
-      The keyboard equivalent is not here and does not need to be: ⌥↑ / ⌥↓ move
-      the line, which CodeMirror's own defaultKeymap already binds, and the line
-      is the unit.
-    */
-    return grip;
   }
 
   private divider(): HTMLElement {
@@ -1082,18 +1126,6 @@ export function imageBlock(
         const took = handleImageDrop(view, event.dataTransfer, report);
         if (took) event.preventDefault();
         return took;
-      },
-      /*
-        A press anywhere that is not an image puts the selection down. The
-        widget's own handler has already stopped the event for a press on one,
-        so this only ever sees the rest of the note.
-      */
-      mousedown: (event, view) => {
-        if (view.state.field(imageSelection, false) == null) return false;
-        const target = event.target as HTMLElement | null;
-        if (target?.closest(".cm-lp-images") !== null && target !== null) return false;
-        view.dispatch({ effects: selectImage.of(null) });
-        return false;
       },
     }),
   ];
