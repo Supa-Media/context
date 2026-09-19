@@ -507,6 +507,21 @@ describe("the shape of the table is editable too", () => {
     view.destroy();
   });
 
+  test("a menu does not outlive the grid it belongs to", () => {
+    /*
+      The menu is on the document's body, which is what keeps it clear of the
+      scroller that would clip it — and means nothing removes it when
+      CodeMirror throws the widget away. Scrolling a table out of the viewport
+      does that, and what is left is a menu acting through a handle that is no
+      longer anywhere.
+    */
+    const view = mount();
+    view.dom.querySelector<HTMLElement>('button[aria-label="Row 1 actions"]')!.click();
+    expect(document.querySelector(".cm-lp-grid-menu")).not.toBeNull();
+    view.destroy();
+    expect(document.querySelector(".cm-lp-grid-menu")).toBeNull();
+  });
+
   test("a reader gets no handles at all", () => {
     const view = mount({ editable: false });
     expect(view.dom.querySelector(".cm-lp-grid-handle")).toBeNull();

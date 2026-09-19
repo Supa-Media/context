@@ -1915,6 +1915,19 @@ export class TableGridWidget extends WidgetType {
     return bar;
   }
 
+  /**
+   * The grid is going off the screen, so its menus go with it.
+   *
+   * A menu is drawn on the document's body rather than inside the grid, which
+   * is what keeps it out of the scroller that would clip it — and means
+   * nothing removes it when CodeMirror throws the widget away. Scrolling a
+   * table out of the viewport does exactly that, and the menu left behind
+   * would act on a row through a handle that is no longer anywhere.
+   */
+  destroy(): void {
+    closeGridMenu();
+  }
+
   /*
     Every event inside the grid is the grid's. CodeMirror's default is to
     ignore events in a widget already; saying it for all of them is what keeps
