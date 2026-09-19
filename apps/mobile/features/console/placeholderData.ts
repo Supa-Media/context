@@ -705,7 +705,10 @@ const SEYI_TREE: DemoContextTree = {
     ].join("\n"),
     // Carries a wikilink, a checked and an unchecked task, and a plain bullet
     // long enough to wrap at 390pt — the constructs `apps/mobile/e2e/webkit`
-    // drives real touch events against.
+    // drives real touch events against. No table: `callouts.spec.ts` types at
+    // the end of this note and arrows back up into it, and a drawn table is an
+    // atomic range the caret steps over. The table fixture is the org chart
+    // below.
     "2-areas/weekly-review.md": [
       "# Weekly review",
       "",
@@ -717,12 +720,33 @@ const SEYI_TREE: DemoContextTree = {
       "- Keep this list short enough to actually run through before the next Friday, because a list nobody rereads is not a review",
       "",
     ].join("\n"),
+    /*
+      THE NOTE WITH A TABLE IN IT, and it is a fixture as much as a persona's
+      page. The decision log's rule is "a fixture that cannot show the thing
+      under review is reporting on itself": a GFM table is drawn as a grid
+      *while the note is being written* and is typed into in place, and until
+      something in this tree carried one there was nowhere in the running app
+      to look at that. A table somebody has to make first is not the same
+      screen as a table that was already in the file.
+
+      Here rather than in `weekly-review.md` because that note is the one the
+      touch specs type into and arrow around in, and a drawn table is an atomic
+      range the caret steps over. `tables.spec.ts` opens this one.
+
+      A seat per row is also what the prose above it describes, which is the
+      other half of a fixture: it has to be a page somebody would really have.
+    */
     "2-areas/public-worship/org-chart.md": [
       "# Org chart",
       "",
       "Executive Director → Music, Production, Formation, Operations.",
       "Each lead holds a seat, and a seat carries duties rather than a",
       "person's name — so a handover is a change to one field.",
+      "",
+      "| Seat | Holder | Backup |",
+      "| --- | --- | --- |",
+      "| Music | **Sayo** | LK |",
+      "| Production | John | LK |",
       "",
       "Shared with the team on purpose: everyone should be able to see",
       "who is responsible for what without asking.",

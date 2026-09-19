@@ -29,7 +29,8 @@ import { Compartment, EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 import { editorExtensions } from "../features/console/files/editorSetup";
-import { insertTable } from "../features/console/files/markdownFormat";
+import { engageEditor } from "../features/console/files/livePreview";
+import { MARKERS, insertTable, toggleWrap } from "../features/console/files/markdownFormat";
 
 const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
 const DOC = `# Title\n\n${TABLE}\n\nafter\n`;
@@ -414,6 +415,108 @@ describe("the caret steps over a drawn table rather than into it", () => {
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * THE ONE REVEAL THAT SURVIVES AT THE TABLE'S OWN SIZE.
+ *
+ * Found in a browser, not here: typing a table by hand stopped working the
+ * moment the delimiter row was finished, because the block parsed, the grid
+ * was drawn over it, and the next two rows landed in a paragraph under the
+ * table. A table the *document's* caret is inside is left as its own pipes.
+ *
+ * It does not undraw a grid somebody is working in, because a caret in a cell
+ * is not a caret in the document — the cell is a widget's own editable DOM and
+ * `state.selection` stays outside the table while it is used.
+ */
+describe("a table being typed is left as the characters being typed", () => {
+  /** Type at the caret, the way a keystroke reaches the document. */
+  function typeInto(view: EditorView, text: string): void {
+    const at = view.state.selection.main.head;
+    view.dispatch({ changes: { from: at, insert: text }, selection: { anchor: at + text.length } });
+  }
+
+  test("finishing the delimiter row does not swallow the rows after it", () => {
+    /*
+      The browser case, reproduced. `| - | - |` parses as a table in the
+      middle of typing the dashes, so the grid used to appear right there,
+      take the two lines off the screen, and leave the rest of what was typed
+      going in somewhere nobody could see: measured in Chromium, the delimiter
+      row finished as `-- |` under a two-column grid.
+    */
+    const view = mount({ doc: "" });
+    view.dispatch({ effects: engageEditor(true) });
+    typeInto(view, "| a | b |\n");
+    typeInto(view, "| --- | --- |");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    expect(view.dom.textContent).toContain("| --- | --- |");
+
+    typeInto(view, "\n| 1 | 2 |");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    expect(view.state.doc.toString()).toBe("| a | b |\n| --- | --- |\n| 1 | 2 |");
+
+    // And the moment the caret leaves, it is a grid with that row in it.
+    view.dispatch({ selection: { anchor: 0 } });
+    expect(cellOf(view, 0, 0).textContent).toBe("1");
+    view.destroy();
+  });
+
+  test("arrowing about inside the one being written keeps its pipes", () => {
+    const view = mount({ doc: "" });
+    view.dispatch({ effects: engageEditor(true) });
+    typeInto(view, "| a | b |\n| --- | --- |");
+    // A selection-only move that stays in the table is fixing a character,
+    // not finishing: the courtesy every construct here extends to the thing
+    // you are editing.
+    view.dispatch({ selection: { anchor: 4 } });
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+    view.destroy();
+  });
+
+  test("an edit elsewhere does not reveal a table the caret merely starts at", () => {
+    /*
+      `openingCaret` parks at the first line of the writing, which on plenty of
+      notes is a table's own first character. An edit further down the note is
+      not somebody typing that table.
+    */
+    const doc = `${TABLE}\n\ntail\n`;
+    const view = mount({ doc });
+    view.dispatch({ effects: engageEditor(true) });
+    view.dispatch({ selection: { anchor: 0 } });
+    view.dispatch({ changes: { from: doc.length - 1, insert: " more" } });
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
+    view.destroy();
+  });
+
+  test("a cell taking the caret hands the table over", () => {
+    /*
+      Otherwise the table somebody has just finished typing would still be
+      revealed as source behind the cell they clicked.
+    */
+    const view = mount({ doc: "" });
+    view.dispatch({ effects: engageEditor(true) });
+    typeInto(view, "| a | b |\n| --- | --- |\n| 1 | 2 |");
+    expect(view.dom.querySelector(".cm-lp-grid")).toBeNull();
+
+    view.dispatch({ selection: { anchor: 0 } });
+    const cell = cellOf(view, 0, 0);
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
+    view.destroy();
+  });
+
+  test("and Escape leaves the grid drawn behind the caret it just handed back", () => {
+    // The caret lands at the table's own end, which is a position inside it —
+    // so the gesture says so explicitly rather than relying on where it lands.
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    press(cell, "Escape");
+    expect(view.dom.querySelector(".cm-lp-grid")).not.toBeNull();
+    view.destroy();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
 describe("a table somebody has just asked for", () => {
   test("lands them in its first cell rather than inside a block they cannot see", () => {
     /*
@@ -431,6 +534,85 @@ describe("a table somebody has just asked for", () => {
     expect(document.activeElement).toBe(first);
     type(first, "name");
     expect(view.state.doc.toString().split("\n")[0]).toBe("| name |     |     |");
+    view.destroy();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⌘B IN A CELL, which used to bold a word behind the table.
+ *
+ * The gap was stated when the grid became editable and is the one people meet
+ * first: focus is in a widget's own `contenteditable`, so every formatting
+ * verb acted on the document's selection — somewhere else entirely — and left
+ * the cell alone. The decision is `planToggle`'s either way, so the
+ * CommonMark run rule is the same one a paragraph gets.
+ */
+describe("the formatting verbs reach the cell that has the caret", () => {
+  /** Select `word` inside a focused cell, the way a double-click would. */
+  function selectIn(cell: HTMLElement, word: string): void {
+    const node = cell.firstChild!;
+    const at = (cell.textContent ?? "").indexOf(word);
+    const range = document.createRange();
+    range.setStart(node, at);
+    range.setEnd(node, at + word.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  test("Bold wraps the cell's own word and writes it to that cell", () => {
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    selectIn(cell, "1");
+
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+
+    expect(cell.textContent).toBe("**1**");
+    expect(view.state.doc.toString()).toContain("| **1** | 2 |");
+    // And nothing else in the note moved.
+    expect(view.state.doc.toString()).toContain("# Title");
+    view.destroy();
+  });
+
+  test("pressing it again takes the markers off", () => {
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    selectIn(cell, "1");
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+
+    expect(cell.textContent).toBe("1");
+    expect(view.state.doc.toString()).toContain("| 1 | 2 |");
+    view.destroy();
+  });
+
+  test("italic inside bold composes rather than eating a pair", () => {
+    // The rule `markerPresent` exists for, exercised where it had never run:
+    // `**1**` with `1` selected has a `*` either side of the selection.
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    selectIn(cell, "1");
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+    selectIn(cell, "1");
+    toggleWrap(view, MARKERS.italic.before, MARKERS.italic.after);
+
+    expect(cell.textContent).toBe("***1***");
+    view.destroy();
+  });
+
+  test("and with no cell focused the document still gets it", () => {
+    const view = mount();
+    view.dispatch({ selection: { anchor: 2, head: 7 } });
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+    expect(view.state.doc.toString()).toContain("**Title**");
     view.destroy();
   });
 });

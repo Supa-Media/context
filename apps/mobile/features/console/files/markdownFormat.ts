@@ -30,191 +30,19 @@
  * `editorSetup.ts`'s own header exists to prevent.
  */
 
-import { EditorSelection, type ChangeSpec, type SelectionRange } from "@codemirror/state";
+import { EditorSelection, type SelectionRange } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
-import { focusGridCell } from "./livePreview";
+import { focusGridCell, toggleMarkerInCell } from "./livePreview";
+import { planToggle, wordAround, type RangePlan } from "./markerToggle";
 
-/**
- * The marker pairs, named once.
- *
- * Three surfaces reach for these — the ⌘B/⌘I/⌘⇧X keymap in `editorSetup.ts`,
- * the accessory bar's Bold and Italic keys, and the web console's right-click
- * menu — and a fourth spelling of "italic" would be a fourth behaviour. `*`
- * rather than `_` for italic because that is what the rest of these notes
- * already use and what the bar has always inserted; the grammar accepts both.
- */
-export const MARKERS = {
-  bold: { before: "**", after: "**" },
-  italic: { before: "*", after: "*" },
-  strikethrough: { before: "~~", after: "~~" },
-  code: { before: "`", after: "`" },
-} as const;
-
-export type MarkerName = keyof typeof MARKERS;
-
-/**
- * What one range's toggle decided, before it is turned into a transaction.
- *
- * Separated from the dispatch so the decision is testable on its own and so
- * `toggleWrap` can require **agreement** across a multi-range selection before
- * it removes anything — see there.
- */
-interface RangePlan {
-  changes: ChangeSpec[];
-  range: SelectionRange;
-  /** True when this range took markers off rather than putting them on. */
-  removed: boolean;
-}
-
-/** A character that can be part of a word for the purpose of "the word the caret is in". */
-function isWordChar(char: string): boolean {
-  return /[\p{L}\p{N}_]/u.test(char);
-}
-
-/**
- * The word the caret sits in or beside, or the caret itself.
- *
- * ⌘B with nothing selected has two defensible answers and only one of them is
- * what people mean. Inserting a bare `****` and parking the caret between the
- * pairs is what a naive implementation does; bolding the word already under the
- * caret is what Obsidian, Word and every rich editor do, and it is what
- * somebody who has just typed a word and reached for ⌘B is asking for.
- *
- * The caret on whitespace or at the start of an empty line has no word to act
- * on, and then the bare pair *is* the right answer — that is the "I am about to
- * type something bold" case, and it is why this returns the range unchanged
- * rather than hunting for the nearest word on the line.
- */
-function wordAround(doc: string, range: SelectionRange): SelectionRange {
-  if (!range.empty) return range;
-  let from = range.from;
-  let to = range.to;
-  // No line bound is needed: a newline is not a word character, so neither
-  // walk can leave the caret's own line.
-  while (from > 0 && isWordChar(doc[from - 1])) from -= 1;
-  while (to < doc.length && isWordChar(doc[to])) to += 1;
-  return from === to ? range : EditorSelection.range(from, to);
-}
-
-/**
- * How many of `char` run up to `at`, and away from it.
- *
- * Every marker this module knows is a run of one repeated character — `*`,
- * `**`, `~~`, `` ` `` — and that is what makes the rule below expressible at
- * all. A marker that was not (`<u>`…`</u>`, say) would need a different
- * question asked, and this is the assumption to revisit first if one is added.
- */
-function runBefore(doc: string, at: number, char: string): number {
-  let count = 0;
-  while (at - count > 0 && doc[at - count - 1] === char) count += 1;
-  return count;
-}
-
-function runAfter(doc: string, at: number, char: string): number {
-  let count = 0;
-  while (at + count < doc.length && doc[at + count] === char) count += 1;
-  return count;
-}
-
-/**
- * Is a marker of `width` present, given a run of `run` marker characters?
- *
- * **This is the rule that stops ⌘I quietly turning bold text into italic**, and
- * it was a real defect the first time round: `**words**` with `words` selected
- * has a `*` immediately either side of the selection, so a naive "is the marker
- * there?" said yes, took one off each end, and left `*words*` — the same words
- * saying something else, from a keystroke that was supposed to add emphasis.
- *
- * A run of asterisks is read the way CommonMark reads it. A single-character
- * marker is present only in an **odd** run: `*x*` is italic, `**x**` is bold and
- * contains no italic, `***x***` is both. A two-character marker is present in
- * any run of two or more, so ⌘B on `***x***` leaves `*x*` rather than reaching
- * for a fifth asterisk.
- *
- * The consequence worth stating is that the two chords compose the way people
- * expect: bold then italic gives `***x***`, and either one pressed again takes
- * its own pair off and leaves the other.
- */
-function markerPresent(run: number, width: number): boolean {
-  return width === 1 ? run % 2 === 1 : run >= width;
-}
-
-/**
- * Plan one range's toggle: take the markers off if they are there, put them on
- * if they are not.
- *
- * The two ways markers can already be there are both real and neither is the
- * unusual one:
- *
- *  - **Outside the selection** — somebody double-clicked the word inside
- *    `**bold**` and pressed ⌘B. The selection is `bold`; the markers are the
- *    four characters either side of it.
- *  - **Inside the selection** — somebody dragged across `**bold**` including
- *    its markers, which is what a triple-click or a drag from the margin gives
- *    you, and what ⌘B leaves selected after it has just wrapped something.
- *
- * Checked in that order because the first is what the caret-only case reduces
- * to (`**|**` is a caret with the markers outside it), and because a selection
- * that satisfies both — `**` selected inside `****` — should lose the pair it
- * is sitting between rather than eat itself.
- */
-function planToggle(
-  doc: string,
-  original: SelectionRange,
-  before: string,
-  after: string,
-): RangePlan {
-  const range = wordAround(doc, original);
-  const { from, to } = range;
-  const char = before[0];
-  const width = before.length;
-
-  if (
-    markerPresent(runBefore(doc, from, char), width) &&
-    markerPresent(runAfter(doc, to, char), width)
-  ) {
-    return {
-      changes: [
-        { from: from - width, to: from, insert: "" },
-        { from: to, to: to + after.length, insert: "" },
-      ],
-      range: EditorSelection.range(from - width, to - width),
-      removed: true,
-    };
-  }
-
-  if (
-    to - from >= before.length + after.length &&
-    markerPresent(runAfter(doc, from, char), width) &&
-    markerPresent(runBefore(doc, to, char), width)
-  ) {
-    return {
-      changes: [
-        { from, to: from + width, insert: "" },
-        { from: to - after.length, to, insert: "" },
-      ],
-      range: EditorSelection.range(from, to - before.length - after.length),
-      removed: true,
-    };
-  }
-
-  return {
-    changes: [
-      { from, insert: before },
-      { from: to, insert: after },
-    ],
-    /*
-      The original selection shifted by the opening marker, so wrapping a word
-      leaves the word selected and wrapping nothing leaves the caret between
-      the two markers — which is the behaviour that makes `**` on an empty line
-      worth pressing at all. Inherited verbatim from `wrapSelection`, which is
-      what this replaced.
-    */
-    range: EditorSelection.range(from + before.length, to + before.length),
-    removed: false,
-  };
-}
+/*
+  The marker pairs and their name type live in `markerToggle.ts`, beside the
+  rule that applies them, so `livePreview.ts` can answer ⌘B in a table cell
+  without importing this module — which imports it. Re-exported here because
+  three surfaces already say `MARKERS` from this file.
+*/
+export { MARKERS, type MarkerName } from "./markerToggle";
 
 /**
  * Bold, italic, strikethrough, an inline code span — the pair of markers around
@@ -236,6 +64,14 @@ function planToggle(
  * is the one that makes the second press the inverse of the first.
  */
 export function toggleWrap(view: EditorView, before: string, after: string): void {
+  /*
+    A table cell first, when one has the caret. Focus is in a widget's own
+    `contenteditable` there, so the document's selection is somewhere else
+    entirely and toggling markers in it would bold a word nobody is looking
+    at. `toggleMarkerInCell` runs the same decision over the cell's own text
+    and says whether it took it.
+  */
+  if (toggleMarkerInCell(view, before, after)) return;
   const doc = view.state.doc.toString();
   const proposed = view.state.selection.ranges.map((range) =>
     planToggle(doc, range, before, after),
@@ -309,6 +145,13 @@ function planWrapOnly(
  * line the grammar requires. On an empty line it lands where the caret is.
  */
 export function insertTable(view: EditorView, rows: number, cols: number): boolean {
+  /*
+    Refused here rather than left to `EditorState.readOnly` to drop the
+    transaction. It always did drop it, but the caret this command places
+    afterwards is computed from a table that was never inserted, and pointing a
+    selection past the end of the document throws.
+  */
+  if (view.state.readOnly) return false;
   const columns = Math.max(1, Math.trunc(cols));
   const bodyRows = Math.max(0, Math.trunc(rows));
 
@@ -326,18 +169,16 @@ export function insertTable(view: EditorView, rows: number, cols: number): boole
       {
         changes: { from: at, to: at, insert: `${lead}${table}\n` },
         /*
-          Two characters past the opening pipe is the first header cell's own
-          text, which is where somebody who has just chosen "4 × 3" is about to
-          type. Not the start of the table: a caret sitting on a `|` looks like
-          it is in the cell and types outside it.
-
-          This is now the fallback rather than the answer: the table is drawn
-          as a grid the moment it exists, so the caret lands inside a block
-          nobody can see. `focusGridCell` below puts it in the drawn cell
-          instead, and this selection is what is left when there is no grid —
-          a table the grid refused, or a surface without the extension.
+          Past the table's own last character, so the grid is drawn: the end
+          of a table's last line is where the keystroke that made it a table
+          leaves the caret, and `writingTable` reads that as a table being
+          written and shows its source. One character further on is the line
+          below, which is where somebody who asked for a finished table is. The caret is then put in the grid's first cell
+          below, and only a surface with no grid falls back to the position
+          this command used before there were any — two characters past the
+          opening pipe, which is the first header cell's own text.
         */
-        selection: EditorSelection.cursor(at + lead.length + 2),
+        selection: EditorSelection.cursor(at + lead.length + table.length + 1),
       },
       { scrollIntoView: true, userEvent: "input" },
     ),
@@ -353,5 +194,16 @@ export function insertTable(view: EditorView, rows: number, cols: number): boole
     when the caret is in the document and takes it out of the cell when it is
     not. Pinned by the WebKit spec, which typed into a grid nobody was in.
   */
-  return focusGridCell(view, at + lead.length, -1, 0);
+  if (focusGridCell(view, at + lead.length, -1, 0)) return true;
+
+  /*
+    No grid: a surface without Live Preview, or a table it refused. The caret
+    goes where it went before there were grids — two characters past the
+    opening pipe, which is the first header cell's own text. The dispatch above
+    left it after the table, because `tableGrids` undraws the table the
+    document's caret is inside and the whole point of the line above is that
+    there is a cell to put the caret in.
+  */
+  view.dispatch({ selection: EditorSelection.cursor(at + lead.length + 2) });
+  return false;
 }

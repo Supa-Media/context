@@ -4593,9 +4593,23 @@ which is how a table gets longer without anybody reaching for a control.
   element of the widget's, so `view.hasFocus` is false while somebody is typing
   in a table — which is deliberate, because it is what stops CodeMirror drawing
   its own selection over the top. Escape hands the note back with the caret
-  after the table. The consequence is that the editor's own toolbar commands
-  (bold, a link) act on the document rather than on the cell while a cell has
-  focus. The characters are right there to type instead.
+  after the table.
+
+  This one is **closed rather than stated** now, and the way it was closed is
+  the reusable part. `toggleWrap` asks `toggleMarkerInCell` first, so Bold from
+  the keymap, from the phone's accessory bar and from the right-click menu all
+  reach the cell that has the caret; the decision is `planToggle`'s either way,
+  so the CommonMark run rule that makes ⌘B and ⌘I compose is the same one a
+  paragraph gets. `planToggle` and the marker pairs moved to `markerToggle.ts`
+  to make that possible without a cycle — `markdownFormat.ts` imports
+  `livePreview.ts`, so the shared half could not stay where it was.
+
+  The **chords** need one more thing, and a browser is what said so: a unit
+  test that calls `toggleWrap` directly passes while ⌘B in a cell does nothing,
+  because `ignoreEvent` tells CodeMirror every event inside the widget is the
+  widget's and the editor's keymap therefore never sees a keystroke made in a
+  cell. That is right for Tab and Enter and leaves the chords with nobody to
+  answer them, so the cell answers them itself from the same three-row table.
 - **A column GFM invented for a short row is drawn and not editable.** There
   are no characters in the file for it, so there is nothing for a keystroke to
   replace, and a cell that wrote to a range it invented would put its text in
@@ -4629,6 +4643,56 @@ The general rule, for the next widget that takes a caret: **a widget's
 `contenteditable` is a caret in the note and not a caret in the document**, and
 anything that reads the selection to find the person has to say which of the two
 it means.
+
+**And one table is still not drawn: the one being typed.** `| - | - |` is a
+valid delimiter row, so a table parses *in the middle of* typing the dashes.
+The grid went up over the two lines being written, the caret was left at the
+end of a line that was no longer on screen, and the rest of the row went in
+where nobody could see it — measured in Chromium, `| --- | --- |` finished as
+`-- |` under a two-column grid, and the body rows after it never joined the
+table at all.
+
+So `writingTable` holds the one table that gives way, and it is **identified
+rather than inferred from where the caret is**: position cannot answer this,
+because a caret at the end of the delimiter row and a caret parked there by
+Escape are the same number and want opposite answers. A *document change* with
+the caret in a table marks that table as being written; a selection that leaves
+it puts it back; and the two gestures that hand a table over rather than leave
+it — Escape out of a cell, and a cell taking focus — say so with an effect.
+Arrowing about inside the source keeps it revealed, which is the courtesy every
+other construct here extends to the thing being edited.
+
+Two details are asymmetric on purpose, and each was found by a test rather than
+reasoned out. The change has to **touch** the table, or an edit elsewhere would
+reveal a table whose first character the caret happens to rest on —
+`openingCaret` parks at the first line of the writing, which on plenty of notes
+is a table. And the caret has to be **past** that first character: arriving from
+above is being beside a table, while the end of its last line is where the
+keystroke that made it one leaves you.
+
+This does not reintroduce the flicker the old rule feared. A caret in a cell is
+not a caret in the document, so a grid somebody is working in is never the one
+being written, and `atomicRanges` means the document's caret cannot walk into a
+drawn table — it gets inside one only by writing it.
+
+**The visual half was also only visible in a browser**, which is the third
+finding of #733 arriving on its own: the control bar was pinned outside the
+grid so an editable table would occupy exactly what a reader's does, and in the
+running app it was drawn across the last line of the paragraph above and then
+cut in half by the grid's own scroller — `overflow-x: auto` clips the other
+axis too. On a narrow table it was worse: an absolutely positioned box cannot
+be wider than the box it is positioned in, so a two-column table of single
+characters folded every label into its own column and drew "+ r o w" on top of
+"+ c o l". The grid reserves the space now and keeps a floor under the frame,
+and `apps/mobile/e2e/webkit/tables.spec.ts` measures both — the bar inside the
+grid's own box and above the table, and four buttons on one row at four
+different lefts.
+
+That spec opens `2-areas/public-worship/org-chart.md`, which carries a table
+for the fixture reason #733 states. It is **not** in `weekly-review.md`, where
+the constructs usually go: `callouts.spec.ts` types at the end of that note and
+arrows back up into what it wrote, and a drawn table is an atomic range the
+caret steps over.
 
 **What would reverse this** is a cell that wrote back what it *drew* rather
 than what it holds: that is the serializer, and the first thing it would do is
