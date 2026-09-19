@@ -6523,3 +6523,88 @@ reconciler, with the rows read **out of the DOM** while `moveEntry` is still
 unresolved. Nothing in it inspects the hook. It also holds the part the tests
 above cannot see at all — that an *open subtree* is still drawn, under the new
 name, at that same moment.
+
+### The corner makes five things, and one of them needs a key (2026-09-19)
+
+The `+` replaced the microphone in the console's corner
+([meetings](./meetings.md), *A meeting opens in the panel, and the corner is a
+`+`*). What it offers is decided here, because it is a console question rather
+than a capture one.
+
+**Five items in three groups.** A meeting, then a note, a drawing and a folder,
+then a chat. The middle group is a group because those three share a
+*destination* — the folder you have selected, by `targetFolder`'s rule — and
+share the naming dialog the tree's own `+` raises. A meeting sits above them
+because it starts a recording rather than a file; a conversation sits below
+because it makes nothing at all. The separators are that grouping and not
+decoration.
+
+**New chat is drawn only where the context has a model key.** The agent answers
+through a key configured on the workspace, so without one the row opens a
+composer whose first send errors — "a control that appears to work and does
+nothing", which this console refuses everywhere else. `ConsoleData.modelConnected`
+carries one bit; `listProviders` returns fingerprints and connection times and
+never a key, and the projection keeps only whether the list is empty.
+
+**It is gated on `=== true`, and the third value is the point.** `undefined` is
+"the subscription has not answered", which is not "there is no key". Absent then
+present is the honest direction for an offer; present then withdrawn is an offer
+somebody may already have pressed. The Chat **tab** is deliberately not gated: it
+is a place somebody goes on purpose and says in a sentence what it is for, where
+a menu row is an offer made to somebody who was doing something else.
+
+The checks are `pressing it offers everything a console starts`, `a context with
+no model key is not offered a conversation` and `...and neither is one whose
+answer has not landed yet`, in `consoleChrome.test.ts`.
+
+### A control mounted by nobody passes every test of itself
+
+`CreateButton` shipped with its own tests — what it draws, what its menu offers,
+that it stands down at compact — and `console-create` appeared in exactly one
+file in the repository: the component's own. Every one of those tests passes if
+no screen ever renders it, which is **the same defect the microphone it replaced
+actually had**: the corner was drawn by `NoteEditor`, so it existed on a note and
+nowhere else, and the requirement it failed was "it should show up all the time,
+even when on a folder page".
+
+So the mount is asserted through the real layout — the corner on a context route
+and on Map, the menu's contents, the absence of a second microphone beside it,
+and the absence of the button at compact. `routeReachability.ts` makes the same
+argument for routes; this is it for a control that is not a route.
+
+Two things follow, and both were found by sabotaging the new guard rather than by
+reading it. A jsdom test that reads `document.body` — which every test of a
+portal-drawing control must — leaks its whole tree to the next test when an
+assertion throws before its teardown line; and a test that sets a module-level
+route and fails leaves the next one mounting a console somewhere else. Both are
+torn down in `afterEach` now, and the symptom of the second was a sabotage run
+reporting the phone's bottom bar missing, which was true of the route it had been
+left on and nothing to do with the injected defect.
+
+### A fixture that cannot show the thing under review is reporting on itself
+
+`AppFrameVisualFixture` exists to answer "does the console look like the design",
+and when the corner and the right panel changed it could show neither: the `+` is
+mounted by the console layout that this fixture replaces, and the panel defaults
+shut. It draws the `+` the way the layout does, and `?panel=meetings` opens the
+panel on a running meeting — behind a parameter, because the artboards draw the
+console with it closed and a fixture that changes the resting state is reviewing
+a screen the design does not have.
+
+Two defects were then found by looking at it in a browser, and neither was
+visible to any test:
+
+- **A menu anchored at the press point opened on top of the button.** `place()`
+  puts a popover's top-left at the anchor and flips rather than clips, so a press
+  inside a 56pt control against the bottom-right corner flipped the menu to *end*
+  at the pointer, under the button. It anchors on the trigger's own top-right
+  corner now, measured at press time — and opens *outside* that measurement,
+  because `measureInWindow` never answers under jsdom and a button that does
+  nothing there is worse than a menu placed at the margin.
+- **An action row used the hero CTA beside a bare label.** `Button`'s own header
+  prescribes `dialogPrimary` and `dialog` as a pair — "one shape, differing only
+  in fill" — and ignoring it put a black slab with twice the padding next to a
+  Discard with no shape at all.
+
+The lesson is the one the fixture's header already carried and had not been
+applied to a new control: a green suite is not evidence about a screen.
