@@ -902,6 +902,66 @@ rebind clear was written to prevent. `apps/mcp/test/storageLayout.test.mjs`
 `apps/convex/__tests__/storage.test.ts`, and two checks in
 `apps/mobile/__tests__/storageMigrationEntry.test.ts` fail.
 
+## A bucket born on the layout has nothing to migrate, and is not asked to
+
+The two sections above each fixed the offer for the population they were about
+and left a third one being nagged — and the third one is **every workspace
+created since**, which is the worst population to get wrong: the first thing a
+new owner sees in their console is an offer to update storage they made ninety
+seconds ago.
+
+`readStorageLayoutState` asked one question — is there a migration state file?
+— and an absent state file was the whole of the answer. For a bucket that
+predates `.context/` that is exactly right. For a bucket **we scaffolded
+ourselves** it is nonsense dressed as an answer: `scaffoldContext` writes the
+v1 layout and nothing else, so a context created last week has never held a
+`.audit/` or a `.history/`, will never grow one, and has no state file for
+precisely the reason a migrated bucket has one — there was never anything here
+to move. Asked "has the migration run?", it truthfully said no. The question
+was wrong.
+
+So the probe asks what the offer actually rests on: **is there any pre-v1
+plumbing in this bucket at all?** Nine `list`s capped at one object each, only
+on the path where there is no state file to read, and none of them means the
+hidden files are already on the current layout — `complete`, the same answer a
+migrated bucket gives, because it is the same fact. Still read-only: no `put`,
+no `delete`, no capability requirement, so a bucket that can never *run* the
+migration can still answer.
+
+**A bucket that will not answer is not an empty bucket.** A listing that
+throws, or a store too old to have `list` at all, falls back to the answer this
+replaced: nothing recorded, offer stands. Closing the offer wrongly is the
+failure with no screen behind it — pre-v1 plumbing left where nothing mentions
+it — and it is worth one more dismissible notice to avoid.
+
+**Fixing the question does not fix the answers it already gave**, and those
+answers are the new workspaces this is about: `observeStorageLayout` spends
+itself on `storageLayoutCheckedAt` and never asks twice. So the generation is
+recorded beside the answer — `storageLayoutCheckedVersion`, against
+`STORAGE_LAYOUT_PROBE_VERSION` in `functions/lib/storageLayout.ts` — and a row
+from an older probe is asked once more by the next console that opens. Not a
+backfill: this repository is self-hostable, and a deployment nobody here can
+reach must heal itself. Only the *absence* of a state is re-asked; a recorded
+state is the bucket's own word and reads the same to every generation.
+
+`storageLayoutAnswerIsCurrent` is one predicate read by both the console (as
+`layoutChecked`) and the mutation, because a console that believed the question
+was open while the backend refused to ask it would put the notice back,
+silently, on exactly the buckets this closes it for.
+
+**What a simplification costs.** Dropping the plumbing probe offers a one-time
+update to every context on its first load, for ever, with nothing behind it.
+Reading a failed listing as an empty bucket retires the offer on a bucket
+nobody could see into — the silent half of non-negotiable #2's dual-read
+promise. Dropping the generation stamp fixes only contexts created after the
+deploy and leaves today's new workspaces nagging for ever, which is this
+section happening a fourth time. `runStorageLayoutReadChecks` in
+`apps/mcp/test/storageLayout.test.mjs` (thirteen checks, including one per
+legacy prefix), the whole chain end to end in `apps/convex/__tests__/files.test.ts`
+("a bucket born on the layout answers 'already current'"), the
+probe-generation cases in `apps/convex/__tests__/storage.test.ts`, and three
+checks in `apps/mobile/__tests__/storageMigrationEntry.test.ts` fail.
+
 ## The same absence, in the capability column, made after the rule was written
 
 `capabilities` is the section above happening a second time, in a column whose

@@ -15,6 +15,7 @@ import {
 } from "../functions/storage";
 import { decryptSecret, encryptSecret, requireKeyset } from "../functions/lib/crypto";
 import { managedBucketName } from "../functions/lib/managedStorage";
+import { STORAGE_LAYOUT_PROBE_VERSION } from "../functions/lib/storageLayout";
 import type { Id } from "../_generated/dataModel";
 import {
   type TestConvex,
@@ -1839,6 +1840,116 @@ describe("where the storage-layout migration got to", () => {
       a bucket nobody looked at — and the console never offers it the update.
     */
     expect(rebound?.storageLayoutCheckedAt).toBeUndefined();
+    expect(rebound?.storageLayoutCheckedVersion).toBeUndefined();
+  });
+
+  /*
+    THE ANSWER THAT WAS ONLY AS GOOD AS THE QUESTION.
+
+    The first probe asked one thing: is there a migration state file? A bucket
+    **we scaffolded ourselves** has none — it was born on the v1 layout and has
+    never in its life held a `.audit/` or a `.history/` — so it answered
+    "nobody has run the migration here", which is true and beside the point:
+    there has never been anything to migrate. Every newly created workspace was
+    therefore offered a one-time storage update on its first console load, and
+    dismissing it was the only thing that ended it.
+
+    `readStorageLayoutState` now asks whether any pre-v1 plumbing is in the
+    bucket at all and answers `complete` when none is. That fixes every bucket
+    asked from now on and none of the rows the old question already wrote —
+    which are exactly the new workspaces the bug was about, because a binding
+    that has been asked is never asked again. So the generation is recorded
+    with the answer, and a stale one is asked once more.
+  */
+  test("an answer from an older probe is asked again; the current one is not", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+
+    // The answer the current probe gave is spent, exactly as before.
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: false });
+
+    // A row written by the probe that got new workspaces wrong: asked, with
+    // nothing recorded, and no generation beside it.
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, {
+        storageLayoutCheckedVersion: undefined,
+      });
+    });
+
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: true });
+  });
+
+  test("a recorded state is the bucket's own word, and is never re-asked", async () => {
+    /*
+      Only the *absence* of a state can be wrong about a bucket: every
+      generation of the probe reads a state file the same way, and a migration
+      pass writes what it actually did. Re-asking there would spend somebody's
+      request budget to be told what we already know — and, on a bucket
+      mid-migration, would do it on every console mount.
+    */
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordVerification, {
+      workspaceId,
+      ok: true,
+      capabilities: { conditionalWrite: true },
+    });
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+      state: "copying",
+    });
+    await t.run(async (ctx) => {
+      const binding = await ctx.db
+        .query("storageBindings")
+        .withIndex("by_workspace", (q) => q.eq("workspaceId", workspaceId))
+        .unique();
+      await ctx.db.patch(binding!._id, {
+        storageLayoutCheckedVersion: undefined,
+      });
+    });
+
+    expect(
+      await asUser(t, owner).mutation(
+        api.functions.storage.observeStorageLayout,
+        { workspaceId },
+      ),
+    ).toEqual({ queued: false });
+  });
+
+  test("recording an answer stamps the generation that produced it", async () => {
+    const { t, owner, workspaceId } = await boundWorkspace();
+    await t.mutation(internal.functions.storage.recordStorageLayoutState, {
+      workspaceId,
+    });
+    const binding = await asUser(t, owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId },
+    );
+    // The console reads this to tell an answer it can trust from one the probe
+    // before it got wrong, so it has to survive the query boundary.
+    expect(binding?.storageLayoutCheckedVersion).toBe(
+      STORAGE_LAYOUT_PROBE_VERSION,
+    );
   });
 
   test("a binding that went away drops the write rather than resurrecting a row", async () => {

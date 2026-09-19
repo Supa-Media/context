@@ -62,7 +62,11 @@ import {
 import { recordAudit } from "./lib/audit";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { redactSigningArtifacts } from "./lib/verification";
-import { storageLayoutStateValidator } from "./lib/storageLayout";
+import {
+  STORAGE_LAYOUT_PROBE_VERSION,
+  storageLayoutAnswerIsCurrent,
+  storageLayoutStateValidator,
+} from "./lib/storageLayout";
 import {
   requireWorkspaceAccess,
   requireWorkspaceRole,
@@ -663,6 +667,10 @@ export const applyBinding = internalMutation({
       // decides whether the console offers at all. Left behind, a new bucket
       // reads as "checked, never run" and is never offered the migration.
       storageLayoutCheckedAt: undefined,
+      // With the generation that asked, for the same reason: it qualifies an
+      // answer about a different bucket, and an answer nobody gave needs no
+      // qualifying.
+      storageLayoutCheckedVersion: undefined,
       // And the Dropbox grant, which is the one with a life of its own.
       //
       // `applyDropboxBinding` clears every S3 field on the way in and says why:
@@ -1026,6 +1034,14 @@ export const recordStorageLayoutState = internalMutation({
       storageLayoutState: args.state,
       ...(args.state === undefined ? {} : { storageLayoutAt: now }),
       storageLayoutCheckedAt: now,
+      /*
+        And which generation of the question this answer came from. The one
+        before it looked only for a migration state file, so a bucket we
+        scaffolded ourselves answered "never run" and every new workspace was
+        offered an update with nothing behind it. Stamping the answer is what
+        lets those rows be asked once more instead of backfilled by hand.
+      */
+      storageLayoutCheckedVersion: STORAGE_LAYOUT_PROBE_VERSION,
     });
     return null;
   },
@@ -2388,6 +2404,16 @@ export const getStorageBinding = query({
        * has run it". See the schema column for what conflating them cost.
        */
       storageLayoutCheckedAt: v.optional(v.number()),
+      /**
+       * Which generation of the question that answer came from, so a console
+       * can tell an answer the current probe stands behind from one the
+       * probe before it got wrong. `storageLayoutAnswerIsCurrent` is the
+       * predicate, and the console and `observeStorageLayout` share it rather
+       * than each deciding — a console that thought the question was open
+       * while the mutation refused to ask it would put the notice back on
+       * exactly the buckets this closed it for.
+       */
+      storageLayoutCheckedVersion: v.optional(v.number()),
       updatedAt: v.number(),
       /** True only for the deterministic bucket this service operates. */
       managed: v.boolean(),
@@ -2438,6 +2464,7 @@ export const getStorageBinding = query({
       storageLayoutState: binding.storageLayoutState,
       storageLayoutAt: binding.storageLayoutAt,
       storageLayoutCheckedAt: binding.storageLayoutCheckedAt,
+      storageLayoutCheckedVersion: binding.storageLayoutCheckedVersion,
       updatedAt: binding.updatedAt,
       managed: binding.bucket === managedBucketName(args.workspaceId),
     };
@@ -2524,9 +2551,18 @@ export const observeStorageLayout = mutation({
       teach anybody anything.
     */
     if (binding.status !== "connected") return { queued: false };
-    // Already answered — by an observation, or by a migration pass that
-    // recorded its own outcome. Either way the question is spent.
-    if (binding.storageLayoutCheckedAt !== undefined) return { queued: false };
+    /*
+      Already answered — by an observation, or by a migration pass that
+      recorded its own outcome. Either way the question is spent.
+
+      Spent *by the current probe*, which is the one distinction this guard
+      has to make. An answer with no state in it is only as good as the
+      question that produced it, and the first generation asked one that every
+      newly scaffolded bucket answered wrongly. `storageLayoutAnswerIsCurrent`
+      is the same predicate the console reads as `layoutChecked`, so a binding
+      the notice is holding its tongue for is exactly one this will re-ask.
+    */
+    if (storageLayoutAnswerIsCurrent(binding)) return { queued: false };
 
     await consumeRateLimit(ctx, {
       key: `storage.observeLayout:${args.workspaceId}`,

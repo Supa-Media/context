@@ -98,6 +98,21 @@ export const STORAGE_MIGRATION_OFFER =
  * offer: it is a question the console has not put yet, and
  * `useStorageLayoutObservation` puts it.
  *
+ * ## And the question the first probe asked was the wrong one
+ *
+ * It looked for a migration state file, so a context **we scaffolded
+ * ourselves** — born on the v1 layout, never in its life the owner of a
+ * `.audit/` or a `.history/` — answered "no migration has run here", which is
+ * true and about nothing: there has never been anything here to migrate. Every
+ * new workspace was offered the update on its first console load, minutes after
+ * it was created. The probe now asks whether any pre-v1 plumbing is in the
+ * bucket at all and answers `complete` when there is none, and
+ * `layoutChecked` is `storageLayoutAnswerIsCurrent` rather than a bare
+ * timestamp, so the rows the old question already wrote get asked once more
+ * instead of believed. `useLiveConsoleData` maps it; the mutation reads the
+ * same predicate, so the notice is never drawn on a question the backend has
+ * stopped asking.
+ *
  * The settings row does not take either condition — it reports the state
  * instead, which is what somebody who went looking came to find out, and it
  * keeps its button while the answer is unknown because pressing it is still
