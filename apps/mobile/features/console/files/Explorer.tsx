@@ -26,6 +26,7 @@ import { consoleOrigin } from "./shareOrigin";
 import { sharesBreakingWarning } from "./shares";
 import { canDrop as verdictFor, type DragSource } from "./dnd";
 import { FileTree, type TreeDragHandlers } from "./FileTree";
+import { setListingOrder, useListingOrder } from "./listingOrder";
 import { itemsFor, type MenuActionId, type MenuTarget } from "./menu";
 import { runMenuAction, type ActionContext, type Dialog } from "./actions";
 import { useRightClick } from "./rightClick";
@@ -176,7 +177,12 @@ export function Explorer({
     to sort on is the name — `FolderListing` has no sizes for a folder and the
     dates it does carry are the bucket's, not the note's.
   */
-  const [descending, setDescending] = useState(false);
+  /*
+    Shared with the folder page rather than held here — see `listingOrder.ts`.
+    It used to be this component's own `useState`, which meant the sort reached
+    the tree and not the listing of the very same folder drawn beside it.
+  */
+  const descending = useListingOrder();
   const [query, setQuery] = useState("");
   const [dialog, setDialog] = useState<Dialog>(null);
   const [menu, setMenu] = useState<MenuState>(null);
@@ -540,7 +546,7 @@ export function Explorer({
       <IconButton
         label={descending ? "Sort A to Z" : "Sort Z to A"}
         icon="sort"
-        onPress={() => setDescending((current) => !current)}
+        onPress={() => setListingOrder(!descending)}
         testID="explorer-sort"
       />
     </>
