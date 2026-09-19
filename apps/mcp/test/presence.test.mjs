@@ -25,28 +25,32 @@
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted. Counts are FAIL lines across the
- * whole gateway suite. Five of nine planned cases were run before the loop was
- * stopped to get this branch pushed; the four unrun ones are named below with
- * no number rather than with a guess, and are the next thing to do here.
+ * whole gateway suite.
  *
- *   `canSee` dropped from the route (any readable token joins any room)        2
- *   room key built from a workspace named in the URL rather than the session's 0
- *   `x-presence-member` copied from the client instead of overwritten          1
- *   the byte ceiling measured with `String.length` rather than encoded bytes   1
- *   `normalizeOffset` accepting a non-integer unchanged                        1
- *   control characters left in a display name                              (unrun)
- *   `expire` never dropping an idle member                                 (unrun)
- *   `/presence` removed from `isTransportPath`                             (unrun)
- *   `presence` removed from RESERVED_FIRST_SEGMENTS                        (unrun)
+ *   `presence` removed from RESERVED_FIRST_SEGMENTS (the route becomes a slug) 16
+ *   `canSee` dropped from the route (any readable token joins any room)         2
+ *   control characters left in a display name                                   2
+ *   `x-presence-member` copied from the client instead of overwritten           1
+ *   the byte ceiling measured with `String.length` rather than encoded bytes     1
+ *   `normalizeOffset` accepting a non-integer unchanged                          1
+ *   `expire` never dropping an idle member                                       1
+ *   `/presence` removed from `isTransportPath` (no origin check on the socket)   1
+ *   room key built from a workspace named in the URL rather than the session's   0
  *
- * **The second row is why this discipline is worth the time.** Teaching the
- * route to read a workspace out of the query string reddened NOTHING: every
- * tenancy check here varied the *token*, so all of them passed while the URL
- * quietly picked the room. "Another workspace's token addresses its own room"
- * is true and was never the whole question. The two checks that now cover it —
- * a workspace named in the query string, and a slug for a context the grant
- * does not cover — exist because of that zero and not because anybody thought
- * of them while writing the route.
+ * **The last row is why this discipline is worth the time.** Teaching the route
+ * to read a workspace out of the query string reddened NOTHING: every tenancy
+ * check here varied the *token*, so all of them passed while the URL quietly
+ * picked the room. "Another workspace's token addresses its own room" is true
+ * and was never the whole question. The two checks that now cover it — a
+ * workspace named in the query string, and a slug for a context the grant does
+ * not cover — exist because of that zero and not because anybody thought of
+ * them while writing the route. The row is kept at 0 rather than restated at
+ * its post-fix count, because what it records is the hole, not the patch.
+ *
+ * The first row is the opposite shape and worth its own sentence: sixteen
+ * checks across this suite already depended on `/presence` naming a route
+ * rather than a workspace, which is what it looks like when a name is load
+ * bearing before anybody writes a test for it by that name.
  */
 
 import worker from "../src/index.js";
