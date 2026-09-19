@@ -280,6 +280,14 @@ const PRODUCT_RESERVED_NAMES: readonly string[] = [
   // because ingestion is on the apex, `meetings@` the company's own domain: the
   // mailbox every device that records a meeting looks like it is talking to.
   "meetings",
+  // The presence socket runs at `/presence` on the gateway, on exactly the
+  // terms `agent` and `meetings` above record. Claimed as a handle it is a
+  // context nobody can address by name — and, because ingestion is on the
+  // apex, `presence@` the company's own domain besides. `names.test.ts` is
+  // what caught this: `session.js`'s own comment already claimed the name was
+  // "in the control plane's RESERVED_NAMES beside it" one commit before it
+  // was, which is the shape of drift this list exists to refuse.
+  "presence",
   "oauth",
   "static",
   "status",
