@@ -391,6 +391,23 @@ export interface ConsoleData {
   storageActions?: StorageActions;
   googleConnections: GoogleConnection[];
   googleActions?: GoogleActions;
+  /**
+   * Whether this context has a model key, so anything that would *ask* one can
+   * be offered — or left out.
+   *
+   * Three values, and the third is the one that matters: `undefined` is "the
+   * subscription has not answered", which is not the same as "there is no
+   * key". A control gated on `=== true` is absent for the moment before the
+   * answer lands and then appears; one gated on `!== false` flashes an offer
+   * and takes it away, which is the worse direction for the thing it offers —
+   * a conversation with a model nobody has paid for.
+   *
+   * It is a boolean rather than the connections themselves because nothing
+   * outside the model pane may need which provider or when: the settings pane
+   * asks `listProviders` for that and shows fingerprints. This is one bit, and
+   * a bit is all a menu needs.
+   */
+  modelConnected?: boolean;
   endpoint: string;
   /**
    * The ingestion alias to display when the backend cannot yet answer for it.

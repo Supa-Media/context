@@ -26,7 +26,7 @@ import { createStubEngine } from "../agent/engine";
 import { agentPage } from "../agent/page";
 import { meetings } from "../meetings/controller";
 import { fakeGateway } from "../meetings/fakeGateway";
-import { fakeRecorder } from "../meetings/capture/fake";
+import { notesOnlyRecorder } from "../meetings/capture";
 import { INBOX_FOLDER } from "../meetings/destination";
 import { memoryStore } from "../offline/memory";
 import { densityFor } from "../app/frame";
@@ -369,6 +369,13 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
           compact={phone}
           onNewMeeting={() => {}}
           onNewNote={() => {}}
+          onNewDrawing={() => {}}
+          onNewFolder={() => {}}
+          /*
+            Offered on this board, because the question it is gated on in the
+            product — does this context have a model key — has no answer here
+            and the row is what a reviewer is looking at.
+          */
           onNewChat={() => {}}
         />
         {sharing ? (
@@ -455,7 +462,18 @@ function useFakeMeeting(active: boolean) {
         workspaceId: "w1",
         store: memoryStore(),
         gateway: fakeGateway(),
-        recorder: fakeRecorder(),
+        /*
+          The barrel's own typed-notes recorder, not the suite's fake.
+
+          `meetingsCaptureWiring.test.ts` holds a boundary this reached past on
+          the first pass: everything outside `capture/` imports the barrel,
+          because "a module that reached past it would be one import away from
+          holding an hour of somebody's meeting in memory". `notesOnlyRecorder`
+          is exported *from* the barrel and opens no device, which is also the
+          honest state for a board in a browser with no microphone permission:
+          a session with a clock and no audio.
+        */
+        recorder: notesOnlyRecorder("web"),
         device: { platform: "web" },
         persistDebounceMs: 0,
       });

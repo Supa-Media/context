@@ -45,6 +45,8 @@ export function CreateButton({
   compact,
   onNewMeeting,
   onNewNote,
+  onNewDrawing,
+  onNewFolder,
   onNewChat,
   bottomInset = 0,
 }: {
@@ -52,7 +54,22 @@ export function CreateButton({
   compact: boolean;
   onNewMeeting: () => void;
   onNewNote: () => void;
-  /** `null` where there is no panel for a conversation to open in. */
+  onNewDrawing: () => void;
+  onNewFolder: () => void;
+  /**
+   * Start a conversation, or `null` where one cannot be had.
+   *
+   * Three reasons it is `null`, and the third is the one that changed: no
+   * panel to answer in (a phone), no engine behind it (the demo console), and
+   * **no model key on this context**. A key is what makes the agent able to
+   * answer at all, so offering the row without one is an offer that opens a
+   * composer and errors on the first send — the shape this repo refuses
+   * everywhere else as "a control that appears to work and does nothing".
+   *
+   * The console reads it from `ConsoleData.modelConnected`, which is
+   * `undefined` until the subscription answers: absent, then present, rather
+   * than present, then taken away.
+   */
   onNewChat: (() => void) | null;
   /**
    * The safe area under this edge, as `VoiceButton` took it and for the same
@@ -118,9 +135,11 @@ export function CreateButton({
       setAnchor(undefined);
       if (id === "new-meeting") onNewMeeting();
       if (id === "new-note") onNewNote();
+      if (id === "new-drawing") onNewDrawing();
+      if (id === "new-folder") onNewFolder();
       if (id === "new-chat") onNewChat?.();
     },
-    [onNewChat, onNewMeeting, onNewNote],
+    [onNewChat, onNewDrawing, onNewFolder, onNewMeeting, onNewNote],
   );
 
   if (compact) return null;
@@ -155,7 +174,22 @@ export function CreateButton({
               */
               detail: "Records into your inbox, in the panel.",
             },
-            { id: "new-note", label: "New note", detail: "In the folder you have selected." },
+            /*
+              The three things that end up as files, grouped behind a rule:
+              they share a destination — the folder you have selected — and
+              they share a dialog, which is the naming prompt the tree's own
+              `+` raises. A meeting is above them because it starts a
+              *recording* rather than a file, and a conversation is below
+              because it makes nothing at all.
+            */
+            {
+              id: "new-note",
+              label: "New note",
+              detail: "In the folder you have selected.",
+              separatorBefore: true,
+            },
+            { id: "new-drawing", label: "New drawing", detail: "An Excalidraw canvas." },
+            { id: "new-folder", label: "New folder" },
             ...(onNewChat === null
               ? []
               : [
@@ -163,6 +197,7 @@ export function CreateButton({
                     id: "new-chat",
                     label: "New chat",
                     detail: "Ask about this note, or your whole context.",
+                    separatorBefore: true,
                   },
                 ]),
           ]}

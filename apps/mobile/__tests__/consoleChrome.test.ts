@@ -32,6 +32,14 @@ import { NavBandProvider } from "../features/console/NavBand";
 // `mock`-prefixed so `jest.mock`'s hoisted factories may close over them.
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 let mockPathname = "/console/@seyi";
+/**
+ * Whether this context has a model key, as `ConsoleData.modelConnected` says.
+ *
+ * Three values, and each is a state the console really has: `true` once the
+ * subscription answers with a key, `false` once it answers with none, and
+ * `undefined` for the moment before it answers at all.
+ */
+let mockModelConnected: boolean | undefined = true;
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
@@ -158,6 +166,7 @@ function mockConsoleData(): never {
 
   return {
     demo: false,
+    modelConnected: mockModelConnected,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     /*
       Two, not one, and the second is the point of the pair.
@@ -249,6 +258,7 @@ afterEach(() => {
     the Map route, and nothing to do with the defect being injected.
   */
   mockPathname = "/console/@seyi";
+  mockModelConnected = true;
 });
 
 function mountConsole(width = 1440) {
@@ -814,14 +824,44 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
-  test("pressing it offers a meeting, a note and a chat, and nothing else", () => {
+  test("pressing it offers everything a console starts", () => {
     const app = mountConsole(1280);
     app.press(app.find("console-create"));
 
     // The menu is a `Menu`, which react-native-web portals out of the tree.
-    expect(document.body.textContent).toContain("New meeting");
+    for (const label of ["New meeting", "New note", "New drawing", "New folder", "New chat"]) {
+      expect([label, document.body.textContent?.includes(label)]).toEqual([label, true]);
+    }
+    app.unmount();
+  });
+
+  test("a context with no model key is not offered a conversation", () => {
+    /*
+      A key is what lets the agent answer at all, so the row without one opens
+      a composer whose first send errors — the control that appears to work and
+      does nothing. Everything else in the menu still makes a file, so the menu
+      is shorter rather than absent.
+    */
+    mockModelConnected = false;
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+
+    expect(document.body.textContent).not.toContain("New chat");
     expect(document.body.textContent).toContain("New note");
-    expect(document.body.textContent).toContain("New chat");
+    expect(document.body.textContent).toContain("New meeting");
+    app.unmount();
+  });
+
+  test("...and neither is one whose answer has not landed yet", () => {
+    /*
+      `undefined` is "ask again in a moment", which is not "there is no key".
+      Absent then present is the honest direction: offered then withdrawn is an
+      offer somebody may already have pressed.
+    */
+    mockModelConnected = undefined;
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+    expect(document.body.textContent).not.toContain("New chat");
     app.unmount();
   });
 
