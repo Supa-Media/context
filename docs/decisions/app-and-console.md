@@ -4516,6 +4516,31 @@ which is how a table gets longer without anybody reaching for a control.
   The alternative is the document's version of the text landing under the caret
   mid-word.
 
+**Three things asked "where is the caret?" and answered from the document**,
+which is the class of defect this change created and the reason they are listed
+together rather than as three fixes:
+
+- The table picker's own command put the caret in the new grid's first cell and
+  `LiveEditor.web.tsx` called `view.focus()` immediately after, taking it back
+  out. `insertTable` now reports whether a cell took the caret. **Only the
+  WebKit job saw it** — jsdom has no menu, so the unit test focused the cell
+  and nothing took it away.
+- Both halves reported focus from `contentDOM`, which does not have it while a
+  cell does, so a tap on a cell read as a blur. On the phone the accessory bar
+  is the only way out of the keyboard, so that raised the keyboard and removed
+  the way back. `focus`/`blur` do not bubble and `focusin`/`focusout` do, so the
+  pair moved to the editor's root on both halves, with a `focusout` that lands
+  inside the editor saying nothing.
+- `caretBox` measured `state.selection.main.head`, which is not where somebody
+  typing in a cell is looking, so the keyboard-avoidance scroll would have gone
+  to whichever line the selection was left on. The focused element answers for
+  itself when it is inside the editor and is not `contentDOM`.
+
+The general rule, for the next widget that takes a caret: **a widget's
+`contenteditable` is a caret in the note and not a caret in the document**, and
+anything that reads the selection to find the person has to say which of the two
+it means.
+
 **What would reverse this** is a cell that wrote back what it *drew* rather
 than what it holds: that is the serializer, and the first thing it would do is
 replace `**bold**` with `bold` the moment anybody put a caret in the cell. The
