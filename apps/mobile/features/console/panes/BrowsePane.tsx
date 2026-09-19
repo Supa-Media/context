@@ -566,8 +566,12 @@ export function BrowsePane({
     in the band that already holds "something is happening and it is yours to
     know about".
 
-    Dismissal is local and per move, and only for a finished one: see
-    `contextMoveNotices`.
+    Dismissal is per move and only for a finished one (see
+    `contextMoveNotices`), and it is written down: a finished row stays
+    listable for a day, so a set that lived only here meant the same line on
+    every launch until it aged out — a Dismiss button that worked until you
+    closed the app. The durable half is `dismissContextMove`; this set is what
+    covers the round trip.
   */
   const [dismissedMoves, setDismissedMoves] = useState<ReadonlySet<string>>(new Set());
   const moveNotices = useMemo(
@@ -737,10 +741,33 @@ export function BrowsePane({
           ) : null}
           {move.dismissible ? (
             <Button
-              label="Dismiss"
-              onPress={() =>
-                setDismissedMoves((current) => new Set([...current, move.id]))
-              }
+              /*
+                "Not now" on a failure, because that is what the press does.
+                `dismissContextMove` takes a completed move only — a failed
+                one's notice carries the single control that can finish it
+                (see that mutation on why a fresh move cannot), so putting it
+                aside is for the session and it comes back. The other notice
+                in this band that can be taken up later says "Not now" for the
+                same reason; a "Dismiss" that undismisses itself overnight is
+                the complaint this whole change came from.
+              */
+              label={move.resumable ? "Not now" : "Dismiss"}
+              /*
+                Both halves, and neither is the other's fallback. The server
+                is where a durable answer lives — the row is listable for a
+                day and reaches every device this person signs in on — but the
+                query behind `files.contextMoves` does not turn around inside
+                the press, and a notice that sits there for a beat after being
+                dismissed is a button that looks broken. So the local set
+                hides it now and the mutation, where it applies, keeps it
+                hidden. Called unconditionally: which statuses are answerable
+                is the server's rule, and a second copy of it here is a second
+                thing to keep in step.
+              */
+              onPress={() => {
+                setDismissedMoves((current) => new Set([...current, move.id]));
+                files.dismissContextMove(move.id);
+              }}
               style={styles.dismiss}
               testID={`browse-context-move-dismiss-${move.id}`}
             />
