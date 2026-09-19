@@ -651,7 +651,18 @@ export interface ImessageStatus {
    * more alarming "denied" than the evidence supports.
    */
   permission: "granted" | "denied" | "unknown";
-  /** Epoch milliseconds of the last completed sync attempt, or `null` before the first one. */
+  /**
+   * Epoch milliseconds of the last pass that actually filed a note, or `null`
+   * until one has.
+   *
+   * **A pass that wrote nothing does not stamp this**, whether it wrote nothing
+   * because every day was refused or because there was nothing new to write.
+   * The console renders it as "last synced <time>", which is read as "your
+   * messages are in your context" — so an attempt is not enough to earn it, and
+   * this field said "the last completed sync attempt" while the shell stamped
+   * it for refusals, which is how a card came to report a working import over a
+   * gateway that had never accepted a single note.
+   */
   lastSyncedAt: number | null;
   /** The shell's own words for the last thing that went wrong, or `null`. */
   lastError: string | null;

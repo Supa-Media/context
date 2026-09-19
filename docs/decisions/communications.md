@@ -2665,3 +2665,109 @@ guard, and that included that one.
 `apps/convex/__tests__/googleConnect.test.ts` (which catches the import being
 swapped for a pass-through, something the package's own suite cannot see), and
 `apps/mobile/__tests__/googleDestination.test.ts`.
+
+### iMessage import has never reached the gateway, and the two decisions that made it so are both in this repository
+
+Found 2026-09-19, from a console screenshot: *"Import is on; last synced Sep
+18, 10:31 PM"* with `this machine's grant was refused` under it. The sentence
+is `NOTES_REFUSAL`-adjacent — `gatewayNotes.ts`'s fixed answer to an HTTP 401
+or 403 — and the cause is not a revocation, an expiry, or anything a person
+did. **A desktop machine grant cannot call `/mcp` at all**, and never could.
+
+The two halves are each argued, each recorded here or in `desktop.md`, and
+contradict each other:
+
+- *The write goes through `write_note` over the machine's own MCP grant, not a
+  new gateway route* (above) chose the MCP tool surface for the channel-day
+  note, and closed with **"the gateway itself is out of scope for this feature
+  (`apps/mcp` has no new route and no new test requirement here)"**.
+- `MACHINE_GRANT_SCOPES` in `apps/convex/functions/lib/machineGrant.ts` mints a
+  machine's grant as exactly `context:write context:private`, and says why
+  there is no read: *"a laptop credential that could read every note its owner
+  ever wrote is past what this feature is worth."*
+
+`apps/mcp/src/index.js` gates the **whole** `/mcp` endpoint on `context:read`,
+above the tool dispatch, and `effectiveScopes` in `session.js` strips the
+implied read from a grant that does not carry it — a write-only grant is read
+as capture-only by construction. So every `read_note` and every `write_note`
+from a Mac answers `403 insufficient_scope`, decided before a store is opened
+or a tool name is looked at. Measured against the real worker with the control
+plane stub, at exactly `["context:write", "context:private"]`:
+
+```
+read_note  → 403 {"error":"insufficient_scope",
+                  "error_description":"This connection does not hold the context:read scope."}
+write_note → 403 (the same, for the same reason)
+```
+
+Meetings is unaffected and always was: `scopeForMeetingRequest` asks for
+`context:write` on a POST, which the grant has. The machine credential was
+designed for the meetings REST surface, and iMessage was later built on a
+different surface without the scope that surface requires.
+
+**Why no suite caught it.** `apps/desktop/test/imessageGatewayNotes.test.mjs`
+drives a fake `fetch` that answers 200, using the literal string
+`"context:write context:private"`; every grant in the gateway's own
+`meetings.test.mjs` carries `context:read`. `autoGrant.test.mjs` does pin the
+two scope literals to each other across the repository — which is exactly why
+they are consistently wrong together. **Nothing pins either of them to the
+surface the client actually calls**, and that is the guard this defect is
+asking for, not a third copy of the string.
+
+**Not fixed here, because the fix is a fork and both branches cost something a
+person decided on purpose.** `decideMachineApproval`'s third condition is set
+equality against the default, and its own comment anticipates this exact
+request: *"a request that added `context:read` is a different question and gets
+the screen that asks it."* So widening `DESKTOP_SCOPE` alone does not quietly
+work — it brings back the approve screen that #312 and the owner's *"when
+installing Granola I didn't have to 'connect' a machine"* removed. Auto-
+approving the wider set instead is the other branch, and it makes a no-screen
+credential one that reads every note in the context. The grant already *writes*
+every note in the context, which is the argument for it; confidentiality and
+integrity are still not the same loss, which is the argument against.
+
+**What did land**: the console's own lie about it, below.
+
+### "Last synced" means a pass that filed something, not a pass that ran
+
+The same screenshot, second half. `ImessageStatus.lastSyncedAt` is rendered by
+`ThisMachineCard` as *"Import is on; last synced &lt;time&gt;"*, and
+`contract.ts` defined it in two ways in one comment — "when it last actually
+wrote something" on the interface, "the last completed sync attempt" on the
+field. The shell implemented the looser one: **any** pass with a written *or
+errored* day stamped it, and so did the baseline pass that imports nothing by
+design.
+
+Both readings are wrong in the same direction, and the direction matters. A
+gateway refusing every write still ends a pass, so the timestamp advanced every
+five minutes, more reassuring each time, over an import that had never filed a
+single message — on precisely the screen somebody opens to find out whether
+this is working. The baseline pass is worse for being first: it is the pass a
+person is most likely to be watching, and it claimed a sync a minute after they
+turned the feature on.
+
+Now a pass stamps `lastSyncedAt` only if it wrote a day. The card's other
+branch already had the honest sentence for everything else — *"Import is on;
+waiting for the first completed sync."*
+
+**What a "simplification" would cost**: stamping on an attempt is one character
+shorter and turns the field back into "the shell is running", which the card
+already conveys by existing. The over-correction costs as much — a field that
+is never stamped is as uninformative as one that always is — so the checks run
+in both directions.
+
+**The gap left open, deliberately**: `lastError` is still only rewritten by a
+pass with a written or errored day, so a pass with no days at all cannot clear
+a refusal that has since been fixed. It is not closed here because it is not
+reachable from this suite's fixtures — a refused day holds the cursor back, so
+the next pass always has that day to retry — and shipping the branch anyway
+would have been a guard nobody has checked.
+
+**The tests that fail if this is reversed**: `A PASS WHERE EVERY WRITE WAS
+REFUSED NEVER CLAIMS A SYNC` and `...and having filed nothing, the baseline
+pass does not claim a sync either` in
+`apps/desktop/test/imessageService.test.mjs`, plus `...and a pass that threw
+claims no sync either` for the catch-all — which had the same defect and was
+found only by reading the diff back — with the two positive checks beside them
+catching the over-correction. Sabotage counts are in that file's
+header.
