@@ -6374,3 +6374,42 @@ The checks are `folderViewDrag.test.ts` (the pointer half, asserted on real DOM
 events) and `folderRowNativeMenu.test.ts` (the half no DOM assertion reaches:
 that every row goes through the shared hook, carrying its own menu and its own
 drag verdicts).
+
+### The sort control was a third instance, and it had nothing to point at
+
+Drag and the row menu were fixed by aiming the listing at modules the tree
+already used. The sort direction was not that shape: it lived in `Explorer`'s
+own `useState`, so pressing "Sort Z to A" reordered the sidebar and left the
+very same folder, drawn as a page beside it, still A to Z. `FolderView.tsx`
+opens by calling itself "the tree, in the other place", and the one screen where
+a person would check that claim was where it was false.
+
+So the state got a home: `files/listingOrder.ts`, on `readMode.ts`'s shape and
+for its reasons — `Explorer` and `BrowsePane` are siblings with `ConsoleShell`
+between them, neither may import the other, and both may import a module that
+knows about neither. What it costs is written in its header and is the same
+bill `readMode` pays: not persisted, not in the URL, process-wide rather than
+per context. A reload comes back A to Z. None of that is load-bearing, because
+nothing here reaches storage — `orderedEntries` reverses a *presentation* of the
+server's one order rather than inventing a second one.
+
+`listingOrderShared.test.ts` asserts on the **drawn order of the rows**, not on
+the store's value: a store that flips a boolean nobody renders from is the
+version of this that passes a test and changes nothing on screen.
+
+### The evidence is the drawn tree, because a hook's state is not a screen
+
+`optimisticFolderMove.test.ts` holds the mutation open and asserts on
+`browser.listings`, which proves the data moved and is one step short of the
+complaint. The complaint was about a screen that did not react, and a hook whose
+state changes while the tree still draws the old rows is indistinguishable, to
+the person waiting, from no fix at all — which is the failure mode an optimistic
+update is most likely to have, since it satisfies every state assertion on the
+way to it.
+
+`optimisticRepaint.test.ts` is the one that closes that: the real `FileTree`,
+fed by a real `useFileBrowser` through the real `buildTreeRows`, in a real
+reconciler, with the rows read **out of the DOM** while `moveEntry` is still
+unresolved. Nothing in it inspects the hook. It also holds the part the tests
+above cannot see at all — that an *open subtree* is still drawn, under the new
+name, at that same moment.
