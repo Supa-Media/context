@@ -1268,6 +1268,7 @@ export default function ConsoleLayout() {
         <Shortcuts
           files={data.files}
           tabs={tabs}
+          nav={nav}
           onCloseTab={closeTab}
           onDialog={setBarDialog}
           onSearch={() => setPaletteOpen(true)}
@@ -1865,6 +1866,7 @@ function PaletteWithAsk({
 function Shortcuts({
   files,
   tabs,
+  nav,
   onCloseTab,
   onDialog,
   onSearch,
@@ -1872,6 +1874,8 @@ function Shortcuts({
 }: {
   files: FileBrowser;
   tabs: ReturnType<typeof useTabs>;
+  /** ⌘[ and ⌘], over the same history the note's own `‹ ›` walk. */
+  nav: ConsoleNav;
   /** ⌘W. Asks before discarding a draft, exactly as the × does. */
   onCloseTab: (path: string) => void;
   /** Raise one of the tree's dialogs — the same set the toolbar's `+` uses. */
@@ -1936,6 +1940,22 @@ function Shortcuts({
             if (tabs.state.closed.length === 0) return false;
             tabs.reopen();
             return true;
+          /* ---- where you have been -------------------------------------- */
+          case "goBack":
+          case "goForward": {
+            /*
+              `false` at the ends of the history, which is what lets the press
+              reach the browser — on the web ⌘[ is its back chord too, and a
+              console with nowhere of its own to go should not swallow it.
+              The same answer the dimmed `‹ ›` give, through the same state.
+            */
+            const available = command === "goBack" ? nav.canBack : nav.canForward;
+            if (!available) return false;
+            if (command === "goBack") nav.back();
+            else nav.forward();
+            return true;
+          }
+
           case "nextTab":
           case "prevTab": {
             const { tabs: open, activePath } = tabs.state;
@@ -2001,7 +2021,13 @@ function Shortcuts({
           }
         }
       },
-      [files, tabs, onCloseTab, onDialog, frame, onSearch],
+      /*
+        `nav` belongs here rather than being left out as "stable enough": it is
+        memoized on the history state, so it is the one dependency in this list
+        that changes on every navigation — and a stale copy would answer ⌘[
+        with the `canBack` of wherever somebody was two notes ago.
+      */
+      [files, tabs, nav, onCloseTab, onDialog, frame, onSearch],
     ),
   });
 
