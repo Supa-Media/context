@@ -23,11 +23,15 @@ export const CONFLICT_READ_TIMEOUT_MS = 8_000;
  * anything better than "yours or theirs, blind" the console has to hold the
  * text that is actually in the bucket — to show it, and to merge against it.
  * So this reads the note again, at the moment somebody is looking at the
- * decision, and **that read is what every subsequent save is checked against**:
+ * decision, and **that read is what every subsequent update is checked against**:
  * the version on screen is the version the write is conditional on. If it moves
  * again between the read and the save, the write comes back as a conflict and
  * this whole surface reappears with fresh content, which is the correct
  * outcome rather than a failure.
+ *
+ * A remotely deleted note is the one exception because there is no body to
+ * read: the rejected write itself established absence. Recreating it is a
+ * create-only write, which is the absence-equivalent conditional check.
  *
  * ## Why that read must not touch the cache
  *
@@ -51,6 +55,8 @@ export interface ConflictReview {
   mine: string;
   /** The body in the bucket, once it has been read. */
   theirs: string | null;
+  /** The rejected write established that the bucket path no longer exists. */
+  theirsDeleted: boolean;
   /**
    * The etag `theirs` was read at.
    *
@@ -131,6 +137,14 @@ export function useConflictReview(input: {
   const conflicted = editor.status === "conflict" && editor.path !== null;
   const path = conflicted ? editor.path : null;
   /*
+    A CONFLICT without `currentEtag` is the backend's deletion contract: the
+    draft carried an expected etag, but the path is absent. This is not inferred
+    from a later FILE_NOT_FOUND read (which can also mean hidden or forbidden),
+    so it is safe to expose as a deliberate choice rather than an unreadable
+    bucket version.
+  */
+  const theirsDeleted = conflicted && editor.conflictEtag === undefined;
+  /*
     The identity of *this* conflict, not of the note.
 
     `conflictEtag` is in it because a second conflict on the same note — the
@@ -171,6 +185,16 @@ export function useConflictReview(input: {
         .current(path, draftBaseRef.current ?? null)
         .catch(() => null);
       if (cancelled) return;
+
+      if (theirsDeleted) {
+        retryFailuresRef.current = 0;
+        setFetched({
+          ...IDLE,
+          round,
+          cached: ancestor,
+        });
+        return;
+      }
 
       if (!online) {
         // Keep a version already shown for this conflict. Losing signal after
@@ -267,7 +291,7 @@ export function useConflictReview(input: {
       cancelled = true;
       if (retryTimer !== null) clearTimeout(retryTimer);
     };
-  }, [online, path, retryGeneration, round]);
+  }, [online, path, retryGeneration, round, theirsDeleted]);
 
   return useMemo(() => {
     if (!conflicted || path === null) return null;
@@ -280,12 +304,14 @@ export function useConflictReview(input: {
       draftBase: draftBaseRef.current ?? null,
       mine: editor.draft,
       theirs: current.theirs,
+      theirsDeleted,
     });
     return {
       path,
       mine: editor.draft,
       theirs: current.theirs,
       theirsEtag: current.theirsEtag,
+      theirsDeleted,
       reading: current.reading,
       unreadable: current.unreadable,
       retry: current.retryable && online ? retry : undefined,
@@ -294,5 +320,5 @@ export function useConflictReview(input: {
       conditionalWrite: input.conditionalWrite,
       message: editor.message,
     };
-  }, [conflicted, editor.draft, editor.message, fetched, input.conditionalWrite, online, path, retry, round]);
+  }, [conflicted, editor.draft, editor.message, fetched, input.conditionalWrite, online, path, retry, round, theirsDeleted]);
 }

@@ -95,7 +95,9 @@ export function ConflictResolver({
     [proposal],
   );
 
-  const footer = checkedAgainst(review.conditionalWrite);
+  const footer = review.theirsDeleted
+    ? "Keeping yours recreates this note only if the path is still absent. If it has reappeared, you will be asked again rather than overwriting it."
+    : checkedAgainst(review.conditionalWrite);
 
   if (proposal !== null) {
     return (
@@ -145,7 +147,9 @@ export function ConflictResolver({
           {CONFLICT_HEADLINE}
         </Text>
         <Text variant="paneSub" style={styles.lede}>
-          {CONFLICT_REASSURANCE}
+          {review.theirsDeleted
+            ? "Nothing has been written and your draft is safe. The bucket copy was deleted — choose whether to leave it deleted or recreate yours."
+            : CONFLICT_REASSURANCE}
         </Text>
         {review.message === undefined ? null : (
           <Text variant="meta" style={styles.said}>
@@ -164,7 +168,9 @@ export function ConflictResolver({
               could give somebody about to press a button.
             */
             absent={
-              review.reading
+              review.theirsDeleted
+                ? "This note was deleted from your bucket."
+                : review.reading
                 ? "Reading it now…"
                 : (review.unreadable ??
                   "Not read yet — there is no connection, so only your version is here.")
@@ -182,8 +188,12 @@ export function ConflictResolver({
             />
           )}
           <Choice
-            label={CHOICES.theirs.label}
-            detail={CHOICES.theirs.detail}
+            label={review.theirsDeleted ? "Keep deleted" : CHOICES.theirs.label}
+            detail={
+              review.theirsDeleted
+                ? "Discard what you typed here and leave the bucket path absent."
+                : CHOICES.theirs.detail
+            }
             onPress={onKeepTheirs}
             /*
               Refused rather than offered-and-broken while the bucket's version
@@ -192,14 +202,18 @@ export function ConflictResolver({
               a choice, it is a coin toss. Offline it stays out of reach and the
               panel above says why.
             */
-            disabled={review.theirs === null}
+            disabled={review.theirs === null && !review.theirsDeleted}
             testID="conflict-keep-theirs"
           />
           <Choice
             label={CHOICES.mine.label}
-            detail={CHOICES.mine.detail}
+            detail={
+              review.theirsDeleted
+                ? "Recreate this note with what you typed, but only if the path is still absent."
+                : CHOICES.mine.detail
+            }
             onPress={() => onResolveWith(review.mine)}
-            disabled={review.theirs === null}
+            disabled={review.theirs === null && !review.theirsDeleted}
             testID="conflict-keep-mine"
           />
           {review.merge === null ? (

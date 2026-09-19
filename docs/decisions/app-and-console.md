@@ -750,6 +750,15 @@ not retry server refusals. Until a bucket body and etag have actually been read,
 the choices that would discard or overwrite text are unavailable; a hard
 refresh is never part of resolving an ordinary transport failure.
 
+A deletion conflict is not an unreadable bucket version. The refused write is
+authoritative: an expected etag was supplied and the path was absent, so the
+resolver shows a distinct two-way choice. **Keep deleted** discards the local
+draft and closes the note without writing; **Keep mine** recreates it with a
+create-only write (no expected etag), which is refused as a fresh conflict if
+anything has appeared at that path meanwhile. There is no Merge control because
+there is no bucket body to merge, and the console never loops on a
+`FILE_NOT_FOUND` read to establish something the write already proved.
+
 ##### The merge is real, and it is refused rather than faked
 
 A three-way merge needs a common ancestor, and this feature already keeps one:

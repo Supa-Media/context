@@ -1981,12 +1981,17 @@ export function useFileBrowser(options: {
     (text: string) => {
       const current = editorRef.current;
       if (current.path === null || current.status !== "conflict") return;
-      // A resolution replaces the bucket version, so it is not a resolution
-      // until that version has actually been read and shown. The resolver
-      // disables its controls while this is null; this guard keeps the write
-      // boundary safe if another caller invokes the callback directly.
-      const reviewedEtag = conflictRef.current?.theirsEtag;
-      if (reviewedEtag === null || reviewedEtag === undefined) return;
+      // An update resolution is not available until the bucket version has
+      // actually been read and shown. A deletion resolution is the parallel
+      // safe case: the failed conditional update authoritatively established
+      // absence, so `null` means create-only rather than blind overwrite.
+      // This guard keeps both boundaries intact if another caller invokes the
+      // callback directly.
+      const review = conflictRef.current;
+      const reviewedEtag = review?.theirsDeleted === true ? null : review?.theirsEtag;
+      if (reviewedEtag === undefined || (reviewedEtag === null && review?.theirsDeleted !== true)) {
+        return;
+      }
       const path = current.path;
       const offline = offlineRef.current;
       const etag = reviewedEtag;
@@ -2054,13 +2059,20 @@ export function useFileBrowser(options: {
     const source = offline.serverPathOf(path);
     offline.dropQueued(path);
     offline.forgetDraft(path);
+    if (conflictRef.current?.theirsDeleted === true) {
+      autosave.cancel();
+      setSelectedPath(null);
+      dispatch({ type: "closed" });
+      void refresh([parentPath(path)]).catch(reportRefreshFailure);
+      return;
+    }
     readNote({ workspaceId, path: source })
       .then((note: OpenNote) => {
         offlineRef.current.rememberNote(note);
         dispatch({ type: "reloaded", note: { ...note, path } });
       })
       .catch((error: unknown) => setNotice(toFileError(error).message));
-  }, [readNote, workspaceId]);
+  }, [autosave, readNote, refresh, reportRefreshFailure, workspaceId]);
 
   const applyPluginNoteWrite = useCallback((write: AppliedPluginNoteWrite) => {
     const current = editorRef.current;

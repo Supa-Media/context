@@ -315,7 +315,7 @@ export interface FileBrowser {
    * autosave, drops plaintext immediately, then re-reads the ciphertext.
    */
   encryptedElsewhere: (path: string) => void;
-  /** Take the version that is on the server, discarding this draft. Writes nothing. */
+  /** Take the server outcome (including deletion), discarding this draft. Writes nothing. */
   useTheirs: () => void;
   /** Keep this draft and save it over theirs, on the etag that is now current. */
   keepMine: () => void;
@@ -334,10 +334,11 @@ export interface FileBrowser {
    * Answer the conflict with this text: the draft as it stands, or a merge the
    * person has read and approved.
    *
-   * Conditional on the version the review actually showed them. A note somebody
-   * else has moved again since comes back as a fresh conflict rather than being
-   * forced through, and offline it goes back into the queue carrying the same
-   * etag, to be checked at drain time.
+   * Conditional on the version the review actually showed them, or create-only
+   * when that reviewed outcome is deletion. A note somebody else has moved or
+   * recreated since comes back as a fresh conflict rather than being forced
+   * through, and offline it goes back into the queue carrying the same version
+   * condition, to be checked at drain time.
    */
   resolveWith: (text: string) => void;
   discard: () => void;
