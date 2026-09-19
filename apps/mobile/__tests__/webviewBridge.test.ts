@@ -819,6 +819,32 @@ describe("focus crosses the bridge", () => {
     w.destroy();
   });
 
+  /**
+   * A table cell is `contenteditable` DOM belonging to a widget, so the caret
+   * being in a grid means `contentDOM` does **not** have focus. Reported as a
+   * blur, tapping a cell would put the keyboard up and take away the accessory
+   * bar, which on this surface is the only way back out of the keyboard.
+   */
+  test("a caret in a table cell is a caret in the note", () => {
+    const w = connect({ doc: "| a | b |\n| --- | --- |\n| 1 | 2 |\n", editable: true });
+    const cell = w.view.dom.querySelector<HTMLElement>('[data-lp-row="0"][data-lp-column="0"]');
+    expect(cell).not.toBeNull();
+
+    cell?.focus();
+    expect(w.focus).toEqual([true]);
+
+    // Moving to the next cell is not leaving the note, so nothing is said.
+    const second = w.view.dom.querySelector<HTMLElement>('[data-lp-row="0"][data-lp-column="1"]');
+    second?.focus();
+    expect(w.focus).toEqual([true]);
+
+    // Leaving the note entirely is, and it is the second cell that holds the
+    // caret by now — blurring the first would be blurring nothing.
+    second?.blur();
+    expect(w.focus).toEqual([true, false]);
+    w.destroy();
+  });
+
   test("nothing is reported once the editor is gone", () => {
     const w = connect({ doc: NOTE, editable: true });
     w.view.focus();

@@ -697,15 +697,38 @@ export function mountGuest(
 
   bridge.listen(receive);
 
-  const onFocus = () => {
-    bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: true });
+  /*
+    `focusin` and `focusout` on the editor's own root, rather than `focus` and
+    `blur` on `contentDOM`.
+
+    A table cell is `contenteditable` DOM belonging to a widget, so somebody
+    typing in a grid has the caret in the note and `contentDOM` does **not**
+    have focus (see `TableGridWidget`). The old pair reported that as a blur,
+    and on a phone the accessory bar is the only way out of the keyboard — so
+    tapping a cell put the keyboard up and took away the bar that dismisses it.
+
+    `focus` and `blur` do not bubble and `focusin` and `focusout` do, which is
+    the whole of why the event names change. Moving between two cells is not
+    leaving the note, so a `focusout` whose destination is still inside the
+    editor reports nothing.
+  */
+  let focused = false;
+  const report = (next: boolean): void => {
+    if (next === focused) return;
+    focused = next;
+    bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: next });
     // The keyboard is about to come up over the note. Where the caret is is
     // the question the host is about to have to answer.
-    carets.request();
+    if (next) carets.request();
   };
-  const onBlur = () => bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: false });
-  view.contentDOM.addEventListener("focus", onFocus);
-  view.contentDOM.addEventListener("blur", onBlur);
+  const onFocus = () => report(true);
+  const onBlur = (event: FocusEvent) => {
+    const to = event.relatedTarget;
+    if (to instanceof Node && view.dom.contains(to)) return;
+    report(false);
+  };
+  view.dom.addEventListener("focusin", onFocus);
+  view.dom.addEventListener("focusout", onBlur);
 
   /*
     Moving the caret without changing the document — an arrow key, a tap into
@@ -743,8 +766,8 @@ export function mountGuest(
       carets.cancel();
       resize?.disconnect();
       owner.removeEventListener("selectionchange", onSelectionChange);
-      view.contentDOM.removeEventListener("focus", onFocus);
-      view.contentDOM.removeEventListener("blur", onBlur);
+      view.dom.removeEventListener("focusin", onFocus);
+      view.dom.removeEventListener("focusout", onBlur);
       view.destroy();
     },
   };
