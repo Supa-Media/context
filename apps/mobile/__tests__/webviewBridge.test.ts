@@ -35,7 +35,12 @@ import { describe, expect, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { deleteCharBackward, insertNewline } from "@codemirror/commands";
-import { mountGuest, applyTheme, type MountedGuest } from "../features/console/files/webview/guest";
+import {
+  applyTheme,
+  caretBox,
+  mountGuest,
+  type MountedGuest,
+} from "../features/console/files/webview/guest";
 import { guestStyles } from "../features/console/files/webview/styles";
 import { createHostBridge, themeVars } from "../features/console/files/webview/host";
 import {
@@ -842,6 +847,22 @@ describe("focus crosses the bridge", () => {
     // caret by now — blurring the first would be blurring nothing.
     second?.blur();
     expect(w.focus).toEqual([true, false]);
+    w.destroy();
+  });
+
+  /**
+   * jsdom lays nothing out, so what this pins is **which branch answers**: a
+   * focused cell measures the element, and `coordsAtPos` — which needs the
+   * range APIs jsdom does not have — answers nothing. On a phone the
+   * difference is whether the keyboard ends up over the cell being typed in or
+   * over a line nobody is looking at.
+   */
+  test("and the caret it measures is the cell, not the selection behind it", () => {
+    const w = connect({ doc: "| a | b |\n| --- | --- |\n| 1 | 2 |\n", editable: true });
+    expect(caretBox(w.view)).toBeNull();
+
+    w.view.dom.querySelector<HTMLElement>('[data-lp-row="0"][data-lp-column="0"]')?.focus();
+    expect(caretBox(w.view)).not.toBeNull();
     w.destroy();
   });
 

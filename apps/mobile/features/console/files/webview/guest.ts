@@ -181,6 +181,10 @@ export function documentHeight(view: EditorView): number {
  * carrying a guessed number would move somebody's note under their thumb for no
  * reason. Nothing is sent in that case; the next selection change asks again.
  *
+ * The exception is a caret that is not in the document at all: a table cell is
+ * `contenteditable` DOM belonging to a widget, so the element with focus is
+ * where the person is looking and `state.selection` is not.
+ *
  * `coordsAtPos` **measures**, and measuring is the one thing in CodeMirror that
  * can throw rather than return nothing: it forces a layout read through the
  * DOM's range APIs, which are absent under jsdom and can fail on a real page
@@ -189,9 +193,21 @@ export function documentHeight(view: EditorView): number {
  */
 export function caretBox(view: EditorView): { top: number; bottom: number } | null {
   try {
+    const box = view.scrollDOM.getBoundingClientRect();
+    /*
+      A caret in a widget's own editable DOM — a table cell — is not in the
+      document's selection, which is still wherever it was before the cell was
+      tapped. Measuring that would scroll the note to a line nobody is looking
+      at and leave the keyboard over the cell being typed in, so the element
+      with focus answers for itself. See `TableGridWidget`.
+    */
+    const active = view.dom.ownerDocument.activeElement;
+    if (active instanceof HTMLElement && active !== view.contentDOM && view.dom.contains(active)) {
+      const rect = active.getBoundingClientRect();
+      return { top: rect.top - box.top, bottom: rect.bottom - box.top };
+    }
     const coords = view.coordsAtPos(view.state.selection.main.head);
     if (coords === null) return null;
-    const box = view.scrollDOM.getBoundingClientRect();
     return { top: coords.top - box.top, bottom: coords.bottom - box.top };
   } catch {
     return null;
