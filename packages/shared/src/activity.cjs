@@ -610,24 +610,77 @@ function decodeEntry(raw) {
   }
 }
 
+/**
+ * The part of the file Context writes when there is nothing already there.
+ *
+ * Only for a file that does not exist yet. Once it does, whatever sits outside
+ * the markers is the owner's — including this text, if they rewrote it — and
+ * `renderFile` keeps it. See that function.
+ */
 const HEADER = `---
 role: activity
+view: read
 ---
 
 # Activity
 
-What has changed in this context, newest first. Context writes this file as
-changes happen and the console reads it back, so editing the lines below by
-hand is harmless and temporary. Every change is also recorded in
-\`.context/audit/\`, which is what this file is built from and can be rebuilt
+What has changed in this context, newest first. Every change is also recorded
+in \`.context/audit/\`, which is what this file is built from and can be rebuilt
 from.
 
 Only substantial changes are listed. Repeat saves of one note by one hand
 inside half an hour are one line, and reads are never recorded at all.
+
+**Everything outside the two markers below is yours** — this paragraph
+included. Context never rewrites it, so notes, headings and anything else you
+add here survive. Between the markers is the machine's copy: it is rebuilt from
+\`.context/audit/\` on the next change, so a line edited in there goes back to
+what the record says.
 `;
 
-function renderFile(entries) {
-  const lines = [HEADER, BEGIN_MARKER, ""];
+/**
+ * Split a file into what the owner wrote and what the machine owns.
+ *
+ * `null` for a file with no markers in it — which is a file Context has never
+ * written, or one somebody deleted the markers out of. The caller starts over
+ * from `HEADER` in that case rather than guessing where the boundary was: a
+ * wrong guess here silently eats somebody's prose, and starting over only ever
+ * costs the header nobody had changed.
+ */
+function splitAround(text) {
+  if (typeof text !== "string") return null;
+  const begin = text.indexOf(BEGIN_MARKER);
+  if (begin === -1) return null;
+  const end = text.indexOf(END_MARKER, begin + BEGIN_MARKER.length);
+  if (end === -1) return null;
+  return {
+    before: text.slice(0, begin),
+    after: text.slice(end + END_MARKER.length),
+  };
+}
+
+/**
+ * The file, with these entries in it.
+ *
+ * **It splices rather than regenerates**, which is the whole of somebody's
+ * claim on this file being true. `serializeDrawing` states the same rule for
+ * the same reason: a writer that rebuilds the document from a template has
+ * quietly decided the document is the template's, and the console telling
+ * people "this is a note in your own storage" while the next agent write
+ * flattens what they typed would be a promise the code does not keep.
+ *
+ * So the region between the markers is rebuilt from the entries — that copy is
+ * derived from `.context/audit/` and is meaningless if it drifts — and
+ * everything either side is carried through untouched. A first write, with no
+ * markers to find, lays down `HEADER`.
+ *
+ * The cost of this, named: a file whose owner deleted the markers gets a fresh
+ * `HEADER` and their text is pushed below it rather than lost. That is the one
+ * shape `splitAround` cannot place a boundary in without guessing.
+ */
+function renderFile(entries, currentText) {
+  const kept = splitAround(currentText);
+  const lines = [];
   let day = null;
   for (const entry of entries) {
     const key = dayKey(entry.at);
@@ -644,8 +697,83 @@ function renderFile(entries) {
   if (!entries.length) {
     lines.push("_Nothing yet. This fills in as people and their AI clients work._");
   }
-  lines.push("", END_MARKER, "");
-  return lines.join("\n");
+  /*
+    Concatenated rather than joined, and the two halves are spliced back
+    **byte for byte**.
+
+    The first attempt trimmed `before` and let the join put a newline back,
+    which quietly ate the blank line above the marker — so the very first write
+    after this shipped would have reflowed a header nobody had touched, in a
+    file whose whole promise is that Context does not touch what is yours. A
+    rewrite that only happens once is still a rewrite. `an untouched file is
+    byte-identical after a re-render` is the check that caught it.
+  */
+  const region = `${BEGIN_MARKER}\n\n${lines.join("\n")}\n\n${END_MARKER}`;
+  return `${kept ? kept.before : `${HEADER}\n`}${region}${kept ? kept.after : "\n"}`;
+}
+
+/**
+ * Lines between the markers that the next change will replace.
+ *
+ * A row in the machine's region is only a row to the console if it still
+ * carries its `<!--ctx …-->` copy. Edit the sentence and the row is fine — the
+ * comment is what is read. Delete the comment, or break the JSON in it, and
+ * the row stops existing as far as every reader is concerned, and then goes
+ * for good on the next change, because that region is rebuilt.
+ *
+ * Nothing prevents that, deliberately: this file is the owner's, and a text
+ * editor that refused a keystroke would be the product deciding otherwise.
+ * What the console owes them is to **say so** — which is what this counts, and
+ * `ActivityPage` draws. Silence here is how somebody edits a file, sees rows
+ * vanish, and concludes the product ate them.
+ *
+ * Counted rather than located: the console's line is "N of these", and a line
+ * number in a file the person is looking at is noise.
+ */
+function strayRows(text) {
+  if (typeof text !== "string" || !text) return 0;
+  const begin = text.indexOf(BEGIN_MARKER);
+  if (begin === -1) return 0;
+  const body = text.slice(begin + BEGIN_MARKER.length);
+  const end = body.indexOf(END_MARKER);
+  const region = end === -1 ? body : body.slice(0, end);
+  let stray = 0;
+  for (const line of region.split("\n")) {
+    if (!/^\s*[-*]\s/.test(line)) continue;
+    const match = /<!--ctx\s+([\s\S]*?)-->/.exec(line);
+    if (!match || !decodeEntry(match[1])) stray += 1;
+  }
+  return stray;
+}
+
+/**
+ * What to hand an AI client when the machine's region has been edited.
+ *
+ * The honest repair, and the reason there is no button beside it: the console
+ * *could* drop every stray row on the spot, and that is precisely the move
+ * this feature exists not to make — a one-press "fix" that deletes what
+ * somebody typed is the product taking the file back the moment it looks
+ * untidy. So the console says what is wrong and hands over the words to ask
+ * for; the person decides, in the client they already have connected, with
+ * the file in front of them.
+ *
+ * Kept to one paragraph because it is copied into a chat box, and it names the
+ * rule rather than the fix so the client can see for itself which lines it is
+ * about.
+ */
+function repairPrompt() {
+  return (
+    `In my context's ${ACTIVITY_PATH}, some lines between ` +
+    `"${BEGIN_MARKER}" and "${END_MARKER}" no longer have the ` +
+    "`<!--ctx {...}-->` comment at the end that Context reads them from, so they " +
+    "have stopped showing up in my activity list and will be dropped the next " +
+    "time anything is recorded. Read the file, show me those lines, and either " +
+    "move the text I meant to keep above the BEGIN marker — everything outside " +
+    "the markers is mine and is never rewritten — or tell me the line is not " +
+    "worth keeping. Do not invent a <!--ctx --> comment for a line that has " +
+    "lost one: that comment is the record, and a made-up one is a made-up fact " +
+    "about my context."
+  );
 }
 
 /**
@@ -685,7 +813,7 @@ function nextFile(currentText, change) {
   if (!entry) return null;
   const entries = applyEntry(parseFile(currentText), entry);
   if (!entries) return null;
-  return { text: renderFile(entries), entries, entry };
+  return { text: renderFile(entries, currentText), entries, entry };
 }
 
 /**
@@ -768,6 +896,8 @@ module.exports = {
   nextFile,
   parseFile,
   renderFile,
+  repairPrompt,
+  strayRows,
   unseenCount,
   unseenPaths,
   visibleEntries,

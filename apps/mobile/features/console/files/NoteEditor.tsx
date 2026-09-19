@@ -136,6 +136,7 @@ export function NoteEditor({
   encryption,
   activity,
   activityShared = false,
+  activityEditable = false,
   onOpenNote,
 }: {
   state: EditorState;
@@ -278,6 +279,15 @@ export function NoteEditor({
   activity?: ActivityView;
   /** Whether anybody else is in this context. Changes the empty state only. */
   activityShared?: boolean;
+  /**
+   * Whether the pencil reaches `activity.md`'s source — `canEditActivity`.
+   *
+   * Defaults to `false`, so a surface that has never heard of this gets the
+   * list and no way past it, which is the safe direction: the server refuses
+   * the write regardless, and an unoffered control costs a press where an
+   * offered-and-refused one costs trust.
+   */
+  activityEditable?: boolean;
   /** Open another note, from a row in that list. */
   onOpenNote?: (path: string) => void;
 }) {
@@ -297,7 +307,24 @@ export function NoteEditor({
     every test that mounts a note, and 35 of them stopped at a mock that had
     never needed it. `BrowsePane` owns the route's half of this.
   */
-  const editable = canEdit && !state.readOnly && !reading;
+  /*
+    THE ONE PATH WHERE WRITING IS NARROWER THAN `canEdit`.
+
+    `activity.md` is the context's record of who changed what, so editing it by
+    hand is editing that record — the owner's authority, not an editor's. The
+    rule is `canEditActivity`'s and lives in `capabilities.ts` for the reason
+    that file's header gives at length: every console guard written inline in a
+    component survived a full sabotage sweep untouched.
+
+    The server refuses the rest anyway — the file is private, so a member or an
+    editor cannot read it, let alone write it — which makes this the affordance
+    and not the guard. A pencil that leads to a refusal is worse than no pencil.
+  */
+  const editable =
+    canEdit &&
+    !state.readOnly &&
+    !reading &&
+    !(state.path === ACTIVITY_PATH && !activityEditable);
   /*
     A passphrase note is `state.encrypted` exactly as a workspace-encrypted
     one is — the flag does not (and must not) say which recipient locked it,
@@ -325,6 +352,18 @@ export function NoteEditor({
     honest fallback rather than an empty screen.
   */
   const isActivityNote = !passphraseLocked && activity !== undefined && state.path === ACTIVITY_PATH;
+  /**
+   * The activity file drawn as the list rather than as its Markdown.
+   *
+   * **A default, not a lock.** `viewMode.ts` declares `read` for this path when
+   * it opens, so a person lands on the list; pressing the pencil makes it
+   * editable and this goes false, and they get the same editor every other note
+   * has, over the same file, machine comments and all. That is the difference
+   * between a page that defaults to being read and a page the product will not
+   * let you touch — and it is the whole point: what makes the file yours is
+   * being able to open it.
+   */
+  const activityList = isActivityNote && !editable;
   /**
    * The moment this screen was opened, for every relative time on it.
    *
@@ -372,7 +411,16 @@ export function NoteEditor({
    * apart — the failure that costs is the silent one where they disagree and a
    * floating control hangs over a surface nobody tested it against.
    */
-  const liveEditorOnScreen = !drawing && !passphraseLocked;
+  /*
+    `activityList` is the third exclusion, and it was missing: #739 put the
+    activity list in front of the editor without adding it here, so a floating
+    microphone was drawn over a list with no caret under it — inert, and on a
+    phone sitting over the page's own foot. The rule this comment already
+    states ("read off the same two conditions the render below branches on, in
+    the same order") is what catches that, and it only catches it when the list
+    is actually one of the conditions.
+  */
+  const liveEditorOnScreen = !activityList && !drawing && !passphraseLocked;
 
   /**
    * Whether the note is moving, and when it last came to rest — the whole of
@@ -690,22 +738,32 @@ export function NoteEditor({
               compact={compact}
             />
           ) : null}
-          {isActivityNote ? (
+          {activityList ? (
             /*
-              The activity file gets a list, never a text editor.
+              The activity file opens as a list, and the pencil opens its
+              Markdown.
 
-              Same trade as the drawing below, for a different reason: nothing
-              is destroyed by typing into it — the next change rewrites it —
-              but a person who opened "Activity" from the tree wants what
-              happened, and what a text editor shows them is a dated list with
-              a machine comment after every line. The file is still the file:
-              `Open in new tab` works, a link to it works, and Obsidian draws
-              it as the document it is.
+              Not the drawing's trade below, and the difference matters. A
+              drawing *must* not reach a text editor: one keystroke in that
+              base64 and the diagram is gone. Nothing here is destroyed by
+              typing — the region between the markers is rebuilt from
+              `.context/audit/` on the next change and everything either side
+              is kept forever (`renderFile` splices) — so refusing the editor
+              would be the product deciding somebody may not look at their own
+              file, on nothing but taste.
+
+              What is true is that a dated list is a thing to *read*, and a
+              text editor shows it with a machine comment after every line. So
+              the list is the default and the source is a press away: `Open in
+              new tab` works, a link to it works, and Obsidian draws it as the
+              document it is.
             */
             <ActivityPage
               activity={activity!}
               shared={activityShared}
               now={openedAt}
+              source={state.draft}
+              editable={activityEditable}
               onOpen={onOpenNote ?? (() => {})}
             />
           ) : drawing ? (
