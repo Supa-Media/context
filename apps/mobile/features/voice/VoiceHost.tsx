@@ -35,6 +35,20 @@ export interface VoiceHost {
    * the stub that describes the room and answers nothing — see `engine.ts`.
    */
   agent?: AgentEngine;
+  /**
+   * Open the right panel on Chat, with this note already the room.
+   *
+   * The note's right-click menu is the caller, and it deliberately hands over
+   * no question: the person has not typed one. What it does is put them in
+   * front of the composer with the note already named in the ambient place —
+   * ⌘K's row is the path that carries words, because there somebody typed
+   * some.
+   *
+   * Absent where there is no panel to open. Every compact layout is that, and
+   * so are the three surfaces with no console around them, which is why the
+   * menu row is gone rather than inert there.
+   */
+  onAskAgent?: () => void;
 }
 
 const VoiceHostContext = createContext<VoiceHost | null>(null);

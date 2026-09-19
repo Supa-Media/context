@@ -76,17 +76,28 @@ function everyFrame(): { density: Density; state: FrameState; hasExplorer: boole
         for (const explorerHidden of [false, true]) {
           for (const explorerPeeking of [false, true]) {
             for (const focus of [false, true]) {
-              frames.push({
-                density,
-                hasExplorer,
-                state: {
-                  drawerOpen,
-                  explorerWidth: layout.explorerWidth,
-                  explorerHidden,
-                  explorerPeeking,
-                  focus,
-                },
-              });
+              /*
+                `asideOpen` sweeps for `explorerHidden`'s reason: it is a
+                preference, so it survives a resize and every density sees it
+                set. The combinations that are wrong — a right panel on a
+                phone, one under focus, one beside a scrim that is not its own
+                — have to fail here rather than on a window somebody narrows.
+              */
+              for (const asideOpen of [false, true]) {
+                frames.push({
+                  density,
+                  hasExplorer,
+                  state: {
+                    drawerOpen,
+                    explorerWidth: layout.explorerWidth,
+                    explorerHidden,
+                    explorerPeeking,
+                    focus,
+                    asideOpen,
+                    asideWidth: layout.asideWidth,
+                  },
+                });
+              }
             }
           }
         }
@@ -161,6 +172,9 @@ describe("regions", () => {
     for (const density of ["medium", "wide"] as const) {
       expect(regionsFor(density, initialFrame)).toEqual({
         explorer: "column",
+        // Closed at rest. A person who never presses the toggle sees the two
+        // regions this test has always named, and nothing else.
+        aside: "hidden",
         editor: true,
         scrim: false,
         bottomBar: false,
@@ -214,19 +228,50 @@ describe("regions", () => {
   /* ---------------------------------------------------------------------- */
 
   test("the scrim is there exactly when a panel is over the editor", () => {
+    /*
+      Two panels can now be over the editor, so the rule is stated over both
+      rather than by naming one arm. The peek is still the deliberate
+      exception and says so where it is defined: it is dismissed by moving the
+      pointer away, and a scrim would grey out the note being reached for.
+    */
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
-      expect(regions.scrim).toBe(regions.explorer === "drawer");
+      expect(regions.scrim).toBe(regions.explorer === "drawer" || regions.aside === "overlay");
     }
   });
 
-  test("a permanent column is never behind a scrim", () => {
-    // `explorer` is one field, so "a column and a drawer at once" is
-    // unrepresentable and asserting it would say nothing. What is
-    // representable, and wrong, is a column with a scrim over it.
+  /**
+   * **This narrows a previous assertion, and the old wording is here rather
+   * than deleted, because what changed is the layout and not the rule.**
+   *
+   * It read *a permanent column is never behind a scrim*, and swept for
+   * `explorer === "column" && scrim`. That was exact while the only scrim
+   * belonged to the tree's own drawer: a scrim existing at all meant the tree
+   * was over the note, so a tree that was also a column was a contradiction.
+   *
+   * At `medium` the right panel comes in over the note behind a scrim while
+   * the tree keeps its column — and that is the *intended* arrangement, not a
+   * contradiction. The scrim is over the editor (`Regions.scrim`'s own words:
+   * "whichever panel is over the editor"), so the tree beside it stays live
+   * and pressing a file dismisses the panel by choosing something else.
+   *
+   * So the rule is stated where it is still exact: **whatever a scrim is
+   * dismissing is a panel that is over the editor, and a region drawn as a
+   * `column` is never that panel.** The "not covered by it" half is a drawing
+   * fact rather than a region fact, and `appFrameRender.test.ts` holds it —
+   * one `Regions.scrim` boolean cannot say *what* it lies over, and inventing
+   * a field so this sweep could keep its old shape would be modelling the
+   * assertion rather than the layout.
+   */
+  test("a column is never the panel a scrim is dismissing", () => {
     for (const { density, state, hasExplorer } of everyFrame()) {
       const regions = regionsFor(density, state, { hasExplorer });
-      expect(regions.explorer === "column" && regions.scrim).toBe(false);
+      if (!regions.scrim) continue;
+      // The scrim is up, so something is over the editor — and neither region
+      // drawn beside the editor is that something.
+      expect(regions.explorer).not.toBe("drawer");
+      expect(regions.aside).not.toBe("column");
+      expect(regions.explorer === "drawer" || regions.aside === "overlay").toBe(true);
     }
   });
 
@@ -277,6 +322,92 @@ describe("regions", () => {
       const regions = regionsFor(density, peeking);
       expect(regions.scrim).toBe(false);
     }
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /*  The right panel: chat and meetings, where the design put them.         */
+  /* ---------------------------------------------------------------------- */
+
+  test("a desktop draws it as a column beside the note", () => {
+    const open: FrameState = { ...initialFrame, asideOpen: true };
+    const regions = regionsFor("wide", open);
+    expect(regions.aside).toBe("column");
+    // A column, so nothing is over the note and nothing is greyed out.
+    expect(regions.scrim).toBe(false);
+    expect(regions.explorer).toBe("column");
+  });
+
+  /**
+   * A tablet has room for the tree beside the note and for nothing else —
+   * `frame.ts`'s own words about `medium`. A third column there leaves the
+   * note about 300pt wide, which is not a measure anybody reads prose in. So
+   * the panel comes in **over** the note, behind a scrim that dismisses it,
+   * rather than being absent at the density most likely to be a laptop in a
+   * split window.
+   */
+  test("a tablet draws it over the note, behind a scrim", () => {
+    const open: FrameState = { ...initialFrame, asideOpen: true };
+    const regions = regionsFor("medium", open);
+    expect(regions.aside).toBe("overlay");
+    expect(regions.scrim).toBe(true);
+    // The tree keeps its column; the panel is over the note, not over the tree.
+    expect(regions.explorer).toBe("column");
+  });
+
+  /**
+   * The phone keeps what it already has.
+   *
+   * `VoiceButton` raises `AgentPanel` over the editor at compact, and that is
+   * a finished surface with its own tests. A right *panel* there would be a
+   * second way into the same conversation on the density with the least room
+   * for one — and the design this implements was chosen for the desktop, out
+   * loud, after the phone's version confused the question.
+   */
+  test("a phone draws no panel, whatever a stored frame says", () => {
+    const open: FrameState = { ...initialFrame, asideOpen: true };
+    const regions = regionsFor("compact", open);
+    expect(regions.aside).toBe("hidden");
+    expect(regions.scrim).toBe(false);
+  });
+
+  test("focus folds it away with the tree, and both come back", () => {
+    const focused: FrameState = { ...initialFrame, asideOpen: true, focus: true };
+    for (const density of ["medium", "wide"] as const) {
+      expect(regionsFor(density, focused).aside).toBe("hidden");
+      // The preference is untouched, so leaving focus restores it — the same
+      // property `focus` has over `explorerHidden`.
+      expect(focused.asideOpen).toBe(true);
+      expect(regionsFor(density, { ...focused, focus: false }).aside).not.toBe("hidden");
+    }
+  });
+
+  test("a panel nobody opened is not on the screen", () => {
+    for (const density of DENSITIES) {
+      expect(regionsFor(density, initialFrame).aside).toBe("hidden");
+    }
+    // ...which is the whole of what a person who never presses the toggle sees.
+    expect(initialFrame.asideOpen).toBe(false);
+  });
+
+  test("the panel is never a column and an overlay's scrim at once", () => {
+    for (const { density, state, hasExplorer } of everyFrame()) {
+      const regions = regionsFor(density, state, { hasExplorer });
+      expect(regions.aside === "column" && regions.scrim).toBe(false);
+    }
+  });
+
+  /**
+   * The density table, stated as a table. `aside` has three arms and three
+   * densities, and a sweep that only ever checks invariants would pass with
+   * every density answering `hidden` — which is a panel that does not exist.
+   */
+  test("every density answers for the panel, and the answers are different", () => {
+    const open: FrameState = { ...initialFrame, asideOpen: true };
+    expect(DENSITIES.map((density) => regionsFor(density, open).aside)).toEqual([
+      "hidden",
+      "overlay",
+      "column",
+    ]);
   });
 
   test("the bottom bar and the status bar are never both present", () => {

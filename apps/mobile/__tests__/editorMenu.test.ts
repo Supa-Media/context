@@ -144,3 +144,128 @@ describe("chords come from the binding table, not from this file", () => {
     for (const shortcut of printed) expect(real).toContain(shortcut);
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                          the two voice rows                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * DICTATE AND ASK, AND WHY THEY ARE GATED SEPARATELY.
+ *
+ * The owner asked for one of them by name: *"dictating inside of a note should
+ * also be a thing still doe, just have people right click inside a note, and
+ * then have an option to dictate notes."* The second came with it because the
+ * caret is where both belong — one puts words in, the other asks about the
+ * words already there.
+ *
+ * They are two flags rather than one "in the console" flag, and the tests
+ * below are mostly about that. Dictation needs a microphone and a writable
+ * note; asking needs a right panel for the answer to land in, which a phone
+ * does not have whatever the microphone says. One flag would be wrong on some
+ * surface, and it would be wrong on the surface nobody is testing on.
+ *
+ * ## Sabotage record
+ *
+ * Applied, suite run, named test observed failing, reverted.
+ *
+ *  1. `ask` gated on `canEdit` as well, which is the obvious tidy-up.
+ *     → **1 fails**: `a read-only note can still be asked about`. Asking about
+ *     `privacy.md` or somebody else's context is an ordinary thing to want,
+ *     and read-only is about typing rather than about reading.
+ *  2. The two rows put after the formatting block instead of before it.
+ *     → **1 fails**: `they lead the verbs, because they are why the menu was
+ *     opened`.
+ *  3. `canDictate` defaulting to `true` when absent.
+ *     → **2 fail**: `a surface that supplies neither gets neither` and — the
+ *     one I did not predict — the *existing* `neither is offered with nothing
+ *     selected`, which is this file's older check that an editable note with
+ *     no selection offers no Cut and no Copy. It reads the whole list, so a
+ *     row appearing from nowhere reddens it. The landing-page case I did
+ *     predict stays green, because it is read-only and `canDictate` never
+ *     reaches it.
+ */
+describe("dictating and asking from the caret", () => {
+  const inConsole = { canEdit: true, hasSelection: false, apple: true, canDictate: true, canAsk: true };
+
+  test("both are offered where both work", () => {
+    expect(ids(inConsole)).toContain("dictate");
+    expect(ids(inConsole)).toContain("ask");
+  });
+
+  test("they lead the verbs, because they are why the menu was opened", () => {
+    const got = ids(inConsole);
+    expect(got[0]).toBe("dictate");
+    expect(got[1]).toBe("ask");
+    // ...and the formatting rows are still all there, below them.
+    expect(got).toContain("bold");
+    expect(got.indexOf("bold")).toBeGreaterThan(got.indexOf("ask"));
+  });
+
+  test("a surface that supplies neither gets neither", () => {
+    const got = ids({ canEdit: true, hasSelection: false, apple: true });
+    expect(got).not.toContain("dictate");
+    expect(got).not.toContain("ask");
+  });
+
+  /**
+   * Dictation is a write; asking is not. `privacy.md`, an encrypted note and
+   * somebody else's context are all read-only here, and all of them are
+   * things people ask about.
+   */
+  test("a read-only note can still be asked about", () => {
+    const got = ids({
+      canEdit: false,
+      hasSelection: false,
+      apple: true,
+      canDictate: true,
+      canAsk: true,
+    });
+    expect(got).toEqual(["ask"]);
+  });
+
+  test("and cannot be dictated into, whatever the surface says", () => {
+    const got = ids({
+      canEdit: false,
+      hasSelection: true,
+      apple: true,
+      canDictate: true,
+      canAsk: false,
+    });
+    expect(got).toEqual(["copy"]);
+  });
+
+  /**
+   * The landing page's preview is read-only and has no console around it, so
+   * both flags are absent and the empty-list rule still holds: the browser's
+   * own menu opens rather than an empty box.
+   */
+  test("the landing page's read-only preview still gets nothing", () => {
+    expect(editorMenuItems({ canEdit: false, hasSelection: false, apple: true })).toEqual([]);
+  });
+
+  test("a phone with a microphone and no panel gets dictation alone", () => {
+    const got = ids({
+      canEdit: true,
+      hasSelection: false,
+      apple: true,
+      canDictate: true,
+      canAsk: false,
+    });
+    expect(got[0]).toBe("dictate");
+    expect(got).not.toContain("ask");
+  });
+
+  /**
+   * Neither prints a chord, and that is deliberate rather than an omission:
+   * nothing binds one. A menu that advertised a keystroke nothing listens for
+   * is the defect `keymap.ts` spends a paragraph on, arrived at from the other
+   * direction.
+   */
+  test("neither advertises a chord nothing binds", () => {
+    for (const item of editorMenuItems(inConsole)) {
+      if (item.id === "dictate" || item.id === "ask") {
+        expect(item.shortcut).toBeUndefined();
+      }
+    }
+  });
+});

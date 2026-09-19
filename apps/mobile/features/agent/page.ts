@@ -106,7 +106,23 @@ export interface AgentPage {
 
 export function agentPage(input: {
   context: DestinationContext | null;
-  editor: EditorState;
+  /**
+   * The editor, or a reference somebody else already derived from one.
+   *
+   * Two shapes, and the second is not a loophole. `noteReference` below
+   * refuses a version taking loose fields, because the editor is the one place
+   * that knows whether the draft has diverged — and that argument is about
+   * where a reference is *built*, not about who may pass one along. The
+   * console's right panel is a sibling of the editor rather than its
+   * ancestor, so it reads what the editor published
+   * (`features/agent/openNote.ts`) and hands it here; the editor itself still
+   * passes its state and this still does the deriving.
+   *
+   * A caller assembling five fields by hand is the thing that stays
+   * impossible: `NoteReference` is what it would have to build, and the only
+   * function in this app that returns one is the one below.
+   */
+  editor: EditorState | { reference: NoteReference | null };
   route: string;
   meetingLive: boolean;
   query: string | null;
@@ -122,7 +138,7 @@ export function agentPage(input: {
             personal: context.kind === PERSONAL,
             role: context.role,
           },
-    note: noteReference(editor),
+    note: "reference" in editor ? editor.reference : noteReference(editor),
     route,
     meetingLive,
     query,

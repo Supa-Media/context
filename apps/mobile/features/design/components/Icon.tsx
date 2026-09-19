@@ -106,6 +106,20 @@ import { useColors } from "../theme";
 export const ICON_NAMES = [
   /** The sidebar toggle, as Obsidian draws it: a pane with its leading column filled. */
   "panelLeft",
+  /**
+   * Its mirror: the right panel's toggle, a pane with its *trailing* column
+   * filled.
+   *
+   * Drawn rather than reusing `panelLeft` flipped, because this set has no
+   * mirroring primitive and a `scaleX(-1)` transform on a `View` full of
+   * absolutely positioned children is a different thing on native and on web.
+   * Two rects is cheaper than one transform anybody has to reason about.
+   *
+   * The pair is the point: the console reads as symmetric — a panel each side,
+   * each with one toggle in the same bar — rather than as having something
+   * bolted on.
+   */
+  "panelRight",
   "search",
   "plus",
   "check",
@@ -853,6 +867,22 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
           x0: 0.11 + w / u,
           y0: 0.16 + w / u,
           x1: 0.37,
+          y1: 0.84 - w / u,
+          radius: 0.1,
+          fill: c,
+        }),
+      ];
+
+    case "panelRight":
+      // `panelLeft`'s numbers with the filled pane's x-range mirrored about
+      // the box: 0.11 ↔ 0.89, 0.37 ↔ 0.63. Written out rather than derived, so
+      // the two marks are legible side by side in this file.
+      return [
+        rect("frame", u, w, c, { x0: 0.11, y0: 0.16, x1: 0.89, y1: 0.84, radius: 0.16 }),
+        rect("pane", u, w, c, {
+          x0: 0.63,
+          y0: 0.16 + w / u,
+          x1: 0.89 - w / u,
           y1: 0.84 - w / u,
           radius: 0.1,
           fill: c,

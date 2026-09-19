@@ -231,6 +231,16 @@ export interface PaletteProps {
    * keystroke exactly when the overlay has failed to answer.
    */
   onSeeAll?: (query: string) => void;
+  /**
+   * Hand the query to the agent, and open the panel it answers in.
+   *
+   * Absent on every surface with no panel to answer in — a phone, the landing
+   * page's picture of the console — and the row is absent with it, which is
+   * the same rule `onSeeAll` follows and the reason neither is a button in the
+   * chrome: a row that exists only where it works is a row the keyboard and
+   * the pointer agree about.
+   */
+  onAsk?: (query: string) => void;
   onChoose: (item: PaletteItem) => void;
   onDismiss: () => void;
 }
@@ -254,6 +264,41 @@ export function seeAllItem(query: string, offered: boolean): PaletteItem | null 
     id: SEE_ALL_ID,
     label: `See all results for “${trimmed}”`,
     detail: "Every context you can reach",
+    kind: "command",
+  };
+}
+
+/**
+ * The other handoff: hand the query to the agent instead of to search.
+ *
+ * `SEE_ALL_ID`'s reasoning, for a second destination. The two are genuinely
+ * different questions — "find the note called this" and "answer this" — and
+ * the palette is where somebody has already typed the words for either.
+ *
+ * ## Why it is below `See all` and not above
+ *
+ * Because the palette is a navigator first. Somebody typing `pricing` almost
+ * always wants the note, and a row that answers a question costs a model call
+ * and several seconds, so it must never be what Enter reaches by accident. The
+ * ordering is the whole guard: the cursor rests on the first row, and this is
+ * the last one.
+ *
+ * The one case where it is a good default is the one where nothing matched —
+ * and that case needs no special rule, because the two handoff rows are then
+ * the only rows and `See all` is still the first of them. A person who wanted
+ * an answer presses ↓ once, which is exactly the cost of the second-best
+ * guess.
+ */
+export const ASK_ID = "\u0000ask";
+
+/** The row, or `null` where there is nobody to ask. */
+export function askItem(query: string, offered: boolean): PaletteItem | null {
+  const trimmed = query.trim();
+  if (!offered || trimmed === "") return null;
+  return {
+    id: ASK_ID,
+    label: `Ask about “${trimmed}”`,
+    detail: "Answers from your notes, in the panel",
     kind: "command",
   };
 }
@@ -407,6 +452,7 @@ export function Palette({
   noMatchMessage,
   search,
   onSeeAll,
+  onAsk,
   onChoose,
   onDismiss,
 }: PaletteProps) {
@@ -460,14 +506,22 @@ export function Palette({
     () => seeAllItem(query, onSeeAll !== undefined),
     [query, onSeeAll],
   );
+  const ask = useMemo(() => askItem(query, onAsk !== undefined), [query, onAsk]);
   const matches = useMemo(() => {
     const rows = [...local, ...remote];
-    if (handoff === null) return rows;
+    /*
+      Both handoffs at the end, search before ask, and the order is the guard
+      rather than a preference — see `askItem`. A `filter(Boolean)` over a
+      fixed pair rather than two conditionals, so adding a third destination
+      is one entry in the list rather than a branch.
+    */
+    const tail = [handoff, ask].filter((item): item is PaletteItem => item !== null);
+    if (tail.length === 0) return rows;
     return [
       ...rows,
-      { item: handoff, score: 0, ranges: [] as readonly [number, number][] },
+      ...tail.map((item) => ({ item, score: 0, ranges: [] as readonly [number, number][] })),
     ];
-  }, [local, remote, handoff]);
+  }, [local, remote, handoff, ask]);
 
   const onSearchQuery = search?.onQuery;
   useEffect(() => {
@@ -494,8 +548,9 @@ export function Palette({
     const match = matches[selected];
     if (match === undefined) return;
     if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+    else if (match.item.id === ASK_ID) onAsk?.(query);
     else onChoose(match.item);
-  }, [matches, selected, onChoose, onSeeAll, query]);
+  }, [matches, selected, onChoose, onSeeAll, onAsk, query]);
 
   /**
    * Wraps, in both directions. The alternative — stopping dead at the ends —
@@ -724,6 +779,7 @@ export function Palette({
             onPress={() => {
               setCursor(index);
               if (match.item.id === SEE_ALL_ID) onSeeAll?.(query);
+              else if (match.item.id === ASK_ID) onAsk?.(query);
               else onChoose(match.item);
             }}
             testID={`palette-row-${index}`}

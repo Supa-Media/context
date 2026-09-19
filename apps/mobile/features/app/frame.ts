@@ -209,6 +209,27 @@ export interface FrameState {
    * there with no second copy of the state to keep in step.
    */
   focus: boolean;
+  /**
+   * Medium and wide: the right panel — chat and meetings — is open.
+   *
+   * A **preference**, like `explorerHidden` and for the same reason: it is a
+   * choice about how somebody likes the app, not a claim about what is on the
+   * screen right now. Somebody who opens it, narrows the window and widens it
+   * again gets it back.
+   *
+   * It stays a preference even at `medium`, where the panel draws *over* the
+   * note rather than beside it — which is the one place this differs from
+   * `drawerOpen`, so it is worth saying why. `drawerOpen` was cleared because
+   * nothing could put it away: no density drew a drawer, so a stale flag waited
+   * forever. This is put away by its own toggle, by the scrim over the note,
+   * and by focus mode; and what it holds is a conversation somebody is in the
+   * middle of, which is the thing a rotation must not throw away.
+   *
+   * `false` at rest. A person who never presses the toggle never sees a panel.
+   */
+  asideOpen: boolean;
+  /** Medium and wide: the right panel's width, in points. */
+  asideWidth: number;
 }
 
 export const initialFrame: FrameState = {
@@ -217,6 +238,8 @@ export const initialFrame: FrameState = {
   explorerHidden: false,
   explorerPeeking: false,
   focus: false,
+  asideOpen: false,
+  asideWidth: layout.asideWidth,
 };
 
 export interface Regions {
@@ -241,6 +264,32 @@ export interface Regions {
   explorer: "column" | "drawer" | "peek" | "hidden";
   /** The editor is always rendered — there is no density with nothing to read. */
   editor: true;
+  /**
+   * The right panel: chat and meetings.
+   *
+   * `column` sits beside the editor at `wide`; `overlay` comes in over it
+   * behind a scrim at `medium`, where a third column would leave the note
+   * about 300pt wide; `hidden` is every other case, including every compact
+   * layout.
+   *
+   * ## Why a phone answers `hidden` rather than growing an arm
+   *
+   * It already has this conversation. `VoiceButton` raises `AgentPanel` over
+   * the editor at compact — a finished surface, with the microphone and the
+   * meeting beside it. A right *panel* there would be a second door into one
+   * room, on the density with the least space for either, and the design this
+   * draws was chosen for the desktop out loud after the phone's version
+   * confused the question.
+   *
+   * ## Why `overlay` is its own arm and not the explorer's `drawer`
+   *
+   * `Regions.explorer` is the *tree's* presentations and this is a different
+   * region with a different selection, a different scroll position and a
+   * different thing inside it. Sharing an arm would make "the tree is in a
+   * drawer and the panel is over the note" unrepresentable, which is a real
+   * state at `medium`.
+   */
+  aside: "column" | "overlay" | "hidden";
   /** The scrim that dismisses whichever panel is over the editor. */
   scrim: boolean;
   /** Thumb-reach verbs. Compact only; a pointer has the menu and the keyboard. */
@@ -302,6 +351,10 @@ export function regionsFor(
     */
     return {
       explorer: "hidden",
+      // And no right panel either, for the reason `Regions.aside` gives: the
+      // phone already has this conversation, over the editor, on a control it
+      // already has.
+      aside: "hidden",
       editor: true,
       scrim: false,
       bottomBar: true,
@@ -323,6 +376,11 @@ export function regionsFor(
   if (state.focus) {
     return {
       explorer: "hidden",
+      // "The panels go, the instruments stay" now means both of them. The
+      // preference is not written, so leaving focus restores whichever were
+      // open — the property `FrameState.focus` argues for over `explorerHidden`
+      // and which `asideOpen` inherits unchanged.
+      aside: "hidden",
       editor: true,
       scrim: false,
       bottomBar: false,
@@ -343,6 +401,26 @@ export function regionsFor(
       : state.explorerPeeking
         ? "peek"
         : "hidden";
+
+  /*
+    The right panel, and the density is the whole of the decision.
+
+    `wide` starts at 1180pt. A 260pt tree and a 340pt panel leave the note
+    about 580pt, which is a measure prose reads in. At `medium` the same sum
+    leaves about 300pt, and `frame.ts`'s own line about that density — "room
+    for the explorer column beside the note and for nothing else" — is the
+    reason this comes in over the note there rather than beside it.
+
+    There is deliberately no `hasExplorer` term. The panel is about the
+    context, not about the file tree, so Map and Connections may have it open
+    beside them; a route with no tree is a route with more room for it, not
+    less.
+  */
+  const aside: Regions["aside"] = !state.asideOpen
+    ? "hidden"
+    : density === "wide"
+      ? "column"
+      : "overlay";
 
   return {
     /*
@@ -371,10 +449,19 @@ export function regionsFor(
       nobody asks for is a field the next reader has to work out the fate of.
     */
     explorer,
+    aside,
     editor: true,
-    // The peek is the one panel over the editor that raises no scrim; see
-    // `Regions.explorer` for why that is an arm of its own and not a flag.
-    scrim: false,
+    /*
+      The peek is the one panel over the editor that raises no scrim; see
+      `Regions.explorer` for why that is an arm of its own and not a flag.
+
+      The aside's overlay is the other panel over the editor, and it **does**
+      raise one — it is dismissed by pressing away from it, which is what a
+      scrim is for, where a peek is dismissed by moving the pointer off a seam.
+      So this is no longer a constant, and `appFrame.test.ts` states the rule
+      over both panels rather than by naming one arm.
+    */
+    scrim: aside === "overlay",
     bottomBar: false,
     statusBar: true,
     drawerToggle: false,
@@ -485,6 +572,39 @@ export function noteGutterFor(width: number): number {
 export function clampExplorerWidth(width: number): number {
   if (!Number.isFinite(width)) return layout.explorerWidth;
   return Math.min(layout.explorerMaxWidth, Math.max(layout.explorerMinWidth, Math.round(width)));
+}
+
+/**
+ * The right panel's width, held between a floor and a ceiling.
+ *
+ * `clampExplorerWidth`'s reasoning with different numbers: the floor is where
+ * a conversation turns into a ladder of two-word lines, the ceiling is where
+ * the note's own measure suffers on the narrowest window that draws this as a
+ * column at all.
+ *
+ * A separate function rather than a parameterised one, because the two
+ * columns' floors answer different questions — a file name's legibility and a
+ * paragraph's — and one function taking a token bundle would read as though
+ * they were the same question with different constants.
+ */
+export function clampAsideWidth(width: number): number {
+  if (!Number.isFinite(width)) return layout.asideWidth;
+  return Math.min(layout.asideMaxWidth, Math.max(layout.asideMinWidth, Math.round(width)));
+}
+
+/**
+ * What toggling the right panel means at this density.
+ *
+ * `null` at compact, for the reason `explorerToggleFor` returns `null` there:
+ * a chord or a button that wrote a field no compact layout reads is the ⌘B
+ * failure this pair of functions exists to keep from happening again. A phone
+ * has no right panel — `Regions.aside` says why — so there is nothing to fold.
+ *
+ * Unlike `explorerToggleFor` there is no `hasExplorer` term, because the panel
+ * is not about the tree; see `regionsFor`.
+ */
+export function asideToggleFor(density: Density): "asideOpen" | null {
+  return density === "compact" ? null : "asideOpen";
 }
 
 /**

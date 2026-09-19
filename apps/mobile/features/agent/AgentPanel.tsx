@@ -1,11 +1,9 @@
-import { useCallback, useRef, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
-import { PressRow } from "../design/components/Button";
-import { Icon } from "../design/components/Icon";
+import { useCallback, useRef } from "react";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../design/components/Text";
-import { fonts, layout, pointerType as t, radii } from "../design/tokens";
-import { useColors, useThemedStyles, type Colors, type Shadows } from "../design/theme";
-import { EMPTY_CONVERSATION, answered, ask, canAsk, failed, type Conversation } from "./conversation";
+import { fonts, pointerType as t, radii } from "../design/tokens";
+import { useThemedStyles, type Colors, type Shadows } from "../design/theme";
+import { AgentConversation } from "./AgentConversation";
 import type { AgentEngine } from "./engine";
 import type { AgentPage } from "./page";
 
@@ -39,8 +37,12 @@ import type { AgentPage } from "./page";
 
 export const PANEL_TITLE = "Ask your context";
 
-/** The placeholder, which is also the only instruction this surface gives. */
-export const PROMPT_PLACEHOLDER = "Ask about this note, or anything in your context";
+/*
+  Re-exported from where it now lives, rather than left as a second copy: the
+  tests and the fixtures import it from here, and a constant defined twice is
+  the kind that drifts by one word and fails a test about copy.
+*/
+export { PROMPT_PLACEHOLDER } from "./AgentConversation";
 
 export function AgentPanel({
   engine,
@@ -55,60 +57,18 @@ export function AgentPanel({
   onClose: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
-  const colors = useColors();
-  const [conversation, setConversation] = useState<Conversation>(EMPTY_CONVERSATION);
-  const [draft, setDraft] = useState("");
-
   /*
-    Whether the turn now in flight still belongs to this panel.
-
-    Cleared when the panel closes, so an answer that arrives after somebody has
-    walked away lands nowhere instead of reopening a transcript they dismissed.
-    A ref rather than state because it is read inside a promise callback that
-    must see the value as of *now*, not as of the render that created it.
+    The conversation's own "a turn in flight is abandoned" closer, handed up so
+    this card's dismiss can run it. `AgentConversation` owns the flag — it is
+    the thing with a promise in the air — and this owns the scrim that ends the
+    card, so the two meet here rather than either reaching into the other.
   */
-  const asking = useRef(false);
-
-  const send = useCallback(() => {
-    const question = draft;
-    /*
-      Computed from the state this render already holds, and not inside a
-      `setConversation` updater. An updater does not run synchronously — React
-      calls it while rendering the next commit — so a version that set a local
-      flag inside one and read it on the next line always read the flag unset,
-      and no question was ever sent. `ready` gates the button and `ask` guards
-      itself, so the closure being one render old cannot let two through.
-    */
-    const next = ask(conversation, question);
-    // `ask` answers by identity when it refuses, which is how a blank prompt
-    // and a turn already in flight both become no-ops without a second check.
-    if (next === conversation) return;
-
-    setConversation(next);
-    setDraft("");
-    asking.current = true;
-
-    engine
-      .ask({ question: question.trim(), place })
-      .then((text) => {
-        if (!asking.current) return;
-        asking.current = false;
-        setConversation((current) => answered(current, text));
-      })
-      .catch((error: unknown) => {
-        if (!asking.current) return;
-        asking.current = false;
-        setConversation((current) => failed(current, reasonFrom(error)));
-      });
-  }, [conversation, draft, engine, place]);
+  const abandon = useRef<() => void>(() => {});
 
   const dismiss = useCallback(() => {
-    // A turn in flight is abandoned rather than awaited: the person has left.
-    asking.current = false;
+    abandon.current();
     onClose();
   }, [onClose]);
-
-  const ready = canAsk(conversation);
 
   return (
     <Modal transparent animationType={compact ? "slide" : "none"} onRequestClose={dismiss} visible>
@@ -133,79 +93,25 @@ export function AgentPanel({
             </Text>
           </View>
 
-          <ScrollView style={styles.transcript} contentContainerStyle={styles.transcriptBody}>
-            {conversation.turns.length === 0 ? (
-              <Text variant="rowSub" style={styles.empty} testID="agent-empty">
-                {place.note === null
-                  ? "Nothing is open, so ask about anything in your context."
-                  : `You are on ${place.note.path}.`}
-              </Text>
-            ) : null}
-
-            {conversation.turns.map((turn, index) => (
-              <View
-                key={`${turn.who}-${index}`}
-                style={[styles.turn, turn.who === "person" && styles.turnPerson]}
-                testID={`agent-turn-${turn.who}`}
-              >
-                <Text variant="rowSub" style={styles.turnText}>
-                  {turn.text}
-                </Text>
-              </View>
-            ))}
-
-            {conversation.name === "thinking" ? (
-              <Text variant="rowSub" style={styles.thinking} testID="agent-thinking">
-                Thinking…
-              </Text>
-            ) : null}
-
-            {conversation.name === "failed" ? (
-              <View style={styles.failure} testID="agent-failure">
-                <Text variant="rowSub" style={styles.failureText}>
-                  {conversation.reason}
-                </Text>
-              </View>
-            ) : null}
-          </ScrollView>
-
-          <View style={styles.composer}>
-            <TextInput
-              style={styles.input}
-              value={draft}
-              onChangeText={setDraft}
-              placeholder={PROMPT_PLACEHOLDER}
-              placeholderTextColor={colors.muted}
-              multiline
-              accessibilityLabel={PROMPT_PLACEHOLDER}
-              testID="agent-input"
-            />
-            <PressRow
-              onPress={ready ? send : undefined}
-              accessibilityLabel="Send"
-              testID="agent-send"
-              radius={radii.pill}
-              style={[styles.send, ready && styles.sendReady]}
-              hoverStyle={ready ? { backgroundColor: colors.accent } : undefined}
-            >
-              <Icon name="arrowRight" size={16} color={ready ? colors.ink : colors.muted} />
-            </PressRow>
-          </View>
+          <AgentConversation
+            engine={engine}
+            place={place}
+            /*
+              The card caps its transcript; the console's column does not, and
+              that is the one thing the two hosts genuinely disagree about. A
+              modal that grew with the conversation would walk off the top of
+              a phone, and a column that capped it would leave dead space under
+              a composer pinned to the bottom of a 900pt panel.
+            */
+            style={{ transcript: styles.transcriptCap }}
+            onDismissed={(close) => {
+              abandon.current = close;
+            }}
+          />
         </Pressable>
       </Pressable>
     </Modal>
   );
-}
-
-/**
- * What to show when `ask` rejects.
- *
- * Never the thrown value's own message: a provider's error text is written for
- * a developer reading a log and can carry a URL, a request id, or the shape of
- * a key. This surface says what happened and what was kept.
- */
-function reasonFrom(_error: unknown): string {
-  return "That question could not be answered just now. Nothing was sent to your notes, and what you asked is still above.";
 }
 
 const makeStyles = (colors: Colors, shadows: Shadows) =>
@@ -245,60 +151,14 @@ const makeStyles = (colors: Colors, shadows: Shadows) =>
       borderBottomColor: colors.line,
     },
     provider: { color: colors.muted, fontFamily: fonts.mono, fontSize: t.meta },
-    transcript: { maxHeight: 340 },
-    transcriptBody: { paddingHorizontal: 16, paddingVertical: 12, gap: 10 },
-    empty: { color: colors.muted },
-    turn: {
-      padding: 10,
-      borderRadius: radii.control,
-      backgroundColor: colors.chrome,
-    },
-    /*
-      The person's turn wears the accent wash and the agent's does not, which is
-      the same direction `VoiceSheet` spends its one hue in: the thing you did
-      is marked, the ambient state is not.
-    */
-    turnPerson: { backgroundColor: colors.accentDim },
-    turnText: { color: colors.text },
-    thinking: { color: colors.muted, paddingHorizontal: 2 },
-    failure: {
-      padding: 10,
-      borderRadius: radii.control,
-      backgroundColor: colors.critWash,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.critBorder,
-    },
-    failureText: { color: colors.critText },
-    composer: {
-      flexDirection: "row",
-      alignItems: "flex-end",
-      gap: 8,
-      paddingHorizontal: 16,
-      paddingTop: 10,
-      borderTopWidth: StyleSheet.hairlineWidth,
-      borderTopColor: colors.line,
-    },
-    input: {
-      flex: 1,
-      minHeight: layout.minTouchTarget,
-      maxHeight: 120,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-      borderRadius: radii.control,
-      backgroundColor: colors.chrome,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.hintBorder,
-      color: colors.text,
-      fontFamily: fonts.body,
-      fontSize: t.ui,
-    },
-    send: {
-      width: 38,
-      height: 38,
-      borderRadius: radii.pill,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: colors.chrome,
-    },
-    sendReady: { backgroundColor: colors.accent },
+    /**
+     * The card's cap on the transcript, handed to `AgentConversation`.
+     *
+     * The one thing the two hosts disagree about, so it is a prop rather than
+     * a constant inside the conversation: a modal that grew with the
+     * conversation would walk off the top of a phone, and the console's column
+     * would leave dead space under a composer pinned to the bottom of a 900pt
+     * panel if it inherited this number.
+     */
+    transcriptCap: { maxHeight: 340 },
   });

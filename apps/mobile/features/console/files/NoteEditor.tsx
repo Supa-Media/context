@@ -29,6 +29,7 @@ import type {
 } from "./formBlock";
 import { NoteAccessory } from "./NoteAccessory";
 import { VoiceButton } from "../../voice/VoiceButton";
+import { publishOpenNote } from "../../agent/openNote";
 import { useVoiceHost } from "../../voice/VoiceHost";
 import { agentPage, consoleRoute } from "../../agent/page";
 import type { Visibility } from "./types";
@@ -304,6 +305,14 @@ export function NoteEditor({
     for no visible change, on the mount that is already the most expensive one.
   */
   const [focused, setFocused] = useState(false);
+  /**
+   * When the right-click menu last asked for the microphone, or `null`.
+   *
+   * Held here rather than in `LiveEditor` because the microphone belongs to
+   * `VoiceButton`, which is this component's child — so this is the one place
+   * that can see both the menu and the control it reaches.
+   */
+  const [dictateAsked, setDictateAsked] = useState<number | null>(null);
   /**
    * How wide the document column is, so the Properties row can start where the
    * note's first character does.
@@ -790,6 +799,20 @@ export function NoteEditor({
             onPressNote={onOpenLink === undefined ? undefined : (path) => setPressed(path)}
             onSuggest={onSuggest}
             onPickSuggestion={onPickSuggestion}
+            /*
+              The two voice rows on the note's right-click menu. Absent where
+              there is nothing behind them — no voice host is no microphone,
+              and no `onAskAgent` is no right panel — and `editorMenuItems`
+              then draws no row rather than one that does nothing.
+
+              The caret the menu was opened at is deliberately dropped: the
+              dictation this starts inserts at the live caret, which the menu
+              has already moved to the click (see `LiveEditor.web.tsx`), so
+              carrying the number would be a second answer to a question that
+              is already settled.
+            */
+            onDictate={voice === null ? undefined : () => setDictateAsked(Date.now())}
+            onAsk={voice?.onAskAgent ?? undefined}
             onPreviewLinks={onPreviewLinks}
             onSubmitForm={onSubmitForm}
             onReadFormResponses={onReadFormResponses}
@@ -1096,6 +1119,20 @@ export function NoteEditor({
         WebKit CI found that, in `encryption.spec.ts`, not in a test of this
         feature: a floating control is every other control's problem.
       */}
+      {/*
+        What is open, published for the console's right panel.
+
+        `NoteEditor` is the only thing that can build this — `page.ts` argues
+        that where `noteReference` is defined — and the panel is its sibling
+        rather than its descendant, so the two meet at a store rather than at
+        a provider hoisted over both. See `features/agent/openNote.ts`.
+
+        Drawn as a component rather than run as an effect here so that it
+        unmounts with the editor: leaving a stale note published after the
+        pane goes would have the panel describing a room nobody is in.
+      */}
+      <PublishOpenNote state={state} />
+
       {voice === null || !liveEditorOnScreen ? null : (
         <VoiceButton
           page={{ ...voice.page, writable: voice.page.writable && editable }}
@@ -1142,6 +1179,13 @@ export function NoteEditor({
             which is mounted or not as a whole.
           */
           agent={voice.agent}
+          /*
+            The right-click menu's Dictate row, reaching the microphone this
+            button owns. It is the same `start()` the sheet calls, so there is
+            one dictation and one set of rules about when it may run — the menu
+            is a second *door*, never a second implementation.
+          */
+          startDictation={dictateAsked}
           onRecordMeeting={voice.onRecordMeeting}
         />
       )}
@@ -1384,6 +1428,37 @@ function ManifestNotice() {
       </Text>
     </View>
   );
+}
+
+/**
+ * Publish what is open, and clear it on the way out.
+ *
+ * A component rather than an effect inside `NoteEditor` for one reason: it
+ * unmounts when the pane does, and its cleanup is what stops a stale note
+ * being published after the editor has gone — which would leave the console's
+ * right panel describing a room nobody is in.
+ *
+ * It renders nothing. `agentPage` is asked for the reference rather than
+ * `noteReference` directly, because that function is private to `page.ts` and
+ * deliberately so: the editor's state is the only thing it accepts, and this
+ * is the editor.
+ */
+function PublishOpenNote({ state }: { state: EditorState }) {
+  const reference = agentPage({
+    context: null,
+    editor: state,
+    route: "",
+    meetingLive: false,
+    query: null,
+  }).note;
+
+  useEffect(() => {
+    publishOpenNote(reference);
+  }, [reference]);
+
+  useEffect(() => () => publishOpenNote(null), []);
+
+  return null;
 }
 
 /**

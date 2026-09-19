@@ -140,6 +140,24 @@ export interface EditorControls {
 }
 
 export interface LiveEditorProps {
+  /**
+   * Speak into the note at the caret, from the right-click menu.
+   *
+   * Absent where there is no microphone to open — the landing page's preview,
+   * the fixtures — and `editorMenuItems` then draws no row rather than a row
+   * that does nothing. The editor hands back the caret it was clicked at, so
+   * the words land where the menu was opened rather than where the selection
+   * happened to be.
+   */
+  onDictate?: (at: number) => void;
+  /**
+   * Ask the agent about this note, from the same menu.
+   *
+   * Absent where there is no right panel for an answer to land in — which is
+   * every compact layout, whatever the microphone says, and is why this is a
+   * second prop rather than a second use of the first.
+   */
+  onAsk?: () => void;
   /** The authoritative text. Written into the editor only when it differs. */
   value: string;
   editable: boolean;
@@ -497,6 +515,8 @@ export function LiveEditor({
   onSuggest,
   onPickSuggestion,
   onPreviewLinks,
+  onDictate,
+  onAsk,
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
@@ -622,8 +642,8 @@ export function LiveEditor({
    * `onChange` forever, and every keystroke after the first state change would
    * be sent to a stale reducer.
    */
-  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur });
-  handlers.current = { onChange, onSave, controls, onFocus, onBlur };
+  const handlers = useRef({ onChange, onSave, controls, onFocus, onBlur, onDictate, onAsk });
+  handlers.current = { onChange, onSave, controls, onFocus, onBlur, onDictate, onAsk };
 
   /**
    * The right-click menu over the note body, and the table-size picker it can
@@ -820,8 +840,31 @@ export function LiveEditor({
           canEdit: !created.state.readOnly,
           hasSelection: !created.state.selection.main.empty,
           apple: isApplePlatform(),
+          /*
+            Read through `handlers`, not from the closure, for the reason that
+            ref exists: this listener is attached once when the view is created
+            and the props it reads change under it — a note going read-only, a
+            window narrowing out of the density that has a panel. A closure
+            captured at creation would offer Dictate on a note that had since
+            become somebody else's to read.
+          */
+          canDictate: handlers.current.onDictate !== undefined,
+          canAsk: handlers.current.onAsk !== undefined,
         }).length === 0;
-      if (empty) return;
+      if (empty) {
+        /*
+          Standing down closes whatever this menu already had open.
+
+          Without it a right-click that falls through to the browser leaves the
+          previous popover sitting there — two menus on the glass, one of them
+          about a caret that has moved. Found by the test that drives a
+          capability away under a mounted editor; the same line covers
+          Shift-right-click, where it is just as true.
+        */
+        setMenuAt(null);
+        setTableAt(null);
+        return;
+      }
 
       event.preventDefault();
       event.stopPropagation();
@@ -992,6 +1035,26 @@ export function LiveEditor({
       return;
     }
 
+    if (id === "dictate") {
+      /*
+        The caret, not the selection's head. The menu put the caret where the
+        click landed (see the `contextmenu` handler), so this is where somebody
+        pointed — and handing the host a position rather than letting it ask
+        later is what stops the words arriving wherever the caret drifted to
+        while a permission prompt was up.
+      */
+      handlers.current.onDictate?.(current.state.selection.main.head);
+      current.focus();
+      return;
+    }
+
+    if (id === "ask") {
+      // No `focus()`: the answer arrives in the panel, and pulling the caret
+      // back into the note would put the keyboard over it on a narrow window.
+      handlers.current.onAsk?.();
+      return;
+    }
+
     const marker = id === "bold" || id === "italic" || id === "strikethrough" || id === "code"
       ? MARKERS[id]
       : null;
@@ -1043,10 +1106,20 @@ export function LiveEditor({
       />
       {menuAt === null || view.current === null ? null : (
         <Menu<EditorMenuId>
+          /*
+            The same call the `contextmenu` handler makes to decide whether to
+            open at all, and it has to stay the same call: a menu that opened
+            on one answer and drew another would offer rows the handler had
+            already decided were not there — or, worse, open empty. The two are
+            eight hundred lines apart, which is exactly why the arguments are
+            spelled out identically in both rather than defaulted in one.
+          */
           items={editorMenuItems({
             canEdit: !view.current.state.readOnly,
             hasSelection: !view.current.state.selection.main.empty,
             apple: isApplePlatform(),
+            canDictate: onDictate !== undefined,
+            canAsk: onAsk !== undefined,
           })}
           anchor={menuAt}
           title="Format"

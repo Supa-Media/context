@@ -796,6 +796,18 @@ export const layout = {
   wideBreakpoint: 1180,
   /** The rail reduced to its marks, for a medium window. */
   railIconWidth: 56,
+  /**
+   * The right panel's resting width, and the range a drag may take it to.
+   *
+   * Wider than the tree at rest, and deliberately: the tree holds file names
+   * and this holds a conversation, and a chat column under about 300pt turns
+   * every answer into a ladder. The ceiling is where the note's own measure
+   * starts to suffer on a 1180pt window, which is the narrowest layout that
+   * draws this as a column at all.
+   */
+  asideWidth: 340,
+  asideMinWidth: 300,
+  asideMaxWidth: 520,
   /** The explorer column's resting width, and the range a drag may take it to. */
   explorerWidth: 260,
   explorerMinWidth: 200,
