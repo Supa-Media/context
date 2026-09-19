@@ -1001,6 +1001,10 @@ export function BrowsePane({
         storage: data.storage,
         fastSearch: data.fastSearch.status,
         listings: files.listings,
+        // The phone's whole share of this feature: it has no file tree, so the
+        // line at the foot of the context's own page is the only place a
+        // number of updates can sit. Opening `activity.md` is how it is read.
+        activity: data.activity,
       })
     : undefined;
 
@@ -1169,6 +1173,15 @@ export function BrowsePane({
         state={files.editor}
         canEdit={files.canEdit}
         reading={reading}
+        /*
+          `activity.md` is drawn as a list rather than as its own source — see
+          `ActivityPage`. Passed from here because this is where the console's
+          data and the note on screen meet; the editor decides nothing about
+          which context it is in.
+        */
+        activity={data.activity}
+        activityShared={(data.members?.members?.length ?? 1) > 1}
+        onOpenNote={(path) => files.select(path)}
         /*
           The one write a `member` gets. `canEdit` above is false for that role
           and this is still passed: a form block is how somebody who cannot

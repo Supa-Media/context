@@ -217,6 +217,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A pasted image is a width in the note and a file in the bucket, and nothing else
 - A status wears a chip; a band is for what you have not been told
 - A workspace can wear a face, and the letter is what it falls back to
+- The feed is a file, and the console is a viewing layer over it
 
 ## [Meetings](./meetings.md)
 

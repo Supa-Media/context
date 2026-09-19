@@ -1119,6 +1119,12 @@ export default function ConsoleLayout() {
               files={data.files}
               contextLabel={contextLabel}
               /*
+                The foot line and the tree's dots. Absent on the demo console,
+                which has no control plane — the column then ends at the counts
+                line, exactly as it did before this existed.
+              */
+              activity={data.activity}
+              /*
                 **No `vault` and no `vaultDetail` any more, and the line they
                 composed has not been deleted — it has moved.**
 

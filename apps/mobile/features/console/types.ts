@@ -1,4 +1,5 @@
 import type { MirrorStatus } from "../offline/mirrorStatus";
+import type { ActivityView } from "./activity/activity";
 import type { AdvancedView } from "./advanced/advanced";
 import type { PluginsView } from "./plugins/plugins";
 import type { ContextPluginsView } from "./plugins/contextPlugins";
@@ -347,6 +348,16 @@ export interface ConsoleData {
   invitations?: ReadonlyArray<{ slug: string; token: string }>;
   selectedContextId: string | null;
   selectContext: (id: string) => void;
+  /**
+   * What has changed in the selected context, and how much of it this person
+   * has seen — the file at `activity.md`, read through the privacy filter.
+   *
+   * Optional, and absent on the demo console and on any console with no
+   * control plane behind it. Every surface that draws it treats absence as
+   * "this console has no activity", which is the state the tree's foot line
+   * had before the feature existed: the note count, unchanged.
+   */
+  activity?: ActivityView;
   /**
    * Leave a context somebody shared. Absent in the read-only demo, which has
    * no memberships to sever. The server refuses it for owners.

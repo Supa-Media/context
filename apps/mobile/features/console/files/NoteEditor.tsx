@@ -15,6 +15,8 @@ import { noteHeading, noteHeadingSource, properties, splitNote, type Property } 
 import { Confirm } from "./Dialogs";
 import { isDrawingPath } from "@context/drawings";
 import { DrawingEditor } from "./DrawingEditor";
+import { ActivityPage } from "../activity/ActivityPage";
+import { ACTIVITY_PATH, type ActivityView } from "../activity/activity";
 import { isPassphraseNote } from "../encryption/envelope";
 import { LockedNoteView } from "../encryption/LockedNoteView";
 import type { NoteEncryptionController } from "../encryption/useNoteEncryption";
@@ -132,6 +134,9 @@ export function NoteEditor({
   onStoreImage,
   onImageProblem,
   encryption,
+  activity,
+  activityShared = false,
+  onOpenNote,
 }: {
   state: EditorState;
   canEdit: boolean;
@@ -259,6 +264,18 @@ export function NoteEditor({
     /** Told the new etag after every write this view makes. */
     onWritten?: (etag: string) => void;
   };
+  /**
+   * The activity list, for the one note that is drawn as one.
+   *
+   * Absent on a console that has none — the demo, or a context whose read was
+   * refused — and `activity.md` then opens in the editor as the Markdown file
+   * it is, which is a worse screen and a true one.
+   */
+  activity?: ActivityView;
+  /** Whether anybody else is in this context. Changes the empty state only. */
+  activityShared?: boolean;
+  /** Open another note, from a row in that list. */
+  onOpenNote?: (path: string) => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   /*
@@ -296,6 +313,22 @@ export function NoteEditor({
     because there is nothing to draw until it is opened.
   */
   const drawing = !passphraseLocked && !state.encrypted && isDrawingPath(state.path ?? "");
+  /*
+    Decided by path, exactly as a drawing is, and for the same reason: it has
+    to hold for a file that is still loading and for one whose body has not
+    arrived. Only where the console actually has the list — a demo console, or
+    one whose read was refused, opens the file as the note it is, which is the
+    honest fallback rather than an empty screen.
+  */
+  const isActivityNote = !passphraseLocked && activity !== undefined && state.path === ACTIVITY_PATH;
+  /**
+   * The moment this screen was opened, for every relative time on it.
+   *
+   * A `useState` initialiser rather than `Date.now()` in the body: re-reading
+   * the clock on every render makes "4 min" change under a scroll, and makes
+   * two rows rendered in one pass disagree about what "today" is.
+   */
+  const [openedAt] = useState(() => Date.now());
   const button = saveButton(state);
   const compact = densityFor(useWindowDimensions().width) === "compact";
   /*
@@ -662,7 +695,25 @@ export function NoteEditor({
               compact={compact}
             />
           ) : null}
-          {drawing ? (
+          {isActivityNote ? (
+            /*
+              The activity file gets a list, never a text editor.
+
+              Same trade as the drawing below, for a different reason: nothing
+              is destroyed by typing into it — the next change rewrites it —
+              but a person who opened "Activity" from the tree wants what
+              happened, and what a text editor shows them is a dated list with
+              a machine comment after every line. The file is still the file:
+              `Open in new tab` works, a link to it works, and Obsidian draws
+              it as the document it is.
+            */
+            <ActivityPage
+              activity={activity!}
+              shared={activityShared}
+              now={openedAt}
+              onOpen={onOpenNote ?? (() => {})}
+            />
+          ) : drawing ? (
             /*
               A drawing gets a drawing editor, never a text editor.
 
