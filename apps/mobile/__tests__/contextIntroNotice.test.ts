@@ -82,6 +82,13 @@ beforeEach(() => {
   // The answer is written to the device, so one case's "Got it" would
   // otherwise silence the next case's band.
   window.localStorage.clear();
+  /*
+    And a width, because the density decides whether the frame draws the chip
+    this band's dismissal rests on. Stated per case rather than inherited: the
+    default under jsdom is 0, which is `compact`, so every case here was a
+    phone case by accident until the day that mattered.
+  */
+  setWidth(POINTER_WIDTH);
 });
 
 /** The demo's context ids: one you own, one you are a `member` of. */
@@ -90,6 +97,11 @@ const MEMBER_OF = "lk";
 
 const TIER_LINE = "Team access";
 const CHIP = "team level only";
+
+/** Narrower than `layout.narrowBreakpoint`, which is what `compact` means. */
+const PHONE_WIDTH = 390;
+/** Wider than it, where the frame does draw the chip. */
+const POINTER_WIDTH = 1400;
 
 function mount(render: () => ReturnType<typeof createElement>): HTMLElement {
   const container = document.createElement("div");
@@ -131,6 +143,42 @@ function demoData(contextId: string): ConsoleData {
 const browse = (data: ConsoleData) => mountLive(() => createElement(BrowsePane, { data }));
 
 const band = (host: HTMLElement) => host.querySelector('[data-testid="browse-context-intro"]');
+
+/**
+ * Put the window at a width, the way every other render suite here does.
+ *
+ * `BrowsePane` reads `densityFor(useWindowDimensions().width)`, and the frame
+ * reads the identical expression to decide whether the top bar holds the tier
+ * chip at all — so this is not a styling knob, it is the switch that decides
+ * whether the fact is on screen anywhere else.
+ */
+function setWidth(width: number): void {
+  /*
+    `documentElement.clientWidth`, not `window.innerWidth`: react-native-web's
+    `Dimensions` measures the element, caches it, and refreshes on `resize`.
+    **jsdom performs no layout and reports that as 0**, so an unstubbed mount
+    lands in the compact branch — which is how every case in this file ran
+    before this helper existed, at the one density whose chip does not exist,
+    while its own guard mounted the chip in isolation and said the fact was
+    covered. `appFrameRender.test.ts` writes the same warning over the same
+    trap.
+  */
+  Object.defineProperty(document.documentElement, "clientWidth", {
+    value: width,
+    configurable: true,
+  });
+  Object.defineProperty(document.documentElement, "clientHeight", {
+    value: 800,
+    configurable: true,
+  });
+  Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
+  Object.defineProperty(window, "innerHeight", { value: 800, configurable: true });
+  act(() => {
+    // Inside `act` because react-native-web's `Dimensions` answers this event
+    // by setting state on every mounted component that reads the window.
+    window.dispatchEvent(new Event("resize"));
+  });
+}
 
 function press(host: HTMLElement, selector: string): void {
   const node = host.querySelector(selector) as HTMLElement | null;
@@ -254,6 +302,59 @@ describe("the band is read once; the fact stays on the chip", () => {
       what carries the fact once the sentence has been read; the paragraph
       behind it is on the members card. Neither moved.
     */
+    const host = await browse(demoData(MEMBER_OF));
+    press(host, '[data-testid="browse-context-intro-dismiss"]');
+    expect(band(host)).toBeNull();
+
+    while (roots.length > 0) roots.pop()!();
+    expect(mount(() => createElement(TierChip, { role: "member" })).textContent).toContain(CHIP);
+  });
+
+  /*
+    WHERE THE CHIP IS NOT DRAWN, THE BAND IS THE ONLY THING SAYING SO.
+
+    The check above is this file's stated sabotage guard — "if answering the
+    band were the only thing saying a view is filtered, this change would have
+    traded a nag for a reader who is told nothing" — and it mounts `TierChip`
+    **directly**, with a role, in isolation. That proves the component renders a
+    label. It cannot see the one call site, which is
+    `topTrailing={phone ? <note actions> : <TierChip …>}` in the console layout:
+    at `compact` there is no chip in the frame at all, and `grep` finds no other
+    `<TierChip`.
+
+    So at a phone's width the three statements are the band, the band, and the
+    members card in settings. Answer the band and a `member` browsing a folder
+    sees a short list with nothing anywhere saying things are missing from it.
+    Nothing leaks — the filtering is correct and no note reaches anybody it
+    should not. What it is instead is a push toward a leak: they report the
+    folder as nearly empty, and the cheapest thing that makes that complaint go
+    away is the owner setting it to `team`.
+
+    No second person and no second device is needed. The console is responsive:
+    answering it in a wide window and narrowing that same window reaches it.
+  */
+  test("on a phone, where the frame draws no chip, the band cannot be answered away", async () => {
+    setWidth(PHONE_WIDTH);
+    const host = await browse(demoData(MEMBER_OF));
+    expect(band(host)).not.toBeNull();
+    expect(host.querySelector('[data-testid="browse-context-intro-dismiss"]')).toBeNull();
+  });
+
+  test("...and an answer given at a pointer width does not silence it at a phone's", async () => {
+    setWidth(POINTER_WIDTH);
+    const wide = await browse(demoData(MEMBER_OF));
+    press(wide, '[data-testid="browse-context-intro-dismiss"]');
+    expect(band(wide)).toBeNull();
+
+    while (roots.length > 0) roots.pop()!();
+    setWidth(PHONE_WIDTH);
+    expect(band(await browse(demoData(MEMBER_OF)))).not.toBeNull();
+  });
+
+  test("the fact is still on the chip at the width that draws one", async () => {
+    // The guard above, restored to the density whose claim it is. The chip is
+    // real and permanent at a pointer width; this is where dismissing is safe.
+    setWidth(POINTER_WIDTH);
     const host = await browse(demoData(MEMBER_OF));
     press(host, '[data-testid="browse-context-intro-dismiss"]');
     expect(band(host)).toBeNull();

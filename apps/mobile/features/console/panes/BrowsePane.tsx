@@ -561,7 +561,33 @@ export function BrowsePane({
     orientation somebody is finished with. Nothing is written down for it and
     there is no control to press.
   */
-  const introVisible = intro !== null && (data.demo === true || introAnswer.visible);
+  /*
+    AND A PHONE KEEPS ITS LINE, BECAUSE A PHONE HAS NO CHIP.
+
+    The whole argument for answering this band is that the fact it states does
+    not go anywhere: `team level only` is on the chip, on every route. That is
+    true at a pointer width and **false at `compact`** — `TierChip` has one call
+    site, `topTrailing={phone ? <note actions> : <TierChip …>}`, and `phone`
+    there is this same `densityFor(width) === "compact"`. At a phone's width the
+    frame draws no chip, so answering the band would leave a `member` reading a
+    filtered listing with nothing on screen saying things are missing from it.
+
+    This is the second time that has been reached. The comment this block
+    replaced recorded the first — *"a safeguard asserted in a comment and
+    missing from the screen is worse than none, because it stops anybody
+    looking for the real one"* — about the same chip and the same density.
+
+    Drawn without a control rather than with one that does nothing: a `Got it`
+    that comes back on the next load reads as broken. The phone still gains
+    #719's real win, which was one band instead of two stacked.
+
+    The other fix is to give the phone a chip. That is a change to what the
+    phone's trailing capsule holds, which the layout argues at length is
+    spoken for by the note's own actions — a design decision rather than this
+    one, and the conservative half is here.
+  */
+  const introVisible =
+    intro !== null && (data.demo === true || compact || introAnswer.visible);
 
   /*
     MOVES INTO ANOTHER CONTEXT, WHICH FINISH AFTER THE PRESS THAT STARTED THEM.
@@ -642,7 +668,7 @@ export function BrowsePane({
             otherwise cannot tell a small context from a filtered one.
           */}
           <Text variant="hint">{intro!.text}</Text>
-          {data.demo === true ? null : (
+          {data.demo === true || compact ? null : (
             <Button
               /*
                 "Got it", not "Dismiss". Every other control in this band puts
