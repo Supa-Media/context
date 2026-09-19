@@ -10,7 +10,7 @@ import {
   readAnswer,
   refusalSentence,
 } from "./gateway";
-import { localRouteFrom, preferLocal, type LocalRoute } from "./local";
+import { afterLocal, localRouteFrom, preferLocal, type LocalRoute } from "./local";
 import type { AgentPage } from "./page";
 
 /**
@@ -146,17 +146,18 @@ export function useAgentEngine(options: {
         be the one outcome they came to this road to avoid.
       */
       if (preferLocal(local) && local !== null) {
-        try {
-          const reply = await local.ask({ question, place });
-          if (reply.ok) {
-            setProvider(reply.provider);
-            return reply.answer;
-          }
-          return reply.message;
-        } catch {
-          // A shell that went away mid-question. The gateway road is the
-          // honest fallback here because nothing was spent and nothing said.
+        /*
+          `null` on a throw, which `afterLocal` reads as "the shell went away"
+          — the one outcome that falls through. Every other one ends the turn
+          there; the reasoning, and the tests, are in `local.ts`.
+        */
+        const reply = await local.ask({ question, place }).catch(() => null);
+        const next = afterLocal(reply);
+        if (next.road === "answer") {
+          setProvider(next.provider);
+          return next.answer;
         }
+        if (next.road === "stop") return next.sentence;
       }
 
       if (route === null || workspaceId === null) return NO_PROVIDER;

@@ -1014,3 +1014,59 @@ name is claimable again afterwards, and proves one workspace's deletion leaves
 another's rows alone; `apps/mobile/__tests__/deleteWorkspaceCard.test.ts` holds
 the console half — the typed-name gate, the refusal drawn instead of a button,
 and the sentence saying the files stay.
+
+### OPEN: the local agent and the console agent are two different principals
+
+*Recorded 2026-09-19, unresolved. Raised by the self-review on #724 rather than
+by a bug, which is the reason it is written here instead of nowhere: it is
+invisible from either file that has it.*
+
+The agent panel can reach a person's context by two roads, and they authenticate
+as different things.
+
+- **The gateway road** (`/agent`) uses a grant minted by
+  `functions/agentGrant.ts` for the console client, **clamped to the caller's
+  role in the workspace being asked about**, one hour long, revocable from the
+  connections list.
+- **The local road** (`window.desktop.agent`, #724) runs the customer's own
+  `claude` against the same MCP endpoint using **the grant this machine got at
+  `connectMachine` time** — a different row, minted for a different client, with
+  whatever scopes that machine was approved for and no relationship to the role
+  the console is currently rendering.
+
+Both are the same human, and neither road can exceed what its own grant allows,
+so this is not a privilege escalation and nothing here is presently exploitable.
+What it is, is an **asymmetry nobody declared**: the same question, asked from
+the same panel, can be answered under two different ceilings depending on
+whether a CLI happens to be installed. Non-negotiable #4 says one person or
+workspace is one security boundary; two principals reaching one context from one
+control is the sort of thing that sentence exists to keep visible.
+
+Three specific consequences, none of them resolved:
+
+1. **Revoking the console grant does not stop the local road**, and revoking the
+   machine does not stop the gateway road. The connections list shows two rows
+   and the panel shows one control, so "I revoked the agent" is ambiguous.
+2. **The machine grant is not clamped per question.** The console road re-mints
+   against the workspace being asked about; the local road uses whatever the
+   machine holds, so a console switched to a context the machine's grant does
+   not cover is refused by the gateway rather than narrowed to it. That is the
+   safe direction, but it is a refusal the person will read as a bug.
+3. **The audit trail records two different acting identities** for the same
+   person doing the same thing, which `Audit records the acting identity, not
+   just the scope` makes a feature — but nothing tells a reader of that trail
+   that the two rows are one control.
+
+**What a resolution would look like**, when somebody takes it: the local road
+mints a console grant the way the gateway road does and hands *that* to
+`--mcp-config`, so the machine grant goes back to meaning "this Mac files
+meetings" and the agent means one thing on both roads. The cost is a round trip
+to Convex per question from a surface that currently needs none, and a token
+written to a file that today holds a longer-lived one — neither obviously worse,
+both worth measuring before choosing.
+
+**There is no test that fails if this is reversed**, because there is nothing
+yet to reverse. What exists is `apps/desktop/test/localAgent.test.mjs` and
+`apps/mobile/__tests__/agentLocalRoute.test.ts`, which hold the local road's own
+guards; the asymmetry above is deliberately *not* asserted anywhere, because
+asserting it would be ratifying it.

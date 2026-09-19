@@ -24,21 +24,27 @@
  *
  * All four predictions held.
  *
- * ## What this file does NOT hold, stated rather than implied
+ * ## The rule that was a comment
  *
- * **That a failed local ask does not fall through to the gateway.** That rule
- * lives in `useAgentEngine`'s `ask`, inside a hook, and nothing here reaches
- * it. It matters — a local refusal names a fix on this machine ("sign in",
- * "connect this Mac"), and silently spending the customer's API key after
- * showing them that sentence is the one outcome the local road exists to avoid
- * — so it is written down as a gap rather than left to look covered by the
- * checks above. The comment at the branch carries the reasoning; no test
- * currently fails if somebody deletes it.
+ * *A failed local ask must not fall through to the gateway.* It lived inside
+ * `useAgentEngine`'s `ask` as control flow, where nothing could reach it, and
+ * this file said so rather than pretending otherwise. It is `afterLocal` now —
+ * pure, and checked below — for `capabilities.ts`'s reason: every guard
+ * expressed inside a component in this app was held by nothing.
+ *
+ *   a local refusal falling through to the gateway                             1
+ *   a thrown ask stopping the turn instead of falling through                  1
+ *   `ok: true` with an empty answer being returned as the answer               1
+ *
+ * The first was predicted to fail 2 and fails 1. The counts in the desktop
+ * suite are per *check*, and Jest's are per `it` — two assertions inside one
+ * `it` are one failure. Corrected rather than the test split to match the
+ * prediction, because the two assertions really are one rule.
  *
  */
 
 import { describe, expect, it } from "@jest/globals";
-import { localRouteFrom, preferLocal } from "../features/agent/local";
+import { EMPTY_LOCAL_ANSWER, afterLocal, localRouteFrom, preferLocal } from "../features/agent/local";
 import { providerLabel } from "../features/agent/gateway";
 
 const PAGE = {
@@ -99,6 +105,32 @@ describe("which road a question takes", () => {
         meetingLive: false,
       },
     });
+  });
+
+  it("stops the turn on a local refusal, rather than spending the API key", () => {
+    // The sentence names a fix on this machine. Falling through would spend
+    // their key silently, moments after telling them the free road needed a
+    // two-second fix — the one outcome this road exists to avoid.
+    const next = afterLocal({ ok: false, message: "Claude Code is installed but not signed in." });
+    expect(next.road).toBe("stop");
+    expect(next).toHaveProperty("sentence", "Claude Code is installed but not signed in.");
+  });
+
+  it("falls through only when the shell went away, because nothing was spent or said", () => {
+    expect(afterLocal(null)).toEqual({ road: "gateway" });
+  });
+
+  it("answers when there is one", () => {
+    expect(afterLocal({ ok: true, answer: "usage-based", provider: "claude-code", steps: [] })).toEqual({
+      road: "answer",
+      answer: "usage-based",
+      provider: "claude-code",
+    });
+  });
+
+  it("stops on an ok with nothing in it, rather than paying twice for one turn", () => {
+    const next = afterLocal({ ok: true, answer: "  ", provider: "claude-code", steps: [] });
+    expect(next).toEqual({ road: "stop", sentence: EMPTY_LOCAL_ANSWER });
   });
 
   it("names the local road in the header, because which one answered matters", () => {
