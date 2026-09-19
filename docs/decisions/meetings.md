@@ -293,6 +293,71 @@ claim. Collapsing to on-device only would delete diarization and lock the
 product to recent Apple hardware — `SpeechAnalyzer` is iOS/macOS 26 and later,
 and on watchOS it does not exist at all.
 
+### The channel is the only speaker signal this product has, and a turn never crosses it
+
+The section above promises that the paid tier buys "diarization that on-device
+transcription does not provide at all". **As shipped it does not, and this is
+the entry that says so rather than leaving the promise standing.** The
+transcription Worker runs `@cf/openai/whisper-large-v3-turbo` with
+`@cf/openai/whisper` behind it; neither returns a speaker label, so
+`apps/mcp/src/meetings/transcribe.js` sets `speaker: null` on every segment and
+explains why in its own comment — *a "Speaker 1" it did not produce is a label
+with more confidence than it earned*. That comment is right. The promise was
+ahead of the code, and what follows is what is true.
+
+**What there is instead is `channel`.** The recorder stamps every frame `mic`,
+`system` or `mixed`, because the engine is handed one file and "cannot know
+whether it was the room or the call". That is one real bit of knowledge about
+who was speaking, and `groupIntoTurns` used to throw it away: with `speaker`
+null on both sides, a two-sided call folded into one turn and rendered as
+`**[00:00] Speaker** — so the pricing is fine with us`, half of it said by
+somebody else. **A channel change now breaks a turn.** The check is `the
+microphone and the call never merge into one turn`, and the sabotage record is
+in the test file: removing the condition fails two checks in `packages/meetings`
+and none in `apps/mcp`, because the gateway never looks at a turn.
+
+**What is deliberately not decided here is what a turn is called.** The obvious
+move — mic is "You", system is "Them" — is wrong in the case this product was
+built for: in an in-person meeting everybody is on the microphone, and labelling
+the room "You" is a false attribution written into somebody's permanent note. A
+label needs evidence that the session was two-sided, which is a session-level
+fact the renderer does not hold today. (`capture/transcriber.ts`'s
+`speaker: frame.channel === "mic" ? "You" : null` is a test engine's fixture,
+not a precedent.) Turns split honestly and stay labelled `Speaker` until that is
+decided.
+
+Three routes out, and the third is the one people assume:
+
+1. **Channel labels, conditioned on a session that really had two sides.**
+   Cheap, no new vendor, no new audio path. It buys "me" against "the call" and
+   never buys "Sayo" against "John".
+2. **A diarizing engine on the paid tier.** It buys real speaker turns, and it
+   costs a second vendor holding audio transiently — widening the seam the
+   section above discloses — plus per-hour inference against Workers AI's
+   account-level pricing. The part that decides it is not the bill:
+   **speaker identity does not survive `SEGMENT_MS`.** Chunks are twenty seconds
+   and are transcribed independently, so whoever is "Speaker 1" in chunk three
+   is not knowably "Speaker 1" in chunk four. This is therefore not a model swap
+   inside `infra/transcribe-worker`; it is a per-meeting streaming session
+   against a provider that keeps speaker state, in a Worker that is stateless by
+   construction. Price that, not the model.
+3. **One pass over the whole recording when the meeting ends**, which is where
+   the best accuracy is. **Rule 1 above forecloses it**: whole-file diarization
+   needs the whole file, and audio is never persisted by us. The device queue in
+   *Audio nobody has transcribed yet is kept on the device* is not a way round
+   it — that is the customer's own machine holding audio that has **not been
+   transcribed yet**, not a meeting's worth held back so we can read it twice.
+   Taking this route means amending rule 1 with an argument, not a footnote.
+
+Recommended: 1 now, 2 when somebody is paying for it, 3 not without reopening
+rule 1. Matching a voice to a *named person* is a further step again — it needs
+an enrolled voice per contact, which is biometric data this product has nowhere
+to put and no non-negotiable that would survive putting it there.
+
+What a "simplification" of this costs: drop the channel break and the far side
+of every call goes back inside a block attributed to whoever spoke first, which
+is worse than no attribution because it reads like evidence.
+
 ### The cloud path knows *who* is asking, opaquely, and the ceiling is the control plane's
 
 The cloud tier spends real money per request, and for a while nothing bounded
