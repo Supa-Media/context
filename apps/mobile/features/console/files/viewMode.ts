@@ -57,6 +57,7 @@
 
 import { useLayoutEffect, useRef } from "react";
 
+import { ACTIVITY_PATH } from "../activity/activity";
 import { properties, splitNote } from "./frontmatter";
 import { declareReadMode } from "./readMode";
 
@@ -88,8 +89,20 @@ const KEYS = ["view", "obsidianuimode"] as const;
  * Only the frontmatter is looked at — `splitNote` decides where that ends — so
  * a line reading `view: read` inside the body, in a code fence or in a
  * quotation is prose, the way it looks.
+ *
+ * `path` supplies the one default this console holds itself. `activity.md`
+ * opens as the list, because a dated list is a thing to read — but it is a
+ * note, so the pencil reaches its Markdown like any other, which is the whole
+ * difference between "defaults to read" and "is not editable". The file now
+ * writes `view: read` into its own frontmatter too, and that is the answer
+ * that is found first; this is what makes the default hold for a file written
+ * before it did, and for one whose owner edited the header out.
+ *
+ * **Frontmatter still wins.** An owner who types `view: edit` into their own
+ * `activity.md` lands in the source from then on, because the file is theirs
+ * and a default a person has overruled in writing is not a default any more.
  */
-export function declaredView(source: string): ViewMode | null {
+export function declaredView(source: string, path?: string | null): ViewMode | null {
   const rows = properties(splitNote(source).frontmatter);
   for (const key of KEYS) {
     for (const row of rows) {
@@ -100,7 +113,7 @@ export function declaredView(source: string): ViewMode | null {
       if (mode !== undefined) return mode;
     }
   }
-  return null;
+  return path === ACTIVITY_PATH ? "read" : null;
 }
 
 /**
@@ -123,11 +136,24 @@ export function declaredView(source: string): ViewMode | null {
  * press. Nothing here renders on a server, so the hook has no second meaning to
  * warn about.
  */
-export function useDeclaredView(note: string | null, source: string): void {
+export function useDeclaredView(
+  note: string | null,
+  source: string,
+  /**
+   * The open note's path, for the one default that is the console's own.
+   *
+   * Passed rather than cut out of `note`: that string is a context id and a
+   * path joined by a colon, and a context id is not guaranteed to be free of
+   * them. A second parameter cannot be parsed wrongly.
+   */
+  path?: string | null,
+): void {
   const text = useRef(source);
   text.current = source;
+  const at = useRef(path);
+  at.current = path;
   useLayoutEffect(() => {
-    const declared = note === null ? null : declaredView(text.current);
+    const declared = note === null ? null : declaredView(text.current, at.current);
     declareReadMode(declared === null ? null : declared === "read");
   }, [note]);
 }

@@ -129,12 +129,20 @@ afterEach(() => {
 });
 
 /** The hook and the bus, with the mode they agree on painted into the DOM. */
-function Probe({ note, source }: { note: string | null; source: string }) {
-  useDeclaredView(note, source);
+function Probe({
+  note,
+  source,
+  path,
+}: {
+  note: string | null;
+  source: string;
+  path?: string | null;
+}) {
+  useDeclaredView(note, source, path);
   return createElement("span", { "data-testid": "mode" }, useReadMode() ? "read" : "edit");
 }
 
-function open(note: string | null, source: string) {
+function open(note: string | null, source: string, path?: string | null) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -143,10 +151,10 @@ function open(note: string | null, source: string) {
     container.remove();
   });
 
-  const show = (next: { note: string | null; source: string }) => {
+  const show = (next: { note: string | null; source: string; path?: string | null }) => {
     act(() => root.render(createElement(Probe, next)));
   };
-  show({ note, source });
+  show({ note, source, path });
 
   return {
     /** Open another note, or the same note after somebody typed in it. */
@@ -154,6 +162,56 @@ function open(note: string | null, source: string) {
     mode: () => container.querySelector('[data-testid="mode"]')!.textContent,
   };
 }
+
+/* -------------------------------------------------------------------------- */
+/*                     the one default the console holds                      */
+/* -------------------------------------------------------------------------- */
+
+/*
+  `activity.md` IS A PAGE TO READ AND A FILE TO EDIT, AND THOSE ARE COMPATIBLE.
+
+  It used to be neither: the console drew the list and there was no way to the
+  Markdown at all, which for a feature whose whole subject is "this is a note
+  in your own storage" was the product saying "your file, our screen". So the
+  path declares `read` and the pencil still works — a default, exactly like a
+  form page's, and outranked the same way.
+
+  The path default and the frontmatter line do the same job for different
+  files: the line is what Obsidian reads and what a newly written file carries,
+  the path is what holds for the files written before the line existed. Both,
+  because dropping either leaves a real file opening in the wrong mode.
+*/
+group("the activity file", () => {
+  test("opens as the list, from its path alone", () => {
+    // No frontmatter at all: this is a file written before `view: read` was.
+    expect(declaredView("# Activity\n", "activity.md")).toBe("read");
+  });
+
+  test("and from its own frontmatter, which is what Obsidian reads", () => {
+    expect(declaredView("---\nrole: activity\nview: read\n---\n")).toBe("read");
+  });
+
+  test("the default is the path's, not every file's", () => {
+    expect(declaredView("# Plan\n", "1-projects/plan.md")).toBeNull();
+    // Near-misses are not it: this is an exact path at the root of a bucket.
+    expect(declaredView("# Plan\n", "1-projects/activity.md")).toBeNull();
+    expect(declaredView("# Plan\n", "Activity.md")).toBeNull();
+  });
+
+  test("an owner who writes `view: edit` into it lands in the source", () => {
+    // The file is theirs. A default a person has overruled in writing is not a
+    // default any more, and this is the line between "opens as a list" and
+    // "the product decides how you may look at your own file".
+    expect(declaredView("---\nrole: activity\nview: edit\n---\n", "activity.md")).toBe("edit");
+  });
+
+  test("and the press still outranks both", () => {
+    const app = open("w1:activity.md", "# Activity\n", "activity.md");
+    expect(app.mode()).toBe("read");
+    act(() => setReadMode(false));
+    expect(app.mode()).toBe("edit");
+  });
+});
 
 group("the mode a note opens in", () => {
   test("a page built around a form opens as the form, not as its source", () => {

@@ -24,6 +24,13 @@ import {
 import { displayName, displayPath } from "../files/paths";
 
 export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
+/*
+  Re-exported rather than reached for directly by the page, for the reason the
+  rest of this file exists: the console imports its activity vocabulary from
+  one module, so a `.cjs` path typed slightly differently in a component is a
+  thing that cannot happen.
+*/
+export { repairPrompt, strayRows } from "@context/shared/src/activity.cjs";
 
 /** One line of the file, as the console receives it. */
 export interface ActivityEntry {

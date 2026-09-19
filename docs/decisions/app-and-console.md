@@ -7072,6 +7072,69 @@ costs a sentence rather than a false fact. This reverses the first design's
 exactly this and the owner's answer to whether a team might not want it was
 *"I think we should enforce it"*.
 
+**The list is a default, and the Markdown is a press away.** The first version
+had no way to the file at all: the console drew the list and the editor was
+unreachable on that path. For a feature whose own footer says *"a note in your
+own storage"*, that was the product saying "your file, our screen" — so the
+file now declares `view: read` in its frontmatter (which Obsidian honours too)
+and `declaredView` holds the same default by path for every file written before
+the line existed, and the pencil opens the source like any other note's. An
+owner who types `view: edit` into their own `activity.md` lands in the source
+from then on, because a default a person has overruled in writing is not a
+default any more. This is **not** the drawing's trade next to it and must not be
+confused with it: one keystroke in a drawing's base64 destroys the diagram, so
+`DrawingEditor` genuinely refuses the text editor. Nothing here is destroyed by
+typing, so refusing would be taste dressed as safety.
+
+**Editing it is the owner's, and viewing it is everyone's.** Hand-editing this
+file is editing the record of who changed what — the authority `canShare` and
+`canSetVisibility` are, not the "may write notes" an editor has — so
+`canEditActivity` gates the pencil. That is the *affordance*; the guard is
+older and stronger, and unchanged: the file is stored `private`, so a member or
+an editor cannot read it at all and is served the filtered rendering through
+`readActivity`. "Members view" has always meant the rendering, and it has to:
+the raw file names paths from every corner of a context.
+
+**The writer splices rather than regenerates, and that is what makes the
+sentence true.** `renderFile` rebuilt the whole file from a template on every
+write, so anything a person typed into it survived until the next agent wrote a
+line — an honest description of which is "you may edit this until something
+happens". Now the contract is one sentence, and it is stated in the file
+itself: **between the markers is the machine's, everything else is yours.** The
+region between them is rebuilt from `.context/audit/` because a derived copy
+that drifts is worse than no copy; everything either side is carried through
+untouched, forever. `a later write keeps prose above the markers` and `and
+keeps what is below them` fail without it. The one shape it will not guess at
+is a file whose markers were deleted: there is no boundary to find, so it lays
+down a fresh header rather than deciding for itself where somebody's text
+ended.
+
+**A row somebody broke is named, not swept up.** Editing a row's words is free
+— the `<!--ctx …-->` comment is what is read. Deleting that comment, or
+breaking its JSON, makes the row stop existing for every reader, and the next
+change drops it. The console counts those (`strayRows`) and says so, because
+silence is how a person edits a file, watches rows vanish and concludes the
+product ate them. What it does **not** offer is the obvious button: a one-press
+"fix" that deletes what somebody typed is the product taking the file back the
+moment it looks untidy, in the one feature whose whole subject is that the file
+is theirs. So it hands over a prompt to give an AI client, and that prompt
+forbids the one thing a client must never do here — invent a `<!--ctx -->`
+comment, which is the record, and a fabricated one is a fabricated fact about
+somebody's context. `and forbids inventing a record` fails if that line goes.
+
+**The column is the note's column.** `noteColumnWidth` and `layout.notePadX`,
+centred — the same measure `LiveEditor` spends in CSS and `noteGutterFor`
+describes, not a resemblance: the pencil swaps the list for that editor over
+the same file, and text that moved sideways at the press would make the two
+read as different documents. It shipped as a hard 760 pinned to the left edge,
+and was found in a screenshot rather than by any of 7,600 tests, because
+react-native-web compiles styles to classes and jsdom lays nothing out. That
+claim now lives in `e2e/webkit/activityPage.spec.ts`, and the demo tree carries
+an `activity.md` — a real `renderFile` output, not a hand-drawn one — so there
+is a page for a browser to open at all. It is the third time on this feature
+that the fixture not being able to show the thing under review was the whole
+defect.
+
 **Three numbers decide what is substantial, and they are thresholds rather
 than tuning.** They live in one place — `packages/shared/src/activity.cjs`, the
 module both writers import — because a gateway that disagreed with the console
