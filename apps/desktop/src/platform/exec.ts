@@ -20,6 +20,16 @@ export interface RunOptions {
   timeoutMs?: number;
   /** Cap on stdout. A runaway `ps` must not become a gigabyte of string. */
   maxBuffer?: number;
+  /**
+   * The directory to run in. Omitted means the process's own, which is right
+   * for every macOS collector here — they read the system, not a folder.
+   *
+   * `main/localAgent.ts` is the one caller that passes it, and for it this is
+   * a security boundary rather than a convenience: `claude -p` executes the
+   * hooks and MCP servers it finds in its working directory with no trust
+   * prompt, so that caller runs it in an empty directory of ours.
+   */
+  cwd?: string;
 }
 
 export function run(command: string, args: readonly string[], options: RunOptions = {}): Promise<string> {
@@ -31,6 +41,7 @@ export function run(command: string, args: readonly string[], options: RunOption
         timeout: options.timeoutMs ?? 4_000,
         maxBuffer: options.maxBuffer ?? 4 * 1024 * 1024,
         killSignal: "SIGKILL",
+        ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         // No shell, ever: every argument here is built from data that has been
         // near a window title, and a window title is attacker-controlled text
         // on any machine where somebody can name a document.

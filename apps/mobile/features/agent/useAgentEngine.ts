@@ -10,6 +10,7 @@ import {
   readAnswer,
   refusalSentence,
 } from "./gateway";
+import { localRouteFrom, preferLocal, type LocalRoute } from "./local";
 import type { AgentPage } from "./page";
 
 /**
@@ -118,8 +119,46 @@ export function useAgentEngine(options: {
     [mint, workspaceId],
   );
 
+  /**
+   * The `claude` on this machine, or `null` everywhere else.
+   *
+   * Read once rather than per-ask: `window.desktop` is frozen by the preload
+   * before the page runs and cannot appear later in a session, so re-reading it
+   * on every question would be a lookup that can only ever return what it
+   * returned the first time.
+   */
+  const local = useMemo<LocalRoute | null>(() => localRouteFrom(), []);
+
   const ask = useCallback(
     async ({ question, place }: { question: string; place: AgentPage }): Promise<string> => {
+      /*
+        The local road first, where there is one.
+
+        It spends the subscription the person already pays for rather than
+        billing their card per question, and it asks for no key. It is tried
+        *before* the `route === null` guard below on purpose: a machine with a
+        CLI can answer even when this console has no MCP endpoint to offer,
+        and refusing first would turn a working road into `NO_PROVIDER`.
+
+        A local failure does **not** fall through to the gateway. The sentences
+        it returns name a fix on this machine — sign in, connect this Mac — and
+        silently spending somebody's API key after telling them nothing would
+        be the one outcome they came to this road to avoid.
+      */
+      if (preferLocal(local) && local !== null) {
+        try {
+          const reply = await local.ask({ question, place });
+          if (reply.ok) {
+            setProvider(reply.provider);
+            return reply.answer;
+          }
+          return reply.message;
+        } catch {
+          // A shell that went away mid-question. The gateway road is the
+          // honest fallback here because nothing was spent and nothing said.
+        }
+      }
+
       if (route === null || workspaceId === null) return NO_PROVIDER;
 
       const send = async (accessToken: string): Promise<Response> =>
@@ -162,7 +201,7 @@ export function useAgentEngine(options: {
       setProvider(read.provider);
       return read.answer;
     },
-    [route, tokenFor, workspaceId],
+    [local, route, tokenFor, workspaceId],
   );
 
   return useMemo<AgentEngine>(

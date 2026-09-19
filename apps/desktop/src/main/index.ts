@@ -64,6 +64,8 @@ import {
   grantCoversMeetings,
 } from "../core/sync/connection.ts";
 import { keychainTokenStore } from "./tokenStore.ts";
+import { createLocalAgent } from "./localAgent.ts";
+import { run as runCommand } from "../platform/exec.ts";
 import { browserlessRefresher, connectMachine, openInSystemBrowser } from "./connect.ts";
 import { transcribeChunk } from "./transcribe.ts";
 import { ImessageSyncService } from "./imessage.ts";
@@ -684,6 +686,41 @@ async function main(): Promise<void> {
   const tokens = FAKE ? memoryTokenStore(null) : keychainTokenStore(app.getPath("userData"));
   const connection = new GatewayConnection({ store: tokens, refresh: browserlessRefresher() });
   await connection.load();
+
+  /*
+    Is there a `claude` on this machine to ask?
+
+    Probed once at startup and remembered, rather than on every question: the
+    answer decides which road the console's agent panel offers and it is asked
+    the moment the panel mounts. Someone who installs the CLI while the app is
+    running restarts it, which is the same deal every other thing this app
+    detects at launch gets.
+
+    `command -v` through the login shell rather than reading `process.env.PATH`:
+    a GUI app on macOS is launched by `launchd` and inherits a PATH that has
+    never seen the customer's `.zshrc`, so `claude` installed by npm or
+    Homebrew is invisible to it. The shell is `-lc` for that reason and the
+    argument is a constant — there is no interpolation here and nothing
+    attacker-controlled reaches it.
+  */
+  let claudeBinary: string | null = null;
+  if (!FAKE) {
+    try {
+      const found = await runCommand("/bin/sh", ["-lc", "command -v claude"], { timeoutMs: 5_000 });
+      const line = found.trim().split("\n")[0] ?? "";
+      claudeBinary = line.startsWith("/") ? line : null;
+    } catch {
+      // Not installed, which is the ordinary case and never an error.
+      claudeBinary = null;
+    }
+  }
+
+  const localAgent = createLocalAgent({
+    scratchRoot: app.getPath("userData"),
+    claudePath: () => claudeBinary,
+    endpoint: () => settings.gatewayEndpoint,
+    token: () => tokens.read(),
+  });
   const imessage = new ImessageSyncService({
     store,
     connection,
@@ -1831,6 +1868,8 @@ async function main(): Promise<void> {
         });
         if (answer.response === 0) await shell.openExternal(FULL_DISK_ACCESS_SETTINGS_URL);
       },
+      localAgent: () => localAgent.status(),
+      askLocalAgent: (request) => localAgent.ask(request),
     });
 
     consoleWindow = createConsoleWindow(url, RENDERER_DIR, {

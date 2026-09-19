@@ -185,5 +185,12 @@ export function readAnswer(status: number, body: unknown): AgentAnswer | string 
 export function providerLabel(provider: string): string {
   if (provider === "anthropic") return "Claude";
   if (provider === "openai") return "GPT";
+  /*
+    The local road names itself, because what it is matters to the person
+    reading the header: this turn spent their subscription rather than their
+    API key, and "Claude Code" is the thing they already know they pay for.
+    `features/agent/local.ts` is the only writer of this value.
+  */
+  if (provider === "claude-code") return "Claude Code";
   return "Your model";
 }
