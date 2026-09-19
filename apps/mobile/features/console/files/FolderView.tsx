@@ -90,16 +90,19 @@ import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor, noteColumnWidth } from "../../app/frame";
+import type { DragModifier } from "./dnd";
+import { useListingOrder } from "./listingOrder";
 import { baseName, displayName, withoutSortPrefix } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
+import { useRowInteractions } from "./rowInteractions";
 import { SyncMarkDot, withSyncMark } from "./SyncMarkDot";
 import { listedEntries } from "./tree";
 import { isGroupVisibility } from "./types";
 import type { FileEntry, FolderListing } from "./types";
 
 /**
- * The folder listing's right-click wiring.
+ * The folder listing's menu wiring.
  *
  * Supplied by the pane rather than built here, for the reason every other
  * decision in this file is: this component draws a folder and knows nothing
@@ -108,12 +111,58 @@ import type { FileEntry, FolderListing } from "./types";
  * for why the answer is what decides whether the browser's own menu is
  * suppressed.
  *
- * Absent on a read-only console and on native, and the listing then has no
- * pointer gesture at all rather than one that does nothing.
+ * Absent on a read-only console, and the listing then has no gesture at all
+ * rather than one that does nothing.
+ *
+ * ## `onBackground` is still the web's alone; `onRow` is not
+ *
+ * The *background* gesture is a right-click on empty space, which a
+ * touchscreen has no spelling for — `rightClick.ts` is a no-op on native and
+ * this goes on being pointer-only.
+ *
+ * A **row** is the opposite, and this is the half that was missing. The rows
+ * here went through `useRightClick` as well, which meant that on the native
+ * build — where this pane is the *only* browse surface, since there is no file
+ * tree at compact density — a folder or a note had no menu at all. Every verb
+ * the tree offers by long press was unreachable on a phone: rename, move,
+ * duplicate, visibility, archive, delete. They go through `useRowInteractions`
+ * now, which is the same hook the tree's rows use, so the gesture forks per
+ * platform exactly once and the two surfaces cannot drift again.
  */
 export interface FolderMenu {
   onRow: (entry: FileEntry, anchor: { x: number; y: number }) => boolean;
   onBackground: (anchor: { x: number; y: number }) => boolean;
+}
+
+/**
+ * Dragging rows out of, and into, a folder listing.
+ *
+ * The tree has had this since `dnd.ts` was written and the listing never did,
+ * which is the other half of the same complaint: a folder you could reorganise
+ * by dragging while it was a row in the sidebar became inert the moment you
+ * opened it. Same shape as `TreeDragHandlers`, keyed on a `FileEntry` rather
+ * than a `TreeRow` because that is what a listing has — and deliberately not
+ * one type over both, since a `TreeRow` carries `loading` and `empty` kinds
+ * this surface has no rows for.
+ *
+ * The *rules* are not here and are not duplicated: the pane hands both
+ * surfaces to the same `verdictFor`, so a drop this refuses is refused
+ * identically in the tree and a drop it allows lands in the same place.
+ *
+ * Absent on a read-only console, and rows then carry no `draggable` at all —
+ * a row that can be picked up and never dropped is worse than one that cannot
+ * be picked up, because there is nothing on screen to say why.
+ */
+export interface FolderDrag {
+  onDragStart: (path: string) => void;
+  onDragOver: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDragLeave: (path: string) => void;
+  onDrop: (path: string, modifiers: readonly DragModifier[]) => void;
+  onDragEnd: () => void;
+  canDrag: (entry: FileEntry) => boolean;
+  canDrop: (entry: FileEntry) => boolean;
+  /** The row under a drag, washed to say the drop would land there. */
+  target: string | null;
 }
 
 export function FolderView({
@@ -124,6 +173,7 @@ export function FolderView({
   foot,
   onSelect,
   menu,
+  drag,
   pendingStateFor,
 }: {
   entry: FileEntry;
@@ -154,8 +204,10 @@ export function FolderView({
    */
   foot?: string;
   onSelect: (path: string) => void;
-  /** Right-click. Absent where there is nothing to offer — see `FolderMenu`. */
+  /** Right-click and long press. Absent where there is nothing to offer. */
   menu?: FolderMenu;
+  /** Pick-up and drop. Absent on a read-only console — see `FolderDrag`. */
+  drag?: FolderDrag;
   /**
    * Whether a note's latest edit has reached the bucket — see `pendingMarks`.
    * Absent on a console with no offline layer, which marks nothing.
@@ -181,8 +233,18 @@ export function FolderView({
     agree about what is in a folder — including the folder placeholder, which
     neither of them draws. See `tree.ts`. No `keep` here: the open thing on
     this screen is the folder, so there is no note to hold visible.
+
+    `descending` is the *same* answer the tree is drawn with, and that is the
+    point of it coming from `listingOrder.ts` rather than from a prop nobody
+    passed. The sort control lives in the tree's header, and until this the
+    direction it set lived in that component — so sorting Z to A reordered the
+    sidebar and left the very same folder, drawn as a page beside it, still A
+    to Z. "It is the tree, in the other place" is this file's first claim about
+    itself, and the one screen where a person would check it was where it was
+    false.
   */
-  const rows = listedEntries(listing?.entries ?? []);
+  const descending = useListingOrder();
+  const rows = listedEntries(listing?.entries ?? [], { descending });
 
   /*
     The background gesture is on the **whole view**, not on a filler strip under
@@ -313,6 +375,7 @@ export function FolderView({
                     row={row}
                     onSelect={onSelect}
                     menu={menu}
+                    drag={drag}
                     card={compact}
                     sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
                   />
@@ -358,12 +421,14 @@ function FolderRow({
   row,
   onSelect,
   menu,
+  drag,
   card = false,
   sync = null,
 }: {
   row: FileEntry;
   onSelect: (path: string) => void;
   menu?: FolderMenu;
+  drag?: FolderDrag;
   /** Drawn inside the phone's grouped card — see the listing. */
   card?: boolean;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
@@ -373,18 +438,42 @@ function FolderRow({
   const styles = useThemedStyles(makeStyles);
   const label = displayName(row.name);
   /*
-    A wrapper rather than a ref on the `PressRow`, which is the escape hatch
-    the rail's own right-click used before the rail folded away, and for the
-    same reason: react-native-web forwards no `onContextMenu`, and reaching the
-    real node through a plain `View` is the contained way to get at one. The
-    wrapper sets no style, so it adds no box — the row inside keeps its own
-    36pt pitch.
+    THE SAME HOOK THE TREE'S ROWS USE, AND FOR THE SAME REASON.
+
+    This used to be `useRightClick`, which is web-only by construction — so on
+    the native build, where this pane is the *only* browse surface, a row had
+    no menu at all and every verb the tree offers by long press was
+    unreachable. `useRowInteractions` is the pair whose native half is
+    `onLongPress` and whose web half binds `contextmenu` *and* the HTML5 drag
+    events, so one call gets this listing the phone's menu and the pointer's
+    pick-up at once, from the file the tree already trusts for both.
+
+    A wrapper `View` rather than a ref on the `PressRow`: react-native-web
+    forwards neither `onContextMenu` nor `draggable`, and reaching the real
+    node through a plain view is the contained way to get at one. The wrapper
+    sets no style, so it adds no box — the row inside keeps its own 36pt pitch.
   */
-  const rightClick = useRightClick(
-    menu === undefined ? undefined : (anchor) => menu.onRow(row, anchor),
-  );
+  const interactions = useRowInteractions({
+    path: row.path,
+    // Absent rather than a no-op, which is the fact that stops a right-click
+    // being swallowed by a row with nothing to put in the browser menu's
+    // place. See `rowInteractions.web.ts`.
+    onMenu: menu === undefined ? undefined : (anchor) => menu.onRow(row, anchor),
+    canDrag: drag !== undefined && drag.canDrag(row),
+    canDrop: drag !== undefined && drag.canDrop(row),
+    onDragStart: drag?.onDragStart ?? noopPath,
+    onDragOver: drag?.onDragOver ?? noopDrop,
+    onDragLeave: drag?.onDragLeave ?? noopPath,
+    onDrop: drag?.onDrop ?? noopDrop,
+    onDragEnd: drag?.onDragEnd ?? noopVoid,
+  });
+  const isDropTarget = drag !== undefined && drag.target === row.path;
   return (
-    <View ref={rightClick.ref} collapsable={false}>
+    <View
+      ref={interactions.ref as never}
+      collapsable={false}
+      style={isDropTarget ? [styles.rowDrop, card && styles.rowDropCard] : undefined}
+    >
     <PressRow
       onPress={() => onSelect(row.path)}
       style={[styles.row, card && styles.rowCard]}
@@ -393,6 +482,10 @@ function FolderRow({
       hitSlop={{ top: ROW_SLOP, bottom: ROW_SLOP }}
       accessibilityLabel={withSyncMark(row.kind === "folder" ? `${label}, folder` : label, sync)}
       testID="folder-row"
+      // Unconditional: `useRowInteractions` returns nothing to spread when
+      // there is no menu, and one copy of that rule is the point — a second
+      // one here is the copy that would drift. Same call as `FileTree`'s.
+      {...interactions.pressableProps}
     >
       {/*
         A GLYPH IN THE CARD, A CHEVRON OUTSIDE IT.
@@ -557,6 +650,20 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   rowHover: { backgroundColor: colors.surface3 },
   /**
+   * Under a drag that would land here. `FileTree`'s own wash, to the pixel.
+   *
+   * On the wrapper the gestures are attached to rather than on the `PressRow`,
+   * so it cannot be overwritten by a hover fill — a pointer holding a drag is
+   * over the row by definition, and the two painting the same box would mean
+   * the drop target is invisible exactly when it matters. It carries the row's
+   * own corner radius because the wrapper has none of its own, and a square
+   * block behind a rounded row is the artefact that gives away a wash drawn in
+   * the wrong place.
+   */
+  rowDrop: { backgroundColor: colors.accentDim, borderRadius: radii.md },
+  /** Square inside the phone's grouped card, whose rows are flush. */
+  rowDropCard: { borderRadius: 0 },
+  /**
    * The phone's grouped card. See the listing for why it is one card.
    *
    * `overflow: "hidden"` so a row's own hover or press fill is clipped by the
@@ -647,3 +754,13 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   /** The caption at the foot of the context's own page. See the file header. */
   foot: { marginTop: space.x4, color: colors.muted },
 });
+
+/*
+  The shapes `useRowInteractions` needs when there is no drag to wire. Spelled
+  out here rather than imported from `FileTree`, whose copies are private to
+  it — three empty functions are cheaper than a shared module, and neither file
+  has an opinion the other could drift from.
+*/
+function noopPath(_path: string): void {}
+function noopDrop(_path: string, _modifiers: readonly DragModifier[]): void {}
+function noopVoid(): void {}

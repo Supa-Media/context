@@ -20,6 +20,17 @@ import { VaultImportFixture } from "../onboarding/VaultImportFixture";
 export interface FixtureParams {
   checkout?: string | string[];
   screen?: string | string[];
+  /**
+   * Which of the visual board's optional surfaces to draw.
+   *
+   * `panel=meetings` opens the console's right panel on Meetings with a
+   * recording running, which is the one state of it worth reviewing and the
+   * one no board could show while the panel defaulted shut. Off by default
+   * because the artboards this fixture is compared against draw the console
+   * with the panel closed, and a fixture that changes the resting state is
+   * reviewing a screen the design does not have.
+   */
+  panel?: string | string[];
   at?: string | string[];
   slow?: string | string[];
   failed?: string | string[];
@@ -43,7 +54,9 @@ export function FixtureScreen({ params }: { params: FixtureParams }) {
   if (first(params.screen) === "app-frame") return <AppFrameFixture />;
   // The same frame with real contents, for looking at. See its own header for
   // why it is a separate screen rather than a flag on the one above.
-  if (first(params.screen) === "app-frame-visual") return <AppFrameVisualFixture />;
+  if (first(params.screen) === "app-frame-visual") {
+    return <AppFrameVisualFixture panel={first(params.panel) === "meetings"} />;
+  }
 
   /*
     The storage step, which is otherwise on no browser-reachable screen:

@@ -221,9 +221,17 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
             <TransportMark paused={paused} size={15} />
           </Pressable>
 
+          {/*
+            The pair `Button`'s own header prescribes for an action row:
+            `dialogPrimary` for the default action and `dialog` for the quiet
+            half, "one shape, differing only in fill". It was `white` beside
+            `ghost` — the hero CTA next to a bare label — and the board showed
+            exactly what that paragraph warns about: a black slab with twice
+            the padding, and a Discard with no shape at all beside it.
+          */}
           <Button
             label="Stop & save"
-            variant="white"
+            variant="dialogPrimary"
             onPress={() => void meetings.end()}
             testID="aside-meeting-stop"
           />
@@ -235,7 +243,7 @@ function LiveMeeting({ record }: { record: MeetingRecord }) {
           */}
           <Button
             label={arming ? "Discard for good" : "Discard"}
-            variant="ghost"
+            variant="dialog"
             onPress={
               arming
                 ? () => {

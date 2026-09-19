@@ -1603,12 +1603,40 @@ export default function ConsoleLayout() {
             })
           }
           /*
+            The other two things that land in that same folder, through the
+            same dialogs the tree's own `+` raises — `ExplorerDialogs` is
+            already mounted below for the toolbar's, and these are those rather
+            than a second set. A drawing is a note whose name ends
+            `.excalidraw`, which is `createDrawing`'s rule and not this
+            control's.
+          */
+          onNewDrawing={() =>
+            setBarDialog({
+              kind: "newDrawing",
+              folder: targetFolder(data.files.listings, data.files.selectedPath),
+            })
+          }
+          onNewFolder={() =>
+            setBarDialog({
+              kind: "newFolder",
+              folder: targetFolder(data.files.listings, data.files.selectedPath),
+            })
+          }
+          /*
             A fresh conversation in the right panel. `null` where there is no
             panel to answer in (a phone) or no engine behind it (the demo
             console) — absent rather than pressable and inert.
           */
+          /*
+            A conversation needs three things, and the third is new: a panel to
+            answer in, an engine behind it, and **a model key on this context**
+            — without one the composer opens and the first send errors. The
+            console learns it from `modelConnected`, which is `undefined` until
+            the subscription answers, so the row is absent for that moment
+            rather than offered and withdrawn.
+          */
           onNewChat={
-            hasAside
+            hasAside && data.modelConnected === true
               ? () => {
                   setOpenAsideAt(Date.now());
                   setAsked(null);

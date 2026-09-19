@@ -88,6 +88,14 @@ import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
 import { useConflictReview } from "./useConflictReview";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
 import { isGroupVisibility } from "./types";
+import {
+  applyFolderCreate,
+  applyMove,
+  rekeyPath,
+  rekeyPaths,
+  subtreeOf,
+  undoFolderCreate,
+} from "./optimistic";
 import type { FolderListing, OpenNote, SettableVisibility } from "./types";
 import { canResetPrivacy, canSetVisibility, canShare } from "../capabilities";
 import type { VisibilityTier } from "../visibility";
@@ -909,7 +917,34 @@ export function useFileBrowser(options: {
       if (workspaceId === null) return { servedFromCache: false };
       const offline = offlineRef.current;
       let servedFromCache = false;
-      const pages = await Promise.all(
+      /*
+        EACH FOLDER LANDS ON ITS OWN, RATHER THAN ALL OF THEM AT THE END.
+
+        This used to collect every page with `Promise.all` and write them in
+        one `setListings` after the slowest one settled. For the two folders a
+        note's rename touches that is the same thing; for the subtree a
+        *folder* move cascades over it is not, and it is most of why the
+        console felt like it was catching up rather than keeping up. Twelve
+        folders meant twelve requests in flight and one repaint gated on the
+        worst of them — so a tree that could have filled in from the top down
+        sat still and then appeared.
+
+        Writing each page as it arrives costs one render per folder instead of
+        one per operation, which is what React batches for. The failure
+        handling below is unchanged and still decides the *call's* answer: a
+        page already committed is not un-committed by a later refusal, because
+        it is the server's own answer for that folder and correct whatever
+        happened to its neighbour.
+      */
+      const commit = (folder: string, page: FolderListing | null) => {
+        setListings((current) => {
+          const next = { ...current };
+          if (page === null) delete next[folder];
+          else next[folder] = page;
+          return next;
+        });
+      };
+      await Promise.all(
         folders.map(async (folder) => {
           if (offline.reachability === "offline") {
             // Deliberately not "call it and see". `listFiles` is a Convex
@@ -919,18 +954,20 @@ export function useFileBrowser(options: {
             // on the device.
             const cached = await offline.cachedListing(folder);
             servedFromCache = true;
-            return [folder, cached?.value ?? null] as const;
+            commit(folder, cached?.value ?? null);
+            return;
           }
           try {
             const page = await listFiles({ workspaceId, path: folder });
             offline.rememberListing(page);
-            return [folder, page] as const;
+            commit(folder, page);
+            return;
           } catch (error) {
             const failure = toFileError(error);
             // A folder that has become invisible (its visibility changed, or
             // it was moved) is not an error worth shouting about — it is a
             // listing that should stop existing.
-            if (failure.code === "FILE_NOT_FOUND") return [folder, null] as const;
+            if (failure.code === "FILE_NOT_FOUND") return commit(folder, null);
             // Every *other* refusal ends here rather than in the cache. The
             // line above is one too, and keeps its own answer — a folder that
             // is gone should stop existing rather than be redrawn from the
@@ -942,20 +979,12 @@ export function useFileBrowser(options: {
             const cached = await offline.cachedListing(folder);
             if (cached !== null) {
               servedFromCache = true;
-              return [folder, cached.value] as const;
+              return commit(folder, cached.value);
             }
             throw error;
           }
         }),
       );
-      setListings((current) => {
-        const next = { ...current };
-        for (const [folder, page] of pages) {
-          if (page === null) delete next[folder];
-          else next[folder] = page;
-        }
-        return next;
-      });
       return { servedFromCache };
     },
     [listFiles, workspaceId],
@@ -1572,8 +1601,37 @@ export function useFileBrowser(options: {
         /** The exact inverse, offered for `TOAST_MS` beside `message`. */
         undo?: () => void;
       }>,
+      /**
+       * Put the screen back, for an operation that was drawn before it was
+       * sent.
+       *
+       * `move`, `rename` and `createFolder` repaint the tree on the press and
+       * then send the mutation, because waiting two round trips to move a row
+       * six pixels is what made the console feel broken (`optimistic.ts`).
+       * Everything that follows from that is here: exactly one of the four
+       * exits below is "it happened", and the other three have to undo the
+       * drawing.
+       *
+       * It is the *inverse operation* rather than a snapshot restore. A
+       * snapshot taken before the send would also roll back whatever landed
+       * while it was in flight — a background refresh, another folder's
+       * listing, a note somebody saved — and a rollback that quietly reverts
+       * an unrelated fact is worse than the stale row it is fixing.
+       */
+      revert?: () => void,
     ): Promise<boolean> => {
-      if (!options.canEdit || workspaceId === null) return false;
+      if (!options.canEdit || workspaceId === null) {
+        /*
+          Reverted, and this is not theoretical. A read-only console keeps all
+          fourteen mutating methods — `menu.ts` opens by saying so, and
+          `useDemoFileBrowser` sets every one of them to a no-op — so a call
+          that slips past `canEdit` reaches here rather than throwing. Before
+          the drawing existed that was a silent no-op; now it would be a row
+          left sitting at a path nothing will ever write.
+        */
+        revert?.();
+        return false;
+      }
       /*
         Known offline, it is not sent at all. Every `work()` here awaits a
         Convex action with no client-side timeout, so the alternative is
@@ -1586,6 +1644,7 @@ export function useFileBrowser(options: {
       if (offlineRef.current.reachability === "offline") {
         setToasts([]);
         setNotice(NEEDS_CONNECTION);
+        revert?.();
         return false;
       }
       operationRun.current += 1;
@@ -1605,17 +1664,30 @@ export function useFileBrowser(options: {
         },
       );
 
-      // Superseded: something newer owns the toolbar now. Leave it alone.
+      /*
+        Superseded: something newer owns the toolbar now. Leave it alone — and
+        that includes not reverting, because the drawing on screen is the
+        newer operation's and undoing it would corrupt a listing this call has
+        no claim on any more. The abandoned mutation is still in flight and its
+        own refresh is what settles the truth.
+      */
       if (operationRun.current !== mine) return false;
 
       if (settled.kind === "timeout") {
         setBusy(false);
         setNotice(TIMED_OUT_MESSAGE);
+        /*
+          Deliberately NOT reverted. A timeout is "no answer yet", not "it did
+          not happen" — the socket may still deliver, and `TIMED_OUT_MESSAGE`
+          says exactly that. Putting the row back would state the opposite. The
+          refresh the next navigation or expand performs is what resolves it.
+        */
         return false;
       }
       if (settled.kind === "failed") {
         setBusy(false);
         setNotice(toFileError(settled.error).message);
+        revert?.();
         return false;
       }
 
@@ -1625,9 +1697,18 @@ export function useFileBrowser(options: {
       let listingReloaded = true;
       try {
         const reloaded = await refresh(
+          /*
+            `listingsRef` and not the closed-over `listings`. A folder move
+            re-keys its subtree the moment it is pressed (`optimistic.ts`), so
+            the folders a `cascadeFrom` has to reload are the ones keyed under
+            the *destination* — and the render this callback was built in only
+            ever saw them under the source. Reading the ref also stops `run`
+            being rebuilt on every listing that lands, which is a new callback
+            identity for each of the nineteen operations that close over it.
+          */
           foldersToRefresh(result.touched, {
             cascadeFrom: result.cascadeFrom,
-            loaded: Object.keys(listings),
+            loaded: Object.keys(listingsRef.current),
           }),
         );
         // A listing served off the device is the tree as it was *before* this
@@ -1653,7 +1734,7 @@ export function useFileBrowser(options: {
       }
       return true;
     },
-    [listings, options.canEdit, refresh, workspaceId],
+    [options.canEdit, refresh, workspaceId],
   );
 
   /**
@@ -2276,6 +2357,85 @@ export function useFileBrowser(options: {
     [listings],
   );
 
+  /* ------------------------------------------------------------------ */
+  /*                     drawing it before sending it                    */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * Move a row on screen now, and hand back the undo `run` needs.
+   *
+   * The complaint this answers is in `optimistic.ts`: a rename or a drag used
+   * to await `moveEntry` and then a `listFiles` per touched folder before one
+   * pixel changed, and for a folder it then collapsed the subtree, because the
+   * listings under it were still keyed at a path the bucket no longer had.
+   *
+   * Three things move together, and they have to be one function or they come
+   * apart: the listings, the set of expanded folders, and the selection. The
+   * middle one is the whole of "the tree does not collapse" — `expanded` names
+   * paths, so a folder renamed without re-keying it is a folder that was open
+   * and is now shut.
+   *
+   * The selection is deliberately *closed* rather than followed when it is
+   * inside what moved. Following it means reading the note again at its new
+   * path, and `move` has always closed the editor for the folder it was given;
+   * a note three levels down is the same event and gets the same answer. An
+   * open tab left pointing at a path the bucket no longer has is the bug this
+   * replaces, not the behaviour it keeps.
+   */
+  const drawListingMove = useCallback(
+    (from: string, to: string): (() => void) => {
+      setListings((current) => applyMove(current, from, to));
+      setExpanded((current) => rekeyPaths(current, from, to));
+      return () => {
+        setListings((current) => applyMove(current, to, from));
+        setExpanded((current) => rekeyPaths(current, to, from));
+      };
+    },
+    [],
+  );
+
+  /** `drawListingMove`, and the selection closed if it travelled with it. */
+  const drawMove = useCallback(
+    (from: string, to: string): (() => void) => {
+      const undo = drawListingMove(from, to);
+      const selected = selectedPathRef.current;
+      if (selected !== null && rekeyPath(selected, from, to) !== selected) {
+        setSelectedPath(null);
+        dispatch({ type: "closed" });
+      }
+      return undo;
+    },
+    [drawListingMove],
+  );
+
+  /**
+   * Which folders a move has to reload, and whether its subtree cascades.
+   *
+   * A note touches two folders and nothing else. A **folder** carries every
+   * path beneath it into a different place in `privacy.md`, so the defaults
+   * its contents inherit can change — and `applyMove` deliberately does not
+   * recompute those, because guessing a visibility is how a console comes to
+   * tell somebody a shared note is private. The re-keyed subtree is what makes
+   * the screen right *now*; `cascadeFrom` is what makes it true, folder by
+   * folder, as `refresh` commits each page.
+   */
+  const moveResult = useCallback((from: string, to: string) => {
+    /*
+      `listingsRef` and not the closed-over `listings`, and the call site has
+      to make it **before** `drawMove` — the drawing re-keys the subtree, and a
+      verdict taken after it would find nothing under `from` and quietly skip
+      the cascade. That is exactly what an *undo* does, which is the path this
+      was wrong on: moving a folder back left its contents drawn with the
+      visibility the destination gave them.
+    */
+    const loaded = listingsRef.current;
+    const known = findEntry(loaded, from);
+    const isFolder = known === null ? !isMarkdown(from) : known.kind === "folder";
+    return isFolder && subtreeOf(loaded, from).length > 0
+      ? { touched: [from, to], cascadeFrom: to }
+      : { touched: [from, to] };
+  }, []);
+
   /**
    * Rename or move a note through the queue. Shared by `rename` and `move`,
    * which differ only in where the note ends up and what the toast says.
@@ -2434,10 +2594,22 @@ export function useFileBrowser(options: {
         queuedToast(`New folder ${withoutSortPrefix(name)}. Waiting to sync.`, queued.undo);
         return;
       }
-      void run(async () => {
-        await createDirectory({ workspaceId: workspaceId!, path });
-        return { touched: [path, joinPath(path, "README.md")] };
-      });
+      /*
+        Drawn before it is sent, like a move — see `optimistic.ts`. A new
+        folder used to appear only after `createDirectory` and the two listing
+        reads that followed it, so pressing "New folder" and typing a name got
+        you an unchanged tree and then, a beat later, a folder. The offline arm
+        above has always drawn it immediately (`queueFolder`, through
+        `overlay.ts`); this is the online arm finally doing the same thing.
+      */
+      setListings((current) => applyFolderCreate(current, path));
+      void run(
+        async () => {
+          await createDirectory({ workspaceId: workspaceId!, path });
+          return { touched: [path, joinPath(path, "README.md")] };
+        },
+        () => setListings((current) => undoFolderCreate(current, path)),
+      );
       setExpanded((current) => new Set([...current, path]));
     },
     [createDirectory, listings, options.canEdit, queuedToast, run, workspaceId],
@@ -2454,29 +2626,33 @@ export function useFileBrowser(options: {
       const to = joinPath(destinationFolder, path.slice(path.lastIndexOf("/") + 1));
       const from = parentPath(path);
       if (viaQueue(path)) return queueMoveOf(path, to, `Moved to ${folderLabel(destinationFolder)}.`);
+      const result = moveResult(path, to);
+      const undoDraw = drawMove(path, to);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         return {
-          touched: [path, to],
+          ...result,
           message: `Moved to ${folderLabel(destinationFolder)}.`,
           // `moveEntry` is its own inverse — the same action with the ends
           // swapped — so this is the real operation and not a re-derivation of
           // it. It goes through `run` for the same reason the move did: a
           // failure has to reach the notice line, and the tree has to reload.
           undo: () => {
-            void run(async () => {
-              await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
-              return { touched: [to, path], message: `Moved back to ${folderLabel(from)}.` };
-            });
+            // Verdict first — see `moveResult`.
+            const back = moveResult(to, path);
+            const undoUndo = drawMove(to, path);
+            void run(
+              async () => {
+                await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
+                return { ...back, message: `Moved back to ${folderLabel(from)}.` };
+              },
+              undoUndo,
+            );
           },
         };
-      });
-      if (selectedPath === path) {
-        setSelectedPath(null);
-        dispatch({ type: "closed" });
-      }
+      }, undoDraw);
     },
-    [listings, moveEntry, queueMoveOf, run, selectedPath, viaQueue, workspaceId],
+    [drawMove, listings, moveEntry, moveResult, queueMoveOf, run, viaQueue, workspaceId],
   );
 
   /* ------------------------------------------------------------------ */
@@ -2641,16 +2817,35 @@ export function useFileBrowser(options: {
       const to = joinPath(folder, name);
       const was = baseName(path);
       if (viaQueue(path)) return queueMoveOf(path, to, `Renamed to ${name}.`);
+      const result = moveResult(path, to);
+      /*
+        A rename of the OPEN note follows the editor rather than closing it,
+        which is why `drawMove` is not used here and the listings are moved on
+        their own. `drawMove` closes a selection that travelled — correct for a
+        move, where you asked for the row to go somewhere else, and wrong for a
+        rename, where you asked for the thing you are reading to be called
+        something else and expect to go on reading it.
+
+        Renaming a *folder* you have a note open inside is the move case and
+        gets `drawMove`'s answer: the path changed under the editor and there
+        is nothing sensible to keep it pointed at.
+      */
+      const renamedInPlace = selectedPath === path;
+      const undoDraw = renamedInPlace ? drawListingMove(path, to) : drawMove(path, to);
       void run(async () => {
         await moveEntry({ workspaceId: workspaceId!, from: path, to });
         return {
-          touched: [path, to],
+          ...result,
           message: `Renamed to ${name}.`,
           undo: () => {
+            // Verdict first — see `moveResult`.
+            const backResult = moveResult(to, path);
+            const open = selectedPathRef.current === to;
+            const undoUndo = open ? drawListingMove(to, path) : drawMove(to, path);
             void run(async () => {
               await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
-              return { touched: [to, path], message: `Renamed back to ${was}.` };
-            }).then((ok) => {
+              return { ...backResult, message: `Renamed back to ${was}.` };
+            }, undoUndo).then((ok) => {
               // The editor follows the file, in both directions. Without this
               // an undone rename left the open tab pointing at a path the
               // bucket no longer has.
@@ -2658,11 +2853,30 @@ export function useFileBrowser(options: {
             });
           },
         };
-      }).then((ok) => {
-        if (ok && selectedPath === path) select(to);
+      }, undoDraw).then((ok) => {
+        /*
+          The listing is renamed on the press; the *editor* is not, and this
+          stays where it was — after the server said yes. `select` reads the
+          note at its new path, and that path does not exist until `moveEntry`
+          returns, so moving this earlier would fetch a 404 and close the note
+          somebody is reading.
+        */
+        if (ok && renamedInPlace) select(to);
       });
     },
-    [listings, moveEntry, queueMoveOf, run, select, selectedPath, viaQueue, workspaceId],
+    [
+      drawListingMove,
+      drawMove,
+      listings,
+      moveEntry,
+      moveResult,
+      queueMoveOf,
+      run,
+      select,
+      selectedPath,
+      viaQueue,
+      workspaceId,
+    ],
   );
 
   const duplicate = useCallback(

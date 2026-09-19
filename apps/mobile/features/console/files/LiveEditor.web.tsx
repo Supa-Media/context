@@ -763,16 +763,32 @@ export function LiveEditor({
       because the guest reports its focus over the bridge instead — the two
       surfaces answer the same prop by different routes, and that route is the
       only part of this the two halves do not share. `guest.ts` attaches the
-      identical pair to the identical `contentDOM`.
+      identical pair to the identical element, and its comment carries the
+      argument for which pair: a table cell is `contenteditable` DOM of a
+      widget's, so a caret in a grid is a caret in the note and `contentDOM`
+      does not have focus. `focusin` and `focusout` bubble; `focus` and `blur`
+      do not.
 
       Read off the ref rather than closed over, exactly like `onChange` above
       and for the same reason: this view is built once and would otherwise
       report to the first render's callbacks forever.
     */
-    const reportFocus = () => handlers.current.onFocus?.();
-    const reportBlur = () => handlers.current.onBlur?.();
-    created.contentDOM.addEventListener("focus", reportFocus);
-    created.contentDOM.addEventListener("blur", reportBlur);
+    let focused = false;
+    const reportFocus = () => {
+      if (focused) return;
+      focused = true;
+      handlers.current.onFocus?.();
+    };
+    const reportBlur = (event: FocusEvent) => {
+      // Moving from one cell to the next is not leaving the note.
+      const to = event.relatedTarget;
+      if (to instanceof Node && created.dom.contains(to)) return;
+      if (!focused) return;
+      focused = false;
+      handlers.current.onBlur?.();
+    };
+    created.dom.addEventListener("focusin", reportFocus);
+    created.dom.addEventListener("focusout", reportBlur);
 
     /**
      * Right-click over the note body.
@@ -906,8 +922,8 @@ export function LiveEditor({
 
     return () => {
       handlers.current.controls?.(null);
-      created.contentDOM.removeEventListener("focus", reportFocus);
-      created.contentDOM.removeEventListener("blur", reportBlur);
+      created.dom.removeEventListener("focusin", reportFocus);
+      created.dom.removeEventListener("focusout", reportBlur);
       created.contentDOM.removeEventListener("contextmenu", onContextMenu);
       created.destroy();
       view.current = null;
@@ -1086,8 +1102,13 @@ export function LiveEditor({
     if (current === null || current.state.readOnly) return;
     // `rows` counts the header, which is the row the grid drew; the command
     // takes body rows. The subtraction lives here, once.
-    insertTable(current, rows - 1, columns);
-    current.focus();
+    /*
+      The grid is drawn by the same transaction, and `insertTable` puts the
+      caret in its first cell. Focusing the editor after that would take the
+      caret straight back out of the cell — which is what it did, until a real
+      browser typed into a table nobody was in.
+    */
+    if (!insertTable(current, rows - 1, columns)) current.focus();
   }, []);
   const closeTablePicker = useCallback(() => setTableAt(null), []);
 

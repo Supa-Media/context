@@ -1,5 +1,5 @@
-import { useCallback, useState } from "react";
-import { Pressable, StyleSheet, View, type GestureResponderEvent } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { floatingStackBottom, useBottomChromeHeight } from "../app/bottomChrome";
 import { Icon } from "../design/components/Icon";
@@ -45,6 +45,8 @@ export function CreateButton({
   compact,
   onNewMeeting,
   onNewNote,
+  onNewDrawing,
+  onNewFolder,
   onNewChat,
   bottomInset = 0,
 }: {
@@ -52,7 +54,22 @@ export function CreateButton({
   compact: boolean;
   onNewMeeting: () => void;
   onNewNote: () => void;
-  /** `null` where there is no panel for a conversation to open in. */
+  onNewDrawing: () => void;
+  onNewFolder: () => void;
+  /**
+   * Start a conversation, or `null` where one cannot be had.
+   *
+   * Three reasons it is `null`, and the third is the one that changed: no
+   * panel to answer in (a phone), no engine behind it (the demo console), and
+   * **no model key on this context**. A key is what makes the agent able to
+   * answer at all, so offering the row without one is an offer that opens a
+   * composer and errors on the first send — the shape this repo refuses
+   * everywhere else as "a control that appears to work and does nothing".
+   *
+   * The console reads it from `ConsoleData.modelConnected`, which is
+   * `undefined` until the subscription answers: absent, then present, rather
+   * than present, then taken away.
+   */
   onNewChat: (() => void) | null;
   /**
    * The safe area under this edge, as `VoiceButton` took it and for the same
@@ -69,29 +86,60 @@ export function CreateButton({
     somebody else's floating control is a control that eats their presses.
   */
   const bottom = floatingStackBottom(bottomInset, useBottomChromeHeight());
-  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [open, setOpen] = useState(false);
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | undefined>(undefined);
+  const buttonRef = useRef<View>(null);
 
-  const open = useCallback((event: GestureResponderEvent) => {
-    /*
-      Where the press landed, which is what the web menu anchors its popover to
-      — the same handoff the file tree's right-click makes. On touch the anchor
-      is ignored and the sheet comes from the bottom edge, so a missing
-      `pageX`/`pageY` costs nothing: `Menu` falls back to its own margin.
-    */
-    const { pageX, pageY } = event.nativeEvent;
-    setAnchor({ x: pageX, y: pageY });
+  /**
+   * The button's own top-right corner, not the point the pointer landed on.
+   *
+   * **This was `event.nativeEvent.pageX/pageY`, and the browser showed what
+   * that costs.** `place()` puts a popover's top-left at the anchor and flips
+   * rather than clips — so anchored at a press inside a 56pt button sitting
+   * against the bottom-right of the window, the menu flipped to *end* at the
+   * pointer: its lower half lay across the top half of the `+`, with the
+   * button drawn over it. Nothing measured that; a screenshot of the running
+   * board did.
+   *
+   * Anchoring on the trigger instead makes both flips land where the design
+   * draws them: the right edge flush with the button's, and the bottom edge
+   * `GAP` above it. `measureInWindow` at press time rather than a value kept
+   * from layout, exactly as `AccountBlock`'s menu trigger does it — anything
+   * that scrolls under a control makes a remembered position a stale one.
+   *
+   * Touch never reads it: `Menu` draws a sheet from the bottom edge there.
+   *
+   * **The menu opens outside the measurement, not inside its callback.**
+   * `measureInWindow` is the host's, it answers asynchronously, and under
+   * jsdom it never answers at all — so a version that opened the menu in the
+   * callback was a button that did nothing wherever the measurement did not
+   * land. `AccountBlock`'s trigger is written this way for the same reason:
+   * the anchor is a *hint*, and `Menu` falls back to its own margin without
+   * one.
+   */
+  const press = useCallback(() => {
+    buttonRef.current?.measureInWindow((x, y, width) => {
+      setAnchor({ x: x + width, y: y - GAP });
+    });
+    setOpen(true);
   }, []);
 
-  const dismiss = useCallback(() => setAnchor(null), []);
+  const dismiss = useCallback(() => {
+    setOpen(false);
+    setAnchor(undefined);
+  }, []);
 
   const choose = useCallback(
     (id: string) => {
-      setAnchor(null);
+      setOpen(false);
+      setAnchor(undefined);
       if (id === "new-meeting") onNewMeeting();
       if (id === "new-note") onNewNote();
+      if (id === "new-drawing") onNewDrawing();
+      if (id === "new-folder") onNewFolder();
       if (id === "new-chat") onNewChat?.();
     },
-    [onNewChat, onNewMeeting, onNewNote],
+    [onNewChat, onNewDrawing, onNewFolder, onNewMeeting, onNewNote],
   );
 
   if (compact) return null;
@@ -99,20 +147,21 @@ export function CreateButton({
   return (
     <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
       <Pressable
-        onPress={open}
+        ref={buttonRef}
+        onPress={press}
         role="button"
         accessibilityLabel="Create"
         aria-haspopup="menu"
-        aria-expanded={anchor !== null}
+        aria-expanded={open}
         testID="console-create"
-        style={({ pressed }) => [styles.fab, (pressed || anchor !== null) && styles.fabActive]}
+        style={({ pressed }) => [styles.fab, (pressed || open) && styles.fabActive]}
       >
-        <Icon name="plus" size={23} color={anchor !== null ? colors.ink : colors.accent} />
+        <Icon name="plus" size={23} color={open ? colors.ink : colors.accent} />
       </Pressable>
 
-      {anchor === null ? null : (
+      {!open ? null : (
         <Menu<string>
-          anchor={anchor}
+          {...(anchor === undefined ? {} : { anchor })}
           title="Create"
           items={[
             {
@@ -125,7 +174,22 @@ export function CreateButton({
               */
               detail: "Records into your inbox, in the panel.",
             },
-            { id: "new-note", label: "New note", detail: "In the folder you have selected." },
+            /*
+              The three things that end up as files, grouped behind a rule:
+              they share a destination — the folder you have selected — and
+              they share a dialog, which is the naming prompt the tree's own
+              `+` raises. A meeting is above them because it starts a
+              *recording* rather than a file, and a conversation is below
+              because it makes nothing at all.
+            */
+            {
+              id: "new-note",
+              label: "New note",
+              detail: "In the folder you have selected.",
+              separatorBefore: true,
+            },
+            { id: "new-drawing", label: "New drawing", detail: "An Excalidraw canvas." },
+            { id: "new-folder", label: "New folder" },
             ...(onNewChat === null
               ? []
               : [
@@ -133,6 +197,7 @@ export function CreateButton({
                     id: "new-chat",
                     label: "New chat",
                     detail: "Ask about this note, or your whole context.",
+                    separatorBefore: true,
                   },
                 ]),
           ]}
@@ -143,6 +208,9 @@ export function CreateButton({
     </View>
   );
 }
+
+/** Air between the button and the menu it opens. `layout.floatingInset`'s. */
+const GAP = 12;
 
 const makeStyles = (colors: Colors, shadows: Shadows) =>
   StyleSheet.create({
