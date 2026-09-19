@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Slot, useRouter, usePathname } from "expo-router";
 import { checkoutOutcomeFrom } from "@context/shared";
 import { SettingsOverlay } from "../../../features/console/settings/SettingsOverlay";
@@ -16,6 +16,7 @@ import { ToastHost } from "../../../features/design/components/Toast";
 import { layout, radii } from "../../../features/design/tokens";
 import { useThemedStyles, type Colors } from "../../../features/design/theme";
 import { AppFrame, FrameIconButton, useFrame } from "../../../features/app/AppFrame";
+import { asideToggleFor } from "../../../features/app/frame";
 import { setReadMode, useReadMode } from "../../../features/console/files/readMode";
 import { useOptionalGlobalSearchParams, useOptionalLocalSearchParams } from "../../../features/app/useOptionalLocalSearchParams";
 import { densityFor } from "../../../features/app/frame";
@@ -614,6 +615,15 @@ export default function ConsoleLayout() {
   */
   const liveMeeting = useMeetingsSnapshot().live;
   const openNote = useOpenNote();
+  /**
+   * A question handed over from ⌘K, if one has been.
+   *
+   * The counter is the event rather than the text — see `AsidePanel`, which
+   * explains it where it is read. Held here rather than inside the panel
+   * because the palette is a sibling of it: both are children of the frame,
+   * and this layout is the one thing above both.
+   */
+  const [asked, setAsked] = useState<{ text: string; at: number } | null>(null);
 
   const agentEngine = useAgentEngine({
     workspaceId: data.selectedContextId,
@@ -1006,6 +1016,7 @@ export default function ConsoleLayout() {
                 meetingLive: liveMeeting !== null,
                 query: null,
               })}
+              asked={asked}
               onOpenMeeting={data.demo ? null : (id) => router.push(meetingHref(id))}
             />
           )
@@ -1436,6 +1447,9 @@ export default function ConsoleLayout() {
         />
 
         {paletteOpen ? (
+          <PaletteWithAsk
+            onAsked={(query) => setAsked({ text: query, at: Date.now() })}
+            render={(onAskAgent, askable) => (
           <Palette
             items={paletteItems}
             placeholder="Search this context"
@@ -1468,11 +1482,32 @@ export default function ConsoleLayout() {
               setPaletteOpen(false);
               router.push(searchHref(query));
             }}
+            /*
+              The other handoff: hand the words to the agent instead of to
+              search, and open the panel they are answered in.
+
+              Offered only where there is a panel to answer in — a phone has
+              none (`asideToggleFor`), and the demo console has no engine — so
+              the row is absent there rather than pressable and inert. `at` is
+              a timestamp because it only has to be *different* each time; the
+              panel keys its send on the change, so asking the same thing
+              twice is two turns.
+            */
+            onAsk={
+              askable
+                ? (query) => {
+                    setPaletteOpen(false);
+                    onAskAgent(query);
+                  }
+                : undefined
+            }
             onChoose={(item) => {
               setPaletteOpen(false);
               data.files.select(item.id);
             }}
             onDismiss={() => setPaletteOpen(false)}
+          />
+            )}
           />
         ) : null}
         {/*
@@ -1511,6 +1546,48 @@ export default function ConsoleLayout() {
  * leaves the browser's own behaviour alone — that is why `preventDefault` is
  * conditional on a `true` in the first place.
  */
+/**
+ * The palette, with a way to reach the right panel.
+ *
+ * A component and not three lines in the layout, because opening the panel is
+ * the frame's command and `useFrame` only answers *inside* `AppFrame` — and
+ * the layout is above it. `Shortcuts` below exists for the same reason.
+ *
+ * `render` takes what the palette needs rather than this rendering it, so the
+ * palette's own long prop list stays where a reader of the layout can see it.
+ * `askable` is false where there is no panel for an answer to land in, and the
+ * row is then absent rather than inert: `onAsk` being undefined is what
+ * `askItem` reads.
+ */
+function PaletteWithAsk({
+  onAsked,
+  render,
+}: {
+  onAsked: (query: string) => void;
+  render: (onAskAgent: (query: string) => void, askable: boolean) => ReactNode;
+}) {
+  const frame = useFrame();
+  /*
+    Whether there is a panel to answer in. `Regions.aside` is `hidden` at every
+    compact state, and `asideToggleFor` is what decides that — asked here
+    rather than re-derived from a width, for the reason that function exists.
+  */
+  const askable = asideToggleFor(frame.density) !== null;
+
+  const onAskAgent = useCallback(
+    (query: string) => {
+      // Opened before the question is handed over, so the panel is mounted to
+      // receive it. A no-op where `askable` is false, which is the same guard
+      // from the other side.
+      if (!frame.state.asideOpen) frame.toggleAside();
+      onAsked(query);
+    },
+    [frame, onAsked],
+  );
+
+  return <>{render(onAskAgent, askable)}</>;
+}
+
 function Shortcuts({
   files,
   tabs,

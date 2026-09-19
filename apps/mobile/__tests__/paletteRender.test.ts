@@ -917,3 +917,131 @@ describe("a shed note's caveat", () => {
     palette.unmount();
   });
 });
+
+/* -------------------------------------------------------------------------- */
+/*                        the handoff to the agent                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * "Ask about…", and the one thing it must never do.
+ *
+ * The palette is a navigator first. Somebody typing `pricing` almost always
+ * wants the note, and a row that answers a question costs a model call, several
+ * seconds and somebody's money — so it must never be what Enter reaches by
+ * accident. **The ordering is the whole guard**: the cursor rests on the first
+ * row, this is the last one, and the tests below are about that rather than
+ * about the row's copy.
+ *
+ * The case where an answer is the right default — nothing matched — needs no
+ * rule of its own, and the test for it says why: the two handoffs are then the
+ * only rows, `See all` is still first, and somebody who wanted an answer
+ * presses ↓ once.
+ *
+ * ## Sabotage record
+ *
+ * Applied, suite run, named test observed failing, reverted.
+ *
+ *  1. The two handoff rows swapped, so Ask comes before See all.
+ *     → **2 fail**: `with nothing matching, search is still what Enter
+ *     reaches` and `it is the last row of all`.
+ *  2. `askItem` returning a row for an empty query.
+ *     → **1 fails**: `absent for an empty query, which is not a question`.
+ *  3. The `ASK_ID` arm added to `onChoose` instead of to `choose`, which is
+ *     the shape the `See all` record already names for its own row.
+ *     → **1 fails**: `the note it names, not the row, is what Enter opens
+ *     elsewhere` — the *existing* one, which is the useful part: a second
+ *     handoff intercepted in the wrong place breaks the first one's guarantee
+ *     rather than its own.
+ */
+describe("asking instead of navigating", () => {
+  test("the row is absent with nobody to ask", () => {
+    const palette = mount(DESKTOP);
+    palette.type("note");
+    expect(palette.rowLabels().join(" ")).not.toContain("Ask about");
+    palette.unmount();
+  });
+
+  test("absent for an empty query, which is not a question", () => {
+    const palette = mount(DESKTOP, { onAsk: () => {} });
+    expect(palette.rowLabels().join(" ")).not.toContain("Ask about");
+    palette.unmount();
+  });
+
+  test("it is the last row of all", () => {
+    const palette = mount(DESKTOP, { onAsk: () => {}, onSeeAll: () => {} });
+    palette.type("note");
+
+    const labels = palette.rowLabels();
+    expect(labels[labels.length - 1]).toContain("Ask about “note”");
+    // ...and search is the row above it, not below.
+    expect(labels[labels.length - 2]).toContain("See all results");
+    palette.unmount();
+  });
+
+  test("the keyboard reaches it, and hands over what was typed", () => {
+    const asked: string[] = [];
+    const palette = mount(DESKTOP, { onAsk: (query: string) => asked.push(query) });
+    palette.type("what did we decide about pricing");
+
+    // Up from the top wraps onto the last row, which is this one.
+    palette.press("ArrowUp");
+    palette.press("Enter");
+
+    expect(asked).toEqual(["what did we decide about pricing"]);
+    expect(palette.chosen).toEqual([]);
+    palette.unmount();
+  });
+
+  /**
+   * The guard, stated as the thing that would be silent. An implementation
+   * that made Enter always ask looks correct in a demo where nobody has
+   * pressed ↓ — and costs a model call on every note somebody opens.
+   */
+  test("Enter on a note still opens the note", () => {
+    const asked: string[] = [];
+    const palette = mount(DESKTOP, { onAsk: (query: string) => asked.push(query) });
+    palette.type("note");
+    palette.press("Enter");
+
+    expect(asked).toEqual([]);
+    expect(palette.chosen.map((item) => item.id)).toEqual(["3-resources/notes-on-storage.md"]);
+    palette.unmount();
+  });
+
+  test("with nothing matching, search is still what Enter reaches", () => {
+    const asked: string[] = [];
+    const seen: string[] = [];
+    const palette = mount(DESKTOP, {
+      onAsk: (query: string) => asked.push(query),
+      onSeeAll: (query: string) => seen.push(query),
+      noMatchMessage: "Nothing loaded matches that.",
+    });
+    palette.type("ikenna");
+
+    expect(palette.rowLabels()).toHaveLength(2);
+    palette.press("Enter");
+    expect(seen).toEqual(["ikenna"]);
+    expect(asked).toEqual([]);
+
+    // ...and one press down is the whole cost of the other answer.
+    palette.press("ArrowDown");
+    palette.press("Enter");
+    expect(asked).toEqual(["ikenna"]);
+    palette.unmount();
+  });
+
+  test("a press works as well as a keystroke", () => {
+    const asked: string[] = [];
+    const palette = mount(DESKTOP, { onAsk: (query: string) => asked.push(query) });
+    palette.type("pricing");
+    const rows = palette.all('[data-testid^="palette-row-"]');
+    const last = rows[rows.length - 1]!;
+    act(() => {
+      last.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      last.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      last.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(asked).toEqual(["pricing"]);
+    palette.unmount();
+  });
+});

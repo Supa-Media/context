@@ -81,7 +81,20 @@ afterEach(() => {
   mockLive = null;
 });
 
-function mount(options: { onOpenMeeting?: ((id: string) => void) | null } = {}) {
+/** Let the stub engine's promise resolve and React commit the answer. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+function mount(
+  options: {
+    onOpenMeeting?: ((id: string) => void) | null;
+    asked?: { text: string; at: number } | null;
+  } = {},
+) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
@@ -94,6 +107,7 @@ function mount(options: { onOpenMeeting?: ((id: string) => void) | null } = {}) 
       createElement(AsidePanel, {
         engine: createStubEngine(),
         place: PLACE,
+        asked: options.asked ?? null,
         onOpenMeeting: options.onOpenMeeting === undefined ? () => {} : options.onOpenMeeting,
       }),
     );
@@ -177,6 +191,45 @@ describe("a meeting, while you are looking elsewhere", () => {
     mockLive = null;
     const quiet = mount();
     expect(quiet.find("aside-tab-meetings")?.getAttribute("aria-label")).toBe("Meetings");
+  });
+});
+
+describe("a question handed over from ⌘K", () => {
+  /**
+   * The panel opens with the answer already arriving, which is the whole
+   * point of the palette row: somebody has already typed the words, and
+   * making them type them again is the reason nobody uses a second box.
+   */
+  test("it is asked, without anybody typing it again", async () => {
+    const panel = mount({ asked: { text: "what did we decide about pricing?", at: 1 } });
+    await settle();
+
+    expect(panel.text()).toContain("what did we decide about pricing?");
+    expect(panel.find("agent-turn-person")).not.toBeNull();
+    // The stub answers by describing the room, so a reply landed too.
+    expect(panel.find("agent-turn-agent")).not.toBeNull();
+  });
+
+  /**
+   * A question arriving takes the tab, where a meeting does not — and the two
+   * are not in tension. The meeting is refused because nobody asked for it;
+   * this *is* somebody asking, and landing them anywhere but the answer would
+   * be the same surprise pointed the other way.
+   */
+  test("and it takes the tab, even from a running meeting", async () => {
+    mockLive = recording();
+    const panel = mount({ asked: { text: "what is this?", at: 1 } });
+    await settle();
+
+    expect(panel.find("aside-chat")).not.toBeNull();
+    expect(panel.find("aside-meetings")).toBeNull();
+  });
+
+  test("a panel nobody asked through opens with an empty transcript", async () => {
+    const panel = mount();
+    await settle();
+    expect(panel.find("agent-turn-person")).toBeNull();
+    expect(panel.find("agent-empty")).not.toBeNull();
   });
 });
 

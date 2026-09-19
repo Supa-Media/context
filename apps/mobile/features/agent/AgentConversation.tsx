@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { PressRow } from "../design/components/Button";
 import { Icon } from "../design/components/Icon";
@@ -39,12 +39,22 @@ export const PROMPT_PLACEHOLDER = "Ask about this note, or anything in your cont
 export function AgentConversation({
   engine,
   place,
+  asked,
   style,
   onDismissed,
 }: {
   engine: AgentEngine;
   /** Where the person is, rebuilt by the host on every render. See `page.ts`. */
   place: AgentPage;
+  /**
+   * A question the host handed over, rather than one typed here.
+   *
+   * ⌘K is the caller: somebody types words into the palette and presses the
+   * Ask row, and the panel opens with the answer already arriving. The counter
+   * beside the text is what makes asking the same thing twice a second event —
+   * see `AsidePanel`, which explains it where it is built.
+   */
+  asked?: { text: string; at: number } | null;
   /** The host's own sizing — a modal caps the transcript, a column fills. */
   style?: { transcript?: object };
   /**
@@ -108,6 +118,47 @@ export function AgentConversation({
         setConversation((current) => failed(current, reasonFrom(error)));
       });
   }, [conversation, draft, engine, place]);
+
+  /**
+   * The handed-over question, sent once per handover.
+   *
+   * Keyed on the counter and not on the text, so the same words asked twice
+   * are two turns. `sendRef` is how the effect reaches the current `send`
+   * without listing it as a dependency: `send` closes over `conversation`, so
+   * it changes on every turn, and an effect depending on it would re-fire the
+   * handed-over question each time the transcript grew.
+   */
+  const sendAsked = useRef<(text: string) => void>(() => {});
+  sendAsked.current = (text: string) => {
+    const next = ask(conversation, text);
+    if (next === conversation) return;
+    setConversation(next);
+    setDraft("");
+    asking.current = true;
+    engine
+      .ask({ question: text.trim(), place })
+      .then((answer) => {
+        if (!asking.current) return;
+        asking.current = false;
+        setConversation((current) => answered(current, answer));
+      })
+      .catch((error: unknown) => {
+        if (!asking.current) return;
+        asking.current = false;
+        setConversation((current) => failed(current, reasonFrom(error)));
+      });
+  };
+
+  const askedAt = asked?.at ?? null;
+  const askedText = asked?.text ?? "";
+  useEffect(() => {
+    if (askedAt === null) return;
+    sendAsked.current(askedText);
+    // `askedText` is deliberately absent: the counter is the event, and
+    // listing the text would re-send on a re-render that happened to change it
+    // — which is the shape `asked` exists to make impossible.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [askedAt]);
 
   const ready = canAsk(conversation);
 

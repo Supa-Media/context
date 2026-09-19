@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { AgentConversation } from "../../agent/AgentConversation";
 import type { AgentEngine } from "../../agent/engine";
@@ -49,17 +49,41 @@ import {
 export function AsidePanel({
   engine,
   place,
+  asked,
   onOpenMeeting,
 }: {
   engine: AgentEngine;
   /** Where the person is, rebuilt by the console on every render. */
   place: AgentPage;
+  /**
+   * A question handed over from ⌘K, and the moment it was handed over.
+   *
+   * **A counter rides with the text, and it is not decoration.** Asking the
+   * same thing twice is an ordinary thing to do — the first answer was wrong,
+   * or the note changed — and a bare string would look unchanged the second
+   * time and send nothing. The counter is what makes "ask this again" a
+   * different event from "the panel re-rendered".
+   */
+  asked: { text: string; at: number } | null;
   /** Open the running meeting's own screen. `null` where there is nowhere to go. */
   onOpenMeeting: ((id: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>("chat");
   const showing = asideTabFor(chosen);
+
+  /*
+    A question arriving takes the tab, where a meeting does not — and the two
+    are not in tension. `tabs.ts` refuses the meeting because nobody asked for
+    it; this *is* somebody asking, in the composer's own words, and landing
+    them on a tab they did not choose to see the answer they did would be the
+    same surprise pointed the other way.
+  */
+  const askedAt = asked?.at ?? null;
+  useEffect(() => {
+    if (askedAt === null) return;
+    setChosen("chat");
+  }, [askedAt]);
 
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
@@ -118,7 +142,7 @@ export function AsidePanel({
             No `style` prop, so the transcript fills. The modal caps its own —
             see `AgentPanel` — and this is the host the cap was made a prop for.
           */}
-          <AgentConversation engine={engine} place={place} />
+          <AgentConversation engine={engine} place={place} asked={asked} />
         </View>
       ) : (
         <MeetingsTab live={live} onOpenMeeting={onOpenMeeting} />
