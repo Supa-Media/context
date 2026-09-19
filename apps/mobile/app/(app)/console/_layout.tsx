@@ -98,7 +98,11 @@ import { removalHandler } from "../../../features/console/files/access";
 import { audienceContextOf } from "../../../features/console/privacy/audience";
 import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
-import { MEETINGS_ROUTE } from "../../../features/meetings/route";
+import { MEETINGS_ROUTE, meetingHref } from "../../../features/meetings/route";
+import { AsidePanel } from "../../../features/console/aside/AsidePanel";
+import { agentPage } from "../../../features/agent/page";
+import { useOpenNote } from "../../../features/agent/openNote";
+import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
 
@@ -601,6 +605,16 @@ export default function ConsoleLayout() {
     it lives. `features/agent/useAgentEngine.ts` has the argument for why it is
     never written to the device.
   */
+  /*
+    Whether something is recording, for the panel's ambient place. Read here
+    rather than inside `AsidePanel` so that what the agent is told about the
+    room is assembled in one place — `agentPage` is that place's only builder,
+    and a second caller filling one field from a different source is how two
+    surfaces end up describing different rooms.
+  */
+  const liveMeeting = useMeetingsSnapshot().live;
+  const openNote = useOpenNote();
+
   const agentEngine = useAgentEngine({
     workspaceId: data.selectedContextId,
     endpoint: data.endpoint,
@@ -955,6 +969,47 @@ export default function ConsoleLayout() {
           Tapping a note in that drawer selected it and closed the drawer with
           no visible change at all.
         */
+        /*
+          The right panel's contents. Supplied here rather than by the pane for
+          `explorer`'s reason: it is a region of the frame, so the frame owns
+          whether it is a column or an overlay, and this owns what is in it.
+
+          **No `browsing` guard, deliberately**, where `explorer` has one. The
+          tree is about a route — Map and Connections have none — and the panel
+          is about the context, so a question asked from the Map is a question
+          about the same notes. `regionsFor` says the same thing by taking no
+          `hasExplorer` term for it.
+        */
+        aside={
+          data.demo ? undefined : (
+            <AsidePanel
+              engine={agentEngine}
+              place={agentPage({
+                context: insideContext ? current : null,
+                /*
+                  What the editor published, rather than a reference rebuilt
+                  from `selectedEntry`. A tree row carries a path and a
+                  visibility and knows nothing about the etag, the encryption
+                  or the draft — so three of the five fields would be claims,
+                  and `unsaved: false` on a note somebody is typing into is
+                  the opposite of the honesty that field exists for.
+                */
+                editor: { reference: openNote },
+                route: pathname,
+                /*
+                  Read from the store here, where `NoteEditor` passes `false`.
+                  That is not a disagreement: the editor's control returns
+                  `null` for the whole of a meeting, so its conversation cannot
+                  be on screen while one runs, and this panel's can — it is a
+                  column beside the note rather than a card over it.
+                */
+                meetingLive: liveMeeting !== null,
+                query: null,
+              })}
+              onOpenMeeting={data.demo ? null : (id) => router.push(meetingHref(id))}
+            />
+          )
+        }
         explorer={
           browsing ? (
             <Explorer
