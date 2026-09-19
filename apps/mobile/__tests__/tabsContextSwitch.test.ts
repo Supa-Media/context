@@ -134,6 +134,7 @@ function browser(
     createNote: noop,
     createDrawing: noop,
     createFolder: noop,
+    createUntitled: noop,
     rename: noop,
     move: noop,
     moveDestinations: [],

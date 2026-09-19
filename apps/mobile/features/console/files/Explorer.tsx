@@ -17,8 +17,6 @@ import {
   MovePicker,
   NamePrompt,
   NEW_FOLDER_HINT,
-  newDrawingHint,
-  newNoteHint,
 } from "./Dialogs";
 import { ShareDialog } from "./ShareDialog";
 import type { AudienceContext } from "../privacy/audience";
@@ -520,7 +518,12 @@ export function Explorer({
         <IconButton
           label="New note"
           icon="plus"
-          onPress={() => setDialog({ kind: "newNote", folder: selectedFolder })}
+          /*
+            Makes it, rather than asking what to call it. See `untitled.ts`: the
+            note arrives as `untitled-<date>` and takes the first heading typed
+            into it.
+          */
+          onPress={() => files.createUntitled(selectedFolder, "note")}
           testID="explorer-new-note"
         />
       ) : null}
@@ -864,10 +867,23 @@ export function ExplorerDialogs({
   dialog,
   onClose,
   access,
+  create,
 }: {
   files: FileBrowser;
   dialog: Dialog;
   onClose: () => void;
+  /**
+   * The two rows of the `create` sheet that are not files.
+   *
+   * Passed in because neither belongs to the file browser: a meeting is the
+   * meetings flow's and a conversation is the aside panel's, and this component
+   * is mounted by surfaces that have one, both or neither. Absent means the row
+   * is not drawn — see `CreatePrompt`.
+   */
+  create?: {
+    onNewMeeting?: (() => void) | null;
+    onNewChat?: (() => void) | null;
+  };
   /**
    * What the share dialog needs to list who can read a note, and to offer
    * groups as you type.
@@ -926,45 +942,23 @@ export function ExplorerDialogs({
       return (
         <CreatePrompt
           folder={dialog.folder}
+          canEdit={files.canEdit}
           onCancel={onClose}
-          onCreateNote={(name) => {
-            onClose();
-            files.createNote(dialog.folder, name);
-          }}
-          onCreateDrawing={(name) => {
-            onClose();
-            files.createDrawing(dialog.folder, name);
-          }}
+          /*
+            Neither of these is named. The file is made now, called
+            `untitled-<date>`, and takes the first heading typed into it —
+            `untitled.ts` has the argument. `CreatePrompt` calls `onCancel`
+            before either, so the sheet is gone by the time the editor opens on
+            the new note.
+          */
+          onCreateNote={() => files.createUntitled(dialog.folder, "note")}
+          onCreateDrawing={() => files.createUntitled(dialog.folder, "drawing")}
           onCreateFolder={(name) => {
             onClose();
             files.createFolder(dialog.folder, name);
           }}
-        />
-      );
-    case "newNote":
-      return (
-        <NamePrompt
-          title="New note"
-          description={newNoteHint(dialog.folder)}
-          confirmLabel="Create"
-          onCancel={onClose}
-          onConfirm={(name) => {
-            onClose();
-            files.createNote(dialog.folder, name);
-          }}
-        />
-      );
-    case "newDrawing":
-      return (
-        <NamePrompt
-          title="New drawing"
-          description={newDrawingHint(dialog.folder)}
-          confirmLabel="Create"
-          onCancel={onClose}
-          onConfirm={(name) => {
-            onClose();
-            files.createDrawing(dialog.folder, name);
-          }}
+          onNewMeeting={create?.onNewMeeting ?? null}
+          onNewChat={create?.onNewChat ?? null}
         />
       );
     case "newFolder":

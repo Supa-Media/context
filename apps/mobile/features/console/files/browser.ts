@@ -449,6 +449,22 @@ export interface FileBrowser {
    */
   createDrawing: (folder: string, name: string) => void;
   createFolder: (folder: string, name: string) => void;
+  /**
+   * Make one **now**, called `untitled-<date>`, and open it.
+   *
+   * The whole of "nothing asks you to name a note before you have written it".
+   * Every surface that used to raise `NamePrompt` for a new note or a new
+   * drawing calls this instead, and the name catches up on its own: the file is
+   * renamed to the document's first heading the first time that heading settles
+   * into something other than the placeholder. See `untitled.ts`.
+   *
+   * A folder is deliberately **not** one of the kinds. The argument for
+   * skipping the prompt is that the thing you are making has a title field
+   * inside it — the first line of the document — and a folder has no inside to
+   * type in. `untitled-2026-09-19/` in somebody's bucket, renameable only from
+   * a row menu, is a worse trade than one text field.
+   */
+  createUntitled: (folder: string, kind: "note" | "drawing") => void;
   rename: (path: string, name: string) => void;
   move: (path: string, destinationFolder: string) => void;
   /**

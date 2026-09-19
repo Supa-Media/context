@@ -60,6 +60,7 @@ import {
   type Place,
 } from "../../../features/console/files/history";
 import { entryAt, targetFolder } from "../../../features/console/files/tree";
+import { canCreateAnything } from "../../../features/console/files/createSheet";
 import {
   applyRowIntent,
   intentForRowCommand,
@@ -245,12 +246,18 @@ export default function ConsoleLayout() {
       !data.files.canEdit
     ) return;
     handledQuickNote.current = true;
-    // Remove the command from this history entry before opening the prompt, so
-    // a remount or a trip back through history cannot replay it.
+    // Remove the command from this history entry before acting on it, so a
+    // remount or a trip back through history cannot replay it.
     router.replace(cleanQuickNoteHref);
-    setBarDialog({ kind: "newNote", folder: "0-inbox" });
+    /*
+      Makes the note rather than raising a prompt for its name. The whole point
+      of a quick-note link is that it is one press from wherever somebody was,
+      and a modal asking what to call a note nobody has written yet is the
+      opposite of that. `untitled.ts` has the name it gets and how it loses it.
+    */
+    data.files.createUntitled("0-inbox", "note");
   }, [
-    data.files.canEdit,
+    data.files,
     data.loading,
     cleanQuickNoteHref,
     quickParams.quickAction,
@@ -655,6 +662,45 @@ export default function ConsoleLayout() {
     contexts: data.contexts,
     onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
     onStarted: hasAside ? showMeetings : undefined,
+  });
+
+  /**
+   * A FRESH CONVERSATION, OR `null` WHERE THERE IS NOWHERE FOR ONE TO GO.
+   *
+   * Defined once because two surfaces offer it now — the corner's menu and the
+   * phone's `+` sheet — and two copies of a gate is one copy that eventually
+   * disagrees with the other about when it is open.
+   *
+   * Three conditions, and the third is the owner's: a panel to answer in (so not
+   * a phone), an engine behind it (so not the demo console), and **a model key
+   * on this context** — *"new chat should be off if no LLM api key configured"*.
+   * `=== true` rather than truthiness, because `modelConnected` is `undefined`
+   * until the subscription answers and the row is better absent for that moment
+   * than offered and withdrawn.
+   */
+  const startNewChat = useMemo(
+    () =>
+      hasAside && !data.demo && data.modelConnected === true
+        ? () => {
+            const at = Date.now();
+            setOpenAsideAt(at);
+            setAsked(null);
+            setNewChatAt(at);
+          }
+        : null,
+    [data.demo, data.modelConnected, hasAside],
+  );
+  /** Recording, or `null` on a console with no controller behind one. */
+  const startMeeting = data.demo ? null : startMeetingFlow;
+  /*
+    Whether the phone's `+` has anything to offer — asked through the same
+    function that decides which rows its sheet draws, so the key and its contents
+    cannot disagree. See `files/createSheet.ts`.
+  */
+  const canCreate = canCreateAnything({
+    canEdit: data.files.canEdit,
+    chat: startNewChat !== null,
+    meeting: startMeeting !== null,
   });
 
   /**
@@ -1212,8 +1258,9 @@ export default function ConsoleLayout() {
               onStep={step}
               onSearch={() => setPaletteOpen(true)}
               onOpenRecent={() => setRecentOpen(true)}
-              onNewNote={(folder) => setBarDialog({ kind: "create", folder })}
-              onStartMeeting={startMeetingFlow}
+              onCreate={
+                canCreate ? (folder) => setBarDialog({ kind: "create", folder }) : null
+              }
             />
           ) : undefined
         }
@@ -1490,6 +1537,12 @@ export default function ConsoleLayout() {
           dialog={barDialog}
           onClose={() => setBarDialog(null)}
           /*
+            The two rows of the phone's create sheet that are not files. The same
+            handlers the corner's menu gets, so the two `+`s offer the same
+            things — see `CreatePrompt`.
+          */
+          create={{ onNewMeeting: startMeeting, onNewChat: startNewChat }}
+          /*
             The share dialog raised from the toolbar is the one a phone
             reaches, and it was drawing without the people or the groups —
             which is how it came to be three paragraphs and a keyboard. Read
@@ -1592,29 +1645,34 @@ export default function ConsoleLayout() {
           /*
             The same `targetFolder` rule the tree's own `+` and the phone's
             bottom row both use: a selected folder is the destination, anything
-            else means its parent. It raises the naming dialog rather than
-            writing a file — `ExplorerDialogs` is already mounted below for the
-            toolbar's `+`, and this is that dialog rather than a second one.
+            else means its parent.
+
+            **It writes the file rather than raising a dialog.** The prompt asked
+            for the one thing nobody has before they have written anything; the
+            note arrives called `untitled-<date>` and renames itself to the first
+            heading typed into it. See `files/untitled.ts`.
           */
           onNewNote={() =>
-            setBarDialog({
-              kind: "newNote",
-              folder: targetFolder(data.files.listings, data.files.selectedPath),
-            })
+            data.files.createUntitled(
+              targetFolder(data.files.listings, data.files.selectedPath),
+              "note",
+            )
           }
           /*
-            The other two things that land in that same folder, through the
-            same dialogs the tree's own `+` raises — `ExplorerDialogs` is
-            already mounted below for the toolbar's, and these are those rather
-            than a second set. A drawing is a note whose name ends
-            `.excalidraw`, which is `createDrawing`'s rule and not this
-            control's.
+            The other two things that land in that same folder. A drawing is made
+            on the press like the note — `untitled-<date>.excalidraw.md`, which is
+            `createUntitled`'s rule and not this control's. **The folder is the
+            one that still asks**, through the dialog the tree's own `+` raises
+            (`ExplorerDialogs` is already mounted below for the toolbar's, and
+            this is that rather than a second one): the reason a note needs no
+            prompt is that it has a title field inside it, and a folder has no
+            inside to type in.
           */
           onNewDrawing={() =>
-            setBarDialog({
-              kind: "newDrawing",
-              folder: targetFolder(data.files.listings, data.files.selectedPath),
-            })
+            data.files.createUntitled(
+              targetFolder(data.files.listings, data.files.selectedPath),
+              "drawing",
+            )
           }
           onNewFolder={() =>
             setBarDialog({
@@ -1623,27 +1681,11 @@ export default function ConsoleLayout() {
             })
           }
           /*
-            A fresh conversation in the right panel. `null` where there is no
-            panel to answer in (a phone) or no engine behind it (the demo
-            console) — absent rather than pressable and inert.
+            A fresh conversation in the right panel — `startNewChat` above, which
+            the phone's `+` sheet also gets, with the three conditions and the
+            owner's reason for the third stated there once.
           */
-          /*
-            A conversation needs three things, and the third is new: a panel to
-            answer in, an engine behind it, and **a model key on this context**
-            — without one the composer opens and the first send errors. The
-            console learns it from `modelConnected`, which is `undefined` until
-            the subscription answers, so the row is absent for that moment
-            rather than offered and withdrawn.
-          */
-          onNewChat={
-            hasAside && data.modelConnected === true
-              ? () => {
-                  setOpenAsideAt(Date.now());
-                  setAsked(null);
-                  setNewChatAt(Date.now());
-                }
-              : null
-          }
+          onNewChat={startNewChat}
         />
         )}
 

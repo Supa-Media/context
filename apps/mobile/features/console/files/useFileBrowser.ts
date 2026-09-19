@@ -87,6 +87,7 @@ import { NOT_CACHED, cachedNotice } from "../../offline/copy";
 import { KEEP_MINE_OFFLINE } from "../../offline/resolution";
 import { useConflictReview } from "./useConflictReview";
 import { findEntry, foldersToRefresh, namesIn } from "./tree";
+import { isUntitled, nameFromTitle, untitledName } from "./untitled";
 import { isGroupVisibility } from "./types";
 import {
   applyFolderCreate,
@@ -913,8 +914,10 @@ export function useFileBrowser(options: {
    * to believe.
    */
   const refresh = useCallback(
-    async (folders: readonly string[]): Promise<{ servedFromCache: boolean }> => {
-      if (workspaceId === null) return { servedFromCache: false };
+    async (
+      folders: readonly string[],
+    ): Promise<{ servedFromCache: boolean; pages: Listings }> => {
+      if (workspaceId === null) return { servedFromCache: false, pages: {} };
       const offline = offlineRef.current;
       let servedFromCache = false;
       /*
@@ -936,7 +939,20 @@ export function useFileBrowser(options: {
         it is the server's own answer for that folder and correct whatever
         happened to its neighbour.
       */
+      /*
+        The pages are kept as well as drawn, for the one caller that has to
+        *read* what it just fetched: `createUntitled` picks a name against the
+        destination's listing, and `setListings` is a state update — so
+        `listingsRef` is still the pre-fetch map when this promise resolves.
+        Every other caller wants the render and ignores this.
+
+        A folder that came back gone is recorded as `undefined` rather than left
+        out, so a caller spreading this over the map it already had drops the
+        stale entry instead of keeping it.
+      */
+      const fetched: Listings = {};
       const commit = (folder: string, page: FolderListing | null) => {
+        fetched[folder] = page ?? undefined;
         setListings((current) => {
           const next = { ...current };
           if (page === null) delete next[folder];
@@ -985,7 +1001,7 @@ export function useFileBrowser(options: {
           }
         }),
       );
-      return { servedFromCache };
+      return { servedFromCache, pages: fetched };
     },
     [listFiles, workspaceId],
   );
@@ -2575,6 +2591,66 @@ export function useFileBrowser(options: {
     [createNote],
   );
 
+  /**
+   * The notes made without a name that have not taken one yet.
+   *
+   * Session-scoped and deliberately not derived from the *name* alone. A path
+   * matching `untitled-<date>` is not enough to earn an automatic rename: a
+   * note made yesterday, opened today, whose heading somebody had already
+   * changed by hand would rename itself the moment it loaded — a file moving in
+   * somebody's bucket because they looked at it. Only a note this session
+   * created without asking for a name is a note this session may name.
+   *
+   * An entry leaves when the rename fires, so the adoption happens **once**.
+   * After that the heading and the filename are two things the person owns
+   * separately, which is how every other note in the bucket already works.
+   */
+  const awaitingTitle = useRef<Set<string>>(new Set());
+
+  /**
+   * New note, new drawing: made now, called `untitled-<date>`, opened.
+   *
+   * Delegates rather than writing, so the name checks, the collision check, the
+   * offline queue and the drawing seed are all `createNote`'s — one create in
+   * this file, whatever asked for it. What is added here is the name and the
+   * promise that the name is temporary. See `untitled.ts`.
+   */
+  const createUntitled = useCallback(
+    (folder: string, kind: "note" | "drawing") => {
+      if (!options.canEdit) return;
+      const make = (known: Listings) => {
+        const name = untitledName(known, folder, kind, new Date());
+        awaitingTitle.current.add(joinPath(folder, name));
+        createNote(folder, name);
+      };
+      /*
+        THE DESTINATION IS LOADED FIRST, AND THAT IS NOT A TIDINESS POINT.
+
+        The name is chosen against the folder's listing, and listings are fetched
+        per folder — so a destination nobody has opened reads as *empty*, and
+        every untitled note made into it is called `untitled-<date>` with no
+        suffix. The second one is then a name the bucket already has, and the
+        server's create refuses it.
+
+        That is not hypothetical: the quick-note link (`?quickAction=note`) files
+        into `0-inbox` from a widget, on a console that has loaded the root and
+        nothing else. Two captures on one day, in two launches, is the ordinary
+        use of a capture widget — and before this the second was an error
+        message.
+
+        Loaded, this is one `listFiles` the console was going to make anyway when
+        the create's own `refresh` ran. Unloaded and unreachable, the refusal
+        surfaces through `reportRefreshFailure` rather than as a note that
+        silently did not appear.
+      */
+      if (listings[folder] !== undefined) return make(listings);
+      void refresh([folder])
+        .then(({ pages }) => make({ ...listingsRef.current, ...pages }))
+        .catch(reportRefreshFailure);
+    },
+    [createNote, listings, options.canEdit, refresh, reportRefreshFailure],
+  );
+
   const createFolder = useCallback(
     (folder: string, name: string) => {
       const problem = describeNameProblem(name) ?? collision(listings, folder, name);
@@ -2878,6 +2954,61 @@ export function useFileBrowser(options: {
       workspaceId,
     ],
   );
+
+  /**
+   * AN UNTITLED NOTE TAKES THE TITLE YOU TYPE INTO IT.
+   *
+   * The other half of not asking for a name up front. `createUntitled` makes
+   * `untitled-2026-09-19.md` seeded with that same word as its heading; the
+   * person types over the heading, and this renames the file to match.
+   *
+   * ## Why it runs on a settled editor and nowhere else
+   *
+   * `clean` and `saved` are the two states where nothing is in flight: the draft
+   * is in the bucket, the etag the editor holds is the one the bucket answered
+   * with, and the autosave timer is spent. (`saved` is `clean` wearing a chip
+   * that decays — see `EditorStatus` — so excluding it would mean the rename
+   * waited on a *UI* timer, which is how it went missing the first time this was
+   * written.) Renaming at any other moment races the write: `performSave`
+   * captures the path when it is called, and a `moveEntry` that lands in between
+   * would leave a conditional write aimed at a name the bucket no longer has.
+   * There is machinery for exactly that — `serverPathOf`, which sends the queued
+   * write to the old name ahead of the rename — and the right use of it is as a
+   * safety net for the offline case rather than as the normal path for every new
+   * note in the product.
+   *
+   * A note created **offline** is `queued`, so it is not titled until its drain
+   * lands and the editor settles. That is the honest order: the bucket does not
+   * have the note yet, so there is nothing there to rename.
+   *
+   * It is a rename and not a second create, so it goes through `rename` — the
+   * collision check, the toast with its undo, and the `select(to)` that keeps
+   * the open editor pointing at the file are all that function's, once.
+   *
+   * ## What stops it running twice
+   *
+   * The path leaves `awaitingTitle` **before** the rename is asked for, so a
+   * re-render during the move cannot start a second one, and a person who
+   * rewrites the heading afterwards keeps the filename they were given. A
+   * rename that is refused therefore costs the note its automatic title and
+   * nothing else: the notice says why, and Rename is on the row menu.
+   */
+  useEffect(() => {
+    const path = editor.path;
+    if (path === null) return;
+    if (editor.status !== "clean" && editor.status !== "saved") return;
+    if (!awaitingTitle.current.has(path)) return;
+    // Belt and braces with the set above: a name that is not one of ours is
+    // never renamed, whatever the set says.
+    if (!isUntitled(path)) {
+      awaitingTitle.current.delete(path);
+      return;
+    }
+    const name = nameFromTitle(path, editor.draft);
+    if (name === null) return;
+    awaitingTitle.current.delete(path);
+    rename(path, name);
+  }, [editor.draft, editor.path, editor.status, rename]);
 
   const duplicate = useCallback(
     (path: string) => {
@@ -3734,6 +3865,7 @@ export function useFileBrowser(options: {
       createNote,
       createDrawing,
       createFolder,
+      createUntitled,
       rename,
       move,
       moveDestinations,
@@ -3792,6 +3924,7 @@ export function useFileBrowser(options: {
       createFolder,
       createNote,
       createDrawing,
+      createUntitled,
       destroy,
       discard,
       discardLocalCopies,

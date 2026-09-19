@@ -202,6 +202,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       createNote: noop,
       createDrawing: noop,
       createFolder: noop,
+      createUntitled: noop,
       rename: noop,
       move: noop,
       /*

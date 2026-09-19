@@ -6622,11 +6622,15 @@ than a capture one.
 
 **Five items in three groups.** A meeting, then a note, a drawing and a folder,
 then a chat. The middle group is a group because those three share a
-*destination* — the folder you have selected, by `targetFolder`'s rule — and
-share the naming dialog the tree's own `+` raises. A meeting sits above them
-because it starts a recording rather than a file; a conversation sits below
-because it makes nothing at all. The separators are that grouping and not
-decoration.
+*destination* — the folder you have selected, by `targetFolder`'s rule. A meeting
+sits above them because it starts a recording rather than a file; a conversation
+sits below because it makes nothing at all. The separators are that grouping and
+not decoration.
+
+They also shared a naming dialog when this was written, and two of them no longer
+do: a note and a drawing are made on the press and take their name from what is
+typed into them, and only the folder still asks. See *Nothing is named before it
+is written* below.
 
 **New chat is drawn only where the context has a model key.** The agent answers
 through a key configured on the workspace, so without one the row opens a
@@ -6697,3 +6701,110 @@ visible to any test:
 
 The lesson is the one the fixture's header already carried and had not been
 applied to a new control: a green suite is not evidence about a screen.
+
+## Nothing is named before it is written, and the phone's `+` is the only key
+
+Two things the owner asked for on 2026-09-19, in one sentence, and they are one
+decision: *"when clicking the plus, there is new note, new chat (should be off
+btw if no LLM api key configured), there should also be new folder, and new
+drawing, and then also for new note, new drawing etc should not ask you to title
+it, it should be called untitled-date, but the user should be able to title the
+note while writing in it, this should be the same for mobile, we no longer need
+a dedicated mic button on the bottom row, just a plus button that opens
+different options"*.
+
+The first half of that list is *The corner makes five things* above, and the
+chat gate with it. What follows is the rest.
+
+### A new note is never a dialog
+
+Every route into a new note used to raise `NamePrompt`: the explorer's `+`, a
+row's "New note here", ⌘N, the `?quickAction=note` widget link, and the phone's
+bottom row. **The field asked for the one thing nobody has yet.** A note is named
+after it says something, so the file is created immediately as
+`untitled-<date>.md` and the name catches up: `files/untitled.ts` reads the
+document's first heading, and `useFileBrowser` renames the file to match the
+first time that heading settles into something other than the placeholder.
+
+What a "simplification" of this would cost, in the order the mistakes are likely:
+
+- **Put the prompt back for "safety".** It is not safety. It is a modal in front
+  of the product's primary verb, and it is what made the widget link — one press
+  from anywhere — end in a text field.
+- **Rename on every heading edit rather than once.** The path is what every note
+  link, share row and offline copy is keyed by. A file that moves whenever its
+  title is edited is a file whose links rot while somebody writes. The adoption
+  happens **once**, and after that the heading and the filename are two things
+  the person owns separately, like every other note in the bucket.
+- **Rename on the keystroke, or on `dirty`.** `performSave` captures the path
+  when it is called, so a `moveEntry` that lands mid-write leaves a conditional
+  write aimed at a name the bucket no longer has. It waits for `clean` or
+  `saved` — the two states where nothing is in flight. (`saved` is `clean`
+  wearing a chip that decays, so gating on `clean` alone makes the rename wait
+  on a *UI* timer; written that way first, it never fired at all.) A note created
+  offline is `queued` and is not titled until its drain lands, which is the
+  honest order: the bucket does not have it yet.
+- **Match the *word* `untitled` rather than the date.** A note somebody genuinely
+  called "untitled thoughts" is their name for it. The date tells the two apart —
+  and on top of that only a path this session created without a name is eligible,
+  so opening an old file can never move it.
+- **Sanitize a heading into a filename.** A slash quietly turned into a folder is
+  worse than an untitled note: they can see `untitled-2026-09-19` and fix it, and
+  they cannot see that their note moved. `nameFromTitle` refuses and leaves the
+  name alone.
+- **Use UTC for the date.** A note made at 9pm in New York would be dated
+  tomorrow, on their own screen, in their own bucket.
+- **Name it without loading the destination.** Listings are fetched per folder,
+  so an unopened destination reads as *empty* and every note made into it gets
+  the same unsuffixed name. The quick-note widget files into `0-inbox` on a
+  console that has loaded the root and nothing else, so the second capture of a
+  day was a refusal from the server. `createUntitled` loads the folder first, and
+  `refresh` answers the pages it fetched as well as storing them — `setListings`
+  has not committed when its promise resolves.
+
+**A folder is the deliberate exception and still asks.** The reason a note needs
+no prompt is that it has a title field inside it — its first line — and a folder
+has no inside to type in. `untitled-2026-09-19/` in somebody's bucket, renameable
+only from a row menu they have to find, costs more than one text field.
+
+The checks are `untitledNames.test.ts` (18) and `untitledTitleAdoption.test.ts`
+(11, driven through the real hook against a fake bucket and asserting on what was
+*called*), plus the "made, not asked about" pairs in `menuActions.test.ts`,
+`rowCommands.test.ts`, `createPrompt.test.ts`, `consoleChrome.test.ts` and
+`consoleIdentityChrome.test.ts`.
+
+### The phone's bottom row is six keys, and the `+` is all of them
+
+The row's seventh key was a microphone that opened the meeting flow. It is gone,
+with the separator that marked it off, and recording is a row in the sheet the
+`+` raises — see [meetings](./meetings.md), *The seventh key became a row in the
+`+`*, for what that costs the capture route (nothing) and why.
+
+Two consequences that look like details:
+
+- **The key is unconditional where it was gated on `canEdit`.** That was right
+  while it meant *note*. A meeting is something a member of somebody else's
+  context can still start, so `canEdit` would have taken capture off every shared
+  context somebody reads. The read-only rule moved a row lower: the sheet draws
+  no Note, Drawing or Folder row without it.
+- **And `canCreateAnything` still hides the key when the sheet would have no rows
+  at all.** A `+` that opens a dialog containing one Cancel button is worse than
+  no `+`, and a read-only context on a surface with no meeting flow is exactly
+  where that happens. `files/createSheet.ts` answers both questions — which rows,
+  and whether there are any — because two answers computed in two places is how
+  the second one goes stale.
+
+`createSheet.ts` decides the **phone's** list and not the corner's. The corner's
+menu is mounted only where every row applies (the layout draws it on no
+read-only console and on no demo one), so its list is a literal with its grouping
+argument in its own comments; the sheet's is what varies. Both draw the same rows
+in the same order, and `createSheetRows.test.ts` holds the order as well as the
+conditions, because a `+` whose rows move between the phone and the desktop is
+two controls wearing one glyph.
+
+The checks are `createSheetRows.test.ts` (8), `is six keys, ending at Save, with
+no separator and no microphone` in `bottomRowWidth.test.ts` — which keeps the
+seven-key solve as a probe of `BottomBar`, the shape the geometry must survive if
+a destination is ever added back — and, in `consoleChrome.test.ts`, `the app's
+other place is a row in the + sheet, and choosing it records` and `the + offers
+the three files, and Note writes one without asking`.
