@@ -6269,3 +6269,108 @@ and the forwarding address are the other half of it`, exists for the same
 reason: `sourcesPanel.test.ts` stays green with `SourcesPanel` deleted from
 `SettingsPane` entirely, which is measured — removing that one line fails
 exactly these two checks and none of the eleven that mount the panel directly.
+
+## The tree is drawn from the press, and `privacy.md` is what it may not guess
+
+Moving or renaming a folder used to repaint nothing until `moveEntry` had
+answered *and* a `listFiles` had come back for each folder it touched. Two
+serial round trips before one pixel changed, with the row still sitting where
+it was — and the honest reading of a screen that does not react is that the
+gesture did not take, so people did it again.
+
+For a folder it was worse than slow. Listings are keyed by path, so every
+listing beneath the moved folder was still filed at a path the bucket no longer
+had, and `expanded` still named those paths too. The refresh reloaded the two
+parents and nothing else, so the subtree you had open collapsed and had to be
+re-expanded a folder at a time, each one its own request.
+
+**The console now draws the operation on the press and reconciles afterwards.**
+`files/optimistic.ts` is a pure function from the listings on screen to the
+listings after the change, with the moved folder's subtree re-keyed and carried
+across; `useFileBrowser` paints that, sends the mutation, and hands `run` the
+**inverse operation** as a rollback.
+
+The inverse and not a snapshot, and that is the part worth writing down: a
+snapshot taken before the send would also roll back whatever landed while the
+mutation was in flight — a background refresh, another folder's listing, a note
+somebody saved — and a rollback that quietly reverts an unrelated fact is worse
+than the stale row it was fixing. A move's inverse is the move with its ends
+swapped, which is what `moveEntry` itself is, so there is exactly one thing to
+get right.
+
+**What it may not do is guess a visibility.** `privacy.md` is folder defaults
+plus exact-note exceptions, keyed by *path*, so moving a folder can change what
+everything under it inherits. Three restraints follow, and each is the
+difference between a fast console and one that tells somebody a shared note is
+private:
+
+- **A folder nobody has read is left alone.** If the destination's listing has
+  never been fetched, the moved row is not put anywhere. A listing invented for
+  it would draw a folder that appears to hold exactly one note; absent is true,
+  a listing of one is not.
+- **A new folder inherits its parent's default**, exactly as the server gives a
+  new key with no exception of its own — and `private` when the parent is
+  unknown, so nothing drawn optimistically ever claims to be shared. The same
+  rule, for the same reason, as `offline/overlay.ts`'s `fileEntry`.
+- **Visibility is never recomputed locally.** The carried subtree keeps what the
+  server last stated, which is stale until the refresh lands. That is not a new
+  staleness — it is the same data the console displayed for the whole of the
+  round trip this removes, at the right path and for less time. What makes it
+  correct rather than merely shorter is `cascadeFrom`: a folder move reloads its
+  whole re-keyed subtree, and `refresh` commits each folder as its page arrives
+  rather than batching every page behind the slowest, so the marks settle from
+  the top down.
+
+**A timeout is deliberately not rolled back.** "No answer yet" is not "it did
+not happen" — the socket may still deliver, and `TIMED_OUT_MESSAGE` says exactly
+that. Putting the row back would state the opposite. A refusal *is* rolled back,
+including the early refusal a read-only console gets: that console keeps all
+fourteen mutating methods (`useDemoFileBrowser` sets each to a no-op), so a call
+that slips past `canEdit` reaches `run` rather than throwing, and before the
+drawing existed it was silent.
+
+The checks are `optimisticStructure.test.ts` for the arithmetic and
+`optimisticFolderMove.test.ts` for the wiring. The second holds the mutation
+open — the action does not resolve until the test lets it — and asserts on what
+is on screen while it is in flight, because a version that awaited the operation
+first would pass against the code this replaced.
+
+## What the sidebar can do to a folder, the listing can do to it too
+
+The tree and the folder page are one listing shown twice, which this document
+has said since `FolderView` was written. They were not one set of *gestures*:
+
+- **Drag was the tree's alone.** `dnd.ts` has driven it since it was written and
+  the folder page had nothing, so a folder you could reorganise by dragging went
+  inert the moment you opened it — and at compact density, where `frame.ts`
+  draws no file tree at all, there was no drag anywhere in the product.
+- **On native, a listing row had no menu at all.** Its rows went through
+  `useRightClick`, whose native half is a documented no-op. That surface is the
+  *only* browse surface a phone has, so rename, move, duplicate, visibility,
+  archive and delete were unreachable there.
+
+Both are fixed by pointing the listing at what the tree already uses rather than
+by giving it its own: `useRowInteractions` for the gesture, `dnd.ts`'s own
+verdict for what a drop means. A rule that exists in one place cannot drift from
+itself, and a drop refused in the tree is now refused in the listing with the
+same sentence — said out loud through `files.say`, because a row that springs
+back in silence teaches nothing.
+
+One change to the shared hook came out of it. It suppressed the browser's own
+context menu whenever a handler existed, which is safe for a tree row (always
+has something to offer) and wrong for a listing row (`menu.ts` returns an empty
+list for a read-only console). `onMenu` may now report back, and the web half
+suppresses only what actually opened — the rule `rightClick.web.ts` already
+stated at length, now shared rather than restated. `void` goes on meaning "it
+opened", so no tree call site changed.
+
+**What the listing still offers less of is "Share…", and that is deliberate.** A
+share sheet is about one note's access, and the members, groups and removal
+routes it needs are assembled for the *selected* note — a row you right-clicked
+in a listing is not that. An item that cannot show who currently has access is
+worse than no item in a product where `team` means named people.
+
+The checks are `folderViewDrag.test.ts` (the pointer half, asserted on real DOM
+events) and `folderRowNativeMenu.test.ts` (the half no DOM assertion reaches:
+that every row goes through the shared hook, carrying its own menu and its own
+drag verdicts).

@@ -165,9 +165,20 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         // back to the browser" in the header. Return before suppressing, so
         // the platform menu opens and ours does not race it.
         if (event.shiftKey) return;
+        /*
+          Opened first, suppressed second — and only if it opened.
+
+          `preventDefault()` is what removes the browser's menu, so calling it
+          for a handler that then declines leaves the person with no menu at
+          all. A tree row always has something to offer and answers `void`,
+          which reads as "it opened"; a folder listing's row can genuinely
+          have nothing, and says so. The call is still inside the handler, so
+          the suppression is in time either way — the same order, and the same
+          reasoning, as `rightClick.web.ts`.
+        */
+        if (onMenu({ x: event.clientX, y: event.clientY }) === false) return;
         event.preventDefault();
         event.stopPropagation();
-        onMenu({ x: event.clientX, y: event.clientY });
       };
 
       /**
@@ -183,9 +194,9 @@ export function useRowInteractions(options: RowInteractionOptions): RowInteracti
         const onMenu = latest.current.onMenu;
         // Decide before suppressing, the same rule the pointer path follows.
         if (onMenu === undefined || !isMenuKey(event)) return;
+        if (onMenu(anchorUnder(element)) === false) return;
         event.preventDefault();
         event.stopPropagation();
-        onMenu(anchorUnder(element));
       };
 
       const onDragStart = (event: DragEvent) => {

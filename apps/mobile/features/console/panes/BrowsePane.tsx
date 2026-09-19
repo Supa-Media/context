@@ -14,8 +14,9 @@ import { writeClipboard } from "../../design/clipboard";
 import { runMenuAction, type ActionContext, type Dialog } from "../files/actions";
 import { ExplorerDialogs } from "../files/Explorer";
 import { itemsFor, type MenuTarget } from "../files/menu";
-import { ancestorsOf, baseName, withoutSortPrefix } from "../files/paths";
-import type { FolderMenu } from "../files/FolderView";
+import { ancestorsOf, baseName, parentPath, withoutSortPrefix } from "../files/paths";
+import { canDrop as verdictFor, type DragSource } from "../files/dnd";
+import type { FolderDrag, FolderMenu } from "../files/FolderView";
 import { Breadcrumb } from "../files/Breadcrumb";
 import { ConflictResolver } from "../files/ConflictResolver";
 import { contextFootLine } from "../files/contextFoot";
@@ -243,6 +244,22 @@ export function BrowsePane({
    */
   const [folderMenu, setFolderMenu] = useState<FolderMenuState>(null);
   const [folderDialog, setFolderDialog] = useState<Dialog>(null);
+  /**
+   * What is being dragged out of the listing, and what it is over.
+   *
+   * The tree has had this since `dnd.ts` was written; a folder *page* had
+   * nothing, so a folder you could reorganise by dragging while it was a row
+   * in the sidebar went inert the moment you opened it — and on a phone, where
+   * there is no sidebar at all, there was no drag anywhere.
+   *
+   * Held here rather than in `FolderView` for the reason its menu is: the
+   * component draws a folder and knows nothing about a `FileBrowser`. The
+   * state is the same pair `Explorer` keeps, and the verdict comes from the
+   * same `dnd.ts` call, so a drop the tree refuses is refused identically
+   * here.
+   */
+  const [folderDragSource, setFolderDrag] = useState<DragSource | null>(null);
+  const [folderDropTarget, setFolderDropTarget] = useState<string | null>(null);
 
   /**
    * The passphrase machinery for this context, and nowhere else.
@@ -426,6 +443,67 @@ export function BrowsePane({
     }),
     [openFolderTarget, files.listings, contextLabel],
   );
+
+  /**
+   * Picking a row up out of a listing and dropping it on another.
+   *
+   * Built once rather than per folder, unlike `folderMenuFor`: a drag carries
+   * its source with it and every rule below is asked of the *row*, so there is
+   * nothing here that depends on which folder is being drawn.
+   *
+   * What is deliberately the same as the tree:
+   *
+   *  - **The verdict.** `dnd.ts`'s `canDrop` decides, over `files.listings`,
+   *    exactly as it does for `Explorer` — so a folder dropped into itself,
+   *    a name that would collide, and a read-only `privacy.md` are refused
+   *    with the same sentence on both surfaces. This file re-deriving any of
+   *    that is how the two come to disagree about what the same product does.
+   *  - **`copyTo` and not `copy` + `paste`.** Those two are a state setter and
+   *    a callback closing over that state, so back to back in one tick the
+   *    paste reads the *previous* clipboard — with a cut pending it moved a
+   *    file nobody had touched. `Explorer` learned this; the copy of the loop
+   *    here must not unlearn it.
+   *  - **A refusal is said out loud.** `files.say` is the transient line a
+   *    refused paste already uses. A row that springs back in silence teaches
+   *    nothing, which is most of why people try the same illegal drop twice.
+   *
+   * Absent entirely on a read-only console, so nothing carries `draggable` —
+   * see `FolderDrag`.
+   */
+  const folderDrag = useMemo<FolderDrag | undefined>(() => {
+    if (!files.canEdit) return undefined;
+    return {
+      // `privacy.md` is generated, so the row that draws it is never a source.
+      canDrag: (entry) => !entry.readOnly,
+      canDrop: (entry) => entry.kind === "folder",
+      onDragStart: (path) =>
+        setFolderDrag({
+          paths: [path],
+          readOnly: findEntry(files.listings, path)?.readOnly ?? false,
+        }),
+      onDragOver: (path) => setFolderDropTarget(path),
+      onDragLeave: (path) =>
+        setFolderDropTarget((current) => (current === path ? null : current)),
+      onDragEnd: () => {
+        setFolderDrag(null);
+        setFolderDropTarget(null);
+      },
+      onDrop: (path, modifiers) => {
+        const source = folderDragSource;
+        setFolderDrag(null);
+        setFolderDropTarget(null);
+        if (source === null) return;
+        const verdict = verdictFor(source, { kind: "folder", path }, modifiers, files.listings);
+        if (!verdict.ok) return files.say(verdict.reason);
+        for (const move of verdict.moves) {
+          const destination = parentPath(move.to);
+          if (verdict.action === "copy") files.copyTo(move.from, destination);
+          else files.move(move.from, destination);
+        }
+      },
+      target: folderDropTarget,
+    };
+  }, [files, folderDragSource, folderDropTarget]);
   /*
     The two bands the floating chrome occupies, spent as content padding at
     both ends.
@@ -1097,6 +1175,7 @@ export function BrowsePane({
             foot={contextFoot}
             onSelect={files.select}
             menu={folderMenuFor("")}
+            drag={folderDrag}
             pendingStateFor={files.pending?.stateFor}
           />
         )
@@ -1139,6 +1218,7 @@ export function BrowsePane({
         foot={contextFoot}
         onSelect={files.select}
         menu={folderMenuFor(selected.path)}
+        drag={folderDrag}
         pendingStateFor={files.pending?.stateFor}
       />
     ) : files.conflict?.path === selected.path ? (
