@@ -43,3 +43,52 @@ export type StorageLayoutState =
   | "conflict"
   | "unsupported"
   | "complete";
+
+/**
+ * Which generation of the question produced a recorded answer.
+ *
+ * `storageLayoutCheckedAt` records that the bucket was **asked**, and the
+ * guard on `observeStorageLayout` spends itself the moment it is set — one
+ * probe per binding, for ever. That is the right shape for a question whose
+ * answer cannot change, and the wrong one for a question we got wrong.
+ *
+ * Probe 1 asked only "is there a migration state file?", so a bucket we
+ * scaffolded ourselves — born on the v1 layout, never the owner of a single
+ * pre-v1 object — answered "never run", and every newly created workspace was
+ * offered a one-time update with nothing behind it. Probe 2 asks whether there
+ * is any pre-v1 plumbing here at all (`apps/mcp/src/storageLayout.js`) and
+ * answers `complete` when there is none.
+ *
+ * Fixing the probe does not fix the rows it already wrote, and those rows are
+ * exactly the newly created workspaces the bug was about. So the generation is
+ * recorded beside the answer and a stale one is asked once more, on the next
+ * console that opens — self-healing, rather than a backfill somebody has to
+ * remember to run against every deployment including the self-hosted ones.
+ *
+ * Bump it when the probe's *question* changes, never when its plumbing does.
+ */
+export const STORAGE_LAYOUT_PROBE_VERSION = 2;
+
+/**
+ * Whether this binding's answer is one the current probe would stand behind.
+ *
+ * A recorded `state` is the bucket's own word and does not go stale: every
+ * generation of the probe reads the state file the same way, and a migration
+ * pass writes what it did. It is only the *absence* of a state that a probe
+ * generation can be wrong about, so only that is re-asked.
+ *
+ * Read by the console — as `layoutChecked`, the condition the notice needs
+ * before it offers anything — and by `observeStorageLayout`, which refuses a
+ * question it has already answered. One predicate, because a console that
+ * believed the question was open while the mutation refused to ask it would
+ * put the notice back, silently, on exactly the buckets this fixes.
+ */
+export function storageLayoutAnswerIsCurrent(binding: {
+  storageLayoutState?: StorageLayoutState;
+  storageLayoutCheckedAt?: number;
+  storageLayoutCheckedVersion?: number;
+}): boolean {
+  if (binding.storageLayoutCheckedAt === undefined) return false;
+  if (binding.storageLayoutState !== undefined) return true;
+  return binding.storageLayoutCheckedVersion === STORAGE_LAYOUT_PROBE_VERSION;
+}

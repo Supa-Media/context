@@ -993,6 +993,30 @@ const schema = defineSchema({
      * strand it on the old layout with nothing on any screen saying so.
      */
     storageLayoutCheckedAt: v.optional(v.number()),
+    /**
+     * WHICH GENERATION OF THE QUESTION PRODUCED THAT ANSWER.
+     *
+     * The timestamp above spends the question for ever: asked once, never
+     * asked again. That is right for a question whose answer cannot change,
+     * and wrong for one we asked badly — and the first probe asked badly. It
+     * looked only for a migration state file, so a bucket **we scaffolded
+     * ourselves**, born on the v1 layout and never in its life the owner of a
+     * pre-v1 object, answered "nobody has run the migration" — and every
+     * newly created workspace was offered a one-time update with nothing
+     * behind it, on its first console load.
+     *
+     * A better probe does not rewrite the rows the old one wrote, and those
+     * rows are exactly the new workspaces the bug was about. So the generation
+     * is recorded beside the answer: a row from an older one is asked once
+     * more by the next console that opens, and nothing has to be backfilled by
+     * hand — least of all in a self-hosted deployment nobody here can reach.
+     *
+     * Only ever consulted for a binding with no recorded `storageLayoutState`.
+     * A state is the bucket's own word, and every generation reads that the
+     * same way. `functions/lib/storageLayout.ts` holds the number and the
+     * predicate.
+     */
+    storageLayoutCheckedVersion: v.optional(v.number()),
     boundBy: v.id("users"),
     createdAt: v.number(),
     updatedAt: v.number(),

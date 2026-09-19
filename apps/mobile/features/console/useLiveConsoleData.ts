@@ -8,6 +8,7 @@ import {
 } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
+import { storageLayoutAnswerIsCurrent } from "@context/convex/functions/lib/storageLayout";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
 import { describeQueryFailure } from "./failure";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
@@ -189,11 +190,15 @@ interface StorageBinding {
     | "complete";
   storageLayoutAt?: number;
   /**
-   * Whether the bucket has been *asked* where the migration got to. Absent
-   * state with this set is the real "nobody has run it"; both absent is
-   * "nobody has looked", which is not something to offer on.
+   * Whether the bucket has been *asked* where the migration got to, and by
+   * which generation of the question. Absent state with both set is the real
+   * "nobody has run it"; absent checked is "nobody has looked", which is not
+   * something to offer on; and a stale version is an answer from the probe
+   * that got a freshly scaffolded bucket wrong. `storageLayoutAnswerIsCurrent`
+   * is the one place those three are told apart.
    */
   storageLayoutCheckedAt?: number;
+  storageLayoutCheckedVersion?: number;
   /**
    * Load-bearing for Re-verify: the probe is queued, not awaited, so the pane
    * watches this field to know its outcome landed. See `storage/reverify.ts`.
@@ -582,7 +587,15 @@ export function useLiveConsoleData(): ConsoleData {
           scaffoldReason: binding.scaffoldReason,
           layoutState: binding.storageLayoutState,
           layoutStateAt: binding.storageLayoutAt,
-          layoutChecked: binding.storageLayoutCheckedAt !== undefined,
+          /*
+            Asked *and* answered by the question we still stand behind. The
+            probe before this one looked only for a migration state file, so a
+            bucket we scaffolded ourselves answered "nobody has run it" and
+            every new workspace was offered the update on its first load. Those
+            rows are still out there; the predicate is what gets them re-asked
+            rather than believed.
+          */
+          layoutChecked: storageLayoutAnswerIsCurrent(binding),
           forcePathStyle: binding.forcePathStyle,
           // `objectCount`, `paraPresent` and `versioningOn` are deliberately
           // not set. Nothing has counted this bucket, looked for PARA folders,

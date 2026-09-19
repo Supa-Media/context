@@ -36,7 +36,7 @@
  *
  * ## Sabotage record
  *
- * Run as temporary local edits and reverted. 8 checks in this file.
+ * Run as temporary local edits and reverted. 9 checks in this file.
  *
  *   the settings row drawn for everyone (its guard dropped)                  1
  *   `useStorageMigrationOffer` ignoring the stored dismissal                 2
@@ -46,6 +46,8 @@
  *   the notice's `storageMigrationWorthOffering` condition dropped           1
  *   the settings card's row not wrapping (`flexWrap` dropped)                1
  *   the text column's `minWidth` floor dropped                               1
+ *   `storageLayoutAnswerIsCurrent` reduced to the old `checkedAt !==
+ *     undefined` guard, which is the state every new workspace is in          1
  *
  * One mutation is **not** detected and is worth naming rather than leaving to
  * be discovered: dropping `storageMigration.visible` from the notice's own
@@ -77,6 +79,11 @@ jest.mock("react-native-safe-area-context", () => ({
 
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
+
+import {
+  STORAGE_LAYOUT_PROBE_VERSION,
+  storageLayoutAnswerIsCurrent,
+} from "@context/convex/functions/lib/storageLayout";
 
 import { BrowsePane } from "../features/console/panes/BrowsePane";
 import { SettingsPane } from "../features/console/panes/SettingsPane";
@@ -496,5 +503,78 @@ describe("a recorded outcome, not a flag on one device", () => {
     while (roots.length > 0) roots.pop()!();
     const second = await browse(console_(calls));
     expect(noticeIn(second)).toBeNull();
+  });
+});
+
+describe("an answer is only as good as the question that produced it", () => {
+  /*
+    THE NAG THE RECORDED ANSWER PUT BACK, ON EXACTLY THE NEWEST CONTEXTS.
+
+    The probe that made `layoutChecked` true asked the bucket one thing: is
+    there a migration state file? A context **we scaffolded ourselves** has
+    none. It was born on the v1 layout and has never in its life held a
+    `.audit/` or a `.history/`, so the honest answer to that question is "no
+    migration has run here" — true, and about nothing, because there has never
+    been anything here to migrate.
+
+    So every workspace created after the probe shipped was offered a one-time
+    storage update on its first console load, with no work behind it. The owner
+    saw it on a context made minutes earlier. The gateway's read now asks
+    whether there is any pre-v1 plumbing in the bucket at all and answers
+    `complete` when there is none — but a binding that has been asked is never
+    asked again, so the rows the old question wrote are the ones that keep
+    nagging. `storageLayoutAnswerIsCurrent` is what re-opens them, and the
+    console and `observeStorageLayout` read the same predicate so the notice
+    can never be drawn on a question the backend has stopped asking.
+  */
+  const consoleFor = (binding: {
+    storageLayoutState?: "complete";
+    storageLayoutCheckedAt?: number;
+    storageLayoutCheckedVersion?: number;
+  }): ConsoleData =>
+    console_([], {}, {
+      layoutState: binding.storageLayoutState,
+      layoutChecked: storageLayoutAnswerIsCurrent(binding),
+    });
+
+  const noticeIn = (host: HTMLElement) =>
+    host.querySelector('[data-testid="browse-storage-migration"]');
+
+  test("a row from the probe that got new workspaces wrong offers nothing", async () => {
+    // Asked, nothing recorded, and no generation beside it: every workspace
+    // created while that probe was the only one looks exactly like this.
+    const host = await browse(
+      consoleFor({ storageLayoutCheckedAt: 1_700_000_000_000 }),
+    );
+    expect(noticeIn(host)).toBeNull();
+  });
+
+  test("and the offer still stands where the current probe found work to do", async () => {
+    /*
+      The sabotage guard for the case above, and the one that matters: a
+      generation check that quietened everything would replace a nag with a
+      migration nobody is ever offered, silently, on the buckets that still
+      hold pre-v1 plumbing.
+    */
+    const host = await browse(
+      consoleFor({
+        storageLayoutCheckedAt: 1_700_000_000_000,
+        storageLayoutCheckedVersion: STORAGE_LAYOUT_PROBE_VERSION,
+      }),
+    );
+    expect(noticeIn(host)).not.toBeNull();
+  });
+
+  test("a bucket's own word needs no second asking", async () => {
+    // Only the *absence* of a state can be wrong about a bucket: a state file
+    // reads the same to every generation. `complete` from the old probe is
+    // still `complete`, and re-opening it would offer a finished migration.
+    const host = await browse(
+      consoleFor({
+        storageLayoutState: "complete",
+        storageLayoutCheckedAt: 1_700_000_000_000,
+      }),
+    );
+    expect(noticeIn(host)).toBeNull();
   });
 });

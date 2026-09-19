@@ -32,6 +32,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - A migration pass is walked in waves, and an unchanged object is read twice
 - The migration's outcome is recorded, because an offer nobody can answer is a nag
 - Absent meant two things, and the bucket is asked which
+- A bucket born on the layout has nothing to migrate, and is not asked to
 - A move between two contexts is three calls, not one function holding two keys
 - The model key is a fourth credential route, not a fifth sibling on the binding
 
