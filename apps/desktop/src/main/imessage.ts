@@ -247,7 +247,19 @@ export class ImessageSyncService {
         this.#assertCurrent(generation);
         await this.#deps.store.writeImessageCursor(advanceCursor(cursor, baseline));
         this.#assertCurrent(generation);
-        this.#status = { ...this.#status, lastSyncedAt: this.#now(), lastError: null };
+        /*
+          The baseline pass imports nothing — it reads the highest row id and
+          remembers it, so that history before this Mac connected is left where
+          it is. So it does not stamp `lastSyncedAt` either, for the reason the
+          larger block below states: this is the pass a person is *most* likely
+          to be looking at the card during, and "last synced <a minute ago>"
+          over an import that has not filed a single message is the answer that
+          sends somebody away believing it works.
+
+          The card's other branch already has the honest sentence for this
+          state — *"Import is on; waiting for the first completed sync."*
+        */
+        this.#status = { ...this.#status, lastError: null };
         this.#emit();
         return;
       }
@@ -280,11 +292,33 @@ export class ImessageSyncService {
       this.#assertCurrent(generation);
       await this.#deps.store.writeImessageCursor(report.cursor);
       this.#assertCurrent(generation);
-      if (report.days.some((day) => day.status === "written" || day.status === "error")) {
-        const failed = report.days.find((day) => day.status === "error");
+      /*
+        `lastSyncedAt` is stamped by a pass that actually filed something, and
+        by nothing else.
+
+        `contract.ts` defines the field as "when it last actually wrote
+        something" and the console renders it as *"Import is on; last synced
+        <time>"* — a sentence a person reads as "your messages are in your
+        context". Stamping it for a pass whose every day was refused makes that
+        sentence a lie on exactly the screen somebody opens to find out whether
+        this is working, and it does so most confidently when it is least true:
+        a gateway refusing every write refuses one per pass, so the timestamp
+        keeps advancing while nothing is ever imported.
+
+        `lastError` is left exactly as it was: cleared by a pass that files
+        something, kept by a pass that refuses. That is unchanged here, and it
+        does leave one gap — a pass with no days at all cannot clear a refusal
+        that has since been fixed. Not fixed in this commit because the gap is
+        not reachable from this suite's fixtures (a refused day holds the
+        cursor back, so the next pass always has that day to retry), and a
+        guard nobody has checked is not a guard.
+      */
+      const wrote = report.days.some((day) => day.status === "written");
+      const failed = report.days.find((day) => day.status === "error");
+      if (wrote || failed !== undefined) {
         this.#status = {
           ...this.#status,
-          lastSyncedAt: this.#now(),
+          lastSyncedAt: wrote ? this.#now() : this.#status.lastSyncedAt,
           lastError: failed?.message ?? null,
         };
         this.#emit();
@@ -296,9 +330,12 @@ export class ImessageSyncService {
       // reaches a screen. `sqlite.ts` and `gatewayNotes.ts` already redact
       // their own failures; this is the backstop for anything that still
       // threw past them.
+      // `lastSyncedAt` is untouched here for the reason the success path
+      // states: a pass that threw filed nothing, and "last synced" is a claim
+      // that something was filed. This is the loudest case of it — the pass
+      // did not even finish.
       this.#status = {
         ...this.#status,
-        lastSyncedAt: this.#now(),
         lastError: "iMessage import could not complete a sync pass",
       };
       void error;
