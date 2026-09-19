@@ -228,6 +228,18 @@ describe("a read-only note refuses every one of them", () => {
 });
 
 describe("insertTable writes a table the grammar will accept", () => {
+  test("and says nobody took the caret when there is no grid to take it", () => {
+    /*
+      This suite builds a view with no Live Preview, so no table is drawn and
+      the caret stays in the source where it always was. The boolean is how the
+      caller knows which of the two happened: focusing the editor is right in
+      this case and wrong when a cell has the caret.
+    */
+    const view = editor("");
+    expect(insertTable(view, 1, 2)).toBe(false);
+    expect(view.state.selection.main.head).toBe(2);
+  });
+
   test("a header row, a delimiter row, and the body rows asked for", () => {
     const view = editor("");
     insertTable(view, 2, 3);

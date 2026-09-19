@@ -596,14 +596,26 @@ describe("toggling reading mode redraws the note on the spot", () => {
     m.unmount();
   });
 
-  test("a table becomes a grid on the same press", () => {
+  test("a table is a grid in both modes, and the press takes the editing away", () => {
+    /*
+      This test used to assert that an editable note had **no** grid at all.
+      It does now: a table is drawn as a table while it is being written, and
+      what the eye changes is whether its cells can be typed into — see
+      `tableGrids`. The redraw-without-a-click that the test around it is
+      about is still what is being pinned, one property along.
+    */
     const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |", ""].join("\n");
     const m = mount({ value: `# Notes\n\n${TABLE}`, editable: true });
-    expect(m.container.querySelector(".cm-lp-grid")).toBeNull();
+    expect(m.container.querySelector(".cm-lp-grid-live")).not.toBeNull();
+    expect(m.container.querySelector('[data-lp-row="0"]')?.getAttribute("contenteditable")).toBe(
+      "true",
+    );
 
     m.update({ editable: false });
     const grid = m.container.querySelector(".cm-lp-grid table");
     expect(grid).not.toBeNull();
+    expect(m.container.querySelector(".cm-lp-grid-live")).toBeNull();
+    expect(m.container.querySelector('[data-lp-row="0"]')?.getAttribute("contenteditable")).toBeNull();
     // The header's own cells, rather than the dashes that described them.
     expect([...(grid?.querySelectorAll("th") ?? [])].map((th) => th.textContent)).toEqual(["a", "b"]);
     expect(grid?.textContent).not.toContain("---");

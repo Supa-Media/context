@@ -181,6 +181,10 @@ export function documentHeight(view: EditorView): number {
  * carrying a guessed number would move somebody's note under their thumb for no
  * reason. Nothing is sent in that case; the next selection change asks again.
  *
+ * The exception is a caret that is not in the document at all: a table cell is
+ * `contenteditable` DOM belonging to a widget, so the element with focus is
+ * where the person is looking and `state.selection` is not.
+ *
  * `coordsAtPos` **measures**, and measuring is the one thing in CodeMirror that
  * can throw rather than return nothing: it forces a layout read through the
  * DOM's range APIs, which are absent under jsdom and can fail on a real page
@@ -189,9 +193,21 @@ export function documentHeight(view: EditorView): number {
  */
 export function caretBox(view: EditorView): { top: number; bottom: number } | null {
   try {
+    const box = view.scrollDOM.getBoundingClientRect();
+    /*
+      A caret in a widget's own editable DOM — a table cell — is not in the
+      document's selection, which is still wherever it was before the cell was
+      tapped. Measuring that would scroll the note to a line nobody is looking
+      at and leave the keyboard over the cell being typed in, so the element
+      with focus answers for itself. See `TableGridWidget`.
+    */
+    const active = view.dom.ownerDocument.activeElement;
+    if (active instanceof HTMLElement && active !== view.contentDOM && view.dom.contains(active)) {
+      const rect = active.getBoundingClientRect();
+      return { top: rect.top - box.top, bottom: rect.bottom - box.top };
+    }
     const coords = view.coordsAtPos(view.state.selection.main.head);
     if (coords === null) return null;
-    const box = view.scrollDOM.getBoundingClientRect();
     return { top: coords.top - box.top, bottom: coords.bottom - box.top };
   } catch {
     return null;
@@ -697,15 +713,38 @@ export function mountGuest(
 
   bridge.listen(receive);
 
-  const onFocus = () => {
-    bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: true });
+  /*
+    `focusin` and `focusout` on the editor's own root, rather than `focus` and
+    `blur` on `contentDOM`.
+
+    A table cell is `contenteditable` DOM belonging to a widget, so somebody
+    typing in a grid has the caret in the note and `contentDOM` does **not**
+    have focus (see `TableGridWidget`). The old pair reported that as a blur,
+    and on a phone the accessory bar is the only way out of the keyboard — so
+    tapping a cell put the keyboard up and took away the bar that dismisses it.
+
+    `focus` and `blur` do not bubble and `focusin` and `focusout` do, which is
+    the whole of why the event names change. Moving between two cells is not
+    leaving the note, so a `focusout` whose destination is still inside the
+    editor reports nothing.
+  */
+  let focused = false;
+  const report = (next: boolean): void => {
+    if (next === focused) return;
+    focused = next;
+    bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: next });
     // The keyboard is about to come up over the note. Where the caret is is
     // the question the host is about to have to answer.
-    carets.request();
+    if (next) carets.request();
   };
-  const onBlur = () => bridge.post({ v: PROTOCOL_VERSION, type: "focus", focused: false });
-  view.contentDOM.addEventListener("focus", onFocus);
-  view.contentDOM.addEventListener("blur", onBlur);
+  const onFocus = () => report(true);
+  const onBlur = (event: FocusEvent) => {
+    const to = event.relatedTarget;
+    if (to instanceof Node && view.dom.contains(to)) return;
+    report(false);
+  };
+  view.dom.addEventListener("focusin", onFocus);
+  view.dom.addEventListener("focusout", onBlur);
 
   /*
     Moving the caret without changing the document — an arrow key, a tap into
@@ -743,8 +782,8 @@ export function mountGuest(
       carets.cancel();
       resize?.disconnect();
       owner.removeEventListener("selectionchange", onSelectionChange);
-      view.contentDOM.removeEventListener("focus", onFocus);
-      view.contentDOM.removeEventListener("blur", onBlur);
+      view.dom.removeEventListener("focusin", onFocus);
+      view.dom.removeEventListener("focusout", onBlur);
       view.destroy();
     },
   };
