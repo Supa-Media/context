@@ -2233,6 +2233,7 @@ export const runFileOperation = internalAction({
       return await runGoogleForwardSync(ctx, store, forwardSyncJob);
     }
 
+    let wroteActivity: { teamVisible: boolean } | null = null;
     const result = await executeOperation(
       store,
       clearanceOf(args.scope, args.grantedNames ?? []),
@@ -2245,7 +2246,25 @@ export const runFileOperation = internalAction({
       args.actorName === undefined || args.actorName === null
         ? null
         : { name: args.actorName, client: null },
+      (landed) => {
+        wroteActivity = landed;
+      },
     );
+    /*
+      Stamped after the operation, once, and never inside it: the store is the
+      customer's bucket and this is a row in ours, so a failure here must not
+      look like a failed save. `markWorkspaceActivity` is monotonic, so a
+      late-landing stamp cannot walk the dot backwards.
+    */
+    if (wroteActivity !== null) {
+      await ctx
+        .runMutation(internal.functions.files.markWorkspaceActivity, {
+          workspaceId: args.workspaceId,
+          at: Date.now(),
+          teamVisible: (wroteActivity as { teamVisible: boolean }).teamVisible,
+        })
+        .catch(() => {});
+    }
 
     /*
      * WHAT A PROJECTION PASS LEARNED, WRITTEN WHERE A PERSON CAN SEE IT.
@@ -3314,6 +3333,19 @@ export async function executeOperation(
    * nobody's name on it would be the feed reporting the product to itself.
    */
   actor: ActivityActor | null = null,
+  /**
+   * Called when a line actually landed in `activity.md`.
+   *
+   * A callback rather than a field on the result, because every operation's
+   * result shape is a contract with the console and none of them is about
+   * this. The caller uses it to stamp the workspace row, which is what lights
+   * the dot on another context's mark — see `schema.ts`, `activityAt`.
+   *
+   * It is handed the line's tier, because the stamp a non-owner member reads
+   * only moves for a `team` line: `activityAt` alone would tell them the exact
+   * time of a private change the rest of the product refuses them.
+   */
+  onActivity?: (landed: { teamVisible: boolean }) => void,
 ): Promise<OperationResult> {
   /**
    * One change, in the activity file, if it is one worth mentioning.
@@ -3328,7 +3360,8 @@ export async function executeOperation(
     paths: string[],
     details: Record<string, string | number | boolean | null | undefined> = {},
   ): Promise<void> => {
-    await recordActivity(store, { action, paths, details, actor });
+    const landed = await recordActivity(store, { action, paths, details, actor });
+    if (landed !== null) onActivity?.(landed);
   };
   try {
     switch (operation.kind) {
@@ -6417,6 +6450,49 @@ export const updateStorageLayout = action({
  *
  * The writing half is `lib/activity.ts`, called from `executeOperation`.
  */
+/**
+ * Stamp a context as having changed, for the dot on its mark elsewhere.
+ *
+ * Monotonic, and that is the whole of its logic: two writers land lines in one
+ * context — a person in the console and somebody's AI client through the
+ * gateway — and neither knows about the other. A stamp that arrived late and
+ * overwrote a newer one would put the dot out while something newer than the
+ * reader's last visit was still unread.
+ *
+ * Internal: the gateway reaches it through `/gateway/activity`, and the
+ * console through `runFileOperation`. Nothing a client can call.
+ */
+export const markWorkspaceActivity = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    at: v.number(),
+    /**
+     * Whether the line that landed was written at `team` tier.
+     *
+     * Only a `team` line moves `activityTeamAt`, which is the stamp every
+     * member who is not the owner is served. Absent is the safe reading —
+     * private — so an older caller can only ever under-report.
+     */
+    teamVisible: v.optional(v.boolean()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const workspace = await ctx.db.get(args.workspaceId);
+    if (workspace === null) return null;
+    // Clamped to now as well as forward-only: a clock ahead of ours must not
+    // park a context permanently in the future, where nothing is ever newer.
+    const at = Math.min(args.at, Date.now());
+    const patch: { activityAt?: number; activityTeamAt?: number } = {};
+    if ((workspace.activityAt ?? 0) < at) patch.activityAt = at;
+    if (args.teamVisible === true && (workspace.activityTeamAt ?? 0) < at) {
+      patch.activityTeamAt = at;
+    }
+    if (patch.activityAt === undefined && patch.activityTeamAt === undefined) return null;
+    await ctx.db.patch(args.workspaceId, patch);
+    return null;
+  },
+});
+
 /**
  * When this person last looked at this context's activity.
  *

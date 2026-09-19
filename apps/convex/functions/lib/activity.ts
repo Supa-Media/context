@@ -60,14 +60,25 @@ export interface ActivityChange {
  * workspace for as long as the file keeps it. The manifest read it needs is
  * the one `loadPrivacyState` already caches per store.
  */
+/**
+ * What a landed line tells its caller, which is its tier and nothing else.
+ *
+ * Not the path, not the kind, not the actor: the caller is stamping a row in
+ * *our* database, and the only thing it needs from the customer's bucket is
+ * which of the two stamps may move.
+ */
+export interface ActivityLanded {
+  teamVisible: boolean;
+}
+
 export async function recordActivity(
   store: FileStore,
   change: ActivityChange,
-): Promise<void> {
+): Promise<ActivityLanded | null> {
   try {
-    if (!mayBeReportable(change.action, change.paths)) return;
+    if (!mayBeReportable(change.action, change.paths)) return null;
     const privacy = await loadPrivacyState(store);
-    if (privacy.invalid || privacy.text === null) return;
+    if (privacy.invalid || privacy.text === null) return null;
     const teamVisible = change.paths.every(
       (path) =>
         effectiveVisibility(path, privacy.rules, privacy.overrides) === "team",
@@ -83,7 +94,7 @@ export async function recordActivity(
         actor: change.actor,
         at: new Date().toISOString(),
       });
-      if (!next) return;
+      if (!next) return null;
       const conditional =
         existing === null
           ? store.capabilities?.conditionalCreate === true
@@ -109,10 +120,16 @@ export async function recordActivity(
       ) {
         await setExactVisibility(store, ACTIVITY_PATH, "private");
       }
-      return;
+      // The line landed, so the workspace row's stamps are stale. The caller
+      // patches them: this module holds a store and no `ctx`. The tier goes
+      // with it, because a member who is not the owner is shown only the
+      // team-tier stamp — see `schema.ts`, `activityTeamAt`.
+      return { teamVisible };
     }
+    return null;
   } catch {
     // A change is never failed by its own footnote.
+    return null;
   }
 }
 

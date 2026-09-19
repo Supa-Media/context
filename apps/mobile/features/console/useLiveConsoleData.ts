@@ -20,6 +20,7 @@ import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
 import { useActivity } from "./activity/useActivity";
+import { hasNewActivity } from "./activity/activity";
 import { useFastSearch } from "./search/useFastSearch";
 import { useGroups } from "./groups/useGroups";
 import { useShares } from "./shares/useShares";
@@ -108,6 +109,15 @@ interface WorkspaceSummary {
   role: string;
   /** Where meetings land here, when the owner has chosen. Absent is the default. */
   meetingsFolder?: string;
+  /**
+   * When this context last changed, and when this person last caught up here.
+   *
+   * The two halves of the dot on its mark, kept apart because the rule that
+   * combines them belongs in one place — `hasNewActivity` — rather than being
+   * recomputed wherever a row is drawn.
+   */
+  activityAt?: number;
+  activitySeenAt?: number;
   /**
    * The layout a setup flow last recorded — `para` or `custom`, absent where
    * neither flow got that far. `listMyWorkspaces` has always returned it.
@@ -495,6 +505,8 @@ export function useLiveConsoleData(): ConsoleData {
       pinned: workspace.pinned,
     }),
     meetingsFolder: workspace.meetingsFolder,
+    // One rule, one place. See `hasNewActivity`.
+    hasNewActivity: hasNewActivity(workspace.activityAt, workspace.activitySeenAt),
     // The leaf, not the picture: the bytes are fetched once per leaf per
     // session, just below. Putting them on this row would make every poll of
     // the console carry a megabyte per workspace.

@@ -302,6 +302,65 @@ export function markedRows(
   return marked;
 }
 
+/**
+ * Whether a context has moved since this person last looked at it.
+ *
+ * The dot on *another* workspace's mark, which is the half of this feature
+ * that answers the question it was asked for — "especially in shared
+ * workspaces too". It is deliberately not an unread *count*: a count would
+ * have to be a count of what this reader may see, which cannot be computed
+ * from a shared row without opening that context's bucket, and four bucket
+ * reads on every console load to decide four pixels is the wrong trade. The
+ * number is one press away, inside the context.
+ *
+ * Both absent is "nothing recorded, nobody looked", which draws nothing.
+ */
+export function hasNewActivity(
+  activityAt: number | null | undefined,
+  seenAt: number | null | undefined,
+): boolean {
+  if (typeof activityAt !== "number") return false;
+  return activityAt > (typeof seenAt === "number" ? seenAt : 0);
+}
+
+/**
+ * Whether being here, right now, should move this reader's marker on its own.
+ *
+ * This closes a hole the dot on another context's mark opens. `activityAt` is
+ * one timestamp for a whole context and cannot know who wrote the line, so a
+ * person's *own* console edit stamps it and lights the dot on their own
+ * workspace. Inside the context that edit is correctly not news — `isUnseen`
+ * drops it for `me` — so the foot line never appears, so there is no popover
+ * to close, so nothing ever calls `markSeen` and **the dot never goes out.**
+ * A permanent mark is worse than no mark: it stops meaning anything.
+ *
+ * So: a context you are looking at, whose newest line is not news to you, is a
+ * context you are caught up on. The marker moves once, quietly, and the dot
+ * goes out. It is not "opening the list marks it read" — that rule is about
+ * the case where something *is* unread, and it is untouched: this returns
+ * false the moment there is one line this reader has not seen.
+ *
+ * `loaded` matters. Before the read lands, `entries` is empty and every
+ * context would look caught up, which would put out a dot that was telling the
+ * truth.
+ */
+export function shouldCatchUp(
+  entries: readonly ActivityEntry[],
+  seenAt: number | null,
+  loaded: boolean,
+  me?: string | null,
+): boolean {
+  if (!loaded || entries.length === 0) return false;
+  if (entries.some((entry) => isUnseen(entry, seenAt, me))) return false;
+  // Only when the marker is actually behind: otherwise this fires on every
+  // visit to a quiet context and writes a mutation per page load.
+  const newest = entries.reduce(
+    (latest, entry) => Math.max(latest, Date.parse(entry.at) || 0),
+    0,
+  );
+  return newest > (seenAt ?? 0);
+}
+
 /** The note paths in the entries newer than the reader's last visit. */
 export function unseenNotePaths(
   entries: readonly ActivityEntry[],

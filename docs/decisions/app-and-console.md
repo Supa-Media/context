@@ -7001,6 +7001,123 @@ costs a sentence rather than a false fact. This reverses the first design's
 exactly this and the owner's answer to whether a team might not want it was
 *"I think we should enforce it"*.
 
+**Three numbers decide what is substantial, and they are thresholds rather
+than tuning.** They live in one place — `packages/shared/src/activity.cjs`, the
+module both writers import — because a gateway that disagreed with the console
+about what counts would produce a feed whose density depended on which client
+you happened to use.
+
+- **80 stored bytes** (`MIN_REVISION_BYTES`), measured in either direction so a
+  deletion counts. About a sentence: it drops a fixed typo, a frontmatter
+  `updated:` bump and the whitespace an editor churns on open, and keeps
+  anything a person would call an edit. Set it to zero and every autosave is a
+  line — `does not write a line per autosave` fails. Raise it much and a
+  one-line correction to a decision note, which is exactly the change somebody
+  needs to hear about, vanishes.
+- **30 minutes** (`GROUP_WINDOW_MS`), or **6 hours** for a saved session. Two
+  changes by one hand inside the window are one line, so the row reads "added 3
+  notes in `1-projects/`" rather than three rows a minute apart. The session
+  window is longer because an active context collects dozens of saves a day and
+  every one of them is the same sentence. Widen the general window past an
+  afternoon and this morning's edit merges into this afternoon's — a line that
+  says the wrong time about the wrong edit, which is why `MERGE_LOOKBACK` caps
+  the scan at 8 entries as well as the clock.
+- **5 minutes** (`REFRESH_MS`). This one is not about readability; it is what
+  makes the console's 2-second autosave affordable. When the line a change
+  would write is already on file, unchanged and less than five minutes old,
+  **nothing is written at all** — no read, no conditional put, no request. The
+  price is that "revised" can read five minutes behind the last keystroke,
+  which is imperceptible in a list whose finest grain is a minute. Remove it
+  and every save rewrites a 60 KB file. `the REFRESH_MS early return removed`
+  is a live sabotage entry in the gateway suite.
+
+The file is capped at **400 entries**, about 60 KB and roughly three months of
+a busy shared context, because every write rewrites the whole file. What falls
+off the end is not lost: `.context/audit/` keeps every change record and this
+file is rebuildable from it, which is the third non-negotiable holding — the
+feed is a derivative that happens to be canonical Markdown.
+
+**A row cites a path, because a note has no identity to cite.** This is worth
+stating because the forwarding it leans on could easily be mistaken for one.
+`.context/forwarding.json` is a *trail between paths* — where a thing that was
+here went — and deliberately not a note id and not an index of what refers to a
+note. Nothing in this product gives a note a stable identifier, and adding one
+to make the feed simpler would put an identifier in the customer's Markdown
+that only we can read, against the first non-negotiable. So an entry stores the
+path as it was at the time, and every path is re-derived through the live
+forwarding ledger at read time, on both sides: a row is *drawn* at where the
+note is now, and `canSee` is *asked about* where it is now. The historical path
+stays in `.context/audit/`, where `list_changes` prints it. Skip the
+re-derivation and `a line written before a move points at where the note is
+now` fails in two suites; replace it with an id and the exit promise acquires
+an asterisk.
+
+**The dot on another context's mark is a timestamp, not a read.** A console
+that showed "something changed in @acme" by opening every bucket its person can
+reach would cost one storage round trip per workspace on every load, for a
+6pt dot. Instead each workspace row carries an `activityAt`, stamped forward
+only when a line is actually written — by the console through
+`markWorkspaceActivity`, and by the gateway through `POST /gateway/activity`,
+whose entire body is one workspace id. The reader's own `activitySeenAt` is
+already on their membership for the same feature's foot line, so the dot is one
+comparison over data the console already loads.
+
+**Being in a quiet context catches you up, and that is not a softening of
+"closing the list marks it read".** One timestamp per workspace cannot say
+whose line it was, so a person's own console edit stamps `activityAt` and
+lights a dot on their own context. Inside that context the edit is correctly
+not news — `isUnseen` drops it for `me` — so the foot line never appears, so
+there is no list to close, so nothing calls `markSeen` and **the dot never goes
+out**. A mark that is always lit means nothing, which is worse than no mark.
+So `shouldCatchUp` moves the marker when a loaded context has nothing this
+reader has not seen and the marker is behind the newest line: at most one
+mutation per visit to a context somebody else quietly moved. It returns false
+the instant one line is unread, which is the rule the popover's behaviour
+rests on, untouched. Your own edit *through a client* is still news to you —
+that is the whole feature, in the meeting's words: *"ChatGPT changed this and
+Claude changed this but you don't really see it"*. `being in a context whose
+newest line is your own catches you up` and `but one line you have not seen is
+enough to stay behind` are the pair.
+
+**And one timestamp per context would have leaked.** `activityAt` says when a
+context last moved; served to every member, it tells somebody who is not the
+owner the exact minute of a change the file refuses them, the tree hides and
+`list_changes` filters out — a private write's clock, in the one corner of the
+product nobody would think to audit. So the row carries two stamps:
+`activityAt`, which counts every line, and `activityTeamAt`, which counts only
+the `team` ones. `listMyWorkspaces` hands the owner the first and everybody
+else the second, narrowed in the query rather than on the client, because a
+number that reached a device has been disclosed whatever the device then does
+with it. That is the coarser of the two privacy gates and deliberately so:
+nothing per-reader can be computed from a row every member reads, and a
+`team`-tier line pointed at a named group is a thing the folder already
+published to the workspace. It is also why the gateway's report carries a
+boolean beside the id — not a fact about the note, but which of the two stamps
+may move; absent reads as private, so a caller that omits it can only
+under-report. `a private change never reaches a member's row` and `and the
+private write does not move the team stamp it sits after` are the pair, and
+`and a private one reports false, so no member's dot moves for it` is the
+gateway's half.
+
+Two things are load-bearing about that. **The stamp follows the line, not the
+operation** — a change the feed declines to mention stamps nothing, or the dot
+sends somebody looking for something that was never written down; `a change
+nobody would mention stamps nothing` and `a change too small to mention reports
+nothing` fail. And **an id and a tier are the whole of what may cross
+the boundary**: what changed, who changed it and where are in the customer's
+bucket, and a second copy on our side built so a dot can be drawn is the first
+non-negotiable spent on a pixel. `with the context it was written into, its
+tier, and nothing else` asserts that over the serialized request body rather
+than over a field list, so a field added later is caught by the shape rather
+than by somebody remembering to look. The route answers `{ok: true}`
+identically on every path, including an id that is no workspace, because the
+difference between "no such context" and "not yours" is the oracle a
+gateway-authenticated route must not be. Counting unread *for* the reader was
+rejected on the same boundary: an unread count is a question about what that
+one member may see, over a row every member reads. `usageActiveDaily` was
+rejected for a different reason — it is day-granular and counts reads, so it
+would light the dot for somebody opening a note.
+
 **And then it was looked at in a browser, which found three things no test
 had.** `activityRender.test.ts` mounts `<Explorer>` with a prop it supplies
 itself, so the console's own slot — `activity={data.activity}` in the layout —

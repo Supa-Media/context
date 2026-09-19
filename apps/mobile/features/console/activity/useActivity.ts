@@ -4,6 +4,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { EMPTY_QUERY_SPEC } from "../querySpec";
 import {
+  shouldCatchUp,
   unseenCount,
   unseenNotePaths,
   type ActivityEntry,
@@ -109,6 +110,23 @@ export function useActivity(
       // was, which is the honest outcome and self-correcting on the next press.
     });
   }, [mark, workspaceId]);
+
+  /*
+    BEING HERE, WITH NOTHING NEW, IS CATCHING UP.
+
+    For the dot on this context's mark elsewhere, which is drawn from one
+    timestamp and cannot know who wrote the line. See `shouldCatchUp` for the
+    hole this closes — in short, a person's own console edit would otherwise
+    light a dot on their own context that nothing could ever put out.
+
+    `markSeen` is idempotent and forward-only on the server, and the rule only
+    fires when the marker is actually behind, so this is at most one mutation
+    per visit to a context somebody else has quietly moved.
+  */
+  useEffect(() => {
+    if (!shouldCatchUp(entries, seenAt, loaded, me)) return;
+    markSeen();
+  }, [entries, seenAt, loaded, me, markSeen]);
 
   return useMemo(
     () => ({

@@ -106,6 +106,41 @@ const schema = defineSchema({
       v.array(v.object({ folder: v.string(), description: v.string() })),
     ),
     /**
+     * When something worth mentioning last happened in this context.
+     *
+     * The dot on another workspace's mark, and nothing else. It is the
+     * timestamp of the newest line in that context's `activity.md`, written by
+     * whichever side recorded it — so "has @seyi moved since I last looked"
+     * is answerable from the row the console already reads, without opening
+     * anybody's bucket.
+     *
+     * **A number, not a count.** A count would have to be a count of what
+     * *this* reader may see, which differs per member and cannot live on a
+     * shared row; the reader's own `activitySeenAt` turns this into a boolean
+     * on their side, and the honest number is one press away in the context
+     * itself.
+     *
+     * Absent for a context nothing has been recorded in. Monotonic: a writer
+     * that arrives late never walks it backwards.
+     *
+     * **Owner-only**, and `activityTeamAt` is the rest of the story.
+     */
+    activityAt: v.optional(v.number()),
+    /**
+     * The same, counting only the lines written at `team` tier.
+     *
+     * A member who is not the owner is served this one instead, because
+     * `activityAt` would otherwise hand them the exact time of a change they
+     * may not see — a dot that says "the owner did something private at
+     * 14:32". The file itself refuses them that, `list_changes` filters it and
+     * the tree hides it; a mark in the switcher must not be the one place it
+     * leaks. See `docs/decisions/privacy-and-sharing.md` on the two gates:
+     * this is the event-time flag, the coarser of them, and it is the right
+     * one here because nothing per-reader can be computed from a row every
+     * member reads.
+     */
+    activityTeamAt: v.optional(v.number()),
+    /**
      * Where a meeting recorded into this context lands by default.
      *
      * Absent is `MEETINGS_FOLDER` — `0-inbox/meetings` — which is what every

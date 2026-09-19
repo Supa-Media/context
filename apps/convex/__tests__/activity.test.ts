@@ -19,6 +19,8 @@
  *   `team_visible` taken from the caller instead of the manifest    1 failed
  *   `readActivity` passing `owner: true` for every scope            1 failed
  *   `markSeen` patching without the forward-only guard              1 failed
+ *   `activityAt` served to every member regardless of role           1 failed
+ *   `markWorkspaceActivity` moving the team stamp unconditionally    2 failed
  */
 
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -102,6 +104,17 @@ const BODY = `# Week one\n\n${"a".repeat(600)}\n`;
 /** What is at a key right now, or undefined. `snapshot()` decodes as text. */
 function fileAt(backend: MemoryS3, key: string): string | undefined {
   return backend.snapshot()[key];
+}
+
+/**
+ * The workspace's activity stamp, or `null` when it has never been set.
+ *
+ * `t.run` hands its result back through Convex's value encoding, where an
+ * absent optional field arrives as `null` rather than `undefined` — so the
+ * assertions read `toBeNull()`, and "no stamp" is one value rather than two.
+ */
+async function stampOf(f: Fixture): Promise<number | null> {
+  return await f.t.run(async (ctx) => (await ctx.db.get(f.workspaceId))?.activityAt ?? null);
 }
 
 function entriesIn(backend: MemoryS3) {
@@ -312,6 +325,171 @@ describe("a line follows its note", () => {
     expect(entries.some((entry) => entry.paths.includes("1-projects/week-one-renamed.md"))).toBe(
       true,
     );
+  });
+});
+
+describe("the dot on another context's mark", () => {
+  test("a change stamps the workspace row, so another console can see it", async () => {
+    const f = await fixture();
+    const before = await stampOf(f);
+    expect(before).toBeNull();
+
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-one.md",
+      text: BODY,
+    });
+
+    const after = await stampOf(f);
+    expect(typeof after).toBe("number");
+  });
+
+  test("a change nobody would mention stamps nothing", async () => {
+    const f = await fixture();
+    // A folder is not activity — see the shared module's substance table. The
+    // stamp has to follow the *line*, not the operation, or the dot lights for
+    // work the list will not explain.
+    await asUser(f.t, f.owner).action(api.functions.files.createDirectory, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/empty",
+    });
+    expect(await stampOf(f)).toBeNull();
+  });
+
+  test("the stamp only ever moves forward", async () => {
+    const f = await fixture();
+    await f.t.mutation(internal.functions.files.markWorkspaceActivity, {
+      workspaceId: f.workspaceId,
+      at: Date.now() - 1_000,
+    });
+    const first = await stampOf(f);
+    // Two writers land lines in one context and neither knows about the other.
+    // A late stamp that overwrote a newer one would put the dot out while
+    // something unread was still there.
+    await f.t.mutation(internal.functions.files.markWorkspaceActivity, {
+      workspaceId: f.workspaceId,
+      at: Date.now() - 60_000,
+    });
+    expect(await stampOf(f)).toBe(first);
+  });
+
+  test("and a clock ahead of ours cannot park a context in the future", async () => {
+    const f = await fixture();
+    await f.t.mutation(internal.functions.files.markWorkspaceActivity, {
+      workspaceId: f.workspaceId,
+      at: Date.now() + 86_400_000,
+    });
+    expect(await stampOf(f)).toBeLessThanOrEqual(Date.now());
+  });
+
+  /*
+    AND THE LEAK THE STAMP OPENS IF IT IS ONE NUMBER.
+
+    `activityAt` is one timestamp for a whole context. Served to every member,
+    it tells somebody who is not the owner the exact minute of a change the
+    file refuses them, the tree hides and `list_changes` filters out — a
+    private write's clock, in the one corner of the product nobody thinks to
+    look at. So there are two stamps, and the query hands over the one the
+    reader is entitled to.
+  */
+  test("a private change never reaches a member's row", async () => {
+    const f = await fixture();
+    // Private by inheritance: the fixture's manifest shares `1-projects` only
+    // where a test says so, and this path is not it.
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "3-teams/pay-bands.md",
+      text: BODY,
+    });
+
+    const asOwner = await asUser(f.t, f.owner).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    const asMember = await asUser(f.t, f.member).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    const ownerRow = asOwner.find((entry) => entry.workspaceId === f.workspaceId);
+    const memberRow = asMember.find((entry) => entry.workspaceId === f.workspaceId);
+
+    expect(typeof ownerRow?.activityAt).toBe("number");
+    // Not a smaller number, not a rounded one: nothing at all. A member has
+    // been told no more than they were before the write.
+    expect(memberRow?.activityAt).toBeUndefined();
+  });
+
+  test("and a team change reaches both", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects",
+      visibility: "team",
+    });
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-one.md",
+      text: BODY,
+    });
+
+    const asMember = await asUser(f.t, f.member).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    const row = asMember.find((entry) => entry.workspaceId === f.workspaceId);
+    expect(typeof row?.activityAt).toBe("number");
+  });
+
+  test("and the private write does not move the team stamp it sits after", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.setDirectoryVisibility, {
+      workspaceId: f.workspaceId,
+      path: "1-projects",
+      visibility: "team",
+    });
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-one.md",
+      text: BODY,
+    });
+    const before = await f.t.run(
+      async (ctx) => (await ctx.db.get(f.workspaceId))?.activityTeamAt ?? null,
+    );
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "3-teams/pay-bands.md",
+      text: BODY,
+    });
+    // The private line moved the owner's stamp and left the member's where it
+    // was, which is the whole of the rule.
+    expect(
+      await f.t.run(async (ctx) => (await ctx.db.get(f.workspaceId))?.activityTeamAt ?? null),
+    ).toBe(before);
+    expect(await stampOf(f)).toBeGreaterThan(before as number);
+  });
+
+  test("the console is handed both halves, and never a count", async () => {
+    const f = await fixture();
+    await asUser(f.t, f.owner).action(api.functions.files.writeNote, {
+      workspaceId: f.workspaceId,
+      path: "1-projects/week-one.md",
+      text: BODY,
+    });
+    await asUser(f.t, f.owner).mutation(api.functions.files.markActivitySeen, {
+      workspaceId: f.workspaceId,
+    });
+
+    const listed = await asUser(f.t, f.owner).query(
+      api.functions.workspaces.listMyWorkspaces,
+      {},
+    );
+    const row = listed.find((entry) => entry.workspaceId === f.workspaceId);
+    expect(typeof row?.activityAt).toBe("number");
+    expect(typeof row?.activitySeenAt).toBe("number");
+    // Two timestamps, and no unread count anywhere on the row: a count would
+    // have to be a count of what this reader may see, which is a per-member
+    // question over a row every member reads.
+    expect(JSON.stringify(row)).not.toContain("unseen");
   });
 });
 

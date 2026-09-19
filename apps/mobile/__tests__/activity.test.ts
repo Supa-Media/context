@@ -35,6 +35,8 @@
 import { describe, expect, test } from "@jest/globals";
 import {
   footLabel,
+  hasNewActivity,
+  shouldCatchUp,
   markFor,
   markedRows,
   relativeWhen,
@@ -142,6 +144,70 @@ describe("your own hand", () => {
   test("your own note carries no dot in the tree", () => {
     expect(
       unseenNotePaths([mine], null, "@me").has("1-projects/alpha/notes.md"),
+    ).toBe(false);
+  });
+});
+
+describe("another context's mark", () => {
+  test("carries a dot when it moved after you last looked at it", () => {
+    expect(hasNewActivity(NOW, NOW - 600_000)).toBe(true);
+  });
+
+  test("and none when you are caught up, or it has never moved", () => {
+    expect(hasNewActivity(NOW - 600_000, NOW)).toBe(false);
+    expect(hasNewActivity(undefined, NOW)).toBe(false);
+    expect(hasNewActivity(null, null)).toBe(false);
+  });
+
+  test("a context that moved and has never been looked at counts", () => {
+    // Somebody was invited and has not opened it. Everything in it is new,
+    // which is what an absent marker has to mean — see `unseenCount`.
+    expect(hasNewActivity(NOW, undefined)).toBe(true);
+  });
+
+  /*
+    AND THE HOLE THAT OPENS UNDERNEATH IT.
+
+    `activityAt` is one timestamp for a whole context, so it cannot tell whose
+    line it was: a person's own console edit stamps it and lights a dot on
+    their own workspace. Inside that context the edit is correctly not news, so
+    no foot line appears, so no popover is opened or closed, so `markSeen` is
+    never called — and the dot stays lit forever. These are the rule that
+    closes it.
+  */
+  test("being in a context whose newest line is your own catches you up", () => {
+    const mine = [entry({ at: at(-60_000), by: "@sayo", via: null })];
+    expect(shouldCatchUp(mine, NOW - 600_000, true, "@sayo")).toBe(true);
+  });
+
+  test("but one line you have not seen is enough to stay behind", () => {
+    const both = [
+      entry({ at: at(-60_000), by: "@sayo", via: null }),
+      entry({ at: at(-120_000), by: "@morayo", via: "ChatGPT" }),
+    ];
+    expect(shouldCatchUp(both, NOW - 600_000, true, "@sayo")).toBe(false);
+  });
+
+  test("and your own edit through a client is still news to you", () => {
+    // The whole point of the feature, in the meeting's words: "ChatGPT changed
+    // this and Claude changed this but you don't really see it". A client
+    // writing under your name is not your hand on the keyboard.
+    const viaClient = [entry({ at: at(-60_000), by: "@sayo", via: "Claude" })];
+    expect(shouldCatchUp(viaClient, NOW - 600_000, true, "@sayo")).toBe(false);
+  });
+
+  test("a marker already past the newest line writes nothing", () => {
+    // Otherwise every visit to a quiet context costs a mutation.
+    const mine = [entry({ at: at(-600_000), by: "@sayo", via: null })];
+    expect(shouldCatchUp(mine, NOW, true, "@sayo")).toBe(false);
+  });
+
+  test("and nothing is decided before the read lands", () => {
+    // An empty list is what "not loaded yet" looks like, and treating it as
+    // caught up would put out a dot that was telling the truth.
+    expect(shouldCatchUp([], NOW - 600_000, true, "@sayo")).toBe(false);
+    expect(
+      shouldCatchUp([entry({ by: "@sayo", via: null })], NOW - 600_000, false, "@sayo"),
     ).toBe(false);
   });
 });

@@ -899,6 +899,31 @@ export function createControlPlane(env, options = {}) {
       });
     },
 
+    /**
+     * Say that a line landed in this context's `activity.md`.
+     *
+     * A workspace id and a tier, and it could not be more: what changed, who
+     * changed it and where are in the customer's bucket, and this route exists
+     * for a single pixel — the dot on another workspace's mark, which the
+     * console draws from the workspace row rather than by opening every bucket
+     * it can reach. The control plane takes the timestamp itself.
+     *
+     * The tier is not a fact about the note. It says which of the two stamps
+     * on the workspace row may move: a member who is not the owner reads the
+     * team-tier one, so that a private line never tells them its time. False
+     * is the safe answer and the default.
+     *
+     * @param {string} workspaceId
+     * @param {boolean} teamVisible
+     */
+    async reportActivity(workspaceId, teamVisible) {
+      if (typeof workspaceId !== "string" || !workspaceId) return null;
+      return await post("/gateway/activity", {
+        workspaceId,
+        teamVisible: teamVisible === true,
+      });
+    },
+
     async createGatewayJob(accessToken, expectedWorkspaceId, job) {
       const parsed = await post("/gateway/jobs/create", {
         accessToken,

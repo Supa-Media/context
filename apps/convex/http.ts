@@ -548,6 +548,49 @@ export const gatewaySearchIndexProgress = gatewayRoute(async (ctx, body) => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* 2b-bis. POST /gateway/activity — a context changed                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The gateway saying that a line landed in a context's `activity.md`.
+ *
+ * It exists for one pixel: the dot on *another* workspace's mark, which the
+ * console draws from the workspace row rather than by opening four buckets on
+ * every load. The console stamps the same field directly; this is the other
+ * writer saying the same thing across a network boundary.
+ *
+ * **It carries a workspace id and one boolean.** What changed, who changed it
+ * and where are in the customer's bucket, and a route that reported any of
+ * that would be the control plane holding note metadata it has no business
+ * holding (non-negotiable #1). The boolean is not about the note: it says
+ * which of the two stamps may move, because a member who is not the owner is
+ * served `activityTeamAt` and a private line must not tell them its time.
+ * Absent reads as private, so a caller that omits it can only under-report.
+ *
+ * The timestamp is taken here rather than accepted from the caller, so a
+ * gateway with a wrong clock cannot park a context in the future.
+ *
+ * Answered identically whatever happens, like its neighbours: a malformed id
+ * and a context that does not exist must not be distinguishable.
+ */
+export const gatewayActivity = gatewayRoute(async (ctx, body) => {
+  const answered = () => json({ ok: true });
+  const workspaceId = stringField(body, "workspaceId");
+  if (workspaceId === null) return answered();
+  try {
+    await ctx.runMutation(internal.functions.files.markWorkspaceActivity, {
+      workspaceId: workspaceId as Id<"workspaces">,
+      at: Date.now(),
+      teamVisible: body.teamVisible === true,
+    });
+  } catch {
+    // As above: the difference between "that is not an id" and "that context
+    // is not yours" is the oracle this route must not be.
+  }
+  return answered();
+});
+
+/* -------------------------------------------------------------------------- */
 /* 2c. POST /gateway/jobs/create — mint queued gateway work                  */
 /* -------------------------------------------------------------------------- */
 
@@ -1348,6 +1391,7 @@ http.route({
   method: "POST",
   handler: gatewaySearchIndexProgress,
 });
+http.route({ path: "/gateway/activity", method: "POST", handler: gatewayActivity });
 http.route({
   path: "/gateway/jobs/create",
   method: "POST",
