@@ -280,7 +280,7 @@ describe("the list", () => {
     );
     press(container.querySelector('[data-testid="explorer-activity"]')!);
     const list = container.querySelector('[data-testid="explorer-activity-list"]')!;
-    expect(list.textContent).toContain("@sayo's Claude added 1-projects/alpha.md");
+    expect(list.textContent).toContain("@sayo's Claude added alpha");
     expect(list.textContent).toContain("screenshots of the editor bugs");
   });
 
@@ -290,7 +290,7 @@ describe("the list", () => {
     const container = mount(view([entry()], Date.now() - 600_000, seen), files);
     press(container.querySelector('[data-testid="explorer-activity"]')!);
     const row = [...container.querySelectorAll('[role="button"]')].find((element) =>
-      (element.textContent ?? "").includes("added 1-projects/alpha.md"),
+      (element.textContent ?? "").includes("added alpha"),
     );
     expect(row).toBeDefined();
     press(row!);

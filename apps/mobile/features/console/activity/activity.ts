@@ -17,10 +17,11 @@
  */
 
 import {
-  describeEntry,
+  actorLabel,
   folderOf,
   nameOf,
 } from "@context/shared/src/activity.cjs";
+import { displayName, displayPath } from "../files/paths";
 
 export { ACTIVITY_PATH } from "@context/shared/src/activity.cjs";
 
@@ -111,20 +112,61 @@ export function dayLabel(at: string, now: number): string {
 /**
  * The two lines of a row.
  *
- * `title` is the sentence the shared module writes, with its backticks taken
- * off: this is a list of text rows, not Markdown, and a stray backtick in a
- * React Native `Text` is a stray backtick on screen.
+ * **Names, not paths.** The shared module's sentence names the full path,
+ * which is right for the file — somebody reading `activity.md` in Obsidian has
+ * no tree beside them — and wrong in a 240pt column, where it wraps to two
+ * lines and ends in an ellipsis over the part that identifies it. This was
+ * visible in a browser and in no test: `A meeting landed: 0-inbox/meetings/
+ * 2026-0…` is a row that has spent its whole width saying nothing.
+ *
+ * So the first line names the thing and the second says where it is, which is
+ * the order a reader wants and the order the tree beside it already uses.
  *
  * `meta` is the agent's own sentence where it sent one, and the folder
  * otherwise. Never both — two greys under one line is furniture, and the
  * sentence is always the more useful of the two.
  */
 export function rowText(entry: ActivityEntry): { title: string; meta: string } {
-  const title = describeEntry(entry).replace(/`/g, "");
-  if (entry.note) return { title, meta: entry.note };
+  const who = actorLabel(entry);
   const first = entry.paths[0] ?? "";
-  const folder = folderOf(first);
-  return { title, meta: entry.n > 1 || !folder ? first : folder };
+  const last = entry.paths[entry.paths.length - 1] ?? first;
+  const many = entry.n > 1;
+  const folder = folderOf(last);
+  const here = folder === "" ? "the root" : displayName(nameOf(folder));
+  /*
+    Named the way the tree beside this names the same file: no sort number, no
+    `.md`. `displayName`'s own header argues both, and a list that disagreed
+    with the tree about what a note is called would be two names for one row.
+  */
+  const called = (path: string) => displayName(nameOf(path));
+  const title = (() => {
+    switch (entry.kind) {
+      case "added":
+        return many ? `${who} added ${entry.n} notes to ${here}` : `${who} added ${called(first)}`;
+      case "revised":
+        return many
+          ? `${who} revised ${entry.n} notes in ${here}`
+          : `${who} revised ${called(first)}`;
+      case "archived":
+        return `${who} archived ${called(first)}`;
+      case "moved":
+        return many
+          ? `${who} moved ${entry.n} notes into ${here}`
+          : `${who} moved ${called(first)} to ${here}`;
+      case "published":
+        return many
+          ? `${who} gave the team ${entry.n} notes in ${here}`
+          : `${who} gave the team ${called(first)}`;
+      case "meeting":
+        return `A meeting landed: ${called(first)}`;
+      case "session":
+        return `${who} saved a session`;
+      default:
+        return `${who} changed ${called(first)}`;
+    }
+  })();
+  if (entry.note) return { title, meta: entry.note };
+  return { title, meta: folder === "" ? called(last) : displayPath(folder) };
 }
 
 /** Which mark a row draws. A closed set — see the shared module's `KINDS`. */
@@ -303,7 +345,11 @@ export function rows(
   let day: string | null = null;
   entries.forEach((entry, index) => {
     if (index === unseen && index > 0 && seenAt !== null) {
-      out.push({ kind: "unread", label: `Before ${relativeWhen(new Date(seenAt).toISOString(), now)}` });
+      // "Earlier", not "Before 18h" — which is what a relative age reads as
+      // when it is used as a heading, and was on the glass before anybody
+      // looked at it. The line's job is to separate new from seen; when you
+      // last looked is the foot line's sentence, not this one's.
+      out.push({ kind: "unread", label: "Earlier" });
       // A day heading after the line, even if the day has not changed: the
       // two sides of the marker are two lists to a reader, and the lower one
       // starting with a bare row reads as part of the upper one.

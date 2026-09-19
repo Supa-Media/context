@@ -139,7 +139,7 @@ export function ActivityList({
                 {meta}
               </Text>
             </View>
-            <Text variant="treeMeta" style={styles.when}>
+            <Text variant="treeMeta" numberOfLines={1} style={styles.when}>
               {when}
             </Text>
           </PressRow>
@@ -165,7 +165,12 @@ const sheet = (colors: Colors) =>
     body: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
     title: { color: colors.text2 },
     meta: { color: colors.chromeMuted },
-    when: { color: colors.chromeMuted, paddingTop: 2 },
+    /*
+      `flexShrink: 0` because it is four characters that must not wrap: at 240pt
+      the column gave "4 min" two lines and the row grew to fit them. Seen in a
+      browser, invisible to jsdom, which lays nothing out.
+    */
+    when: { color: colors.chromeMuted, paddingTop: 2, flexShrink: 0 },
     divider: {
       flexDirection: "row",
       alignItems: "center",

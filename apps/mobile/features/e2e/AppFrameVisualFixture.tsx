@@ -248,7 +248,7 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
           it was empty. Copying `console/_layout`'s own wiring is the point of a
           fixture meant to answer "does this look like the design".
         */
-        explorer={<Explorer files={data.files} contextLabel="@seyi" />}
+        explorer={<Explorer files={data.files} contextLabel="@seyi" activity={data.activity} />}
         /*
           The real status bar, on the real segment model.
 

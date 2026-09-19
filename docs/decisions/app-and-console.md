@@ -6936,3 +6936,26 @@ costs a sentence rather than a false fact. This reverses the first design's
 "no agent summaries", which was wrong on the evidence — the meeting asked for
 exactly this and the owner's answer to whether a team might not want it was
 *"I think we should enforce it"*.
+
+**And then it was looked at in a browser, which found three things no test
+had.** `activityRender.test.ts` mounts `<Explorer>` with a prop it supplies
+itself, so the console's own slot — `activity={data.activity}` in the layout —
+was covered by nothing: delete that line and the suite stays green. The visual
+fixture now carries an activity view and `e2e/webkit/activityIndicator.spec.ts`
+drives it in a real engine, which is where these turned up:
+
+- **Rows spent their width on paths.** The shared module's sentence names the
+  full path, which is right for the file and wrong in a 240pt column: `A
+  meeting landed: 0-inbox/meetings/2026-0…` had said nothing by the time it ran
+  out. The console names the note and puts the folder underneath — and names it
+  the way the tree does, without the sort number or the `.md`, because two
+  names for one row is worse than either.
+- **The unread marker read `Before 18h`.** A relative age is not a heading. It
+  says `Earlier`; when you last looked is the foot line's sentence.
+- **`4 min` wrapped to two lines** and grew the row, because nothing in jsdom
+  lays anything out.
+
+The first draft of the fixture data also named three notes in a folder the demo
+tree has never had, so the console drew no dot and the board was reporting on
+itself — the failure that page's own header warns about, reproduced while
+guarding against it.

@@ -191,6 +191,13 @@ describe("the list", () => {
     ]);
   });
 
+  test("labels the marker as a place in the list, not as a time", () => {
+    const drawn = rows(entries, NOW - 600_000, NOW);
+    const marker = drawn.find((row) => row.kind === "unread");
+    expect(marker).toBeDefined();
+    expect((marker as { label: string }).label).toBe("Earlier");
+  });
+
   test("puts the unread marker between what is new and what is not", () => {
     const drawn = rows(entries, NOW - 600_000, NOW);
     const kinds = drawn.map((row) => row.kind);
@@ -211,10 +218,26 @@ describe("the list", () => {
 });
 
 describe("a row", () => {
-  test("reads as a sentence with no markup left in it", () => {
-    const { title } = rowText(entry());
-    expect(title).toBe("@sayo's Claude added 1-projects/alpha/notes.md");
+  test("names the note rather than spending the column on its path", () => {
+    const { title, meta } = rowText(entry());
+    expect(title).toBe("@sayo's Claude added notes");
+    // The path is not lost, it is demoted: the line above says what, the line
+    // below says where, which is the order the tree beside it already uses.
+    // And named the way the tree names it: no sort number, no `.md`.
+    expect(meta).toBe("projects/alpha");
     expect(title).not.toContain("`");
+  });
+
+  test("a meeting names the meeting, not the folder it landed in", () => {
+    const { title } = rowText(
+      entry({ kind: "meeting", paths: ["0-inbox/meetings/2026-09-19-steering.md"], by: null, via: null }),
+    );
+    expect(title).toBe("A meeting landed: 2026-09-19-steering");
+  });
+
+  test("a group of notes names the folder it landed in", () => {
+    const { title } = rowText(entry({ n: 3, paths: ["1-projects/fixes/a.md"] }));
+    expect(title).toBe("@sayo's Claude added 3 notes to fixes");
   });
 
   test("prefers the agent's own sentence to a folder path", () => {
