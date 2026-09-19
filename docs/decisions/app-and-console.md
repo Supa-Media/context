@@ -6808,3 +6808,46 @@ seven-key solve as a probe of `BottomBar`, the shape the geometry must survive i
 a destination is ever added back — and, in `consoleChrome.test.ts`, `the app's
 other place is a row in the + sheet, and choosing it records` and `the + offers
 the three files, and Note writes one without asking`.
+
+### A phone can ask its context a question, and could not before (2026-09-19)
+
+Both `+`s offer a Chat row, and on a phone that row raises `AgentPanel` directly
+rather than the right panel it has none of.
+
+**It was absent, and the absence was never decided.** `CreateButton`'s handler is
+`null` "where a conversation cannot be had", and one of its three reasons read
+*no panel to answer in (a phone)* — which was a true statement about the code and
+not a product choice. The only thing that raised `AgentPanel` was the floating
+microphone `NoteEditor` mounts, and that microphone stands down while the bottom
+row is on the glass (*The seventh key became a row in the `+`*,
+[meetings](./meetings.md)). So the whole route to the agent on a phone was: open a
+note, put the keyboard up until the bottom row hides, press the microphone that
+comes back, choose the agent row. The desktop menu offered it in one press.
+
+**The fix is one line of routing, because the panel was already the right shape.**
+`AgentPanel` is a `Modal`, and its own header says it is one so it can "appear
+identically on a surface that has no console around it at all" — written for the
+fixtures, and it pays for this too. `startNewChat` picks the surface by density;
+the gate above it is unchanged and still `modelConnected === true`, so a context
+with no model key is not offered a conversation on either.
+
+What a "simplification" would cost:
+
+- **Putting `hasAside` back in the gate.** That is the original defect: the row
+  vanishes from the phone's sheet and the only route back is the one through the
+  keyboard. Held by `the + offers a chat, and choosing it opens the panel`.
+- **Mounting the card inside `NoteEditor` instead**, where the microphone raises
+  it. Then it exists over a note and nowhere else — no folder page, no map, no
+  search — which is the complaint the `+` itself was created to answer.
+- **Building a second `agentPage`.** `agentPage`'s comment already asks for one
+  builder, and the object is a set of *references*: a second copy is a second
+  chance to put a note's body in one, which
+  `__tests__/agentPage.test.ts` exists to catch. The layout now builds
+  `agentPlace` once and hands the same object to both surfaces.
+- **Dropping the `key`.** It is the timestamp, so each press is a fresh
+  conversation rather than the last one reopened — which is what "New chat" says.
+
+The checks are `the + offers a chat, and choosing it opens the panel` and `and no
+chat row on a phone in a context with no model key`, in `consoleChrome.test.ts`,
+both driven through the real layout at 390pt. Four sabotages are recorded in that
+file's header.
