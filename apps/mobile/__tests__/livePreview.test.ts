@@ -798,11 +798,19 @@ describe("a table is drawn in the face its columns need", () => {
     expect(() => decorationsFor(stateFor(doc, [0, doc.length]))).not.toThrow();
   });
 
-  test("and the mono lines are what an editable note still gets", () => {
-    // The pipes are the author's while the note can be typed into. The grid
-    // below replaces them only when it cannot be typed into at all.
-    expect(tableGrids(stateFor(TABLE))).toEqual([]);
-    expect(tableText(TABLE).length).toBe(3);
+  test("and the mono face is what is left for a table the grid refuses", () => {
+    /*
+      This used to read "the pipes are the author's while the note can be typed
+      into", and the grid replaced them only for a reader. It does not any
+      more: a table is a table in both modes, and the cell you are in is what
+      reveals (see `tableGrids`). So the mono line is now the *fallback* — a
+      table the grid will not draw, such as one indented inside a list item,
+      still gets its columns lined up as text.
+    */
+    expect(tableGrids(stateFor(TABLE)).length).toBe(1);
+    const indented = ["- item", "", "  | a | b |", "  | --- | --- |", "  | 1 | 2 |"].join("\n");
+    expect(tableGrids(stateFor(indented))).toEqual([]);
+    expect(tableText(indented).length).toBe(3);
   });
 });
 
@@ -1039,6 +1047,38 @@ describe("a table is laid out for a reader", () => {
     const state = readingStateFor(doc);
     const front = frontmatterRange(doc);
     expect(tableGrids(state, front === null ? 0 : front.to)).toEqual([]);
+  });
+
+  /**
+   * WHERE EACH CELL'S CHARACTERS ARE — the half that makes the grid editable
+   * without a serializer. A span is the raw range between two delimiters, so
+   * typing in a cell replaces those characters and reads nothing else; the
+   * writes themselves are `tableEdit.ts`, pinned in `tableEdit.test.ts`.
+   */
+  describe("every drawn cell knows which characters it is", () => {
+    test("a span is the cell's own text, padding included", () => {
+      const doc = TABLE;
+      const grid = gridIn(doc);
+      const slice = (span: { from: number; to: number } | null) =>
+        span === null ? null : doc.slice(span.from, span.to);
+      expect(grid.headerSpans.map(slice)).toEqual([" a ", " b "]);
+      expect(grid.rowSpans[0].map(slice)).toEqual([" 1 ", " 2 "]);
+    });
+
+    test("and the column GFM invented for a short row has none", () => {
+      // There are no characters in the file for it, so there is nothing for a
+      // keystroke in it to replace — the widget draws it and refuses to edit.
+      const grid = gridIn(["| a | b |", "| --- | --- |", "| 1 |"].join("\n"));
+      expect(grid.rowSpans[0][0]).not.toBeNull();
+      expect(grid.rowSpans[0][1]).toBeNull();
+    });
+
+    test("an escaped pipe stays inside the cell it belongs to", () => {
+      const doc = ["| v |", "| --- |", "| a\\|b |"].join("\n");
+      const grid = gridIn(doc);
+      expect(grid.rowSpans[0].length).toBe(1);
+      expect(doc.slice(grid.rowSpans[0][0]!.from, grid.rowSpans[0][0]!.to)).toBe(" a\\|b ");
+    });
   });
 
   test("the grid replaces the lines rather than sitting beside them", () => {

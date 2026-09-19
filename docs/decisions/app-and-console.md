@@ -4404,6 +4404,11 @@ editor` block in `apps/mobile/__tests__/googleConnectionsCard.test.ts`, plus
 
 ### Reading mode is the whole rule for a block that replaces its own source
 
+> **Superseded for tables** by "A grid is edited in place, and the unit that
+> reveals is the cell" below, which reverses exactly the paragraph this section
+> ends on. It stands unchanged for the other two blocks, and the argument here
+> is what the reversal had to answer.
+
 Three things in a note are drawn as something other than the characters that
 mean them: a `form` fence becomes a form, a GFM table becomes a grid, and an
 `html-preview` fence becomes a diagram. All three are gated on **`state.readOnly`
@@ -4440,6 +4445,86 @@ different product: it needs a serializer from the drawn cells back to pipes,
 which is exactly the round trip `livePreview.ts` exists to avoid — "the buffer
 **is** the Markdown", and nothing here parses the document into another model
 and writes it back.
+
+*(That reversal happened, for tables and for tables only. The next section is
+the answer to this paragraph — there is no serializer, because the cell you are
+in shows its own characters.)*
+
+### A grid is edited in place, and the unit that reveals is the cell
+
+A table in a note being written was a paragraph of pipes for the whole of the
+time anybody was working on it, and the section above says why: the grid was
+gated on `state.readOnly`, so a table rendered only once you had stopped
+editing. The complaint is the obvious one, and it came with the obvious
+reference — Obsidian draws the table while you type in it.
+
+So tables are now drawn in **both** modes, and what the eye takes away is not
+the grid, it is the typing. A read-only note's cells are drawn and not
+editable, which is `editability`'s own rule about a control that could only
+ever fail.
+
+**The reveal rule was right about the flicker and wrong about the unit.** The
+old argument was that "a grid that gave way on selection would flicker between
+two layouts as somebody arrowed along a row", and it would — if the unit that
+reveals is the *table*. It is the **cell**: the one with focus shows its own
+markdown and every other cell stays drawn, so `**bold**` is in the cell you are
+in and **bold** is in the one beside it. That is this editor's central rule
+about `## Heading`, applied one level down, and nothing flickers because
+nothing around the caret redraws.
+
+**And that is the whole answer to "it needs a serializer".** It does not. The
+focused cell's text *is* the source, so writing it back is a change to the span
+between two delimiters and nothing else in the file is read, let alone
+rewritten. `tableEdit.ts` is where that promise is kept and it holds no model
+of a table: every function takes a range of the document and the characters
+somebody typed into that range. A hand-aligned table stays hand-aligned in
+every cell except the one being edited — pinned by *a hand-aligned table keeps
+its alignment in the cells nobody touched* in `apps/mobile/__tests__/tableEdit.test.ts`.
+
+The three characters that cannot be in a cell as themselves are handled at the
+keystroke rather than refused: a typed `|` is escaped (a keystroke that
+silently splits the row into a new column is the table breaking under the
+person editing it), a pasted newline becomes the `<br>` the cell reader already
+draws, and the outer spaces are padding rather than content.
+
+**The structural edits exist because the source became unreachable.** Once a
+table is always drawn, the pipes are no longer somewhere a person can go and
+fix — there is no source mode in this editor, only reading and writing. A grid
+that could not gain or lose a row would be a grid you had to leave the app to
+repair. So an editable grid carries four controls, pinned to its own frame and
+revealed on hover or focus: add a row, add a column, delete a row, delete a
+column. The two deletions stay **disabled until a cell has been focused**,
+because "delete row" with no row named has to guess and the guess is a row of
+somebody's note. Tab past the last cell and Enter on the last row add one too,
+which is how a table gets longer without anybody reaching for a control.
+
+**What this costs, stated rather than discovered:**
+
+- **CodeMirror's caret is not in the cell.** Focus is in a `contenteditable`
+  element of the widget's, so `view.hasFocus` is false while somebody is typing
+  in a table — which is deliberate, because it is what stops CodeMirror drawing
+  its own selection over the top. Escape hands the note back with the caret
+  after the table. The consequence is that the editor's own toolbar commands
+  (bold, a link) act on the document rather than on the cell while a cell has
+  focus. The characters are right there to type instead.
+- **A column GFM invented for a short row is drawn and not editable.** There
+  are no characters in the file for it, so there is nothing for a keystroke to
+  replace, and a cell that wrote to a range it invented would put its text in
+  the row's last real column.
+- **A redraw skips the focused cell**, so a change arriving from elsewhere —
+  a sync, an undo — does not appear in the cell being typed in until it is left.
+  The alternative is the document's version of the text landing under the caret
+  mid-word.
+
+**What would reverse this** is a cell that wrote back what it *drew* rather
+than what it holds: that is the serializer, and the first thing it would do is
+replace `**bold**` with `bold` the moment anybody put a caret in the cell. The
+tests that fail if it is: *the source is what is written back, so the markup
+survives an edit* and *the element survives the keystroke that changed the
+document* in `apps/mobile/__tests__/tableEditing.test.ts`, the second of which
+is the reason the widget patches its own DOM instead of letting CodeMirror
+rebuild it — every keystroke is a document change, and a rebuilt widget loses
+the caret on every letter.
 
 ### A note may declare the mode it opens in, and the person still outranks it
 

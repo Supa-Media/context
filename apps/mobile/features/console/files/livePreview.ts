@@ -47,6 +47,7 @@ import {
   StateEffect,
   StateField,
   type Extension,
+  type TransactionSpec,
 } from "@codemirror/state";
 import { Decoration, DecorationSet, EditorView, WidgetType } from "@codemirror/view";
 import { FormWidget, formFences, formHost } from "./formBlock";
@@ -73,6 +74,21 @@ import {
   surfaces already reach for it.
 */
 import { unescapeCell } from "../../../../mcp/src/forms.js";
+/*
+  The writes a drawn grid makes back into the pipes, and nothing else: pure,
+  DOM-free, and the module that holds the promise that there is no serializer
+  here. Separate for the reason `imageBlock.ts` is separate — the interesting
+  cases are in the text, and they are testable without a tree or a browser.
+*/
+import {
+  planAddColumn,
+  planAddRow,
+  planCellEdit,
+  planDeleteColumn,
+  planDeleteRow,
+  type CellSpan,
+  type TableRegion,
+} from "./tableEdit";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { css } from "@codemirror/lang-css";
@@ -988,6 +1004,8 @@ export interface CellRun {
   readonly className: string | null;
 }
 
+export type { CellSpan };
+
 /** What the delimiter row said about a column, or `null` for the default. */
 export type CellAlign = "left" | "center" | "right" | null;
 
@@ -1000,6 +1018,22 @@ export interface TableGrid {
   readonly align: readonly CellAlign[];
   readonly header: ReadonlyArray<readonly CellRun[]>;
   readonly rows: ReadonlyArray<ReadonlyArray<readonly CellRun[]>>;
+  /**
+   * WHERE EACH DRAWN CELL'S CHARACTERS ARE, which is what makes the grid
+   * editable without a serializer.
+   *
+   * Parallel to `header` and `rows` rather than folded into them, so every
+   * reader of the runs — the widget, and the tests that came before this —
+   * keeps working unchanged. A span is the *raw* range between two
+   * delimiters, padding included: typing in a cell replaces exactly those
+   * characters and touches nothing else in the file. See `tableEdit.ts`.
+   *
+   * `null` where GFM padded a short row out to the header's width: those
+   * columns are drawn but have no characters to edit, and a cell that wrote
+   * to a range it invented would put its text in the row's last real column.
+   */
+  readonly headerSpans: ReadonlyArray<CellSpan | null>;
+  readonly rowSpans: ReadonlyArray<ReadonlyArray<CellSpan | null>>;
 }
 
 /**
@@ -1273,9 +1307,11 @@ export function alignmentsIn(text: string): CellAlign[] {
  * delimiter and has two columns, and GFM's optional `a | b` has no outer pipes
  * and also has two.
  *
- * Returns one entry per column, `null` where the column is empty.
+ * Returns one entry per column: the cell's node where there is one and `null`
+ * where the column is empty, and in both cases the gap's own range — which is
+ * what a person editing that column types into. See `TableGrid.headerSpans`.
  */
-function cellsOf(row: SyntaxNode): Array<SyntaxNode | null> {
+function cellsOf(row: SyntaxNode): Array<{ cell: SyntaxNode | null; span: CellSpan }> {
   const delimiters: Array<{ from: number; to: number }> = [];
   const cells: SyntaxNode[] = [];
   for (let child = row.firstChild; child !== null; child = child.nextSibling) {
@@ -1294,23 +1330,33 @@ function cellsOf(row: SyntaxNode): Array<SyntaxNode | null> {
   if (gaps.length > 0 && gaps[0].to <= gaps[0].from) gaps.shift();
   if (gaps.length > 0 && gaps[gaps.length - 1].to <= gaps[gaps.length - 1].from) gaps.pop();
 
-  return gaps.map(
-    (gap) => cells.find((cell) => cell.from >= gap.from && cell.to <= gap.to) ?? null,
-  );
+  return gaps.map((gap) => ({
+    cell: cells.find((cell) => cell.from >= gap.from && cell.to <= gap.to) ?? null,
+    span: { from: gap.from, to: gap.to },
+  }));
 }
 
 function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
   let align: CellAlign[] = [];
   let header: CellRun[][] | null = null;
+  let headerSpans: CellSpan[] = [];
   const rows: CellRun[][][] = [];
+  const rowSpans: CellSpan[][] = [];
+
+  const runsOf = (column: { cell: SyntaxNode | null }): CellRun[] =>
+    column.cell === null ? [] : cellRuns(state, column.cell);
 
   for (let child = table.firstChild; child !== null; child = child.nextSibling) {
     if (child.name === "TableHeader") {
-      header = cellsOf(child).map((cell) => (cell === null ? [] : cellRuns(state, cell)));
+      const columns = cellsOf(child);
+      header = columns.map(runsOf);
+      headerSpans = columns.map((column) => column.span);
       continue;
     }
     if (child.name === "TableRow") {
-      rows.push(cellsOf(child).map((cell) => (cell === null ? [] : cellRuns(state, cell))));
+      const columns = cellsOf(child);
+      rows.push(columns.map(runsOf));
+      rowSpans.push(columns.map((column) => column.span));
       continue;
     }
     /*
@@ -1339,6 +1385,17 @@ function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
     while (cells.length < width) cells.push([]);
     return cells;
   });
+  /*
+    The padding is `null` rather than a range, and that is the whole reason
+    `shapeSpans` is not `shaped` with different contents: a column GFM invented
+    for a short row has no characters in the file, so there is nothing for a
+    keystroke in it to replace. The widget draws it and refuses to edit it.
+  */
+  const shapedSpans = rowSpans.map((row) => {
+    const spans: Array<CellSpan | null> = row.slice(0, width);
+    while (spans.length < width) spans.push(null);
+    return spans;
+  });
 
   return {
     from: table.from,
@@ -1347,20 +1404,34 @@ function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
     align,
     header,
     rows: shaped,
+    headerSpans,
+    rowSpans: shapedSpans,
   };
 }
 
 /**
- * Every table that should be drawn as a grid right now.
+ * Every table that should be drawn as a grid right now — which is every table.
  *
- * **`state.readOnly`, and nothing else** — the form block's rule, and the same
- * sentence for the same reason. The rest of this file serves "you cannot edit
- * syntax you cannot see" by revealing markup when the caret touches it, and a
- * table cannot do that: the cell you want to edit is the thing the grid has
- * replaced, so a grid that gave way on selection would flicker between two
- * layouts as somebody arrowed through a row. A reader has no caret to reveal
- * with, so the two rules stop competing: editing shows the pipes exactly where
- * the author put them, reading shows the table.
+ * **This used to be `state.readOnly`, and nothing else**, the rule the form
+ * block still keeps. The argument was that this file serves "you cannot edit
+ * syntax you cannot see" by revealing markup when the caret touches it, and
+ * that a table cannot do that because the cell you want to edit is the thing
+ * the grid replaced — so a grid that gave way on selection would flicker
+ * between two layouts as somebody arrowed along a row.
+ *
+ * That was right about the flicker and wrong about the unit. Revealing the
+ * *table* is what flickers; revealing the **cell you are in** is the same rule
+ * every heading and every bold phrase in this file already follows, one level
+ * further down. A focused cell shows its own characters and is typed into
+ * directly; every other cell stays drawn. Nothing serializes: the keystroke
+ * replaces the span between two delimiters and the rest of the file is not
+ * read, let alone rewritten — see `tableEdit.ts`, which is where that promise
+ * is kept, and `docs/decisions/app-and-console.md`.
+ *
+ * So a table is a table in both modes, and the difference between them is what
+ * the reader cannot do: a read-only note's cells are not editable, because
+ * `editability` has already taken the caret away and a control that would only
+ * ever fail is not drawn (`imageBlock`'s rule, and the same one).
  *
  * A table that does not start at the margin is left alone, for the reason
  * `htmlPreviews` gives: a block widget replaces whole lines, and one indented
@@ -1369,7 +1440,6 @@ function readTable(state: EditorState, table: SyntaxNode): TableGrid | null {
  * `frontEnd` excludes the frontmatter — see `hangingIndents`.
  */
 export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
-  if (!state.readOnly) return [];
   const grids: TableGrid[] = [];
   syntaxTree(state).iterate({
     from: 0,
@@ -1392,7 +1462,34 @@ export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
 }
 
 /**
- * A table, drawn as a table.
+ * Where each drawn grid's own state lives between redraws.
+ *
+ * A widget object is thrown away and rebuilt on **every** transaction, and its
+ * DOM is not: `updateDOM` hands the new widget the old element. So anything a
+ * listener needs at event time — which table it belongs to now, which cell was
+ * last in — belongs to the element rather than to the widget that made it. A
+ * handler that closed over `this.grid` would write the state of the keystroke
+ * before last back into the file, which is the bug `ImageRowWidget.rowNow`
+ * exists to avoid, one redraw earlier.
+ *
+ * A `WeakMap` rather than dataset properties because the values are objects,
+ * and because nothing here should put editor state in the DOM where a paste of
+ * the rendered note would carry it away.
+ */
+interface DrawnGrid {
+  grid: TableGrid;
+  canEdit: boolean;
+  /** The last cell focused in this grid, for the controls to act on. */
+  focused: { row: number; column: number } | null;
+}
+const drawnGrids = new WeakMap<HTMLElement, DrawnGrid>();
+
+/** The header row's own row index. Not `0`: that is the first body row. */
+const HEADER_ROW = -1;
+
+/**
+ * A table, drawn as a table — and, while the note can be typed into, edited as
+ * one.
  *
  * A real `<table>` rather than a grid of divs, because this is tabular data and
  * the element carries the row and column relationships to a screen reader for
@@ -1405,15 +1502,43 @@ export function tableGrids(state: EditorState, frontEnd = 0): TableGrid[] {
  * a `\n` in `cellRuns`, so the break is drawn by this file rather than parsed
  * by the browser.
  *
- * `ignoreEvent` is left at CodeMirror's default, which **ignores** events inside
- * the widget — the same behaviour `FormWidget` asks for explicitly. It costs
- * nothing today, because a grid exists only while the note is read-only and
- * there is no caret to place either way; it is named here so that a later
- * change making tables interactive knows it is a decision rather than an
- * oversight.
+ * ## The reveal rule, one level down
+ *
+ * An editable cell is `contenteditable`, and **the cell with focus shows its
+ * own characters** while every other cell stays drawn: `**bold**` in the cell
+ * you are in, **bold** in the one beside it. That is this file's rule about
+ * `## Heading` applied to a unit the size of a cell, and it is what makes the
+ * grid editable without a serializer — the text in the focused cell *is* the
+ * source, so writing it back is a change to one span rather than a rendering
+ * of a model. See `tableEdit.ts`.
+ *
+ * Two consequences worth naming:
+ *
+ *  - **CodeMirror's caret is not in the cell.** The widget's DOM is not the
+ *    document, so focus is in a `contenteditable` element of ours and
+ *    `view.hasFocus` is false while it is there. That is deliberate — it is
+ *    what stops CodeMirror redrawing its own selection over the top — and it
+ *    is why Escape exists below: it hands focus back with the caret after the
+ *    table. It also means the editor's own toolbar commands (bold, a link)
+ *    act on the document rather than on the cell while a cell has focus; the
+ *    characters are right there to type instead, which is the honest half of
+ *    a gap that is stated rather than papered over.
+ *  - **`ignoreEvent` and `ignoreMutation` both say "not yours".** Every event
+ *    inside the grid is the grid's, and every mutation inside it is this
+ *    widget writing to its own DOM. Without the second, CodeMirror reads our
+ *    cell edit as somebody typing into the document and appends the text
+ *    twice.
  */
 export class TableGridWidget extends WidgetType {
-  constructor(private readonly grid: TableGrid) {
+  /*
+    `canEdit`, not `editable`: `WidgetType` owns `editable` as a getter with no
+    setter, and a field of that name throws on construction and takes the whole
+    note screen down. The full story is in `ImageRowWidget`, which found it.
+  */
+  constructor(
+    private readonly grid: TableGrid,
+    private readonly canEdit: boolean,
+  ) {
     super();
   }
 
@@ -1421,13 +1546,15 @@ export class TableGridWidget extends WidgetType {
     Compared on the table's own text. Like `FormWidget.eq` this is load-bearing
     rather than an optimisation — the decoration set is rebuilt on every
     transaction, and a widget that reported itself new would have its DOM torn
-    down and rebuilt on every keystroke elsewhere in the note.
+    down and rebuilt on every keystroke elsewhere in the note. When it does
+    report itself new, `updateDOM` below keeps the element anyway, because the
+    keystroke that changed the text is usually somebody typing *in* the grid.
   */
   eq(other: TableGridWidget): boolean {
-    return other.grid.source === this.grid.source;
+    return other.grid.source === this.grid.source && other.canEdit === this.canEdit;
   }
 
-  toDOM(): HTMLElement {
+  toDOM(view: EditorView): HTMLElement {
     /*
       The scroller is the wrapper rather than the table, so a table wider than
       the measure scrolls inside its own box. Without it the note itself scrolls
@@ -1435,68 +1562,646 @@ export class TableGridWidget extends WidgetType {
       one wide table.
     */
     const wrap = document.createElement("div");
-    wrap.className = "cm-lp-grid";
+    wrap.className = this.canEdit ? "cm-lp-grid cm-lp-grid-live" : "cm-lp-grid";
+    drawnGrids.set(wrap, { grid: this.grid, canEdit: this.canEdit, focused: null });
 
+    /*
+      The frame is what the controls are positioned against, and it shrinks to
+      the table: pinning them to the scroller instead would leave the add-column
+      button at the right edge of the *measure* on a two-column table, a hand's
+      width from the column it adds to.
+    */
+    const frame = document.createElement("div");
+    frame.className = "cm-lp-grid-frame";
+    frame.append(this.drawTable(view, wrap));
+    if (this.canEdit) frame.append(this.drawControls(view, wrap));
+    wrap.append(frame);
+    return wrap;
+  }
+
+  /**
+   * The same element, brought up to date — rather than a new one.
+   *
+   * Returning `false` here would be correct and unusable: CodeMirror would
+   * throw the element away and build another, and the `contenteditable` cell
+   * the person is typing in would lose focus and the caret with it on **every
+   * keystroke**, because every keystroke is a document change. So the element
+   * is patched in place, and the one cell that must not be touched is the one
+   * with focus: its DOM already holds what the person just typed, and writing
+   * the document's version of it back would move the caret to the end of the
+   * cell mid-word.
+   *
+   * A change of shape — a row or a column added or taken away — rebuilds the
+   * table inside the *same* wrapper, which is what keeps the listeners' captured
+   * element valid and lets the control that made the change put focus back on a
+   * cell that now exists.
+   */
+  updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    const drawn = drawnGrids.get(dom);
+    const table = dom.querySelector("table");
+    if (drawn === undefined || table === null) return false;
+
+    /*
+      A repaint writes text into cells that are already wired up; it does not
+      wire one up. So anything that changes *which* cells can be typed into is
+      a rebuild: the count of rows and columns, the mode, and the pattern of
+      padded-out columns — a row that gained a real cell while somebody else
+      was editing the file would otherwise stay uneditable until the note was
+      reopened.
+    */
+    const reshaped =
+      drawn.canEdit !== this.canEdit ||
+      drawn.grid.header.length !== this.grid.header.length ||
+      drawn.grid.rows.length !== this.grid.rows.length ||
+      paddingOf(drawn.grid) !== paddingOf(this.grid);
+    drawnGrids.set(dom, { grid: this.grid, canEdit: this.canEdit, focused: drawn.focused });
+
+    if (reshaped) {
+      dom.className = this.canEdit ? "cm-lp-grid cm-lp-grid-live" : "cm-lp-grid";
+      const frame = table.parentElement ?? dom;
+      frame.replaceChildren(this.drawTable(view, dom));
+      if (this.canEdit) frame.append(this.drawControls(view, dom));
+      return true;
+    }
+
+    const active = dom.ownerDocument.activeElement;
+    this.eachCell((row, column, runs) => {
+      const cell = cellElement(dom, row, column);
+      if (cell === null || cell === active) return;
+      paintCell(cell, runs, this.grid.align[column] ?? null);
+    });
+    return true;
+  }
+
+  /** Every cell of the grid, header first, in the order they are drawn. */
+  private eachCell(visit: (row: number, column: number, runs: readonly CellRun[]) => void): void {
+    this.grid.header.forEach((runs, column) => visit(HEADER_ROW, column, runs));
+    this.grid.rows.forEach((cells, row) => cells.forEach((runs, column) => visit(row, column, runs)));
+  }
+
+  private drawTable(view: EditorView, wrap: HTMLElement): HTMLElement {
     const table = document.createElement("table");
     table.className = "cm-lp-grid-table";
 
     const head = document.createElement("thead");
     const headRow = document.createElement("tr");
     this.grid.header.forEach((cell, column) => {
-      headRow.append(this.drawCell("th", cell, column));
+      headRow.append(this.drawCell(view, wrap, "th", cell, HEADER_ROW, column));
     });
     head.append(headRow);
     table.append(head);
 
     const body = document.createElement("tbody");
-    for (const row of this.grid.rows) {
+    this.grid.rows.forEach((row, index) => {
       const tr = document.createElement("tr");
       row.forEach((cell, column) => {
-        tr.append(this.drawCell("td", cell, column));
+        tr.append(this.drawCell(view, wrap, "td", cell, index, column));
       });
       body.append(tr);
-    }
+    });
     table.append(body);
-
-    wrap.append(table);
-    return wrap;
+    return table;
   }
 
-  private drawCell(tag: "th" | "td", runs: readonly CellRun[], column: number): HTMLElement {
+  private drawCell(
+    view: EditorView,
+    wrap: HTMLElement,
+    tag: "th" | "td",
+    runs: readonly CellRun[],
+    row: number,
+    column: number,
+  ): HTMLElement {
     const cell = document.createElement(tag);
-    const align = this.grid.align[column] ?? null;
-    if (align !== null) cell.classList.add(`cm-lp-grid-${align}`);
+    cell.dataset.lpRow = String(row);
+    cell.dataset.lpColumn = String(column);
+    paintCell(cell, runs, this.grid.align[column] ?? null);
 
-    const empty = runs.every((run) => run.text.trim() === "");
-    if (empty) {
-      /*
-        A dash rather than nothing. An empty cell drawn as empty is
-        indistinguishable from a column that failed to render, and a reader has
-        no way to tell which they are looking at — the same argument as "an
-        absent capability is reported, never faked".
-      */
-      cell.classList.add("cm-lp-grid-empty");
-      return cell;
-    }
-
-    for (const run of runs) {
-      // A `\n` is the hard break the author wrote as `<br>`; see `cellRuns`.
-      const pieces = run.text.split("\n");
-      pieces.forEach((piece, index) => {
-        if (index > 0) cell.append(document.createElement("br"));
-        if (piece === "") return;
-        if (run.className === null) {
-          cell.append(document.createTextNode(piece));
-          return;
-        }
-        const span = document.createElement("span");
-        span.className = run.className;
-        span.textContent = piece;
-        cell.append(span);
-      });
+    /*
+      A column GFM padded into a short row has no characters in the file, so
+      there is nothing for a keystroke in it to replace — see
+      `TableGrid.headerSpans`. Drawn, and not editable, which is the same
+      answer `editability` gives about a control that could only ever fail.
+    */
+    if (this.canEdit && spanOf(this.grid, row, column) !== null) {
+      makeCellEditable(view, wrap, cell, row, column);
     }
     return cell;
   }
+
+
+  /**
+   * The four things a person can do to a table's shape.
+   *
+   * Pinned to the frame and revealed on hover or focus, so an editable table
+   * that nobody is working in looks exactly like the one a reader gets. The two
+   * deletions stay disabled until a cell in *this* grid has been focused,
+   * because "delete row" with no row named has to guess, and the guess is a
+   * row of somebody's note.
+   *
+   * `mousedown` is cancelled on each of them: a press on a button moves focus,
+   * and the cell losing focus is how the widget would forget which row the
+   * person meant a fraction of a second before being asked to delete it.
+   */
+  private drawControls(view: EditorView, wrap: HTMLElement): HTMLElement {
+    const bar = document.createElement("div");
+    bar.className = "cm-lp-grid-controls";
+
+    const button = (label: string, glyph: string, run: () => void): HTMLButtonElement => {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = "cm-lp-grid-control";
+      element.title = label;
+      element.setAttribute("aria-label", label);
+      element.textContent = glyph;
+      element.addEventListener("mousedown", (event) => event.preventDefault());
+      element.addEventListener("click", (event) => {
+        event.preventDefault();
+        run();
+      });
+      return element;
+    };
+
+    /*
+      Clamped to the table as it is now, not as it was when the cell was
+      focused: a deletion can take the row out from under the coordinates, and
+      a control that planned against the row that no longer exists would delete
+      the one that took its place.
+    */
+    const target = (): { row: number; column: number } => {
+      const drawn = drawnGrids.get(wrap);
+      const rows = drawn?.grid.rows.length ?? this.grid.rows.length;
+      const columns = drawn?.grid.header.length ?? this.grid.header.length;
+      const focused = drawn?.focused ?? null;
+      // Nothing focused: the end of the table, which is what a bare `+` means.
+      const row = focused === null ? rows - 1 : focused.row;
+      const column = focused === null ? columns - 1 : focused.column;
+      return {
+        row: Math.min(Math.max(row, HEADER_ROW), rows - 1),
+        column: Math.min(Math.max(column, 0), Math.max(columns - 1, 0)),
+      };
+    };
+
+    bar.append(
+      button("Add row below", "+ row", () => {
+        const at = target();
+        const region = regionOf(view, wrap);
+        if (region === null) return;
+        if (!dispatchPlan(view, planAddRow(view.state, region, at.row))) return;
+        focusCell(wrap, at.row + 1, 0, "end");
+      }),
+    );
+    bar.append(
+      button("Add column to the right", "+ col", () => {
+        const at = target();
+        const region = regionOf(view, wrap);
+        if (region === null) return;
+        if (!dispatchPlan(view, planAddColumn(view.state, region, at.column))) return;
+        focusCell(wrap, at.row, at.column + 1, "end");
+      }),
+    );
+
+    const deleteRow = button("Delete row", "− row", () => {
+      const at = target();
+      const region = regionOf(view, wrap);
+      if (region === null || at.row < 0) return;
+      dispatchPlan(view, planDeleteRow(view.state, region, at.row));
+    });
+    const deleteColumn = button("Delete column", "− col", () => {
+      const at = target();
+      const region = regionOf(view, wrap);
+      if (region === null) return;
+      dispatchPlan(view, planDeleteColumn(view.state, region, at.column));
+    });
+    deleteRow.classList.add("cm-lp-grid-delete-row");
+    deleteColumn.classList.add("cm-lp-grid-delete-column");
+    bar.append(deleteRow, deleteColumn);
+    armControls(wrap, bar);
+    return bar;
+  }
+
+  /*
+    Every event inside the grid is the grid's. CodeMirror's default is to
+    ignore events in a widget already; saying it for all of them is what keeps
+    a click into a cell from also being a click into the document, and a
+    keystroke in a cell from also being one in the note.
+  */
+  ignoreEvent(): boolean {
+    return true;
+  }
+
+  /*
+    And every mutation inside it is this widget writing to its own DOM — a
+    focused cell showing its source, a redraw after a blur. Without this
+    CodeMirror reads those as edits to the document it is displaying and writes
+    them into the file a second time.
+  */
+  ignoreMutation(): boolean {
+    return true;
+  }
+}
+
+/**
+ * One cell's drawn content, replacing whatever was in it.
+ *
+ * Outside the widget because two things paint a cell: the draw, and a cell
+ * losing focus — which has to put the *rendering* back where the source was,
+ * and would otherwise need a widget instance it does not have.
+ */
+function paintCell(cell: HTMLElement, runs: readonly CellRun[], align: CellAlign): void {
+  cell.replaceChildren();
+  cell.classList.remove(
+    "cm-lp-grid-empty",
+    "cm-lp-grid-source",
+    "cm-lp-grid-left",
+    "cm-lp-grid-center",
+    "cm-lp-grid-right",
+  );
+  if (align !== null) cell.classList.add(`cm-lp-grid-${align}`);
+
+  if (runs.every((run) => run.text.trim() === "")) {
+    /*
+      A dash rather than nothing — while reading. An empty cell drawn as empty
+      is indistinguishable from a column that failed to render, and a reader has
+      no way to tell which they are looking at. In an editable grid the cell is
+      a box you can click into and the question does not arise, so the dash is
+      dropped there by `livePreviewStyles` rather than typed over.
+    */
+    cell.classList.add("cm-lp-grid-empty");
+    return;
+  }
+
+  for (const run of runs) {
+    // A `\n` is the hard break the author wrote as `<br>`; see `cellRuns`.
+    const pieces = run.text.split("\n");
+    pieces.forEach((piece, index) => {
+      if (index > 0) cell.append(document.createElement("br"));
+      if (piece === "") return;
+      if (run.className === null) {
+        cell.append(document.createTextNode(piece));
+        return;
+      }
+      const span = document.createElement("span");
+      span.className = run.className;
+      span.textContent = piece;
+      cell.append(span);
+    });
+  }
+}
+
+/**
+ * The two deletions, armed or not by what has been focused.
+ *
+ * Called when the controls are drawn and again whenever a cell takes focus,
+ * because the controls are *not* redrawn for a focus change — nothing about
+ * the document changed, so no decoration was rebuilt, and a button that only
+ * learned what it could delete on the next keystroke would be disabled for the
+ * whole of the first press. (That is not hypothetical: it is what this did
+ * before `tableEditing.test.ts` pressed the button.)
+ */
+function armControls(wrap: HTMLElement, bar?: HTMLElement): void {
+  const controls = bar ?? wrap.querySelector<HTMLElement>(".cm-lp-grid-controls");
+  if (controls === null || controls === undefined) return;
+  const focused = drawnGrids.get(wrap)?.focused ?? null;
+  const row = controls.querySelector<HTMLButtonElement>(".cm-lp-grid-delete-row");
+  const column = controls.querySelector<HTMLButtonElement>(".cm-lp-grid-delete-column");
+  // The header is not a row, so a caret in it arms the column button alone.
+  if (row !== null) row.disabled = focused === null || focused.row < 0;
+  if (column !== null) column.disabled = focused === null;
+}
+
+/** Which cells of a grid are padding rather than characters, as a signature. */
+function paddingOf(grid: TableGrid): string {
+  const row = (spans: ReadonlyArray<CellSpan | null>) =>
+    spans.map((span) => (span === null ? "0" : "1")).join("");
+  return [row(grid.headerSpans), ...grid.rowSpans.map(row)].join("/");
+}
+
+/** The span of one drawn cell, or `null` where GFM padded the row out. */
+function spanOf(grid: TableGrid, row: number, column: number): CellSpan | null {
+  const spans = row === HEADER_ROW ? grid.headerSpans : (grid.rowSpans[row] ?? []);
+  return spans[column] ?? null;
+}
+
+/** The cell element at these coordinates, in a grid that is already drawn. */
+function cellElement(wrap: HTMLElement, row: number, column: number): HTMLElement | null {
+  return wrap.querySelector<HTMLElement>(
+    `[data-lp-row="${row}"][data-lp-column="${column}"]`,
+  );
+}
+
+/**
+ * The table this element is drawing, as the document has it **now**.
+ *
+ * Not the grid the widget was built from: a control can be pressed twice
+ * before a redraw, and the second press would plan against the first one's
+ * document. The element's stored grid is replaced by `updateDOM` on every
+ * transaction, so its `from` is where the table is now, and the tree is read
+ * from there.
+ */
+function regionOf(view: EditorView, wrap: HTMLElement): TableRegion | null {
+  const drawn = drawnGrids.get(wrap);
+  if (drawn === undefined) return null;
+  const table = tableNodeAt(view.state, drawn.grid.from);
+  if (table === null) return null;
+  return { from: table.from, to: table.to };
+}
+
+/** The `Table` node that starts at `from`, if the document still has one. */
+function tableNodeAt(state: EditorState, from: number): SyntaxNode | null {
+  if (from < 0 || from > state.doc.length) return null;
+  let node: SyntaxNode | null = syntaxTree(state).resolveInner(from, 1);
+  for (; node !== null; node = node.parent) {
+    if (node.name === "Table") return node;
+  }
+  return null;
+}
+
+/** The current source of one cell, by coordinates rather than by captured span. */
+function cellSpanNow(view: EditorView, wrap: HTMLElement, row: number, column: number): CellSpan | null {
+  const drawn = drawnGrids.get(wrap);
+  if (drawn === undefined) return null;
+  const table = tableNodeAt(view.state, drawn.grid.from);
+  if (table === null) return null;
+  const grid = readTable(view.state, table);
+  if (grid === null) return null;
+  return spanOf(grid, row, column);
+}
+
+function dispatchPlan(view: EditorView, plan: TransactionSpec | null): boolean {
+  if (plan === null) return false;
+  if (view.state.readOnly) return false;
+  view.dispatch(plan);
+  return true;
+}
+
+/** Put the caret in a cell of a grid that is on screen. */
+function focusCell(
+  wrap: HTMLElement,
+  row: number,
+  column: number,
+  caret: "start" | "end",
+): boolean {
+  const cell = cellElement(wrap, row, column);
+  if (cell === null || cell.getAttribute("contenteditable") === null) return false;
+  cell.focus();
+  placeCaret(cell, caret);
+  return true;
+}
+
+/**
+ * The caret, at one end of a cell.
+ *
+ * Wrapped in the feature checks rather than assumed: this runs in a WKWebView
+ * and in jsdom, and the unit suite mounts no selection at all. A cell that
+ * could not place its caret is still focused and still typed into — at
+ * whichever end the browser chose — which is worth more than a thrown error
+ * inside a keystroke handler.
+ */
+function placeCaret(cell: HTMLElement, caret: "start" | "end"): void {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return;
+  const selection = view.getSelection();
+  if (selection === null || typeof cell.ownerDocument.createRange !== "function") return;
+  try {
+    const range = cell.ownerDocument.createRange();
+    range.selectNodeContents(cell);
+    range.collapse(caret === "start");
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch {
+    /* A selection this browser will not place is not a reason to lose the key. */
+  }
+}
+
+/** Where the caret is in a cell, as an offset into its text. */
+function caretOffset(cell: HTMLElement): number | null {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return null;
+  const selection = view.getSelection();
+  if (selection === null || selection.rangeCount === 0) return null;
+  try {
+    const range = selection.getRangeAt(0).cloneRange();
+    range.selectNodeContents(cell);
+    range.setEnd(selection.getRangeAt(0).endContainer, selection.getRangeAt(0).endOffset);
+    return range.toString().length;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * One cell, wired up: focus shows its source, typing writes it back, and the
+ * keys that mean "somewhere else in this table" move rather than being typed.
+ *
+ * The write is `planCellEdit` against the span this cell has **now**, looked
+ * up per event — see `cellSpanNow`. Nothing captured from the draw survives a
+ * keystroke, because a keystroke is a document change and every span after the
+ * caret has moved by the time the next one arrives.
+ */
+function makeCellEditable(
+  view: EditorView,
+  wrap: HTMLElement,
+  cell: HTMLElement,
+  row: number,
+  column: number,
+): void {
+  /*
+    The attribute rather than the property: `contenteditable="true"` is the one
+    value every engine this ships to has always understood, and the property
+    setter is not implemented by the DOM the unit suite runs against.
+    `plaintext-only` would remove the paste handler below and take Firefox
+    before 136 with it.
+  */
+  cell.setAttribute("contenteditable", "true");
+  cell.setAttribute("spellcheck", "false");
+  cell.classList.add("cm-lp-grid-cell");
+
+  const moveTo = (nextRow: number, nextColumn: number, caret: "start" | "end"): boolean =>
+    focusCell(wrap, nextRow, nextColumn, caret);
+
+  /**
+   * Move, stepping over anything that cannot take a caret.
+   *
+   * A column GFM padded into a short row is drawn and not editable, and Tab
+   * landing on one would look exactly like Tab being broken: focus stays where
+   * it was and the key appears to have done nothing. So the move walks on in
+   * the same direction until a cell takes it, or the table runs out.
+   */
+  const moveThrough = (
+    step: (from: { row: number; column: number }) => { row: number; column: number } | null,
+    start: { row: number; column: number },
+    caret: "start" | "end",
+  ): boolean => {
+    let at: { row: number; column: number } | null = step(start);
+    // Bounded by the size of the table: every step moves one cell on.
+    for (let guard = 0; at !== null && guard <= width() * (depth() + 1); guard += 1) {
+      if (moveTo(at.row, at.column, caret)) return true;
+      at = step(at);
+    }
+    return false;
+  };
+
+  const width = (): number => drawnGrids.get(wrap)?.grid.header.length ?? 0;
+  const depth = (): number => drawnGrids.get(wrap)?.grid.rows.length ?? 0;
+
+  /** The cell after this one in reading order, or `null` at the end. */
+  const after = (at: { row: number; column: number }): { row: number; column: number } | null => {
+    if (at.column + 1 < width()) return { row: at.row, column: at.column + 1 };
+    if (at.row + 1 <= depth() - 1) return { row: at.row + 1, column: 0 };
+    return null;
+  };
+  const before = (at: { row: number; column: number }): { row: number; column: number } | null => {
+    if (at.column > 0) return { row: at.row, column: at.column - 1 };
+    if (at.row > HEADER_ROW) return { row: at.row - 1, column: width() - 1 };
+    return null;
+  };
+  const here = (): { row: number; column: number } => ({ row, column });
+  const next = (): { row: number; column: number } | null => after(here());
+  const previous = (): { row: number; column: number } | null => before(here());
+
+  const addRowBelow = (): void => {
+    const region = regionOf(view, wrap);
+    if (region === null) return;
+    if (!dispatchPlan(view, planAddRow(view.state, region, row))) return;
+    moveTo(row + 1, 0, "end");
+  };
+
+  cell.addEventListener("focus", () => {
+    const drawn = drawnGrids.get(wrap);
+    if (drawn !== undefined) drawn.focused = { row, column };
+    armControls(wrap);
+    /*
+      THE REVEAL, at the size of a cell. The characters of the cell replace its
+      drawing, so what the person edits is the source and what is written back
+      is the characters they typed — no serializer, which is the whole promise
+      of `tableEdit.ts`. A cell whose source is already what is on screen (most
+      of them: plain text) is left alone, so a click lands the caret where the
+      person aimed it rather than at the end of the word.
+    */
+    const span = cellSpanNow(view, wrap, row, column);
+    if (span === null) return;
+    const source = view.state.doc.sliceString(span.from, span.to).trim();
+    cell.classList.add("cm-lp-grid-source");
+    cell.classList.remove("cm-lp-grid-empty");
+    if ((cell.textContent ?? "") === source) return;
+    cell.textContent = source;
+    placeCaret(cell, "end");
+  });
+
+  cell.addEventListener("blur", () => {
+    cell.classList.remove("cm-lp-grid-source");
+    /*
+      Drawn again from the document rather than from what is in the element:
+      the element holds source and the grid holds a rendering of it, and the
+      one that is true is the file's.
+    */
+    const drawn = drawnGrids.get(wrap);
+    if (drawn === undefined) return;
+    const runs =
+      row === HEADER_ROW ? drawn.grid.header[column] : (drawn.grid.rows[row]?.[column] ?? []);
+    paintCell(cell, runs ?? [], drawn.grid.align[column] ?? null);
+  });
+
+  cell.addEventListener("input", () => {
+    const span = cellSpanNow(view, wrap, row, column);
+    if (span === null) return;
+    dispatchPlan(view, planCellEdit(view.state, span, cell.textContent ?? ""));
+  });
+
+  cell.addEventListener("paste", (event) => {
+    /*
+      Plain text, always. A cell is markdown source while it is focused, and
+      pasted HTML would put elements inside it that `textContent` flattens on
+      the next keystroke — the paste would appear to work and then collapse.
+    */
+    const clipboard = (event as ClipboardEvent).clipboardData;
+    if (clipboard === null || clipboard === undefined) return;
+    event.preventDefault();
+    const text = clipboard.getData("text/plain");
+    if (text === "") return;
+    const document_ = cell.ownerDocument;
+    const selection = document_.defaultView?.getSelection?.() ?? null;
+    if (selection === null || selection.rangeCount === 0) {
+      cell.textContent = (cell.textContent ?? "") + text;
+    } else {
+      const range = selection.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document_.createTextNode(text));
+      range.collapse(false);
+    }
+    const span = cellSpanNow(view, wrap, row, column);
+    if (span === null) return;
+    dispatchPlan(view, planCellEdit(view.state, span, cell.textContent ?? ""));
+  });
+
+  cell.addEventListener("keydown", (event) => {
+    const key = (event as KeyboardEvent).key;
+    const shift = (event as KeyboardEvent).shiftKey;
+
+    if (key === "Tab") {
+      event.preventDefault();
+      if (moveThrough(shift ? before : after, here(), "end")) return;
+      /*
+        Tab past the last cell adds a row, which is how a table gets longer
+        without anybody reaching for a control. Shift-Tab past the first one
+        does nothing: there is no row above the header, and adding one would
+        make somebody's header into data.
+      */
+      if (!shift) addRowBelow();
+      return;
+    }
+
+    if (key === "Enter") {
+      event.preventDefault();
+      if (row + 1 <= depth() - 1 && moveTo(row + 1, column, "end")) return;
+      addRowBelow();
+      return;
+    }
+
+    if (key === "Escape") {
+      /*
+        Out of the grid and back into the note, with the caret after the table
+        — the one gesture that has to exist, because focus in a widget is not
+        focus in the document and nothing else here gives it back.
+      */
+      event.preventDefault();
+      const region = regionOf(view, wrap);
+      cell.blur();
+      view.focus();
+      if (region !== null) view.dispatch({ selection: { anchor: region.to } });
+      return;
+    }
+
+    if (key === "ArrowUp" || key === "ArrowDown") {
+      event.preventDefault();
+      const to = key === "ArrowUp" ? row - 1 : row + 1;
+      if (to < HEADER_ROW || to > depth() - 1) return;
+      moveTo(to, column, "end");
+      return;
+    }
+
+    /*
+      Left at the start of a cell and right at the end are the other two edges
+      of the same movement — inside the text they are the browser's, which is
+      what makes a cell feel like a text box rather than like a form field.
+    */
+    if (key === "ArrowLeft" || key === "ArrowRight") {
+      const offset = caretOffset(cell);
+      if (offset === null) return;
+      const length = (cell.textContent ?? "").length;
+      if (key === "ArrowLeft" && offset === 0) {
+        if (previous() === null) return;
+        event.preventDefault();
+        moveThrough(before, here(), "end");
+        return;
+      }
+      if (key === "ArrowRight" && offset === length) {
+        if (next() === null) return;
+        event.preventDefault();
+        moveThrough(after, here(), "start");
+      }
+    }
+  });
 }
 
 /**
@@ -2010,6 +2715,37 @@ function revealSelection(state: EditorState): Array<{ from: number; to: number }
   return state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
 }
 
+/**
+ * The tables a caret steps over, as a range set.
+ *
+ * The frontmatter is excluded the same way `decorationsFor` excludes it, and
+ * for the same reason: nothing in a note's metadata is a table, and a caret
+ * that could not enter the block would be a caret that could not fix it.
+ *
+ * Memoised on the state, because this is a facet CodeMirror reads on **cursor
+ * motion** rather than on a transaction: every arrow key asks it, more than
+ * once, and the honest implementation reads the whole document as a string and
+ * walks the tree. One answer per state is the same work `decorationsFor`
+ * already does once, rather than a document scan per keypress in a long note.
+ */
+const gridRangeCache = new WeakMap<EditorState, RangeSet<Decoration>>();
+
+function gridRanges(state: EditorState): RangeSet<Decoration> {
+  const cached = gridRangeCache.get(state);
+  if (cached !== undefined) return cached;
+  const front = frontmatterRange(state.doc.toString());
+  const ranges = RangeSet.of(
+    tableGrids(state, front === null ? 0 : front.to).map((grid) => ({
+      from: grid.from,
+      to: grid.to,
+      value: Decoration.mark({}),
+    })),
+    true,
+  );
+  gridRangeCache.set(state, ranges);
+  return ranges;
+}
+
 export function decorationsFor(state: EditorState): DecorationSet {
   const tree = syntaxTree(state);
   const selection = revealSelection(state);
@@ -2290,7 +3026,7 @@ export function decorationsFor(state: EditorState): DecorationSet {
   for (const grid of grids) {
     hides.push(
       Decoration.replace({
-        widget: new TableGridWidget(grid),
+        widget: new TableGridWidget(grid, !state.readOnly),
         block: true,
       }).range(grid.from, grid.to),
     );
@@ -2446,6 +3182,16 @@ export function livePreview() {
   // to answer a press. See `taskToggle`.
   return [
     editorEngaged,
+    /*
+      A drawn table is one object rather than a run of characters — the same
+      sentence `imageBlock.ts` makes about a row of images, and it matters more
+      here because the grid is drawn while the note is editable: without this,
+      arrowing down into a table walks an invisible caret through three lines of
+      pipes that are not on screen. With it the caret steps over the whole
+      table, and a selection takes it whole, so Backspace deletes the table
+      rather than a character of markup nobody can see.
+    */
+    EditorView.atomicRanges.of((view) => gridRanges(view.state)),
     /*
       Focus opens the gate and never closes it — see `editorEngaged`. Tabbing
       into the editor is somebody arriving to write, and a blur is a popover,
@@ -2800,6 +3546,75 @@ export const livePreviewStyles = `
   content: "—";
   color: var(--lp-muted);
 }
+/*
+  A TABLE THAT CAN BE TYPED INTO, and the rules that are only true of one.
+
+  The frame shrinks to the table so the controls sit against the columns they
+  add to rather than at the right edge of the measure. Pinned rather than laid
+  out, so a table nobody is working in occupies exactly what a reader's does --
+  the moment the chrome takes room in the flow, an editable note and a read one
+  are two different documents.
+*/
+.cm-lp-grid-frame {
+  position: relative;
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+}
+/*
+  Something to aim at. An empty cell in an editable grid is a box a person
+  clicks into, and a box with no width cannot be clicked -- while the reader's
+  dash, which exists so an empty cell is not mistaken for a broken one, would
+  be a character they have to delete before typing.
+*/
+.cm-lp-grid-live th, .cm-lp-grid-live td { min-width: 3ch; }
+.cm-lp-grid-live .cm-lp-grid-empty::after { content: ""; }
+.cm-lp-grid-cell:focus {
+  outline: none;
+  /*
+    Inset so it does not move the column: an outline drawn outside the cell
+    shifts every row of the table by a pixel as the caret moves along it.
+  */
+  box-shadow: inset 0 0 0 2px var(--lp-line-strong);
+  border-radius: 2px;
+}
+.cm-lp-grid-controls {
+  position: absolute;
+  top: -0.85em;
+  right: 0;
+  display: flex;
+  gap: 4px;
+  /*
+    Out of the way until wanted. Opacity rather than display, so the buttons
+    keep their size and the bar does not appear to jump into existence.
+  */
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.cm-lp-grid-frame:hover .cm-lp-grid-controls,
+.cm-lp-grid-frame:focus-within .cm-lp-grid-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cm-lp-grid-control {
+  font-family: var(--lp-body);
+  font-size: 0.66em;
+  line-height: 1;
+  padding: 3px 6px;
+  color: var(--lp-muted);
+  background: var(--lp-bg);
+  border: 1px solid var(--lp-line-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.cm-lp-grid-control:hover:not(:disabled) { color: var(--lp-content); }
+/*
+  A deletion needs a row or a column named, and nothing is named until a cell
+  has been focused. Disabled rather than hidden: a control that comes and goes
+  is one nobody learns.
+*/
+.cm-lp-grid-control:disabled { opacity: 0.4; cursor: default; }
 .cm-lp-rule { color: var(--lp-muted); }
 /*
   A FORM, DRAWN FROM ITS DECLARATION.
