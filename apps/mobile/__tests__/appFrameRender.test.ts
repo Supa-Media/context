@@ -86,7 +86,7 @@ interface Mounted {
 function mountFrame(
   width: number,
   children: ReactNode = "the note",
-  options: { explorer?: boolean; accountSlot?: boolean } = {},
+  options: { explorer?: boolean; accountSlot?: boolean; aside?: boolean } = {},
 ): Mounted {
   // Widening the window in jsdom takes more than it looks like it should, and
   // getting it wrong is silent rather than loud.
@@ -143,6 +143,17 @@ function mountFrame(
           options.explorer === false
             ? undefined
             : createElement("span", { "data-testid": "explorer" }, "tree"),
+        /*
+          The right panel, supplied by default so the toggle exists in most
+          cases and absent when a case is about a surface that has none — the
+          landing page's picture of the console, the fixtures. `AppFrame` draws
+          neither the panel nor its control when this is missing, which is the
+          rule the `no panel supplied` case below holds it to.
+        */
+        aside:
+          options.aside === false
+            ? undefined
+            : createElement("span", { "data-testid": "aside" }, "chat"),
         status: createElement("span", { "data-testid": "status" }, "490 words"),
         bottomBar: createElement("span", { "data-testid": "bottom" }, "toolbar"),
         onSearch: () => {},
@@ -200,11 +211,27 @@ function TogglesProbe() {
     to observe. What is left is the tree's, which is the command this file
     still has to prove harmless at compact.
   */
-  return createElement(
-    "button",
-    { "data-testid": "probe-toggle-explorer", onClick: frame.toggleExplorer },
-    "toggle the explorer",
-  );
+  return createElement("span", null, [
+    createElement(
+      "button",
+      { key: "explorer", "data-testid": "probe-toggle-explorer", onClick: frame.toggleExplorer },
+      "toggle the explorer",
+    ),
+    /*
+      The right panel's, for the reason this probe exists at all: there is no
+      control in the chrome that reaches it on a phone — `asideToggle` refuses
+      to draw one — so a probe is the only way to press it at that density, and
+      pressing it is exactly what has to be proven harmless. A command that
+      wrote `asideOpen` where no layout reads it would be silently wrong until
+      the window widened, which is the ⌘B failure `frame.ts` keeps a paragraph
+      about.
+    */
+    createElement(
+      "button",
+      { key: "aside", "data-testid": "probe-toggle-aside", onClick: frame.toggleAside },
+      "toggle the panel",
+    ),
+  ]);
 }
 
 /** Hover in and out of a node, which is how react-native-web reports `onHoverIn`. */
@@ -1917,5 +1944,189 @@ describe("the top bar holds the traffic lights", () => {
     expect(topChromeHoldsLights()).toBe(false);
 
     mounted.unmount();
+  });
+});
+
+/**
+ * THE RIGHT PANEL, ON THE GLASS.
+ *
+ * `appFrame.test.ts` pins which arm of `Regions.aside` each density answers.
+ * This is the half that file explicitly defers to here, plus the two claims
+ * that are only true of a rendered tree:
+ *
+ *  - **the scrim does not cover the file tree.** `Regions.scrim` is one
+ *    boolean and cannot say what it lies over, so the region sweep states the
+ *    rule as "a column is never the panel a scrim is dismissing" and leaves
+ *    "and is not covered by it" to this file. At `medium` the panel is over
+ *    the note while the tree keeps its column, and a full-body scrim would
+ *    grey out and make inert the region somebody reaches for to leave;
+ *  - **the control and the region agree.** A toggle drawn where the command is
+ *    a no-op, or a panel with no way to open it, is the pair `frame.ts` spends
+ *    a section keeping honest, and neither is visible in a pure function.
+ *
+ * ## Sabotage record
+ *
+ * Applied, suite run, named test observed failing, reverted.
+ *
+ *  1. The scrim's `left` offset removed, so it covers the body.
+ *     → **1 fails**: `the scrim spares the file tree beside it`.
+ *  2. `asideToggle` dropped to `asideToggleFor(density) !== null`, ignoring
+ *     whether a panel was supplied.
+ *     → **1 fails**: `a surface with no panel is offered no way to open one`.
+ *  3. `toggleAside` written without its `asideToggleFor` guard, so a press at
+ *     compact writes `asideOpen`.
+ *     → **1 fails**: `pressing at a phone width opens nothing, then or later`.
+ *
+ *     The test had to grow its second half before this sabotage could fail it,
+ *     and that is the finding rather than a detail. Asserting only that the
+ *     panel is absent at compact passes with the guard gone — `regionsFor`
+ *     refuses to *draw* one there whatever the preference says — so the
+ *     written state was wrong and invisible, surfacing on the next resize.
+ *     Which is the ⌘B failure exactly: a command writing a field the layout it
+ *     was pressed on never reads.
+ */
+describe("the right panel", () => {
+  test("a desktop opens it beside the note", () => {
+    const frame = mountFrame(1440);
+    expect(frame.find("aside")).toBeNull();
+
+    frame.press("frame-aside-toggle");
+
+    expect(frame.find("aside")).not.toBeNull();
+    // Beside, not over: no scrim, and the tree is still there.
+    expect(frame.find("frame-scrim")).toBeNull();
+    expect(frame.find("explorer")).not.toBeNull();
+    frame.unmount();
+  });
+
+  test("a tablet opens it over the note, behind a scrim", () => {
+    const frame = mountFrame(1000);
+    frame.press("frame-aside-toggle");
+
+    expect(frame.find("aside")).not.toBeNull();
+    expect(frame.find("frame-scrim")).not.toBeNull();
+    frame.unmount();
+  });
+
+  /**
+   * The drawing fact `appFrame.test.ts` defers to this file.
+   *
+   * The scrim starts where the editor does. Asserted through the injected
+   * stylesheet rather than by eye, because jsdom lays nothing out: the style
+   * react-native-web resolves for the scrim carries the offset or it does not.
+   */
+  test("the scrim spares the file tree beside it", () => {
+    const frame = mountFrame(1000);
+    frame.press("frame-aside-toggle");
+
+    const scrim = frame.find("frame-scrim");
+    expect(scrim).not.toBeNull();
+    const left = window.getComputedStyle(scrim!).left;
+    // The tree's own width, so everything left of it is untouched.
+    expect(left).toBe(`${layout.explorerWidth}px`);
+    frame.unmount();
+  });
+
+  test("and covers everything when there is no tree to spare", () => {
+    const frame = mountFrame(1000, "the note", { explorer: false });
+    frame.press("frame-aside-toggle");
+
+    const scrim = frame.find("frame-scrim");
+    expect(scrim).not.toBeNull();
+    expect(window.getComputedStyle(scrim!).left).toBe("0px");
+    frame.unmount();
+  });
+
+  test("a phone draws no panel and offers no control", () => {
+    const frame = mountFrame(390);
+    expect(frame.find("frame-aside-toggle")).toBeNull();
+    expect(frame.find("aside")).toBeNull();
+    frame.unmount();
+  });
+
+  /**
+   * The command is a genuine no-op at compact, not merely unreachable.
+   *
+   * There is no button in the chrome, so the only way to press it is the probe
+   * — and that is the point: a chord or a console could reach the frame API,
+   * and a `toggleAside` that wrote the preference anyway would leave the panel
+   * open the moment somebody widened the window, with nothing on the phone
+   * having said so.
+   */
+  test("pressing at a phone width opens nothing, then or later", () => {
+    const frame = mountFrame(390, createElement(TogglesProbe));
+    frame.press("probe-toggle-aside");
+    expect(frame.find("aside")).toBeNull();
+
+    // The half the compact assertion cannot see: widen it, and the panel is
+    // still shut, because nothing was written.
+    frame.resize(1440);
+    expect(frame.find("aside")).toBeNull();
+    frame.unmount();
+  });
+
+  test("a surface with no panel is offered no way to open one", () => {
+    const frame = mountFrame(1440, "the note", { aside: false });
+    expect(frame.find("frame-aside-toggle")).toBeNull();
+    expect(frame.find("aside")).toBeNull();
+    frame.unmount();
+  });
+
+  test("closing it puts it away again", () => {
+    const frame = mountFrame(1440);
+    frame.press("frame-aside-toggle");
+    expect(frame.find("aside")).not.toBeNull();
+
+    frame.press("frame-aside-toggle");
+    expect(frame.find("aside")).toBeNull();
+    frame.unmount();
+  });
+
+  /**
+   * A preference, so it survives the window changing shape — which is the
+   * whole reason `asideOpen` is not cleared by `panelsClearedFor`. What it
+   * *draws* as changes with the density; that it is open does not.
+   */
+  test("it is still open after the window changes shape", () => {
+    const frame = mountFrame(1440);
+    frame.press("frame-aside-toggle");
+    expect(frame.find("frame-scrim")).toBeNull();
+
+    frame.resize(1000);
+    expect(frame.find("aside")).not.toBeNull();
+    expect(frame.find("frame-scrim")).not.toBeNull();
+
+    frame.resize(1440);
+    expect(frame.find("aside")).not.toBeNull();
+    expect(frame.find("frame-scrim")).toBeNull();
+    frame.unmount();
+  });
+
+  test("pressing the scrim closes it", () => {
+    const frame = mountFrame(1000);
+    frame.press("frame-aside-toggle");
+    expect(frame.find("aside")).not.toBeNull();
+
+    frame.press("frame-scrim");
+    expect(frame.find("aside")).toBeNull();
+    frame.unmount();
+  });
+
+  /**
+   * A column is resizable and an overlay is not, and that is not an oversight.
+   * The overlay is pinned to the trailing edge over the note, so dragging its
+   * edge would resize a thing that is already covering the thing it would be
+   * making room in.
+   */
+  test("the column has a drag handle and the overlay does not", () => {
+    const wide = mountFrame(1440);
+    wide.press("frame-aside-toggle");
+    expect(wide.find("aside-resizer")).not.toBeNull();
+    wide.unmount();
+
+    const tablet = mountFrame(1000);
+    tablet.press("frame-aside-toggle");
+    expect(tablet.find("aside-resizer")).toBeNull();
+    tablet.unmount();
   });
 });
