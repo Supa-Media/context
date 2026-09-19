@@ -17,7 +17,7 @@ import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClai
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
 import { PINNED_CONTEXT_ROLE, isSingleEmoji } from "@context/shared";
-import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { pinnedContextWorkspace, reachesPinnedContext } from "./lib/pinnedContext";
 /*
   The gateway's own gate on this value, not a second one. An offer
   `normalizeMeetingFolder` refuses is an offer the meeting write then rejects,
@@ -1065,6 +1065,24 @@ export const workspaceIconLeaf = internalQuery({
   args: { workspaceId: v.id("workspaces"), actorUserId: v.id("users") },
   returns: v.union(v.string(), v.null()),
   handler: async (ctx, args) => {
+    /*
+      THE PIN IS REACH WITHOUT A MEMBERSHIP ROW, AND THIS HAS TO KNOW THAT.
+
+      `requireWorkspaceAccess` answers from `workspaceMembers`, and nobody is a
+      member of `@context-lc` — so asking it alone would refuse the one
+      workspace that is in *every* account's rail, after `authorizeFileAccess`
+      (which does know about the pin) had already admitted the caller. The two
+      gates would disagree on exactly one row in the product.
+
+      Tried before the membership read rather than after a caught failure, for
+      the reason `authorizeFileAccess` gives: the refusal is byte-identical for
+      "not a member" and "no such workspace", so catching it would mean guessing
+      which one this was. Asking the narrower question first needs no guess.
+    */
+    if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+      const pinned = await ctx.db.get(args.workspaceId);
+      return pinned?.icon?.kind === "photo" ? pinned.icon.leaf : null;
+    }
     const { workspace } = await requireWorkspaceAccess(
       ctx,
       args.workspaceId,

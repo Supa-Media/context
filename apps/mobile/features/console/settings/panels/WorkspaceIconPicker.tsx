@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useAction, useMutation } from "convex/react";
 
 import { api } from "@context/convex/_generated/api";
@@ -8,6 +8,7 @@ import {
   WORKSPACE_ICON_EMOJI,
   WORKSPACE_ICON_MAX_BYTES,
 } from "@context/shared";
+import { bytesFromBase64 } from "../../files/imageBytes";
 import { Button } from "../../../design/components/Button";
 import { Text } from "../../../design/components/Text";
 import { pointerType as t, radii, space } from "../../../design/tokens";
@@ -113,14 +114,31 @@ export function WorkspaceIconPicker({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
+      /*
+        THE BYTES COME BACK WITH THE PICK, RATHER THAN BEING FETCHED AFTER IT.
+
+        The obvious next line is `fetch(asset.uri)` and it is a web habit: on
+        native the uri is a `file://` path, and `Response.arrayBuffer` over one
+        is exactly the sort of thing that works in Expo Go, works on one
+        platform, and returns an empty buffer on the other. `base64` is produced
+        by the picker itself on both, so there is one path and no filesystem.
+
+        `bytesFromBase64` is the app's own decoder, written out rather than
+        leaning on `atob` for the reason its header gives — and reused rather
+        than rewritten, so there is one base64 implementation for images.
+      */
+      base64: true,
     });
     if (result.canceled) return;
     const asset = result.assets[0];
     if (asset === undefined) return;
+    if (asset.base64 === undefined || asset.base64 === null) {
+      setError("That photo could not be read. Try another one.");
+      return;
+    }
 
     await choose(async () => {
-      const response = await fetch(asset.uri);
-      const bytes = await response.arrayBuffer();
+      const bytes = bytesFromBase64(asset.base64 as string);
       if (bytes.byteLength > WORKSPACE_ICON_MAX_BYTES) {
         /*
           Checked here as well as on the server, and this is the one place a
@@ -150,12 +168,7 @@ export function WorkspaceIconPicker({
 
   return (
     <View style={styles.card} testID="workspace-icon-picker">
-      <ScrollView
-        horizontal={false}
-        style={styles.gridScroll}
-        contentContainerStyle={styles.grid}
-        showsVerticalScrollIndicator={false}
-      >
+      <View style={styles.grid}>
         {WORKSPACE_ICON_EMOJI.map((emoji) => {
           const chosen = icon?.kind === "emoji" && icon.emoji === emoji;
           return (
@@ -177,7 +190,7 @@ export function WorkspaceIconPicker({
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       <View style={styles.actions}>
         <Button
@@ -264,8 +277,12 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.surface2,
       gap: space.x3,
     },
-    /* Two rows of the grid, then it scrolls: a 48-cell wall is not a choice. */
-    gridScroll: { maxHeight: 104 },
+    /*
+      Wraps, and deliberately does not scroll. A vertical scroller inside the
+      settings panel's own vertical scroller is two responders fighting for one
+      drag — see `WORKSPACE_ICON_EMOJI` for why the list was shortened to suit
+      the layout rather than the layout bent to fit the list.
+    */
     grid: { flexDirection: "row", flexWrap: "wrap", gap: space.x2 },
     cell: {
       width: 44,

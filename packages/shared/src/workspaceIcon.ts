@@ -180,12 +180,19 @@ export function isSingleEmoji(value: string): boolean {
  *
  * Anything `isSingleEmoji` accepts is storable, so this list is the picker's
  * offer and never the API's rule. Growing it is a copy change.
+ *
+ * **Thirty-six, so the grid wraps rather than scrolls.** The first version had
+ * forty-eight in a scrolling box, which put a vertical scroller inside the
+ * settings panel's own vertical scroller — two gesture responders competing for
+ * the same drag, which on native is the kind of control that swallows a flick
+ * and feels broken without ever being wrong. A dozen fewer emoji is a cheaper
+ * price than that, and nobody was going to read forty-eight anyway.
  */
 export const WORKSPACE_ICON_EMOJI: readonly string[] = [
-  "🧠", "💡", "📓", "📚", "🗂", "📌", "🔖", "✏️",
-  "🏗", "🛠", "⚙️", "🧩", "🔬", "🧪", "🚀", "🛰",
-  "💼", "🏢", "🏦", "📈", "💰", "🧾", "⚖️", "🔑",
-  "🏠", "🌍", "✈️", "🗺", "🏝", "🏔", "🌲", "🌱",
-  "⛪", "🎓", "🎵", "🎨", "🎬", "📷", "🎮", "⚽",
-  "🍳", "☕", "🐈", "🐕", "❤️", "⭐", "🔥", "🌙",
+  "🧠", "💡", "📓", "📚", "🗂", "📌",
+  "🏗", "🛠", "⚙️", "🧩", "🔬", "🚀",
+  "💼", "🏢", "📈", "💰", "⚖️", "🔑",
+  "🏠", "🌍", "✈️", "🌲", "⛪", "🎓",
+  "🎵", "🎨", "🎬", "📷", "⚽", "☕",
+  "🐈", "❤️", "⭐", "🔥", "🌙", "🧪",
 ];

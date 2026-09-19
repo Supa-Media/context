@@ -68,6 +68,7 @@ import { PRIVACY_KEY } from "../functions/lib/privacy";
 import { renderPrivacyManifest } from "../functions/lib/scaffold";
 import { IMAGE_PREFIX } from "../functions/lib/fileOps";
 import {
+  PINNED_CONTEXT_SLUG,
   WORKSPACE_ICON_EMOJI,
   WORKSPACE_ICON_MAX_BYTES,
   isSingleEmoji,
@@ -408,6 +409,72 @@ describe("a photo icon lives in the customer's bucket", () => {
     // The object stays. It is content-addressed and in the customer's bucket:
     // it may be another workspace's icon or a note's embed, and it is theirs.
     expect([...f.backend.objects.keys()]).toContain(`${IMAGE_PREFIX}${leaf}`);
+  });
+});
+
+/**
+ * The pinned context is reached without a membership row, and its icon has to
+ * survive that.
+ *
+ * `@context-lc` is in every account's rail (`lib/pinnedContext.ts`) and nobody
+ * is a member of it — which is exactly the shape that breaks a second
+ * authorization check written from habit. `authorizeFileAccess` knows about the
+ * pin and `requireWorkspaceAccess` does not, so an inner gate built on the
+ * latter refuses a workspace the outer gate just admitted, and the pinned
+ * context is the only row in the product where those two disagree.
+ *
+ * Found by reading the diff rather than by a failing test, which is why it has
+ * one now: the console catches the refusal and falls back to the letter, so the
+ * symptom would have been "the pinned context is the one workspace whose photo
+ * never appears", with nothing in any log.
+ */
+describe("the pinned context", () => {
+  async function pinnedFixture() {
+    const t = setupTest();
+    vi.stubEnv("ADMIN_EMAILS", "staff@example.invalid");
+    const staff = await createUser(t, "staff@example.invalid");
+    await createWorkspace(t, staff, "staff-personal");
+    const pinnedId = await createWorkspace(t, staff, PINNED_CONTEXT_SLUG, {
+      kind: "shared",
+      displayName: "Context",
+    });
+    // An ordinary customer, who is a member of nothing staff owns.
+    const visitor = await createUser(t, "visitor@example.invalid");
+    await createWorkspace(t, visitor, "visitor-own");
+
+    const backend = memoryS3(FAKE_STORAGE.bucket);
+    backend.seed(PRIVACY_KEY, renderPrivacyManifest("para"));
+    backend.seed("index.md", "# Context\n");
+    vi.stubGlobal("fetch", backend.fetchImpl);
+    await seedStorageBinding(t, { workspaceId: pinnedId, boundBy: staff });
+    return { t, staff, visitor, pinnedId, backend };
+  }
+
+  test("somebody who only reaches it by the pin still sees its photo", async () => {
+    const f = await pinnedFixture();
+    await asUser(f.t, f.staff).action(api.functions.files.setWorkspaceIconPhoto, {
+      workspaceId: f.pinnedId,
+      bytes: PHOTO.buffer,
+      contentType: "image/png",
+    });
+
+    const read = await asUser(f.t, f.visitor).action(
+      api.functions.files.workspaceIconPhoto,
+      { workspaceId: f.pinnedId },
+    );
+    expect(new Uint8Array(read.bytes)).toEqual(PHOTO);
+  });
+
+  test("reaching it by the pin is still not membership, so its icon is not theirs to set", async () => {
+    const f = await pinnedFixture();
+    const error = await captureError(() =>
+      asUser(f.t, f.visitor).mutation(api.functions.workspaces.setWorkspaceIcon, {
+        workspaceId: f.pinnedId,
+        emoji: "🧠",
+      }),
+    );
+    // Read without membership, write never: the pin is reach, not a role.
+    expect(errorCode(error)).toBe("WORKSPACE_NOT_FOUND");
   });
 });
 

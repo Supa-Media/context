@@ -244,35 +244,18 @@ export function allowInitialLoadOnly(request: { url: string }): boolean {
 }
 
 /**
- * Base64 back to bytes, without `atob`.
+ * Base64 back to bytes.
  *
- * `atob` is present on the web and on Hermes today and has been absent from a
- * React Native runtime within living memory, so the one place a paste would
- * break on a platform upgrade is written out instead. Throws on a character
- * outside the alphabet, which the caller turns into a sentence for the guest —
- * a truncated image is worth refusing rather than storing.
+ * Re-exported rather than defined here: it lives in `files/imageBytes.ts`
+ * beside `base64FromBytes`, which is its inverse, so the app has one base64
+ * implementation for images rather than one per caller. It moved when the
+ * workspace-icon picker needed it — importing it from *this* module would have
+ * pulled `EDITOR_BUNDLE`, the whole committed editor build, into the settings
+ * panel's import graph.
  */
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+import { bytesFromBase64 } from "../imageBytes";
 
-export function bytesFromBase64(value: string): ArrayBuffer {
-  const clean = value.replace(/=+$/, "");
-  const bytes = new Uint8Array(Math.floor((clean.length * 3) / 4));
-  let byte = 0;
-  let accumulator = 0;
-  let bits = 0;
-  for (const character of clean) {
-    const index = BASE64_ALPHABET.indexOf(character);
-    if (index < 0) throw new Error("not base64");
-    accumulator = (accumulator << 6) | index;
-    bits += 6;
-    if (bits >= 8) {
-      bits -= 8;
-      bytes[byte] = (accumulator >> bits) & 0xff;
-      byte += 1;
-    }
-  }
-  return bytes.buffer;
-}
+export { bytesFromBase64 };
 
 export interface HostSink {
   onChange: (text: string) => void;
