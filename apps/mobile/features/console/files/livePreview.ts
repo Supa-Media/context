@@ -41,6 +41,7 @@
  */
 
 import {
+  EditorSelection,
   EditorState,
   Range,
   RangeSet,
@@ -89,6 +90,12 @@ import {
   type CellSpan,
   type TableRegion,
 } from "./tableEdit";
+/*
+  The marker rule, over a plain string. Lifted out of `markdownFormat.ts` so
+  this file can run it against a cell's own text: `markdownFormat` imports this
+  module, so the shared half had to stop living there. See `markerToggle.ts`.
+*/
+import { MARKERS, planToggle, type MarkerName } from "./markerToggle";
 import { HighlightStyle, LanguageDescription, syntaxHighlighting, syntaxTree } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { css } from "@codemirror/lang-css";
@@ -1892,6 +1899,118 @@ function paddingOf(grid: TableGrid): string {
   return [row(grid.headerSpans), ...grid.rowSpans.map(row)].join("/");
 }
 
+/**
+ * ⌘B, IN THE CELL RATHER THAN IN THE DOCUMENT.
+ *
+ * The gap this closes was stated rather than hidden when the grid became
+ * editable, and it is the one people would meet first: focus is in a widget's
+ * own `contenteditable`, so every formatting verb — the keymap's ⌘B, the
+ * phone's Bold key, the right-click menu — acted on the document behind the
+ * table and left the cell alone. "The characters are right there to type
+ * instead" is true and is not an answer for a chord somebody has in their
+ * fingers.
+ *
+ * The decision is `planToggle`'s, unchanged, over the cell's text and the
+ * selection *inside the cell*: the same CommonMark run rule, so `**x**` and
+ * `*x*` compose in a cell exactly as they do in a paragraph. What differs is
+ * where it is applied — the cell holds source while it has focus, so the new
+ * text is written straight back into that one span and the DOM keeps the
+ * selection the plan returned.
+ *
+ * Returns whether a cell took it, so `markdownFormat` can fall through to the
+ * document when no cell has focus.
+ */
+export function toggleMarkerInCell(view: EditorView, before: string, after: string): boolean {
+  const active = view.dom.ownerDocument.activeElement;
+  if (!(active instanceof HTMLElement)) return false;
+  if (!active.classList.contains("cm-lp-grid-cell")) return false;
+  if (!view.dom.contains(active) || view.state.readOnly) return false;
+
+  const wrap = active.closest<HTMLElement>(".cm-lp-grid");
+  if (wrap === null) return false;
+  const row = Number(active.dataset.lpRow);
+  const column = Number(active.dataset.lpColumn);
+  if (!Number.isInteger(row) || !Number.isInteger(column)) return false;
+  const span = cellSpanNow(view, wrap, row, column);
+  if (span === null) return false;
+
+  const text = active.textContent ?? "";
+  const selected = cellSelection(active);
+  if (selected === null) return false;
+
+  const plan = planToggle(text, EditorSelection.range(selected.from, selected.to), before, after);
+  /*
+    Applied here rather than through a transaction on the document: the
+    changes are offsets into the cell's own text, and what reaches the file is
+    one replacement of one span — `planCellEdit`'s rule, and the reason this
+    feature has no serializer.
+  */
+  let next = text;
+  for (const change of [...plan.changes].reverse()) {
+    const spec = change as { from: number; to?: number; insert?: string };
+    next = next.slice(0, spec.from) + (spec.insert ?? "") + next.slice(spec.to ?? spec.from);
+  }
+
+  active.textContent = next;
+  dispatchPlan(view, planCellEdit(view.state, span, next));
+  selectInCell(active, plan.range.from, plan.range.to);
+  return true;
+}
+
+/**
+ * The marker chord a keystroke is, or `null`.
+ *
+ * The same three the editor's keymap binds (`editorSetup.ts`), and the same
+ * reason there is no fourth: every obvious chord for an inline code span is
+ * taken by the browser or by this app.
+ */
+function markerChord(event: KeyboardEvent): MarkerName | null {
+  if (!(event.metaKey || event.ctrlKey) || event.altKey) return null;
+  const key = event.key.toLowerCase();
+  if (key === "b" && !event.shiftKey) return "bold";
+  if (key === "i" && !event.shiftKey) return "italic";
+  if (key === "x" && event.shiftKey) return "strikethrough";
+  return null;
+}
+
+/** The selection inside a cell, as offsets into its text. */
+function cellSelection(cell: HTMLElement): { from: number; to: number } | null {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return null;
+  const selection = view.getSelection();
+  if (selection === null || selection.rangeCount === 0) return { from: 0, to: 0 };
+  try {
+    const range = selection.getRangeAt(0);
+    if (!cell.contains(range.startContainer) || !cell.contains(range.endContainer)) return null;
+    const before = cell.ownerDocument.createRange();
+    before.selectNodeContents(cell);
+    before.setEnd(range.startContainer, range.startOffset);
+    const from = before.toString().length;
+    return { from, to: from + range.toString().length };
+  } catch {
+    return null;
+  }
+}
+
+/** Put a selection back in a cell, by offsets into the text it now holds. */
+function selectInCell(cell: HTMLElement, from: number, to: number): void {
+  const view = cell.ownerDocument.defaultView;
+  if (view === null || typeof view.getSelection !== "function") return;
+  const selection = view.getSelection();
+  const node = cell.firstChild;
+  if (selection === null || node === null || node.nodeType !== 3) return;
+  try {
+    const length = node.textContent?.length ?? 0;
+    const range = cell.ownerDocument.createRange();
+    range.setStart(node, Math.min(from, length));
+    range.setEnd(node, Math.min(to, length));
+    selection.removeAllRanges();
+    selection.addRange(range);
+  } catch {
+    /* A selection this browser will not place is not a reason to lose the edit. */
+  }
+}
+
 /** The span of one drawn cell, or `null` where GFM padded the row out. */
 function spanOf(grid: TableGrid, row: number, column: number): CellSpan | null {
   const spans = row === HEADER_ROW ? grid.headerSpans : (grid.rowSpans[row] ?? []);
@@ -2195,6 +2314,22 @@ function makeCellEditable(
   cell.addEventListener("keydown", (event) => {
     const key = (event as KeyboardEvent).key;
     const shift = (event as KeyboardEvent).shiftKey;
+
+    /*
+      ⌘B and its two neighbours, handled here rather than by the editor's own
+      keymap. `ignoreEvent` tells CodeMirror that every event inside this
+      widget is the widget's, so the keymap never sees a keystroke made in a
+      cell — which is exactly right for Tab and Enter and leaves the chords
+      with nobody to answer them. The chord table is short and shared
+      (`markerToggle.ts`), so this is one more caller of the same pairs rather
+      than a second spelling of Bold.
+    */
+    const chord = markerChord(event as KeyboardEvent);
+    if (chord !== null) {
+      event.preventDefault();
+      toggleMarkerInCell(view, MARKERS[chord].before, MARKERS[chord].after);
+      return;
+    }
 
     if (key === "Tab") {
       event.preventDefault();

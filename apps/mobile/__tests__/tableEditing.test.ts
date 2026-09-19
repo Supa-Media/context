@@ -30,7 +30,7 @@ import { EditorView } from "@codemirror/view";
 
 import { editorExtensions } from "../features/console/files/editorSetup";
 import { engageEditor } from "../features/console/files/livePreview";
-import { insertTable } from "../features/console/files/markdownFormat";
+import { MARKERS, insertTable, toggleWrap } from "../features/console/files/markdownFormat";
 
 const TABLE = ["| a | b |", "| --- | --- |", "| 1 | 2 |"].join("\n");
 const DOC = `# Title\n\n${TABLE}\n\nafter\n`;
@@ -534,6 +534,85 @@ describe("a table somebody has just asked for", () => {
     expect(document.activeElement).toBe(first);
     type(first, "name");
     expect(view.state.doc.toString().split("\n")[0]).toBe("| name |     |     |");
+    view.destroy();
+  });
+});
+
+/* -------------------------------------------------------------------------- */
+
+/**
+ * ⌘B IN A CELL, which used to bold a word behind the table.
+ *
+ * The gap was stated when the grid became editable and is the one people meet
+ * first: focus is in a widget's own `contenteditable`, so every formatting
+ * verb acted on the document's selection — somewhere else entirely — and left
+ * the cell alone. The decision is `planToggle`'s either way, so the
+ * CommonMark run rule is the same one a paragraph gets.
+ */
+describe("the formatting verbs reach the cell that has the caret", () => {
+  /** Select `word` inside a focused cell, the way a double-click would. */
+  function selectIn(cell: HTMLElement, word: string): void {
+    const node = cell.firstChild!;
+    const at = (cell.textContent ?? "").indexOf(word);
+    const range = document.createRange();
+    range.setStart(node, at);
+    range.setEnd(node, at + word.length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
+
+  test("Bold wraps the cell's own word and writes it to that cell", () => {
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    selectIn(cell, "1");
+
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+
+    expect(cell.textContent).toBe("**1**");
+    expect(view.state.doc.toString()).toContain("| **1** | 2 |");
+    // And nothing else in the note moved.
+    expect(view.state.doc.toString()).toContain("# Title");
+    view.destroy();
+  });
+
+  test("pressing it again takes the markers off", () => {
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    selectIn(cell, "1");
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+
+    expect(cell.textContent).toBe("1");
+    expect(view.state.doc.toString()).toContain("| 1 | 2 |");
+    view.destroy();
+  });
+
+  test("italic inside bold composes rather than eating a pair", () => {
+    // The rule `markerPresent` exists for, exercised where it had never run:
+    // `**1**` with `1` selected has a `*` either side of the selection.
+    const view = mount();
+    const cell = cellOf(view, 0, 0);
+    cell.focus();
+    cell.dispatchEvent(new window.FocusEvent("focus"));
+    selectIn(cell, "1");
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+    selectIn(cell, "1");
+    toggleWrap(view, MARKERS.italic.before, MARKERS.italic.after);
+
+    expect(cell.textContent).toBe("***1***");
+    view.destroy();
+  });
+
+  test("and with no cell focused the document still gets it", () => {
+    const view = mount();
+    view.dispatch({ selection: { anchor: 2, head: 7 } });
+    toggleWrap(view, MARKERS.bold.before, MARKERS.bold.after);
+    expect(view.state.doc.toString()).toContain("**Title**");
     view.destroy();
   });
 });

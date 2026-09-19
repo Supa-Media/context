@@ -185,6 +185,25 @@ test.describe("the grid's own controls", () => {
     expect(bar.y + bar.height).toBeLessThanOrEqual(table.y + 1);
   });
 
+  test("Bold reaches the cell with the caret rather than the note behind it", async ({ page }) => {
+    /*
+      Focus is in a widget's own `contenteditable`, so the document's selection
+      is somewhere else entirely — this used to bold a word behind the table.
+      A real chord and a real selection, because the offsets come from the
+      browser's own selection API and jsdom's is a stub.
+    */
+    // A one-word cell, because a double-click selects a word and the browser
+    // ends one at the hyphen in `0-inbox`.
+    const cell = page.locator('[data-lp-row="0"][data-lp-column="2"]');
+    await cell.dblclick();
+    await page.keyboard.press("ControlOrMeta+b");
+
+    await expect(cell).toHaveText("**me**");
+    // Pressed again, the markers come off — the same toggle a paragraph gets.
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect(cell).toHaveText("me");
+  });
+
   test("the deletions arm once a cell has the caret, and act on that cell", async ({ page }) => {
     const remove = page.getByRole("button", { name: "Delete row" });
     await page.locator(GRID).first().locator("table").hover();

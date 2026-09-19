@@ -4504,9 +4504,23 @@ which is how a table gets longer without anybody reaching for a control.
   element of the widget's, so `view.hasFocus` is false while somebody is typing
   in a table — which is deliberate, because it is what stops CodeMirror drawing
   its own selection over the top. Escape hands the note back with the caret
-  after the table. The consequence is that the editor's own toolbar commands
-  (bold, a link) act on the document rather than on the cell while a cell has
-  focus. The characters are right there to type instead.
+  after the table.
+
+  This one is **closed rather than stated** now, and the way it was closed is
+  the reusable part. `toggleWrap` asks `toggleMarkerInCell` first, so Bold from
+  the keymap, from the phone's accessory bar and from the right-click menu all
+  reach the cell that has the caret; the decision is `planToggle`'s either way,
+  so the CommonMark run rule that makes ⌘B and ⌘I compose is the same one a
+  paragraph gets. `planToggle` and the marker pairs moved to `markerToggle.ts`
+  to make that possible without a cycle — `markdownFormat.ts` imports
+  `livePreview.ts`, so the shared half could not stay where it was.
+
+  The **chords** need one more thing, and a browser is what said so: a unit
+  test that calls `toggleWrap` directly passes while ⌘B in a cell does nothing,
+  because `ignoreEvent` tells CodeMirror every event inside the widget is the
+  widget's and the editor's keymap therefore never sees a keystroke made in a
+  cell. That is right for Tab and Enter and leaves the chords with nobody to
+  answer them, so the cell answers them itself from the same three-row table.
 - **A column GFM invented for a short row is drawn and not editable.** There
   are no characters in the file for it, so there is nothing for a keystroke to
   replace, and a cell that wrote to a range it invented would put its text in
