@@ -10,6 +10,7 @@ import { api } from "@context/convex/_generated/api";
 import type { Id } from "@context/convex/_generated/dataModel";
 import { MCP_ENDPOINT, placeholderIngestionAddress } from "./placeholderData";
 import { describeQueryFailure } from "./failure";
+import { prefetchWorkspacePhotos } from "./useWorkspaceIcons";
 import { EMPTY_QUERY_SPEC } from "./querySpec";
 import { useFileBrowser } from "./files/useFileBrowser";
 import { ingestionAvailabilityFor } from "./ingestion/settings";
@@ -110,6 +111,11 @@ interface WorkspaceSummary {
    * neither flow got that far. `listMyWorkspaces` has always returned it.
    */
   structureTemplate?: string;
+  /**
+   * The mark this workspace draws, when its owner chose one. A photo is its
+   * leaf; see `ConsoleContext.icon` for why the bytes are not on this row.
+   */
+  icon?: { kind: "photo"; leaf: string } | { kind: "emoji"; emoji: string };
   /** The pinned context. See `ConsoleContext.pinned` for what it changes here. */
   pinned?: boolean;
 }
@@ -421,6 +427,8 @@ export function useLiveConsoleData(): ConsoleData {
   const writeNoteAction = useAction(api.functions.files.writeNote);
   const syncManifestAction = useAction(api.functions.files.syncManifest);
   const readNotesAction = useAction(api.functions.files.readNotes);
+  /** The bytes behind a workspace's icon. See the prefetch below for why here. */
+  const workspaceIconPhotoAction = useAction(api.functions.files.workspaceIconPhoto);
   const reverifyStorage = useMutation(api.functions.storage.reverifyStorage);
   const observeStorageLayout = useMutation(
     api.functions.storage.observeStorageLayout,
@@ -471,8 +479,46 @@ export function useLiveConsoleData(): ConsoleData {
       pinned: workspace.pinned,
     }),
     meetingsFolder: workspace.meetingsFolder,
+    // The leaf, not the picture: the bytes are fetched once per leaf per
+    // session, just below. Putting them on this row would make every poll of
+    // the console carry a megabyte per workspace.
+    icon: workspace.icon,
     pinned: workspace.pinned,
   }));
+
+  /*
+    THE ONE PLACE A WORKSPACE ICON PHOTO IS FETCHED.
+
+    Here rather than in the components that draw it, and that is not tidiness:
+    `useAction` throws outside a `ConvexProvider`, and the mark is also drawn by
+    the landing page's picture of the console and by the demo console, neither
+    of which has a backend. A drawing surface that needed a Convex client would
+    be a marketing page that crashes.
+
+    This hook is the one that runs the queries, so the client is guaranteed
+    here by construction. `prefetchWorkspacePhotos` fills a module-scope cache
+    that `useWorkspaceIcons` reads without importing anything from Convex, and
+    a surface with no backend simply never fills it — which is right, because it
+    has no real workspace to ask about.
+
+    Called from an effect keyed on the leaves rather than on the array: the
+    console re-renders on every poll, and the prefetch itself is idempotent, but
+    re-entering it several times a second to do nothing is still a cost worth
+    not paying.
+  */
+  const iconLeaves = contexts
+    .flatMap((context) => (context.icon?.kind === "photo" ? [`${context.id}|${context.icon.leaf}`] : []))
+    .sort()
+    .join(",");
+  useEffect(() => {
+    if (iconLeaves === "") return;
+    prefetchWorkspacePhotos(contexts, (args) =>
+      workspaceIconPhotoAction({ workspaceId: args.workspaceId as Id<"workspaces"> }),
+    );
+    // `contexts` is rebuilt on every render; `iconLeaves` is what actually
+    // changes when there is a new photo to fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iconLeaves, workspaceIconPhotoAction]);
 
   // One entry per reachable context, and all three cases kept apart: the
   // binding, `null` for a context with no bucket, `undefined` for one whose

@@ -49,3 +49,40 @@ export function base64FromBytes(bytes: ArrayBuffer): string {
 export function dataUrlFor(bytes: ArrayBuffer, contentType: string): string {
   return `data:${contentType};base64,${base64FromBytes(bytes)}`;
 }
+
+/**
+ * Base64 back to bytes, without `atob`, and the inverse of `base64FromBytes`.
+ *
+ * `atob` is present on the web and on Hermes today and has been absent from a
+ * React Native runtime within living memory, so the one place a paste would
+ * break on a platform upgrade is written out instead. Throws on a character
+ * outside the alphabet, which the caller turns into a sentence — a truncated
+ * image is worth refusing rather than storing.
+ *
+ * It was in `webview/host.ts`, with the editor's guest-message handling, and it
+ * moved here when a second caller appeared: the workspace-icon picker decodes
+ * what `expo-image-picker` hands back. `host.ts` imports `EDITOR_BUNDLE`, the
+ * whole committed editor build, so importing a four-line decoder from it would
+ * have put that bundle in the settings panel's module graph. `host.ts`
+ * re-exports this so its own callers are unchanged.
+ */
+
+export function bytesFromBase64(value: string): ArrayBuffer {
+  const clean = value.replace(/=+$/, "");
+  const bytes = new Uint8Array(Math.floor((clean.length * 3) / 4));
+  let byte = 0;
+  let accumulator = 0;
+  let bits = 0;
+  for (const character of clean) {
+    const index = ALPHABET.indexOf(character);
+    if (index < 0) throw new Error("not base64");
+    accumulator = (accumulator << 6) | index;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes[byte] = (accumulator >> bits) & 0xff;
+      byte += 1;
+    }
+  }
+  return bytes.buffer;
+}

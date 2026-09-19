@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ContextRowMenu } from "./ContextRowMenu";
 import { WorkspaceMark } from "./WorkspaceMark";
+import { useWorkspaceIcons } from "./useWorkspaceIcons";
 import { Dot } from "../design/components/Dot";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
@@ -352,6 +353,11 @@ export function CurrentContextPill({
 }) {
   const styles = useThemedStyles(makeStyles);
   const [menuOpen, setMenuOpen] = useState(false);
+  /*
+    A read of the shared cache, so the photo the foot row already fetched is
+    drawn here without asking for it again.
+  */
+  const iconFor = useWorkspaceIcons();
 
   return (
     <View style={styles.currentAnchor} testID="nav-current-context">
@@ -383,7 +389,13 @@ export function CurrentContextPill({
           takes a tone and paints itself with it — so a workspace whose storage
           is in trouble is still the thing your eye lands on.
         */
-        leading={<WorkspaceMark label={atName(context.slug)} tone={toneForKind(context)} />}
+        leading={
+          <WorkspaceMark
+            label={atName(context.slug)}
+            tone={toneForKind(context)}
+            icon={iconFor(context)}
+          />
+        }
         head
         onPress={onOpenRoot}
         onLongPress={() => setMenuOpen(true)}

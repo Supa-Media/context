@@ -8,6 +8,7 @@ import { useThemedStyles, type Colors } from "../design/theme";
 import { atName } from "./format";
 import { footPlan } from "./foot";
 import { WorkspaceMark } from "./WorkspaceMark";
+import { useWorkspaceIcons } from "./useWorkspaceIcons";
 import type { ConsoleContext } from "./types";
 
 /**
@@ -95,6 +96,15 @@ export function ContextFootRow({
     reaches this row is a new layout rather than a new prop.
   */
   const [width, setWidth] = useState<number | null>(null);
+  /*
+    `iconFor` answers `undefined` until a photo arrives, which is the letter —
+    see the hook for why that beats a square that fills in late, and for why it
+    only reads a cache that `useLiveConsoleData` fills.
+
+    Above the `plan === null` return, because a hook after an early return is a
+    hook that runs in some renders and not others.
+  */
+  const iconFor = useWorkspaceIcons();
   const plan = footPlan({ width, contexts, currentSlug, recent });
   if (plan === null) return null;
 
@@ -106,6 +116,7 @@ export function ContextFootRow({
     something about the one the row would not warn you about.
   */
   const currentTone = contexts.find((c) => c.slug === currentSlug)?.status ?? "ok";
+  const current = contexts.find((c) => c.slug === currentSlug);
 
   const onLayout = (event: LayoutChangeEvent) => {
     const next = Math.round(event.nativeEvent.layout.width);
@@ -122,7 +133,11 @@ export function ContextFootRow({
           accessibilityLabel={`In ${atName(currentSlug)}`}
           testID="context-foot-current"
         >
-          <WorkspaceMark label={atName(currentSlug)} tone={currentTone} />
+          <WorkspaceMark
+            label={atName(currentSlug)}
+            tone={currentTone}
+            icon={current === undefined ? undefined : iconFor(current)}
+          />
           <Text variant="pill" numberOfLines={1} style={styles.currentLabel}>
             {atName(currentSlug)}
           </Text>
@@ -148,7 +163,7 @@ export function ContextFootRow({
           hoverStyle={styles.itemHover}
           testID={`context-foot-${context.slug}`}
         >
-          <WorkspaceMark label={atName(context.slug)} tone={context.status} />
+          <WorkspaceMark label={atName(context.slug)} tone={context.status} icon={iconFor(context)} />
           {plan.named ? (
             <Text variant="pill" numberOfLines={1} style={styles.pillLabel}>
               {atName(context.slug)}

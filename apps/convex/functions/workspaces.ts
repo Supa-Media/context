@@ -10,14 +10,14 @@
 import { ConvexError, v } from "convex/values";
 import { requireAuthId } from "@supa-media/convex/auth";
 import { internal } from "../_generated/api";
-import { mutation, query } from "../_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { recordAudit } from "./lib/audit";
 import { claimName, checkAvailability, nameRejectionError } from "./lib/nameClaims";
 import { seedIngestionSettings } from "./lib/ingestionStore";
 import { consumeRateLimit } from "./lib/rateLimit";
-import { PINNED_CONTEXT_ROLE } from "@context/shared";
-import { pinnedContextWorkspace } from "./lib/pinnedContext";
+import { PINNED_CONTEXT_ROLE, isSingleEmoji } from "@context/shared";
+import { pinnedContextWorkspace, reachesPinnedContext } from "./lib/pinnedContext";
 /*
   The gateway's own gate on this value, not a second one. An offer
   `normalizeMeetingFolder` refuses is an offer the meeting write then rejects,
@@ -84,6 +84,23 @@ const WORKSPACE_CREATE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_MEMBERS_RETURNED = 200;
 const MAX_WORKSPACES_RETURNED = 100;
 
+/**
+ * The mark a workspace draws, as it crosses the wire.
+ *
+ * A union rather than two optional fields, matching the schema: a mark shows
+ * one thing, and "photo set, emoji also set" would leave every drawing surface
+ * to invent its own tie-break. See `@context/shared`'s `workspaceIcon` module.
+ *
+ * A photo arrives as its **leaf, not its bytes**. The console asks for the
+ * bytes separately, once, and caches them on the leaf — which is a content
+ * hash, so the cache is sound forever. Inlining a megabyte per row into a query
+ * every console paint re-runs would make the context list a download.
+ */
+const workspaceIconValidator = v.union(
+  v.object({ kind: v.literal("photo"), leaf: v.string() }),
+  v.object({ kind: v.literal("emoji"), emoji: v.string() }),
+);
+
 const workspaceSummary = v.object({
   workspaceId: v.id("workspaces"),
   slug: v.string(),
@@ -91,6 +108,8 @@ const workspaceSummary = v.object({
   kind: v.string(),
   structureTemplate: v.string(),
   role: v.string(),
+  /** Absent is the letter, which is what every workspace drew before this. */
+  icon: v.optional(workspaceIconValidator),
   /**
    * Where meetings land in this context, when somebody has chosen.
    *
@@ -557,6 +576,7 @@ export const listMyWorkspaces = query({
         kind: workspace.kind,
         structureTemplate: workspace.structureTemplate,
         role: membership.role,
+        icon: workspace.icon,
         meetingsFolder: workspace.meetingsFolder,
         joinedAt: membership.joinedAt,
         createdAt: workspace.createdAt,
@@ -576,6 +596,7 @@ export const listMyWorkspaces = query({
         kind: pinned.kind,
         structureTemplate: pinned.structureTemplate,
         role: PINNED_CONTEXT_ROLE,
+        icon: pinned.icon,
         meetingsFolder: pinned.meetingsFolder,
         /*
           Nobody joined, so there is no join time. The workspace's own creation
@@ -608,6 +629,7 @@ export const getWorkspace = query({
     kind: v.string(),
     structureTemplate: v.string(),
     role: v.string(),
+    icon: v.optional(workspaceIconValidator),
     createdAt: v.number(),
     updatedAt: v.number(),
     memberCount: v.number(),
@@ -635,6 +657,7 @@ export const getWorkspace = query({
       kind: workspace.kind,
       structureTemplate: workspace.structureTemplate,
       role: membership.role,
+      icon: workspace.icon,
       createdAt: workspace.createdAt,
       updatedAt: workspace.updatedAt,
       memberCount: members.length,
@@ -860,6 +883,212 @@ export const setMeetingsFolder = mutation({
     });
 
     return { folder: folder ?? MEETINGS_FOLDER };
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                        what a workspace looks like                          */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Choose the emoji this workspace draws in its mark, or go back to the letter.
+ *
+ * ## Why this setting exists
+ *
+ * `WorkspaceMark` derives one letter from the slug, and a person with `@seyi`
+ * and `@supa` gets **S** twice, in the same square, in the same colour, in a
+ * control whose whole job is telling them apart. The letter is a good default
+ * and a poor identity.
+ *
+ * ## Owner-only, like every other fact about the workspace
+ *
+ * An editor writes notes; the workspace's name, its storage and now its face
+ * are the owner's. The line matters more here than for `meetingsFolder`,
+ * because this one is **seen by everybody**: an icon is rendered in the rail of
+ * every member of a shared context, so an editor setting it would be an editor
+ * changing what somebody else's screen looks like.
+ *
+ * ## Why `null` clears rather than storing a letter
+ *
+ * The same argument `setMeetingsFolder` makes about its default: storing the
+ * derived letter would freeze today's derivation, so a workspace that was
+ * renamed — or a change to which letter `WorkspaceMark` picks — would leave an
+ * old answer behind on a row nobody thinks of as holding one. Absent means "no
+ * choice was made", and the mark re-derives every time.
+ *
+ * ## The photo half is not here
+ *
+ * A photo's bytes go in the customer's bucket, so setting one is a file
+ * operation and lives beside its siblings in `files.ts`
+ * (`setWorkspaceIconPhoto`). This writes only what belongs on the row.
+ */
+export const setWorkspaceIcon = mutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    /** One emoji, or `null` to go back to the letter. */
+    emoji: v.union(v.string(), v.null()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const actorId = (await requireAuthId(ctx)) as Id<"users">;
+    await requireWorkspaceRole(ctx, args.workspaceId, actorId, "owner");
+
+    const workspace = await ctx.db.get(args.workspaceId);
+    /*
+      The helper rather than a literal, so "not a member" and "does not exist"
+      stay byte-identical — `workspaceAuth.test.ts` fails if this string is
+      built anywhere else in `functions/`.
+    */
+    if (workspace === null) throw workspaceNotFound();
+
+    if (args.emoji === null) {
+      /*
+        THE BUCKET OBJECT IS DELIBERATELY LEFT WHERE IT IS.
+
+        Deleting the photo on clear looks tidy and is wrong twice. The store is
+        content-addressed, so those bytes may equally be another workspace's
+        icon in the same bucket or the target of a paste in a note, and a delete
+        here would break both. And it is the customer's bucket: an object we put
+        there is theirs to keep or remove.
+      */
+      await ctx.db.patch(args.workspaceId, { icon: undefined, updatedAt: Date.now() });
+      await recordAudit(ctx, {
+        workspaceId: args.workspaceId,
+        actorUserId: actorId,
+        action: "workspace.icon_cleared",
+        details: { was: workspace.icon?.kind ?? "none" },
+      });
+      return null;
+    }
+
+    /*
+      THE VALIDATOR IS SHARED, AND IT IS STRUCTURAL.
+
+      Not a length check. This value is drawn in an 18pt square on the screen of
+      every member of the workspace, so what has to be refused is not "too long"
+      but "not one glyph": a right-to-left override, a stack of combining marks
+      that draws over the row above, or plain text. `isSingleEmoji` answers that
+      shape question, and the console pre-flights the same function so the
+      picker can never offer what this refuses.
+    */
+    if (!isSingleEmoji(args.emoji)) {
+      throw new ConvexError({
+        code: "WORKSPACE_ICON_INVALID",
+        message: "A workspace icon is a single emoji.",
+      });
+    }
+
+    await ctx.db.patch(args.workspaceId, {
+      icon: { kind: "emoji", emoji: args.emoji },
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: actorId,
+      action: "workspace.icon_set",
+      /*
+        The emoji is in the audit detail; a photo's leaf is too. Neither is note
+        content and neither is a secret — the leaf is a content hash of a
+        picture the workspace already shows everybody — and an audit line
+        reading "an icon was set" answers none of the questions an audit trail
+        is read for.
+      */
+      details: { icon: "emoji", emoji: args.emoji },
+    });
+    return null;
+  },
+});
+
+/**
+ * Record a photo that `setWorkspaceIconPhoto` has already written to the bucket.
+ *
+ * Internal, and it takes a leaf it does not check, which is safe for exactly
+ * one reason: **the only caller has just produced that leaf itself**, from a
+ * content hash, through `workspaceIconLeaf`, and written the object under it.
+ * There is no path from a client argument to this value. If that ever stops
+ * being true this needs the leaf rule applied here as well.
+ *
+ * The role check is repeated rather than trusted. The action checked `owner`
+ * before it wrote the bytes, and this is a second entry point into the same
+ * row — an internal one today, which is a fact about today.
+ */
+export const recordWorkspaceIconPhoto = internalMutation({
+  args: {
+    workspaceId: v.id("workspaces"),
+    actorUserId: v.id("users"),
+    leaf: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireWorkspaceRole(ctx, args.workspaceId, args.actorUserId, "owner");
+    await ctx.db.patch(args.workspaceId, {
+      icon: { kind: "photo", leaf: args.leaf },
+      updatedAt: Date.now(),
+    });
+    await recordAudit(ctx, {
+      workspaceId: args.workspaceId,
+      actorUserId: args.actorUserId,
+      action: "workspace.icon_set",
+      details: { icon: "photo", leaf: args.leaf },
+    });
+    return null;
+  },
+});
+
+/**
+ * The leaf this workspace's icon photo is stored under, for a caller who may
+ * see this workspace at all.
+ *
+ * **This is the whole security argument for workspace icon photos, so it is
+ * worth being slow about.**
+ *
+ * An image in the opaque store has no visibility of its own — it borrows the
+ * visibility of the notes that reference it, which is what keeps the store from
+ * drifting out of step with `privacy.md`. `readNoteImage` is built on exactly
+ * that: name a note you can see, and the image must be mentioned in it.
+ *
+ * A workspace icon has no note, so that gate cannot answer for it. The
+ * temptation is to relax the gate. What happens instead is that **the caller
+ * never names the object**: this query takes a `workspaceId` and reads the leaf
+ * off the row. There is no argument through which a leaf can be supplied, so
+ * the read path that uses this cannot be turned into a general object reader
+ * however it is called — which makes it strictly narrower than the note path,
+ * not wider. `workspaceIcon.test.ts` pins that by asserting the action's
+ * argument shape as well as its refusals.
+ *
+ * `member` is the floor, and it is the honest one: an icon is drawn in the rail
+ * of everyone who can reach the workspace, so every member is already meant to
+ * see it. A non-member gets `workspaceNotFound` through `requireWorkspaceAccess`
+ * — the same error as for an id that never existed.
+ */
+export const workspaceIconLeaf = internalQuery({
+  args: { workspaceId: v.id("workspaces"), actorUserId: v.id("users") },
+  returns: v.union(v.string(), v.null()),
+  handler: async (ctx, args) => {
+    /*
+      THE PIN IS REACH WITHOUT A MEMBERSHIP ROW, AND THIS HAS TO KNOW THAT.
+
+      `requireWorkspaceAccess` answers from `workspaceMembers`, and nobody is a
+      member of `@context-lc` — so asking it alone would refuse the one
+      workspace that is in *every* account's rail, after `authorizeFileAccess`
+      (which does know about the pin) had already admitted the caller. The two
+      gates would disagree on exactly one row in the product.
+
+      Tried before the membership read rather than after a caught failure, for
+      the reason `authorizeFileAccess` gives: the refusal is byte-identical for
+      "not a member" and "no such workspace", so catching it would mean guessing
+      which one this was. Asking the narrower question first needs no guess.
+    */
+    if (await reachesPinnedContext(ctx, args.workspaceId, args.actorUserId)) {
+      const pinned = await ctx.db.get(args.workspaceId);
+      return pinned?.icon?.kind === "photo" ? pinned.icon.leaf : null;
+    }
+    const { workspace } = await requireWorkspaceAccess(
+      ctx,
+      args.workspaceId,
+      args.actorUserId,
+    );
+    return workspace.icon?.kind === "photo" ? workspace.icon.leaf : null;
   },
 });
 

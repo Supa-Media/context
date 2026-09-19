@@ -214,6 +214,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - "Move to…" is one dialog, and the other context is a destination rather than a mode
 - Settings is seven rows, and a row has to earn its place
 - A pasted image is a width in the note and a file in the bucket, and nothing else
+- A workspace can wear a face, and the letter is what it falls back to
 
 ## [Meetings](./meetings.md)
 
