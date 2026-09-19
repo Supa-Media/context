@@ -97,6 +97,8 @@ import {
   validateSubmission,
 } from "./forms.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
+import { roomKey } from "./presence.js";
+import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { validateArguments } from "./toolArguments.js";
 import {
   handleMeetings,
@@ -859,6 +861,14 @@ async function route(request, env, ctx) {
       return new Response(null, { status: 405 });
     }
 
+    // Who else is in this note. Its own branch rather than a line in the block
+    // below, because it is the one authenticated route that is a GET, answers
+    // 101 rather than JSON, and needs no queue, no usage counter and no search
+    // budget — it never reads a note and never writes one.
+    if (path === "/presence") {
+      return await handlePresence(request, env, { slug, pathToken, origin });
+    }
+
     // A meeting route resolves a session exactly as `/mcp` does — same token,
     // same grant, same clamps — so it shares this block rather than growing a
     // second copy of it. What it does not share is the method: the contract
@@ -1159,6 +1169,25 @@ async function route(request, env, ctx) {
  * would escape `fetch` and restore the bodyless 1101 this guard exists to
  * remove, so the guard would un-guard itself on exactly the input it is for.
  */
+/**
+ * The presence room, re-exported because the runtime resolves a Durable Object
+ * class off the Worker's entry module by the name its binding declares. It is
+ * the only export here besides the default, and it holds no state of its own —
+ * see `presenceRoom.js` for why an object with no storage is the whole design
+ * rather than an omission.
+ *
+ * `export const` rather than `export { PresenceRoom }`, and the difference
+ * matters to something other than taste: `gatewayFormat.helpers.ts` evaluates
+ * this file's body to extract the privacy functions, and it handles export
+ * forms that *introduce* a binding while deliberately refusing ones that only
+ * *name* an existing one — "there is no reading of those that keeps this
+ * extraction honest". A re-export list is the second kind and reddens every
+ * scaffolding test that reads this source. This is the first kind, it is what
+ * the Workers runtime wants either way, and it keeps that contract strict
+ * rather than teaching it a new shape to tolerate.
+ */
+export const PresenceRoom = PresenceRoomDurableObject;
+
 export default {
   async fetch(request, env, ctx) {
     try {
@@ -1188,6 +1217,146 @@ export default {
     await Promise.all((batch?.messages || []).map((message) => handleGatewayJobMessage(message, env)));
   },
 };
+
+/**
+ * `GET /presence?note=<path>` — the socket that says who else has this note
+ * open, and where their carets are.
+ *
+ * ## It authorizes exactly like a read, and then reads nothing
+ *
+ * Same token, same grant, same clamp, same `privacy.md`. A caller who cannot
+ * *read* the note is refused before any room is addressed, and refused with the
+ * same 404 a missing note gets — because "this note exists but is private" is
+ * the one thing a presence probe must not be able to ask. That refusal is the
+ * reason this route loads a store at all: it never reads the note itself, only
+ * the manifest that says whether the caller may.
+ *
+ * ## The three things a client does not get to say
+ *
+ * Its **name** (taken from the resolved session, below), its **id** (minted in
+ * the room) and its **room** (derived from the workspace the *grant* resolved
+ * to, never from anything in the URL beyond the note path). A header naming a
+ * member is set here after the client's own headers are copied, so a client
+ * that sends `x-presence-member` has it overwritten rather than honoured.
+ *
+ * ## Groups are deliberately not passed to `canSee`
+ *
+ * Which means a note scoped to a group is, to this route, private — no room, no
+ * roster, no caret. That is the narrow answer rather than the clever one: a
+ * presence roster is a live signal about who is reading what, and the first
+ * version of it should under-share. Widening it is a deliberate change with a
+ * test, not an argument list nobody looked at.
+ */
+async function handlePresence(request, env, { slug, pathToken, origin }) {
+  if (request.method !== "GET") return new Response(null, { status: 405 });
+  if ((request.headers.get("Upgrade") || "").toLowerCase() !== "websocket") {
+    return new Response("expected a websocket upgrade", { status: 426 });
+  }
+  // A deployment without the binding — a self-host on an older config — says so
+  // rather than throwing. Every note still opens, still saves and still
+  // conflicts exactly as it did before this route existed, which is the
+  // property that makes presence safe to switch off.
+  if (!env.PRESENCE_ROOM) return json({ error: "presence_unavailable" }, 501);
+
+  const url = new URL(request.url);
+  const notePath = normalizePath(url.searchParams.get("note"));
+  if (!notePath) return json({ error: "invalid_path" }, 400);
+
+  const controlPlane = createControlPlane(env);
+  let session;
+  try {
+    session = await resolveSession(pathToken || bearerToken(request), slug, controlPlane);
+  } catch (error) {
+    if (!(error instanceof SessionRefusal)) throw error;
+    return error.status === 403
+      ? forbiddenResponse(origin, null, error)
+      : unauthorizedResponse(origin, slug, error);
+  }
+  if (!hasScope(session, SCOPE_READ)) {
+    return forbiddenResponse(origin, null, {
+      description: `This connection does not hold the ${SCOPE_READ} scope.`,
+      scope: [SCOPE_READ],
+    });
+  }
+
+  let store;
+  try {
+    store = await storeForSession(session, env, controlPlane);
+  } catch (error) {
+    if (!(error instanceof StorageUnavailable)) throw error;
+    return json({ error: "storage_unavailable" }, 503);
+  }
+
+  const { rules, overrides } = await loadPrivacyState(store);
+  const visible = canSee(notePath, session.scope, rules, overrides);
+  // **Existence is checked, and checked by listing rather than by reading.**
+  //
+  // Without this the route answers 200 for any path inside a team folder,
+  // whether or not a note is there — and 404 only for a path the manifest holds
+  // back. That difference is an oracle: a team-tier caller could ask
+  // `1-projects/rates.md` and learn from the refusal alone that a note exists
+  // there and was deliberately made private, which `read_note` is careful never
+  // to disclose (it answers "not found" to both). So the two refusals are made
+  // identical, and this route matches the read path it claims to authorize like.
+  //
+  // A listing rather than a `get`, because this route does not read notes and
+  // should not start: a prefix listing answers "is there an object at exactly
+  // this key" out of metadata, and the body never enters the worker.
+  const present = visible ? await objectExists(store, notePath) : false;
+  if (!visible || !present) return json({ error: "not_found" }, 404);
+
+  const room = env.PRESENCE_ROOM.get(
+    env.PRESENCE_ROOM.idFromName(roomKey(session.workspaceId, notePath)),
+  );
+  const headers = new Headers(request.headers);
+  headers.set(
+    "x-presence-member",
+    JSON.stringify({
+      name: presenceDisplayName(session),
+      colorSeed: url.searchParams.get("seed"),
+    }),
+  );
+  return await room.fetch(new Request(request.url, { method: "GET", headers }));
+}
+
+/**
+ * Is there an object at exactly this key?
+ *
+ * A prefix listing can answer about a *neighbour*: asking for `foo.md` also
+ * returns `foo.md.bak` and `foo.md/`-prefixed keys on a store that allows them,
+ * so the exact comparison is the check and the listing is only how it is
+ * reached. Missing and unreachable are both "no": a store that errors here
+ * refuses the socket rather than opening one on an assumption.
+ */
+async function objectExists(store, key) {
+  try {
+    const page = await store.list({ prefix: key, limit: 4 });
+    return (page?.objects || []).some((object) => object.key === key);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The name a caret is labelled with.
+ *
+ * A person's handle is the slug of their own personal workspace — the same
+ * global namespace usernames and workspace slugs share — so the acting identity
+ * already in the session answers this without a second control-plane round trip
+ * and without a new field anywhere. Co-members of a shared context can already
+ * address each other by that handle, so it discloses nothing new to the room.
+ *
+ * The client name is the fallback rather than the first choice: "@sayo's Claude"
+ * describes a connection, and a caret belongs to a person.
+ */
+function presenceDisplayName(session) {
+  const personal = (session.workspaces || []).find(
+    (workspace) => workspace && workspace.kind === "personal" && workspace.slug,
+  );
+  if (personal) return `@${personal.slug}`;
+  if (session.actorClientName) return session.actorClientName;
+  return "Someone";
+}
 
 /* ----------------------------- auth & scoping ----------------------------- */
 

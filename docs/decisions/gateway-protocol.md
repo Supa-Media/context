@@ -415,3 +415,75 @@ the agent was never offered writes nothing` and `...and does not run at all,
 whatever the model named`, in `apps/mcp/test/agent.test.mjs`, entries 5 and 6 of
 that file's sabotage record. The middle one asserts the damage rather than the
 mechanism: with the dispatch guard gone, the note really is in the bucket.
+
+## Presence is a read that happens to be a socket
+
+`GET /presence?note=<path>` opens a WebSocket into a Durable Object holding one
+note's roster: who has it open, and where each caret is. Phase 1 relays carets
+and nothing else — no concurrent merge, no shared document, no change to how a
+note is saved.
+
+**The room holds no note text, and the route reads none.** A client sends two
+integers and the server relays two integers. That is the whole payload, and it
+is what keeps this feature out of the control-plane argument: nothing here is a
+second place note content sits, so non-negotiable #1 is not approached, let
+alone tested. `decodeClientFrame` drops every field it does not know, so a
+client that puts note text on this channel finds the field simply is not
+carried — asserted in `presence.test.mjs` as "a cursor frame carries offsets and
+nothing else" rather than left to the comment above it.
+
+**The Durable Object has no storage.** The roster is rebuilt on every wake from
+`getWebSockets()` and each socket's attachment, so there is nothing to migrate,
+nothing to leak across tenants, and nothing to delete when the last person
+leaves. Hibernation evicts an idle room; `idFromName` never allocated one
+nobody opened. This is also why the feature is safe to switch off: with the
+binding absent the route answers 501 and every note opens, saves and conflicts
+exactly as before.
+
+**A Durable Object namespace is one binding, which is why this is not the
+per-workspace search problem.** Fast search reaches one D1 database per
+workspace over the Cloudflare HTTP API because bindings resolve at deploy time
+and are capped in the low thousands, while databases are created per customer at
+runtime. A DO namespace is a single binding addressing unlimited instances by
+name, so the ceiling that decided `search/d1/client.js` does not apply here and
+the same reasoning does not need repeating.
+
+**Revocation is a number, not a promise.** A socket is authorized once by the
+route that opened it and closed at `PRESENCE_SOCKET_MAX_MS` — five minutes. The
+client reconnects through the same route, which re-resolves the grant, re-reads
+`privacy.md` and re-checks visibility. So a revoked grant or a note that just
+became private stops showing a caret within five minutes rather than instantly,
+and the alarm in the room enforces it rather than a sentence somebody has to
+trust. The reconnect is invisible because a caret's colour follows a per-tab
+seed rather than the connection.
+
+**The refusal had to be made identical to `read_note`'s, and was not at
+first.** The route originally checked only `canSee`, which is a statement about
+a *path* and not about a note: any path inside a team folder answered 200
+whether or not anything was there, and only a path the manifest held back
+answered 404. That difference is an oracle — a team-tier caller could ask for
+`1-projects/rates.md` and learn from the refusal alone that a note exists there
+and was deliberately made private, which the read path never discloses. So
+existence is checked too, by a prefix listing rather than a `get`, because this
+route does not read notes and should not start.
+
+**The room is keyed on a path, because there is no note id to key on.** #735
+gives a moved note a forwarding trail between paths and deliberately not an id
+in anybody's file, so renaming a note while two people are in it ends that room
+and their editors rejoin at the new path. Nothing is lost: nothing in a room is
+the only copy of anything.
+
+**A group-scoped note has no room at all.** `canSee` is called without granted
+groups, so to this route a group note is private. The narrow answer rather than
+the clever one: a roster is a live signal about who is reading what, and the
+first version of it should under-share.
+
+The simplification to resist is letting the room hold the document "just for the
+session" — it is the shortest path to real co-editing and it converts every
+sentence above into a different product. That is Phase 2, it is
+[a decision of its own](../../1-projects/backlog/), and it starts by saying
+which of these properties it is spending. The tests that fail if this is
+reversed are in `apps/mcp/test/presence.test.mjs`: "a cursor frame carries
+offsets and nothing else", "another workspace's token addresses its own room,
+never the first's", "a private note and a missing note refuse identically" and
+"a client's own member header is overwritten, not honoured".

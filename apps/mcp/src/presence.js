@@ -1,0 +1,307 @@
+/**
+ * Who else has this note open, and where their caret is — the whole of it.
+ *
+ * ## What this is, and the line it does not cross
+ *
+ * Two people open `1-projects/foo.md` in the console. Today neither of them
+ * learns the other exists until one saves and the other gets a conflict, which
+ * is the worst possible moment to find out. This module is the state behind the
+ * fix: a room per note, a member per open editor, and a caret offset that moves
+ * as somebody types.
+ *
+ * **No note text passes through here, and none ever should.** A client sends
+ * two integers; the server relays two integers. That is not an optimisation, it
+ * is what keeps this feature on the safe side of non-negotiable #1 without
+ * arguing about it: the gateway already carries note content per request, and a
+ * presence room deliberately adds no second place where it sits. When somebody
+ * proposes merging edits through this channel, that is a different feature with
+ * a different decision behind it (`docs/decisions/gateway-protocol.md`), and it
+ * starts by admitting that this line is being crossed.
+ *
+ * ## The server cannot check an offset, and says so rather than pretending
+ *
+ * A caret at offset 900 in a 400-character note is nonsense, and this module
+ * cannot tell: it has never seen the note and is not going to read it to find
+ * out. So offsets are bounded for sanity (`MAX_OFFSET`) and clamped to the
+ * document by the *client* that draws them. A peer sending garbage offsets can
+ * therefore make its own caret appear in a silly place in somebody else's
+ * editor, and can do nothing else — no crash, no exception, no read. That is
+ * the honest trade, and `clampToDocument` on the client is the half that makes
+ * it harmless.
+ *
+ * ## A member cannot name itself
+ *
+ * `admit` takes the display name from the caller, and the only caller is the
+ * room shell, which takes it from the resolved session rather than from the
+ * socket. Nothing a client sends over the wire can set its own name, id or
+ * colour. A connection that could would let anybody appear in somebody else's
+ * note as anybody they liked, which is a spoof with a person's name on it.
+ *
+ * The id is per *connection*, not per person: the same person in two tabs is
+ * two members with one name, because that is what is true, and because a shared
+ * id would make one tab's close event remove the other tab's caret.
+ *
+ * ## Identity is a path, because there is no note id to key on
+ *
+ * A room is `workspaceId` plus the note's path. #735 gives a moved note a
+ * forwarding *trail* between paths, deliberately not an id stamped into
+ * anybody's file (`forwarding.js`: "never an id stamped into their
+ * frontmatter"), so there is no stable identity available to key a room on. The
+ * consequence is stated rather than hidden: renaming a note while two people
+ * are in it ends that room, and their editors rejoin at the new path the same
+ * way a freshly opened note joins one. Nothing is lost, because nothing in a
+ * room is the only copy of anything.
+ */
+
+/**
+ * The wire version. A client that speaks a version this worker does not is told
+ * so and closed, rather than being left to interpret frames it will get wrong.
+ */
+export const PRESENCE_PROTOCOL_VERSION = 1;
+
+/**
+ * How many editors may sit in one room.
+ *
+ * Presence is a thing you glance at. Past a couple of dozen carets the feature
+ * stops being information and starts being confetti, and every frame costs a
+ * fan-out to everybody else. The refusal is explicit (`room_full`) so a client
+ * can say "5 others are here" rather than silently drawing nothing.
+ */
+export const MAX_MEMBERS_PER_ROOM = 24;
+
+/**
+ * How often a client is expected to speak, and how long silence is tolerated.
+ *
+ * A hibernating Durable Object does not notice a socket that died with its
+ * laptop lid, so the roster would keep a ghost caret in the note forever. The
+ * heartbeat is what makes a ghost expire. Three missed beats before eviction
+ * rather than one, because a phone changing networks is normal and a caret that
+ * flickers out on every subway tunnel is worse than one that lingers 45s.
+ */
+export const HEARTBEAT_MS = 15_000;
+export const MEMBER_IDLE_MS = 45_000;
+
+/**
+ * The largest frame a client may send.
+ *
+ * A cursor frame is about 40 bytes. A kilobyte is room for a protocol that
+ * grows a field or two and is nowhere near room for somebody streaming a
+ * document through the presence channel, which is the thing this number exists
+ * to make structurally impossible rather than merely discouraged.
+ */
+export const MAX_CLIENT_FRAME_BYTES = 1024;
+
+/** Longer than any name the control plane will hand us; truncated, not refused. */
+export const MAX_DISPLAY_NAME = 64;
+
+/**
+ * A sanity ceiling on a caret offset. Not a document length — see the header.
+ * Ten million characters is longer than any Markdown note anybody is editing
+ * and short enough that a hostile offset cannot be used to make a client
+ * allocate.
+ */
+export const MAX_OFFSET = 10_000_000;
+
+/**
+ * The caret colours, and why there are eight of them.
+ *
+ * Enough that a handful of people in one note are told apart at a glance, few
+ * enough that every one of them can be checked against both palettes for
+ * contrast against a text background. They are assigned from a hash of the
+ * member id rather than round-robin, so a member's colour does not change when
+ * somebody else leaves — a caret that changes colour mid-session reads as a
+ * different person arriving.
+ */
+export const PRESENCE_COLORS = [
+  "#3b82f6",
+  "#ec4899",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ef4444",
+  "#06b6d4",
+  "#84cc16",
+];
+
+/**
+ * The room key a Durable Object id is derived from.
+ *
+ * Both halves are percent-encoded, which makes the join injective: no pair of
+ * (workspace, path) can collide with another pair, because the one character
+ * that separates them cannot appear in either side. A collision here would put
+ * two tenants in one room, which is the failure this whole file would be
+ * remembered for.
+ */
+export function roomKey(workspaceId, path) {
+  return `${encodeURIComponent(String(workspaceId))}/${encodeURIComponent(String(path))}`;
+}
+
+/**
+ * A stable colour for a member id, by FNV-1a over the id.
+ *
+ * Any spread-out hash would do. What matters is that it is a pure function of
+ * the id and nothing else, so every client in the room independently draws the
+ * same person the same colour without the server having to say so.
+ */
+export function colorFor(memberId) {
+  let hash = 0x811c9dc5;
+  const text = String(memberId);
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return PRESENCE_COLORS[hash % PRESENCE_COLORS.length];
+}
+
+/** A display name that is safe to put in somebody else's editor. */
+export function normalizeDisplayName(value) {
+  const text = typeof value === "string" ? value : "";
+  // Control characters out first: a name is drawn into a label in somebody
+  // else's editor, and a stray newline, a zero-width joiner or a bidi override
+  // in one is their UI to play with. Escaped rather than pasted, so what this
+  // class covers is readable in the source instead of invisible in it.
+  const cleaned = text
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "")
+    .trim();
+  if (cleaned.length === 0) return "Someone";
+  return cleaned.length > MAX_DISPLAY_NAME ? cleaned.slice(0, MAX_DISPLAY_NAME) : cleaned;
+}
+
+/** An offset a client sent, made safe to relay, or `null` if it was not one. */
+export function normalizeOffset(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const rounded = Math.trunc(value);
+  if (rounded < 0) return 0;
+  return rounded > MAX_OFFSET ? MAX_OFFSET : rounded;
+}
+
+/**
+ * Parse one frame from a client.
+ *
+ * Everything is a refusal with a reason rather than a throw, because this runs
+ * inside a WebSocket message handler where an exception takes the whole room
+ * down and a malformed frame is a thing any client will occasionally send.
+ *
+ * The byte check is on the *encoded* length rather than `String.length`, so a
+ * frame of astral-plane characters cannot be twice the size it is measured as.
+ */
+export function decodeClientFrame(raw) {
+  if (typeof raw !== "string") return { ok: false, reason: "not_text" };
+  if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: "not_json" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, reason: "not_object" };
+  }
+  if (parsed.t === "cursor") {
+    const anchor = normalizeOffset(parsed.a);
+    const head = normalizeOffset(parsed.h);
+    if (anchor === null || head === null) return { ok: false, reason: "bad_offset" };
+    return { ok: true, msg: { t: "cursor", a: anchor, h: head } };
+  }
+  if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
+  if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };
+  return { ok: false, reason: "unknown_type" };
+}
+
+function frameBytes(text) {
+  // `TextEncoder` is on the Workers runtime and on node; measuring rather than
+  // guessing is the point, so there is no fallback that silently under-counts.
+  return new TextEncoder().encode(text).length;
+}
+
+/** The longest colour seed worth reading. A tab key is a uuid; this is room for one. */
+export const MAX_COLOR_SEED = 64;
+
+function usableSeed(value) {
+  if (typeof value !== "string") return null;
+  if (value.length === 0 || value.length > MAX_COLOR_SEED) return null;
+  return value;
+}
+
+/** An empty room. Plain data: a Durable Object rebuilds one on every wake. */
+export function createRoom() {
+  return { members: new Map() };
+}
+
+/**
+ * Put a member in the room.
+ *
+ * Returns the member, or a refusal. The caller supplies `id` and `name`; see
+ * the header for why a client may supply neither.
+ */
+export function admit(room, { id, name, colorSeed, now }) {
+  if (room.members.has(id)) return { ok: false, reason: "duplicate_id" };
+  if (room.members.size >= MAX_MEMBERS_PER_ROOM) return { ok: false, reason: "room_full" };
+  const member = {
+    id,
+    name: normalizeDisplayName(name),
+    // The seed is the one thing a client gets to influence, and all it can
+    // influence is which of eight colours its own caret is drawn in. It exists
+    // so a reconnect five minutes later is invisible rather than a peer
+    // apparently leaving and a differently-coloured stranger arriving. A seed
+    // long enough to be a payload is ignored rather than trusted.
+    color: colorFor(usableSeed(colorSeed) ?? id),
+    a: 0,
+    h: 0,
+    seen: now,
+  };
+  room.members.set(id, member);
+  return { ok: true, member };
+}
+
+/** Move a member's caret. A frame from a member who is not in the room is dropped. */
+export function applyCursor(room, id, msg, now) {
+  const member = room.members.get(id);
+  if (!member) return null;
+  member.a = msg.a;
+  member.h = msg.h;
+  member.seen = now;
+  return member;
+}
+
+/** Record that a member is still alive without moving its caret. */
+export function touch(room, id, now) {
+  const member = room.members.get(id);
+  if (!member) return false;
+  member.seen = now;
+  return true;
+}
+
+/** Remove a member. Returns whether it was there, so a close is idempotent. */
+export function forget(room, id) {
+  return room.members.delete(id);
+}
+
+/**
+ * Drop members who have not been heard from.
+ *
+ * Returns the ids removed so the caller can tell the room, rather than leaving
+ * every client to time peers out on its own clock — which would mean four
+ * clients disagreeing about who is present.
+ */
+export function expire(room, now) {
+  const dropped = [];
+  for (const [id, member] of room.members) {
+    if (now - member.seen > MEMBER_IDLE_MS) {
+      room.members.delete(id);
+      dropped.push(id);
+    }
+  }
+  return dropped;
+}
+
+/** The roster as it goes on the wire: no timestamps, no ids beyond the room's own. */
+export function roster(room) {
+  return [...room.members.values()].map((member) => ({
+    id: member.id,
+    name: member.name,
+    color: member.color,
+    a: member.a,
+    h: member.h,
+  }));
+}

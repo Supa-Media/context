@@ -75,6 +75,15 @@ const mockStore = (
 jest.mock("../features/offline/store", () => ({ openStore: () => mockStore }));
 
 jest.mock("../features/console/panes/BrowsePane", () => ({ BrowsePane: () => null }));
+jest.mock("../features/console/presence/usePresence", () => ({
+  // Stubbed for the same reason `BrowsePane` above is: this file is about what
+  // the route records, and presence opens a socket and mints a grant to answer
+  // a question it never asks. Without this the route's `useAction` throws for
+  // want of a `ConvexProvider`, which is a true statement about the harness and
+  // nothing at all about breadcrumbs.
+  usePresence: () => ({ members: [], phase: "idle", summary: "", report: () => {} }),
+}));
+
 
 const { ConsoleDataProvider } =
   require("../features/console/ConsoleDataContext") as typeof import("../features/console/ConsoleDataContext");
