@@ -280,6 +280,62 @@ describe("nothing behind an open overlay may fire", () => {
 /*                        exact modifiers, not "at least"                      */
 /* -------------------------------------------------------------------------- */
 
+describe("where you have been has a chord, and it is the browser's", () => {
+  /**
+   * ⌘[ and ⌘], which is what every browser and Obsidian bind, over
+   * `files/history.ts` — the same stack the note's own `‹ ›` walk.
+   *
+   * These were drawn in the mockup for the link-navigation change and left out
+   * of the code that shipped it (#734), which is the gap this group exists to
+   * stop recurring: a chord a picture promises and nothing binds is the same
+   * defect as a chord a *menu* prints and nothing binds, and `menu.ts` has
+   * already had that one.
+   */
+  test("⌘[ goes back and ⌘] goes forward, on Apple hardware", () => {
+    expect(resolve(press({ key: "[", mod: true }, true), "global", true)).toBe("goBack");
+    expect(resolve(press({ key: "]", mod: true }, true), "global", true)).toBe("goForward");
+  });
+
+  test("Ctrl+[ and Ctrl+] do the same off it", () => {
+    expect(resolve(press({ key: "[", mod: true }, false), "global", false)).toBe("goBack");
+    expect(resolve(press({ key: "]", mod: true }, false), "global", false)).toBe("goForward");
+  });
+
+  test("they fire with the caret in a note, because that is the ordinary case", () => {
+    /*
+      You followed a link out of the note you were writing in and want to come
+      back to it. The text-field rule is about *bare* keys — a modified chord
+      is never typing — and a back chord that only worked with the editor
+      unfocused would be a back chord that never worked.
+    */
+    expect(resolve(press({ key: "[", mod: true, inTextField: true }, true), "editor", true)).toBe(
+      "goBack",
+    );
+    expect(resolve(press({ key: "]", mod: true, inTextField: true }, true), "editor", true)).toBe(
+      "goForward",
+    );
+  });
+
+  test("a bare bracket is a bracket", () => {
+    // The control. `[[` opens a wikilink, and it is typed constantly.
+    expect(resolve(press({ key: "[" }, true), "editor", true)).toBeNull();
+    expect(resolve(press({ key: "[", inTextField: true }, true), "editor", true)).toBeNull();
+  });
+
+  test("they are not the tab chords wearing another name", () => {
+    /*
+      Tabs are a *set* of open notes; history is an *order* of visits. Two tabs
+      can be open while you have moved between them six times, so these four
+      are four commands rather than two — and nothing here may quietly resolve
+      one to the other.
+    */
+    expect(resolve(press({ key: "arrowleft", mod: true, alt: true }, true), "global", true)).toBe(
+      "prevTab",
+    );
+    expect(resolve(press({ key: "[", mod: true }, true), "global", true)).not.toBe("prevTab");
+  });
+});
+
 describe("archive and permanent delete are one Shift apart and never collide", () => {
   test("⌘⌫ archives", () => {
     expect(resolve(press({ key: "backspace", mod: true }, true), "tree", true)).toBe("archive");
@@ -372,6 +428,8 @@ describe("what the menu prints comes from the table", () => {
     expect(describeBinding("treeOpen", false)).toBe("Enter");
     expect(describeBinding("nextTab", true)).toBe("⌘⌥→");
     expect(describeBinding("nextTab", false)).toBe("Ctrl+Alt+Right");
+    expect(describeBinding("goBack", true)).toBe("⌘[");
+    expect(describeBinding("goBack", false)).toBe("Ctrl+[");
     expect(describeBinding("tab1", true)).toBe("⌘1");
   });
 
