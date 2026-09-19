@@ -93,6 +93,8 @@ export interface Reconciled {
   contextId: string;
   note: string | null;
   selected: string | null;
+  /** `FileBrowser.navigations` when this pair was reconciled. */
+  navigations: number;
 }
 
 export interface AddressInputs {
@@ -124,6 +126,15 @@ export interface AddressInputs {
   note: string | null;
   /** What the file browser has open — a note or a folder, or nothing. */
   selected: string | null;
+  /**
+   * `FileBrowser.navigations` — how many times `select` has moved it.
+   *
+   * The one thing that tells a navigation from a correction when the selection
+   * has changed. Compared against the value reconciled last: higher means
+   * somebody went somewhere, unchanged means the path under them moved. See
+   * the `address` step.
+   */
+  navigations: number;
   seen: Reconciled | null;
 }
 
@@ -132,8 +143,22 @@ export type AddressStep =
   | { action: "wait" }
   /** The URL named a note. Open it. */
   | { action: "open"; path: string }
-  /** The selection moved. Put it in the URL — `null` clears `?note=`. */
-  | { action: "address"; note: string | null }
+  /**
+   * The selection moved. Put it in the URL — `null` clears `?note=`.
+   *
+   * `mode` is what the **browser's own back button** turns on, and it is the
+   * difference between an address bar that is a log of where somebody has been
+   * and one that is a label on the current screen:
+   *
+   *  - `"push"` — they navigated. A new entry, so the browser's back returns
+   *    to the note they left.
+   *  - `"replace"` — nothing was navigated to and the address is catching up:
+   *    the open note was renamed under them, the last tab closed, or a `select`
+   *    the unsaved-draft guard refused has to be put back. Pushing any of
+   *    those would leave an entry for a place nobody chose — and a rename
+   *    would leave one naming a path that no longer exists.
+   */
+  | { action: "address"; note: string | null; mode: "push" | "replace" }
   /**
    * The URL dropped its note. Close the open one and stand at the root.
    *
@@ -145,7 +170,7 @@ export type AddressStep =
   | { action: "hold" };
 
 export function nextAddressStep(inputs: AddressInputs): AddressStep {
-  const { contextId, selectedContextId, urlContextId, note, selected, seen } = inputs;
+  const { contextId, selectedContextId, urlContextId, note, selected, navigations, seen } = inputs;
   if (selectedContextId === null) return { action: "wait" };
   if (contextId !== selectedContextId) return { action: "wait" };
   /*
@@ -212,5 +237,16 @@ export function nextAddressStep(inputs: AddressInputs): AddressStep {
   if (note !== seen.note) {
     return note === null ? { action: "close" } : { action: "open", path: note };
   }
-  return { action: "address", note: selected };
+  /*
+    The selection moved under an unchanged URL, and the *reason* decides what
+    the address bar does about it — see the `address` step. A `select` that ran
+    since the last reconcile is somebody going somewhere; the same selection
+    change with no `select` behind it is the open note's own path moving, which
+    is a rename and is nobody going anywhere.
+  */
+  return {
+    action: "address",
+    note: selected,
+    mode: navigations === seen.navigations ? "replace" : "push",
+  };
 }

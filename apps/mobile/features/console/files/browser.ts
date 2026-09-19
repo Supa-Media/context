@@ -201,6 +201,28 @@ export interface FileBrowser {
   select: (path: string) => boolean;
 
   /**
+   * How many times `select` has moved this browser somewhere.
+   *
+   * **A counter, because the URL has to tell a navigation from a correction**,
+   * and by the time it sees one it has only "the selected path changed" to go
+   * on. Those are two different facts wearing one shape: somebody opened a
+   * note (a place, and the browser's own back button should return from it),
+   * or the note that was already open changed path underneath them — a rename
+   * — and its address has to catch up without anybody having gone anywhere.
+   *
+   * Bumped only by a `select` the guard allowed, so a refused navigation is
+   * not one. **`deselect` deliberately does not bump it**: standing at the
+   * context's root after closing the last tab is where the console put you,
+   * not somewhere you asked to go, and a history entry for it is a back button
+   * that returns to an empty pane.
+   *
+   * Read by `noteAddress.ts`, which compares it against the value it last
+   * reconciled. See `useNoteUrl` for what the two answers do to the address
+   * bar.
+   */
+  navigations: number;
+
+  /**
    * Close what is open and stand at the context's root.
    *
    * **The inverse of `select`, and it did not exist.** For as long as it did

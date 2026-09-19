@@ -282,15 +282,14 @@ export function mountGuest(
    *
    * `path` starts `null`, which is the extension's own "draw no links": the
    * guest is built before it is told anything, and a relative link has nothing
-   * to be relative to until the host sends `links`. Both callbacks post rather
-   * than navigate — the guest has no idea what a note *is*, only that one was
-   * asked for.
+   * to be relative to until the host sends `links`. The callback posts rather
+   * than navigates — the guest has no idea what a note *is*, only that one was
+   * asked for, and with which gesture.
    */
   const links: NoteLinkRef = {
     current: {
       path: null,
-      onOpen: (path) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path }),
-      onPress: (path) => bridge.post({ v: PROTOCOL_VERSION, type: "press-link", path }),
+      onOpen: (path, mode) => bridge.post({ v: PROTOCOL_VERSION, type: "open-link", path, mode }),
     },
   };
 

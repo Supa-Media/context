@@ -134,6 +134,7 @@ export function Breadcrumb({
   onSelectFolder,
   onFolderMenu,
   pathOnly,
+  history,
 }: {
   path: string;
   /**
@@ -181,6 +182,32 @@ export function Breadcrumb({
    * both of which the surfaces around it already carry.
    */
   pathOnly?: boolean;
+  /**
+   * `‹` and `›`, at the head of the line.
+   *
+   * **This is the pointer's half of a control the phone has had all along.**
+   * `history.ts` held the stack and `ConsoleBottomBar` drew the pair, and
+   * `frame.ts` draws that bar at `compact` only — so on a desktop the console
+   * kept a full history of where somebody had been and offered no way to walk
+   * it. "The note I was just looking at" was reachable by finding it in the
+   * tree again, which is the defect the phone's toolbar was built to fix.
+   *
+   * Here rather than in the tab strip above, because tabs are a *set* of open
+   * notes and this is an *order* of visits — two tabs can be open while you
+   * have moved between them six times. And at the head of the path because
+   * that is where every browser and Obsidian put them, which is the whole
+   * reason they need no label.
+   *
+   * Absent on `pathOnly`: that is the phone, and the bottom bar already draws
+   * them under the thumb. Two of the same control on one 390pt screen is what
+   * the drawer toggle was deleted for being.
+   */
+  history?: {
+    canBack: boolean;
+    canForward: boolean;
+    onBack: () => void;
+    onForward: () => void;
+  };
 }) {
   const styles = useThemedStyles(makeStyles);
   const colors = useColors();
@@ -258,6 +285,24 @@ export function Breadcrumb({
 
   return (
     <View style={[styles.bar, compact && styles.barCompact]}>
+      {history === undefined ? null : (
+        <View style={styles.history}>
+          <Step
+            direction="back"
+            enabled={history.canBack}
+            onPress={history.onBack}
+            colors={colors}
+            styles={styles}
+          />
+          <Step
+            direction="forward"
+            enabled={history.canForward}
+            onPress={history.onForward}
+            colors={colors}
+            styles={styles}
+          />
+        </View>
+      )}
       {folders.map((crumb, index) => (
         <Fragment key={keyFor(crumb)}>
           {/*
@@ -439,6 +484,59 @@ function Segment({
   );
 }
 
+/** Bought back around a 24pt box to reach `layout.minTouchTarget`. */
+const STEP_SLOP = Math.round((layout.minTouchTarget - 24) / 2);
+
+/**
+ * One of `‹` `›`.
+ *
+ * **Dimmed in place rather than removed at the ends of the history**, which is
+ * `ConsoleBottomBar`'s rule for the same pair and is right for the same
+ * reason: these two spend most of a session with at least one of them
+ * unavailable, and a line whose first two positions come and go moves every
+ * segment beside them each time somebody navigates.
+ *
+ * Unavailable is `disabled`, which `PressRow` passes to `Pressable`: it stops
+ * the press, takes the row out of the tab order, and — the part that was
+ * missing when this was only an absent handler — announces the control as
+ * unavailable rather than letting a screen reader offer "Go back" on a console
+ * with nowhere to go back to.
+ */
+function Step({
+  direction,
+  enabled,
+  onPress,
+  colors,
+  styles,
+}: {
+  direction: "back" | "forward";
+  enabled: boolean;
+  onPress: () => void;
+  colors: Colors;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <PressRow
+      accessibilityLabel={direction === "back" ? "Go back" : "Go forward"}
+      onPress={enabled ? onPress : undefined}
+      // Drawn, and honest about having nothing behind it. See `PressRow`.
+      disabled={!enabled}
+      style={styles.step}
+      hoverStyle={enabled ? styles.stepHover : undefined}
+      radius={radii.md}
+      // The drawn box is 24pt and the target is not: `minTouchTarget` is bought
+      // back in slop, which is this file's own rule for a row shorter than it.
+      hitSlop={{ top: STEP_SLOP, bottom: STEP_SLOP, left: STEP_SLOP, right: STEP_SLOP }}
+    >
+      <Icon
+        name={direction === "back" ? "chevronLeft" : "chevronRight"}
+        size={13}
+        color={enabled ? colors.chromeMuted : colors.line}
+      />
+    </PressRow>
+  );
+}
+
 function Separator() {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -507,6 +605,25 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
    * The vertical padding grows, because a line with no rule under it needs the
    * air to separate it from the note instead.
    */
+  /**
+   * `‹ ›`, tight against each other and looser against the path.
+   *
+   * Its own row rather than two children of `bar`, so the 6pt gap between
+   * crumbs does not also separate a pair that reads as one control.
+   */
+  history: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 1,
+    marginRight: 2,
+  },
+  step: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepHover: { backgroundColor: colors.surface2 },
   bar: {
     flexDirection: "row",
     alignItems: "center",
