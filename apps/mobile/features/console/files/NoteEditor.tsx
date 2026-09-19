@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { Presence } from "../presence/usePresence";
+import { PresenceChip } from "../ConsoleShell";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { useFrame } from "../../app/AppFrame";
 import { ScreenViewport, useSurfacePadding } from "../../app/Screen";
@@ -110,6 +112,7 @@ const SCROLL_GRACE_MS = 250;
 
 export function NoteEditor({
   state,
+  presence,
   canEdit,
   reading = false,
   visibility,
@@ -138,6 +141,15 @@ export function NoteEditor({
   activityShared = false,
   onOpenNote,
 }: {
+  /**
+   * Who else has this note open, and where this editor's caret goes.
+   *
+   * Absent wherever there is nobody to ask — the demo console, a surface with
+   * no grant — and nothing about the editor changes when it is: no chip, no
+   * carets, and the same save path either way. Presence is an overlay on the
+   * single-writer editor, never a second route to the bucket.
+   */
+  presence?: Presence;
   state: EditorState;
   canEdit: boolean;
   /**
@@ -755,6 +767,20 @@ export function NoteEditor({
             />
           ) : (
           <>
+          {/*
+            Who else is in this note, over the note rather than in the console's
+            top bar.
+
+            The bar belongs to the console and stays put while notes come and
+            go; this is a fact about the note in front of you and leaves with
+            it. It draws nothing when nobody else is here, which is almost
+            always, so the ordinary editor is unchanged — see `PresenceChip`.
+          */}
+          {presence === undefined ? null : (
+            <View style={styles.presenceRow}>
+              <PresenceChip presence={presence} />
+            </View>
+          )}
           <LiveEditor
             /*
               The body alone on a phone, and the whole file everywhere else.
@@ -789,6 +815,7 @@ export function NoteEditor({
             */
             value={compact ? body : state.draft}
             editable={editable}
+            presence={presence}
             /*
               The accessory bar's keys go out through *this* `onChange`, which
               is the whole reason they are the editor's own commands rather than
@@ -1750,6 +1777,7 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   },
   status: { flexGrow: 1, flexShrink: 1 },
 
+  presenceRow: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingTop: 6 },
   conflict: {
     paddingVertical: 12,
     paddingHorizontal: 15,

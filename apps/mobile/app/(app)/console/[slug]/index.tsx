@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { usePresence } from "../../../../features/console/presence/usePresence";
 import { useConsoleData } from "../../../../features/console/ConsoleDataContext";
 import {
   anchorFromQuery,
@@ -102,9 +103,37 @@ export default function ContextBrowseRoute() {
   );
   useRememberPlace(placeFor(data.contexts, slug, note));
 
+  /*
+    Who else has this note open.
+
+    Computed here rather than inside `BrowsePane` because the pane is also the
+    landing page's demo console, where there is no account, no grant to mint and
+    no gateway to reach. A hook that called a Convex action from inside that
+    tree would be a live credential path on a marketing page; a prop that is
+    simply absent there is the same rule `onOpenSettings` above follows — a
+    capability the surface does not have is not passed, rather than passed and
+    refused.
+  */
+  const presence = usePresence({
+    workspaceId: data.selectedContextId,
+    endpoint: data.endpoint,
+    notePath: data.files.editor.path,
+    /*
+      Off for everything that is not a saved markdown note somebody is looking
+      at: a draft with no name yet has no path to key a room on, a locked note
+      is not being read, and a conflict is a decision the person owes before
+      anybody else's caret is worth drawing over it.
+    */
+    enabled:
+      data.files.editor.status !== "conflict" &&
+      data.files.editor.path !== null &&
+      (data.files.editor.path ?? "").endsWith(".md"),
+  });
+
   return (
     <BrowsePane
       data={data}
+      presence={presence}
       /*
         `setParams`, not a push of `settingsHref`: this route is already the
         context the gear belongs to, and building a fresh URL would drop the

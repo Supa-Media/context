@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
+import type { Presence } from "../presence/usePresence";
 import { ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { FrameIconButton } from "../../app/AppFrame";
 import { useConsoleNav } from "../ConsoleNavContext";
@@ -94,6 +95,7 @@ import { SetupPrompt } from "../setup/SetupPrompt";
  */
 export function BrowsePane({
   data,
+  presence,
   /**
    * Opens this context's settings. Absent where there is nowhere to go, and the
    * control is then not rendered rather than rendered dead.
@@ -103,6 +105,13 @@ export function BrowsePane({
   anchor,
   onOpenComms,
 }: {
+  /**
+   * Who else has this note open, when the surface has anybody to ask.
+   *
+   * Absent on the landing page's demo console, which has no account behind it —
+   * and the chip and the carets are then not drawn rather than drawn empty.
+   */
+  presence?: Presence;
   data: ConsoleData;
   /**
    * Optionally at a named section — which is what lets a control deep-link to
@@ -1257,6 +1266,7 @@ export function BrowsePane({
         state={files.editor}
         canEdit={files.canEdit}
         reading={reading}
+        presence={presence}
         /*
           `activity.md` is drawn as a list rather than as its own source — see
           `ActivityPage`. Passed from here because this is where the console's

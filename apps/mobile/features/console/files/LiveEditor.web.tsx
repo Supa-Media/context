@@ -51,6 +51,8 @@ import { insertTable, MARKERS, toggleWrap } from "./markdownFormat";
 import { TableSizePicker } from "./TableSizePicker.web";
 import { drawInterim, takeBackRun } from "./dictate";
 import { closeFindPanel, findInNote } from "./findInNote";
+import { remoteCarets, setRemoteCarets } from "../presence/remoteCarets";
+import type { PresenceMember } from "../presence/protocol";
 import {
   editability,
   editorExtensions,
@@ -191,6 +193,19 @@ export interface LiveEditorProps {
    */
   onFocus?: () => void;
   onBlur?: () => void;
+  /**
+   * Who else has this note open, and where to send this editor's own caret.
+   *
+   * Absent on every surface with no room behind it — the landing page's demo
+   * console, a note opened offline, a locked one — and the extension is then
+   * still installed but never told about anybody, so it draws nothing. An
+   * absent capability is reported, never faked, and here reporting it is
+   * drawing exactly the editor that existed before presence did.
+   */
+  presence?: {
+    members: PresenceMember[];
+    report: (anchor: number, head: number) => void;
+  };
   /**
    * Scroll the surface this editor is laid out inside, by `delta` points.
    *
@@ -493,6 +508,7 @@ export function LiveEditor({
   value,
   editable,
   onChange,
+  presence,
   onSave,
   controls,
   onFocus,
@@ -517,6 +533,16 @@ export function LiveEditor({
 }: LiveEditorProps) {
   const host = useRef<HTMLDivElement | null>(null);
   const view = useRef<EditorView | null>(null);
+  /**
+   * The presence reporter, behind a ref.
+   *
+   * The `updateListener` below is installed once, at state construction, and
+   * closing over the prop would pin it to the value this render had — the same
+   * trap `latestValue` exists for, one field along. A note reopened after a
+   * reconnect would then report its caret into a socket that is gone.
+   */
+  const presenceRef = useRef(presence);
+  presenceRef.current = presence;
   const colors = useColors();
 
   /**
@@ -751,6 +777,25 @@ export function LiveEditor({
           ? []
           : [pluginLinkPreview(previews.current), pluginPreviewTheme]),
         findInNote(),
+        /*
+          Other people's carets, and this editor's own going out.
+
+          The extension is installed unconditionally and the *roster* is what
+          may be absent, for `pluginSuggest`'s reason directly above: whether
+          this note has a room behind it is not answerable at mount, and a
+          connection that arrives a second later must not need a different
+          editor.
+
+          `selectionSet` rather than every update: a repaint, a scroll and a
+          remote caret all produce updates, and reporting on those would send
+          a frame per keystroke of somebody else's typing.
+        */
+        remoteCarets(),
+        EditorView.updateListener.of((update) => {
+          if (!update.selectionSet && !update.docChanged) return;
+          const range = update.state.selection.main;
+          presenceRef.current?.report(range.anchor, range.head);
+        }),
       ],
     });
 
@@ -933,6 +978,26 @@ export function LiveEditor({
     // down and losing the selection and undo history with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /*
+    The roster, into the editor.
+
+    A `StateEffect` rather than a prop the extension reads, because CodeMirror
+    state is not React's: the field holds the members and the decorations are
+    computed from it, so a roster that arrives while somebody is mid-word
+    redraws the carets without touching the document, the selection or the undo
+    history.
+
+    The dependency is the members array from `usePresence`, which is a new
+    array only when something actually changed — the reducer returns the same
+    state object for a frame it ignored, so a peer's heartbeat does not
+    dispatch here.
+  */
+  useEffect(() => {
+    const current = view.current;
+    if (!current) return;
+    current.dispatch({ effects: setRemoteCarets.of(presence?.members ?? []) });
+  }, [presence?.members]);
 
   // An authoritative change from outside: a different note opened, a draft
   // discarded, a conflict resolved. Never the echo of our own typing — that is
