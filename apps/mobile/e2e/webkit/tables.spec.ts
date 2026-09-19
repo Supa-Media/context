@@ -53,7 +53,10 @@ test.describe("a table already in the note", () => {
     // reading mode — and the pipes are a table rather than a paragraph.
     const grid = page.locator(GRID).first();
     await expect(grid).toBeVisible();
-    await expect(grid.locator("th")).toHaveText(["Seat", "Holder", "Backup"]);
+    // By the cells' own marker rather than by `th`: the handle gutter and the
+    // strip above the header are table cells too, and only the content cells
+    // carry a row and column.
+    await expect(grid.locator('[data-lp-row="-1"]')).toHaveText(["Seat", "Holder", "Backup"]);
     await expect(grid.locator("tbody tr")).toHaveCount(2);
     await expect(page.locator(".cm-content")).not.toContainText("| --- |");
   });
@@ -135,87 +138,100 @@ test.describe("the grid's own controls", () => {
     await page.keyboard.press("ControlOrMeta+Home");
     const last = page.locator(GRID).last();
     await expect(last.locator("tbody tr")).toHaveCount(1);
-    await expect(last.locator("th")).toHaveText(["x", "y"]);
+    await expect(last.locator('[data-lp-row="-1"]')).toHaveText(["x", "y"]);
   });
 
-  test("appear on hover and are laid out in one row", async ({ page }) => {
-    const grid = page.locator(GRID).first();
-    const bar = page.locator(".cm-lp-grid-controls").first();
-    await expect(bar).toHaveCSS("opacity", "0");
-
-    await grid.locator("table").hover();
-    await expect(bar).toHaveCSS("opacity", "1");
-
+  test("a row handle appears with its row and deletes that row", async ({ page }) => {
     /*
-      Side by side, which is the assertion the wrapped-label defect fails: an
-      absolutely positioned bar cannot be wider than the frame it is in, and a
-      frame that shrank to a narrow table stacked each label down its own
-      column. Same top, four different lefts.
-    */
-    const boxes = await bar.locator("button").evaluateAll((buttons) =>
-      buttons.map((button) => {
-        const box = button.getBoundingClientRect();
-        return { top: Math.round(box.top), left: Math.round(box.left), height: box.height };
-      }),
-    );
-    expect(boxes).toHaveLength(4);
-    expect(new Set(boxes.map((box) => box.top)).size).toBe(1);
-    expect(new Set(boxes.map((box) => box.left)).size).toBe(4);
-    // One line of text each, rather than a label folded onto four.
-    for (const box of boxes) expect(box.height).toBeLessThan(32);
-  });
+      THE REPORT THIS CHROME EXISTS FOR: "deleting a row is not really
+      possible". What it replaced was a bar acting on the last cell that had
+      the caret — disabled until one had, and then armed with a remembered
+      row long after the caret had left the table. Measured in Chromium,
+      both: the obvious gesture did nothing, and the recovered one deleted a
+      row nobody was pointing at.
 
-  test("sit inside the grid's own box, not over the line above it", async ({ page }) => {
-    /*
-      The bar was pinned outside the frame with a negative offset, which drew
-      it across the last line of the paragraph above and then had it clipped in
-      half by this box — `overflow-x: auto` makes the other axis a clip too.
-      The space is reserved now, so the whole bar is inside the grid.
+      Here the handle belongs to the row. No cell is focused first.
     */
     const grid = page.locator(GRID).first();
-    await grid.locator("table").hover();
-    const outer = await grid.boundingBox();
-    const bar = await page.locator(".cm-lp-grid-controls").first().boundingBox();
-    const table = await grid.locator("table").boundingBox();
-    if (outer === null || bar === null || table === null) throw new Error("nothing laid out");
+    const handle = page.getByRole("button", { name: "Row 1 actions" });
+    await expect(handle).toHaveCSS("opacity", "0");
 
-    expect(bar.y).toBeGreaterThanOrEqual(outer.y - 1);
-    expect(bar.y + bar.height).toBeLessThanOrEqual(outer.y + outer.height + 1);
-    // Above the table rather than across its header.
-    expect(bar.y + bar.height).toBeLessThanOrEqual(table.y + 1);
-  });
+    await grid.locator('[data-lp-row="0"]').first().hover();
+    await expect(handle).toHaveCSS("opacity", "1");
 
-  test("Bold reaches the cell with the caret rather than the note behind it", async ({ page }) => {
-    /*
-      Focus is in a widget's own `contenteditable`, so the document's selection
-      is somewhere else entirely — this used to bold a word behind the table.
-      A real chord and a real selection, because the offsets come from the
-      browser's own selection API and jsdom's is a stub.
-    */
-    // A one-word cell, because a double-click selects a word and the browser
-    // ends one at the hyphen in `0-inbox`.
-    const cell = page.locator('[data-lp-row="0"][data-lp-column="2"]');
-    await cell.dblclick();
-    await page.keyboard.press("ControlOrMeta+b");
+    await handle.click();
+    const menu = page.locator(".cm-lp-grid-menu");
+    await expect(menu).toBeVisible();
+    // The row it is about is marked on the table, not only in the wording.
+    await expect(grid.locator('[data-lp-row="0"]').first()).toHaveClass(/cm-lp-grid-target/);
 
-    await expect(cell).toHaveText("**me**");
-    // Pressed again, the markers come off — the same toggle a paragraph gets.
-    await page.keyboard.press("ControlOrMeta+b");
-    await expect(cell).toHaveText("me");
-  });
-
-  test("the deletions arm once a cell has the caret, and act on that cell", async ({ page }) => {
-    const remove = page.getByRole("button", { name: "Delete row" });
-    await page.locator(GRID).first().locator("table").hover();
-    await expect(remove).toBeDisabled();
-
-    await page.locator('[data-lp-row="1"][data-lp-column="0"]').click();
-    await expect(remove).toBeEnabled();
-    await remove.click();
-
-    // The row the caret was in is gone; the one above it stayed.
-    const grid = page.locator(GRID).first();
+    await menu.getByRole("menuitem", { name: "Delete row" }).click();
     await expect(grid.locator("tbody tr")).toHaveCount(1);
-    await expect(grid.locator("tbody tr td").first()).toHaveText("0-inbox");
+    await expect(grid.locator('[data-lp-row="0"][data-lp-column="0"]')).toHaveText("1-projects");
+  });
+
+  test("the menu is drawn in the note's own palette, outside the note", async ({ page }) => {
+    /*
+      A menu on the document body is outside the element the `--lp-*` palette
+      is declared on, and an unknown custom property invalidates its whole
+      declaration rather than falling back. In the browser that was a menu
+      with no background at all and the note's text showing through it — the
+      same defect the decision log records as "white text on a white ground".
+    */
+    await page.getByRole("button", { name: "Row 1 actions" }).click();
+    const menu = page.locator(".cm-lp-grid-menu");
+    const paint = await menu.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { background: style.backgroundColor, size: Number.parseFloat(style.fontSize) };
+    });
+    expect(paint.background).not.toBe("rgba(0, 0, 0, 0)");
+    expect(paint.size).toBeGreaterThan(10);
+  });
+
+  test("a column handle sets the alignment, which has no other route", async ({ page }) => {
+    // The delimiter row is where GFM keeps alignment and the grid never draws
+    // it, so before the column menu there was no way to set it from the app.
+    await page.getByRole("button", { name: "Column 2 actions" }).click();
+    await page.getByRole("menuitem", { name: "Align right" }).click();
+
+    const cell = page.locator(GRID).first().locator('[data-lp-row="0"][data-lp-column="1"]');
+    await expect(cell).toHaveCSS("text-align", "right");
+    // And the header of that column travels with it.
+    await expect(
+      page.locator(GRID).first().locator('[data-lp-row="-1"][data-lp-column="1"]'),
+    ).toHaveCSS("text-align", "right");
+  });
+
+  test("the corner hands back the pipes, which is the way out of anything else", async ({ page }) => {
+    await page.getByRole("button", { name: "Table actions" }).click();
+    await page.getByRole("menuitem", { name: "Edit as text" }).click();
+    await expect(page.locator(".cm-content")).toContainText("| --- | --- | --- |");
+    await expect(page.locator(GRID)).toHaveCount(0);
+  });
+
+  test("Escape closes a menu and leaves the table alone", async ({ page }) => {
+    const grid = page.locator(GRID).first();
+    await page.getByRole("button", { name: "Row 2 actions" }).click();
+    await expect(page.locator(".cm-lp-grid-menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".cm-lp-grid-menu")).toHaveCount(0);
+    await expect(grid.locator("tbody tr")).toHaveCount(2);
+    await expect(grid.locator(".cm-lp-grid-target")).toHaveCount(0);
+  });
+
+  test("undo takes back a row the menu deleted, from inside a cell", async ({ page }) => {
+    /*
+      A destructive control is only safe to press if the press can be taken
+      back, and ⌘Z inside a cell used to reach the browser's contenteditable
+      history rather than the document's.
+    */
+    const grid = page.locator(GRID).first();
+    await page.getByRole("button", { name: "Row 1 actions" }).click();
+    await page.getByRole("menuitem", { name: "Delete row" }).click();
+    await expect(grid.locator("tbody tr")).toHaveCount(1);
+
+    await grid.locator('[data-lp-row="0"][data-lp-column="0"]').click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(grid.locator("tbody tr")).toHaveCount(2);
   });
 });

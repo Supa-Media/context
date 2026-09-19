@@ -195,13 +195,17 @@ test("Table… hands over a grid, and a cell writes a table of that size", async
   */
   const grid = page.locator(".cm-lp-grid-live table").first();
   await expect(grid).toBeVisible();
-  // "3 × 2" is three columns and two rows *including the header*, which the
-  // picker's own header says it counts — so one body row under three headings.
-  await expect(grid.locator("th")).toHaveCount(3);
+  /*
+    "3 × 2" is three columns and two rows *including the header*, which the
+    picker's own header says it counts — so one body row under three headings.
+    Counted by the cells' own marker rather than by `th`: the handle gutter
+    and the strip above the header are table cells too.
+  */
+  await expect(grid.locator('[data-lp-row="-1"]')).toHaveCount(3);
   await expect(grid.locator("tbody tr")).toHaveCount(1);
 
   // And it can be typed into where it stands, which is the whole point of
   // drawing it here rather than only for a reader.
   await page.keyboard.type("name");
-  await expect(grid.locator("th").first()).toHaveText("name");
+  await expect(grid.locator('[data-lp-row="-1"]').first()).toHaveText("name");
 });
