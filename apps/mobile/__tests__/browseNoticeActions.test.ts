@@ -85,11 +85,15 @@ function noBucketConsole(over: Partial<FileBrowser> = {}): ConsoleData {
     dismissNotice: () => {},
     clipboard: null,
     sync: undefined,
+    // No move into another context, unless a test says otherwise.
+    // `BrowsePane` reads both on every render, so a fixture without them
+    // crashes the pane rather than failing the assertion it was written for.
+    contextMoves: [],
+    dismissContextMove: () => {},
+    // Last, so a test can replace any of the above. It used to sit in the
+    // middle, which quietly made `contextMoves` the one field a caller could
+    // not set — and that is the field a move notice is drawn from.
     ...over,
-  // No move into another context is running. `BrowsePane` reads this on
-  // every render, so a fixture without it crashes the pane rather than
-  // failing the assertion the test was written for.
-  contextMoves: [],
   } as unknown as FileBrowser;
 
   return {
@@ -180,5 +184,103 @@ describe("Dismiss", () => {
     unmount();
     expect(calls).toHaveLength(1);
     expect(calls[0]?.map((arg) => typeof arg)).toEqual([]);
+  });
+});
+
+/**
+ * THE DISMISS THAT HAD NOWHERE TO WRITE THE ANSWER.
+ *
+ * The same defect this file was opened for, one notice along, and the reason
+ * it hid so long: the button *was* wired, to a `useState` set in the pane, so
+ * it worked perfectly — until the app was closed. A finished move stays
+ * listable for a day, so the row came back on the next launch and so did the
+ * line. "Moved 1 note to @supa." every time you open the app, with a Dismiss
+ * that never sticks.
+ *
+ * So the press has two halves and the test pins both: the pane hides the line
+ * now, and the row is told so it stays hidden. Asserting only the first is how
+ * a button ships that looks like it works.
+ */
+describe("Dismiss, on a move into another context", () => {
+  function moveConsole(dismissContextMove: (id: string) => void): ConsoleData {
+    return noBucketConsole({
+      notice: null,
+      dismissContextMove,
+      contextMoves: [
+        {
+          id: "mv1",
+          from: "1-projects/acme.md",
+          to: "acme.md",
+          destination: "@supa",
+          status: "complete",
+          objects: 1,
+          skipped: [],
+        },
+      ],
+    } as unknown as Partial<FileBrowser>);
+  }
+
+  test("tells the row, so the line does not come back on the next launch", () => {
+    const dismissed: string[] = [];
+    const { container, unmount } = mount(
+      moveConsole((id) => dismissed.push(id)),
+      () => {},
+    );
+    // The line is there to begin with — otherwise the press below proves
+    // nothing about a notice that was never drawn.
+    expect(container.textContent).toContain("Moved 1 note to @supa.");
+
+    press(container, "browse-context-move-dismiss-mv1");
+
+    expect(dismissed).toEqual(["mv1"]);
+    unmount();
+  });
+
+  test("a failure offers to put it aside, not to be rid of it", () => {
+    const { container, unmount } = mount(
+      noBucketConsole({
+        notice: null,
+        dismissContextMove: () => {},
+        contextMoves: [
+          {
+            id: "mv2",
+            from: "1-projects/acme",
+            to: "acme",
+            destination: "@supa",
+            status: "failed",
+            objects: 12,
+            skipped: [],
+            error: "The bucket stopped answering.",
+          },
+        ],
+      } as unknown as Partial<FileBrowser>),
+      () => {},
+    );
+
+    /*
+      "Not now", because that is what the press does. `dismissContextMove`
+      takes a completed move only — a failed one's notice carries the one
+      control that can finish it, and the server refuses to hide that for
+      good. So this line comes back, and the word has to say so. A "Dismiss"
+      that undismisses itself overnight is the complaint this came from.
+    */
+    const button = container.querySelector('[data-testid="browse-context-move-dismiss-mv2"]');
+    expect(button?.textContent).toBe("Not now");
+    // And the control that finishes it is still the point of the notice.
+    expect(container.querySelector('[data-testid="browse-context-move-resume-mv2"]')).not.toBeNull();
+    unmount();
+  });
+
+  test("and hides it in the same press, rather than waiting for the query", () => {
+    const { container, unmount } = mount(
+      moveConsole(() => {}),
+      () => {},
+    );
+    press(container, "browse-context-move-dismiss-mv1");
+    // `contextMoves` is a subscription and does not turn around inside the
+    // press. Without the pane's own set the line would sit there for a beat
+    // after being dismissed, which is a button that reads as broken.
+    expect(container.textContent).not.toContain("Moved 1 note to @supa.");
+    unmount();
   });
 });

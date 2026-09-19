@@ -367,6 +367,7 @@ function browser(
     moveToContext: record("moveToContext"),
     contextMoves: [],
     resumeContextMove: noop,
+    dismissContextMove: noop,
     duplicate: record("duplicate"),
     archive: record("archive"),
     destroy: record("destroy"),

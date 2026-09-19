@@ -283,6 +283,7 @@ export function useFileBrowser(options: {
   const folderPathsAction = useAction(api.functions.files.folderPaths);
   const startContextMoveAction = useAction(api.functions.contextMoves.startContextMove);
   const resumeContextMoveAction = useAction(api.functions.contextMoves.resumeContextMove);
+  const dismissContextMoveMutation = useMutation(api.functions.contextMoves.dismissContextMove);
   const copyEntry = useAction(api.functions.files.copyEntry);
   const duplicateEntry = useAction(api.functions.files.duplicateEntry);
   const archiveEntry = useAction(api.functions.files.archiveEntry);
@@ -2581,6 +2582,26 @@ export function useFileBrowser(options: {
     [resumeContextMoveAction, run],
   );
 
+  /**
+   * Record that the outcome has been read, so the row stops being listed.
+   *
+   * Outside `run`, unlike every other call here, because it touches no file
+   * and has nothing to say: `run` exists to reload what an operation changed
+   * and to put a sentence on the screen, and a toast reporting that a notice
+   * was dismissed is the notice again. The pane hides the line on the press
+   * from its own state; this is what makes that answer survive the launch.
+   *
+   * Swallowed on failure on `dismissStorageMigrationOffer`'s model — what a
+   * lost write costs is seeing the line once more, and an error banner over a
+   * dismissal is a worse version of the thing being dismissed.
+   */
+  const dismissContextMove = useCallback(
+    (id: string) => {
+      void dismissContextMoveMutation({ moveId: id as Id<"contextMoves"> }).catch(() => {});
+    },
+    [dismissContextMoveMutation],
+  );
+
   const rename = useCallback(
     (path: string, rawName: string) => {
       const folder = parentPath(path);
@@ -3475,6 +3496,7 @@ export function useFileBrowser(options: {
       moveToContext,
       contextMoves,
       resumeContextMove,
+      dismissContextMove,
       duplicate,
       archive,
       destroy,
@@ -3546,6 +3568,7 @@ export function useFileBrowser(options: {
       moveToContext,
       contextMoves,
       resumeContextMove,
+      dismissContextMove,
       notice,
       mirrorStatus,
       offline.counts,

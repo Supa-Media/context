@@ -66,6 +66,7 @@ import {
   internalAction,
   internalMutation,
   internalQuery,
+  mutation,
   query,
 } from "../_generated/server";
 import { CONTEXT_MOVE_SKIP_CAP } from "./lib/fileOps";
@@ -172,6 +173,64 @@ export const resumeContextMove = action({
 });
 
 /**
+ * Stop showing a finished move, on every device rather than on this one.
+ *
+ * The notice a move ends with is the only outcome in the console that arrives
+ * as a sentence nobody pressed for — the move outlives the press, and the row
+ * behind it is listable for a day so that a person who was not looking still
+ * finds out. Which leaves the console needing somewhere to record that they
+ * *have* looked, and before this there was nowhere: dismissal lived in one
+ * component's `useState`, so the line came back on every launch until the row
+ * aged out, and its Dismiss button was a control that worked until you closed
+ * the app. A notice that cannot be answered is a notice people learn to read
+ * past, which is the opposite of what a move needs from one.
+ *
+ * `owner` on the source, re-asked here rather than taken from the row: the
+ * row records who pressed Move, and roles change. The same authorization
+ * `listContextMoves` makes, because this only ever hides something from that.
+ *
+ * ## Only a move that finished, and only one that finished cleanly
+ *
+ * `moving` is refused because there is no outcome to acknowledge yet, and
+ * `contextMoveNotices` goes on drawing a running move whatever anybody says.
+ *
+ * `failed` is refused for a sharper reason, and it is the one thing to
+ * re-read before widening this. **A failed move's notice carries the only
+ * control that can finish it.** The destination-root collision check runs
+ * only while nothing has landed (`advanceContextMove`), so a resume walks
+ * past it and a *fresh* move over the same folder does not: it is refused
+ * `DESTINATION_EXISTS` against the half this move already put there. Making
+ * that notice permanently hideable would mean one press leaves a folder split
+ * across two contexts with the clean way to reunite it gone from the screen.
+ *
+ * So a failure can be put aside for the session — the pane's own state does
+ * that, and the button says "Not now" rather than "Dismiss" — and it comes
+ * back, because it is still true. Only `complete` is an outcome there is
+ * nothing left to do about, and only `complete` can be answered for good.
+ *
+ * Idempotent: two devices can both be showing the line, and the second press
+ * is a consequence of that rather than a race worth reporting.
+ */
+export const dismissContextMove = mutation({
+  args: { moveId: v.id("contextMoves") },
+  returns: v.object({ dismissed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const actorUserId = await callerId(ctx);
+    const row = await ctx.db.get(args.moveId);
+    // A move that is not there answers as one somebody else owns, for the
+    // reason `reopenMove` sets out at length: three outcomes over an id space
+    // must not be two distinguishable answers.
+    if (row === null) throw workspaceNotFound();
+    await requireWorkspaceRole(ctx, row.sourceWorkspaceId, actorUserId, "owner");
+    if (row.status !== "complete") return { dismissed: false };
+    if (row.dismissedAt === undefined) {
+      await ctx.db.patch(args.moveId, { dismissedAt: Date.now() });
+    }
+    return { dismissed: true };
+  },
+});
+
+/**
  * The moves out of this context worth showing somebody.
  *
  * Owner-only, and scoped to the **source**: a move is a thing that happens to
@@ -179,6 +238,13 @@ export const resumeContextMove = action({
  * authorize it. Finished rows stay for a day so a move does not disappear from
  * the screen at ninety-nine percent — the same day `listDurableMoves` keeps
  * its own, for the same reason.
+ *
+ * A day is a long time to be told the same thing, which is what `dismissedAt`
+ * is for: a finished row the owner has acknowledged is gone from here for
+ * good, rather than for as long as one console stayed open. A **running** one
+ * is listed whatever it says, because a move still carrying notes is not
+ * something anybody can have finished reading about — the same rule
+ * `contextMoveNotices` applies on the other side of the wire.
  */
 export const listContextMoves = query({
   args: { workspaceId: v.id("workspaces") },
@@ -193,7 +259,11 @@ export const listContextMoves = query({
       .take(20);
     const cutoff = Date.now() - 24 * 60 * 60 * 1_000;
     return rows
-      .filter((row) => row.status === "moving" || row.updatedAt >= cutoff)
+      .filter(
+        (row) =>
+          row.status === "moving" ||
+          (row.updatedAt >= cutoff && row.dismissedAt === undefined),
+      )
       .slice(0, 10)
       .map((row) => ({
         moveId: row._id,
@@ -289,6 +359,16 @@ export const reopenMove = internalMutation({
       error: undefined,
       actorUserId: args.actorUserId,
       updatedAt: Date.now(),
+      /*
+        A resumed move is never a dismissed one. Today nothing can reach here
+        holding a dismissal — `dismissContextMove` takes `complete` only, and
+        a complete move is never reopened — so this is insurance, and it is
+        the insurance worth keeping: the day failures become answerable, a row
+        that stayed dismissed through its next outcome would finish in
+        silence, which is the one case where "it carried everything" and "it
+        carried nothing" look identical from the console.
+      */
+      dismissedAt: undefined,
     });
     return true;
   },
