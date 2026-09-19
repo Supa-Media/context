@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useWindowDimensions } from "react-native";
-import { AppFrame, FrameIconButton } from "../app/AppFrame";
+import { AppFrame, FrameIconButton, useFrame } from "../app/AppFrame";
 import { AccountBlock } from "../console/AccountBlock";
 import { atName } from "../console/format";
 import { ConsoleBottomBar } from "../console/ConsoleBottomBar";
@@ -20,6 +20,15 @@ import { ContextStrip, CurrentContextPill } from "../console/ContextStrip";
 import { notePlace } from "../console/files/history";
 import { ShareDialog } from "../console/files/ShareDialog";
 import { NavBandProvider } from "../console/NavBand";
+import { CreateButton } from "../console/CreateButton";
+import { AsidePanel } from "../console/aside/AsidePanel";
+import { createStubEngine } from "../agent/engine";
+import { agentPage } from "../agent/page";
+import { meetings } from "../meetings/controller";
+import { fakeGateway } from "../meetings/fakeGateway";
+import { fakeRecorder } from "../meetings/capture/fake";
+import { INBOX_FOLDER } from "../meetings/destination";
+import { memoryStore } from "../offline/memory";
 import { densityFor } from "../app/frame";
 import type { ConsoleRoute } from "../console/nav";
 
@@ -52,6 +61,20 @@ import type { ConsoleRoute } from "../console/nav";
  * `EXPO_PUBLIC_E2E_FIXTURE` gate as everything else in this folder — which is
  * inlined at export time, so every shipped build redirects the route to `/` as
  * if it did not exist.
+ *
+ * ## The corner and the right panel, added 2026-09-19
+ *
+ * The console's `+` and its Meetings panel shipped in #723 against a mock, and
+ * this board could show neither: the `+` is mounted by the console *layout*,
+ * which this fixture replaces, and the panel defaults shut. That is the exact
+ * failure this file's own header names — a board that cannot answer "does the
+ * console look like the design" about the part somebody just changed.
+ *
+ * So the `+` is drawn here the way the layout draws it, and
+ * `?panel=meetings` opens the right panel on a running meeting. The panel is
+ * behind a parameter rather than on by default because the artboards draw the
+ * console with it closed, and a fixture that changes the resting state is
+ * reviewing a screen the design does not have.
  */
 /**
  * Two tabs, the second of them active — the shape the design draws.
@@ -69,8 +92,9 @@ const TABS: TabsState = {
   closed: [],
 };
 
-export function AppFrameVisualFixture() {
+export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
   const data = useE2EFixtureConsoleData();
+  useFakeMeeting(panel);
   /*
     A context, not the landing route.
 
@@ -300,8 +324,53 @@ export function AppFrameVisualFixture() {
             onReopen={() => {}}
           />
         }
+        /*
+          The right panel, on the one state of it worth looking at: a meeting
+          running, with its name, its clock, its meter and the controls that
+          end it. `OpenAside` below is what opens it, for `OpenAsideOn`'s
+          reason — the command is the frame's and `useFrame` only answers
+          inside it.
+
+          The engine is the stub: this board has no account and no gateway
+          behind it, and the Chat tab's transcript is not what it is for.
+        */
+        aside={
+          panel ? (
+            <AsidePanel
+              engine={createStubEngine()}
+              place={agentPage({
+                context: null,
+                editor: { reference: null },
+                route: "/console/@seyi",
+                meetingLive: true,
+                query: null,
+              })}
+              asked={null}
+              started={1}
+              newChat={null}
+              onOpenNote={null}
+            />
+          ) : undefined
+        }
       >
         <BrowsePane data={data} />
+        {panel ? <OpenAside /> : null}
+        {/*
+          THE CORNER, WHICH THE LAYOUT OWNS AND THIS FIXTURE REPLACES.
+
+          `console/_layout` mounts `CreateButton` inside the frame's editor
+          region — that is what makes it independent of whether a note is open
+          — so a board that left it out would screenshot the one corner of the
+          console that changed, with the control missing. `compact` is passed
+          exactly as the layout passes it: a phone's seven keys already carry
+          both verbs, and the component draws nothing there.
+        */}
+        <CreateButton
+          compact={phone}
+          onNewMeeting={() => {}}
+          onNewNote={() => {}}
+          onNewChat={() => {}}
+        />
         {sharing ? (
           <ShareDialog
             path="1-projects/context-lc.md"
@@ -338,4 +407,67 @@ export function AppFrameVisualFixture() {
       </AppFrame>
     </NavBandProvider>
   );
+}
+
+/**
+ * Opens the right panel, once, because the frame's command lives inside it.
+ *
+ * `OpenAsideOn` in the console layout is the same component for the same
+ * reason: `useFrame` only answers below `AppFrame`, and everything that wants
+ * to open the panel is above it. It renders nothing.
+ */
+function OpenAside() {
+  const frame = useFrame();
+  const open = frame.state.asideOpen;
+  const toggle = frame.toggleAside;
+  useEffect(() => {
+    if (open) return;
+    toggle();
+    // `open` is deliberately absent: it changes as a *result* of this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toggle]);
+  return null;
+}
+
+/**
+ * A meeting running, on fakes, so the panel has something to draw.
+ *
+ * The board is for looking at, and the state of the Meetings tab worth looking
+ * at is a recording in progress: the name field, the clock, the meter, the
+ * path the note is going to, and the controls that end it. With no controller
+ * configured the tab draws its empty sentence, which is a real state and not
+ * the one that changed.
+ *
+ * Everything behind it is the suite's own fakes — an in-memory store, a
+ * gateway that answers without a network, a recorder that opens no device — so
+ * nothing here can reach a microphone, a bucket or an account. It configures
+ * the module-level controller because that is what the product reads; the
+ * reset on the way out is what keeps this board from leaving a meeting running
+ * for whatever mounts next.
+ */
+function useFakeMeeting(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+    let live = true;
+    void (async () => {
+      meetings.reset();
+      await meetings.configure({
+        workspaceId: "w1",
+        store: memoryStore(),
+        gateway: fakeGateway(),
+        recorder: fakeRecorder(),
+        device: { platform: "web" },
+        persistDebounceMs: 0,
+      });
+      if (!live) return;
+      await meetings.start({
+        title: "Leads call",
+        destination: { kind: "personalInbox", contextSlug: "seyi", folder: INBOX_FOLDER },
+      });
+    })();
+    return () => {
+      live = false;
+      meetings.reset();
+    };
+  }, [active]);
 }

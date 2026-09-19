@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { EditorRegion } from "../features/console/EditorRegion";
@@ -224,6 +224,33 @@ const ConsoleLayout = (
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Consoles this file has mounted, so a failing assertion cannot hand the next
+ * test its DOM.
+ *
+ * Every test here reads `document.body` — the switcher's rows and the `+`'s
+ * menu are portals — and each one ends with `app.unmount()`. That line does not
+ * run when an assertion above it throws, so one red test used to leave a whole
+ * live console in the body and the *next* test would find its controls: five
+ * failures reported for one defect, four of them in tests about something else.
+ * Tracked and torn down here instead, which is the same thing
+ * `asidePanelRender.test.ts` does for the same reason.
+ */
+const mounted: (() => void)[] = [];
+
+afterEach(() => {
+  while (mounted.length > 0) mounted.pop()!();
+  document.body.replaceChildren();
+  /*
+    And the route, for the same reason: a test that sets `mockPathname` and
+    then fails never reaches the line that sets it back, so the next test
+    mounts a console on somebody else's route. Under a sabotage run that
+    reported `bottom-bar-meeting` missing on a phone — a true statement about
+    the Map route, and nothing to do with the defect being injected.
+  */
+  mockPathname = "/console/@seyi";
+});
+
 function mountConsole(width = 1440) {
   // react-native-web measures `document.documentElement.clientWidth`, which
   // jsdom reports as 0 — see `appFrameRender.test.ts` for the full trap.
@@ -243,6 +270,11 @@ function mountConsole(width = 1440) {
 
   act(() => {
     root.render(createElement(ConsoleLayout as never));
+  });
+
+  mounted.push(() => {
+    act(() => root.unmount());
+    container.remove();
   });
 
   /*
@@ -750,6 +782,66 @@ describe("the phone reaches a destination with nothing opened first", () => {
     expect(app.find("frame-scrim")).toBeNull();
     expect(app.find("nav-band")).not.toBeNull();
 
+    app.unmount();
+  });
+
+  test("the + is in the corner of a pointer console, on every route it has", () => {
+    /*
+      THE MOUNT, WHICH IS THE HALF NO UNIT TEST OF THE BUTTON CAN SEE.
+
+      `CreateButton` has its own tests for what it draws and what its menu
+      offers. Those pass just as happily if nothing in the product ever renders
+      it — which is exactly the defect being guarded here, and the one the
+      microphone it replaced actually shipped: the corner was drawn by
+      `NoteEditor`, so it existed on a note and nowhere else. The owner's words
+      are the requirement: *"it should show up all the time, even when on a
+      folder page, and not just show up when on a note."*
+
+      So this asserts the *layout* draws it, at a context route with no note
+      selected — which is a folder page, and the state a console arrives in.
+    */
+    mockPathname = "/console/@seyi";
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    app.unmount();
+  });
+
+  test("...and on Map, which has no file tree and no note at all", () => {
+    // Restored by `afterEach`, not here: see the note there.
+    mockPathname = "/console/map";
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    app.unmount();
+  });
+
+  test("pressing it offers a meeting, a note and a chat, and nothing else", () => {
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+
+    // The menu is a `Menu`, which react-native-web portals out of the tree.
+    expect(document.body.textContent).toContain("New meeting");
+    expect(document.body.textContent).toContain("New note");
+    expect(document.body.textContent).toContain("New chat");
+    app.unmount();
+  });
+
+  test("and the corner holds no second control: the microphone is not drawn beside it", () => {
+    /*
+      One corner, one control. `oneMicrophone.test.ts` holds the editor's half
+      through the real editor; this is the one that can see both at once,
+      because it mounts the console that supplies the `+` and the note that
+      used to supply the microphone.
+    */
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    expect(app.find("voice-button")).toBeNull();
+    app.unmount();
+  });
+
+  test("a phone draws no + at all, because its bottom row already carries both", () => {
+    const app = mountConsole(390);
+    expect(app.find("console-create")).toBeNull();
+    expect(app.find("bottom-bar-meeting")).not.toBeNull();
     app.unmount();
   });
 
