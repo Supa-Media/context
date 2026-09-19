@@ -23,7 +23,7 @@ export const BUNDLE_SOURCES: Readonly<Record<string, string>> = {
   "apps/mobile/features/console/files/imageLine.ts": "4f6aaa69da888f52709f58159cbea6096df3171725eac4e3fae3f2c094914c8d",
   "apps/mobile/features/console/files/linkComplete.ts": "90b09a612d887564735e29a3102e6f31c8952ea4cd4de3e4004d27f4873ecff0",
   "apps/mobile/features/console/files/livePreview.ts": "4c1732ecbaea3de3f7f7a3cb81ad826752ce63c26238f5cf850662346223a0ce",
-  "apps/mobile/features/console/files/markdownFormat.ts": "b534ca10d2909058e251964f35b999a9b1cad251711d702a561e937a322e3683",
+  "apps/mobile/features/console/files/markdownFormat.ts": "4f44c65a4b47212d5a0b4a9acdb4085a4b13f2807efc044af9ca723bfdfc9bb0",
   "apps/mobile/features/console/files/noteLinks.ts": "3f1afc38c27eb819d7b7ddc531757be257efe37a418faf37c153d91b0b3ecd41",
   "apps/mobile/features/console/files/pluginSuggest.ts": "e731dd410d034747d6e7c420c38e43f0da1b88d53fe19fbe4b7f15729da4db20",
   "apps/mobile/features/console/files/tableEdit.ts": "60c408f79f8d6bae01c41c8ffa1d3b934aadc77643fa445ef918e0b9de589030",

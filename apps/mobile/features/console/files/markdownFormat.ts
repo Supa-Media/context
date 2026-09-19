@@ -286,7 +286,8 @@ function planWrapOnly(
 
 /**
  * A blank GFM table, `rows` body rows by `cols` columns, with the caret in the
- * first header cell.
+ * first header cell — of the drawn grid where there is one, which is what the
+ * returned boolean reports.
  *
  * ## Why it is padded with spaces
  *
@@ -307,7 +308,7 @@ function planWrapOnly(
  * on a line that already has text is put *after* that paragraph, with the blank
  * line the grammar requires. On an empty line it lands where the caret is.
  */
-export function insertTable(view: EditorView, rows: number, cols: number): void {
+export function insertTable(view: EditorView, rows: number, cols: number): boolean {
   const columns = Math.max(1, Math.trunc(cols));
   const bodyRows = Math.max(0, Math.trunc(rows));
 
@@ -346,6 +347,11 @@ export function insertTable(view: EditorView, rows: number, cols: number): void 
     After the dispatch, because the grid is drawn by the transaction this
     command just made: CodeMirror updates its DOM synchronously, so the cell
     exists by the time this line runs.
+
+    Returned rather than swallowed, and the caller has to care: the menu that
+    ran this used to call `view.focus()` straight afterwards, which is right
+    when the caret is in the document and takes it out of the cell when it is
+    not. Pinned by the WebKit spec, which typed into a grid nobody was in.
   */
-  focusGridCell(view, at + lead.length, -1, 0);
+  return focusGridCell(view, at + lead.length, -1, 0);
 }

@@ -1091,8 +1091,13 @@ export function LiveEditor({
     if (current === null || current.state.readOnly) return;
     // `rows` counts the header, which is the row the grid drew; the command
     // takes body rows. The subtraction lives here, once.
-    insertTable(current, rows - 1, columns);
-    current.focus();
+    /*
+      The grid is drawn by the same transaction, and `insertTable` puts the
+      caret in its first cell. Focusing the editor after that would take the
+      caret straight back out of the cell — which is what it did, until a real
+      browser typed into a table nobody was in.
+    */
+    if (!insertTable(current, rows - 1, columns)) current.focus();
   }, []);
   const closeTablePicker = useCallback(() => setTableAt(null), []);
 

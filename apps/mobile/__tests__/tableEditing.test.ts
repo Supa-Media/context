@@ -420,7 +420,10 @@ describe("a table somebody has just asked for", () => {
       was aimed at is behind a widget. The cell takes it instead.
     */
     const view = mount({ doc: "" });
-    insertTable(view, 2, 3);
+    // The boolean is what tells the caller not to focus the editor over the
+    // top of the cell — `LiveEditor.web.tsx` did exactly that until a real
+    // browser typed into a table nobody was in.
+    expect(insertTable(view, 2, 3)).toBe(true);
     const first = cellOf(view, -1, 0);
     expect(document.activeElement).toBe(first);
     type(first, "name");
