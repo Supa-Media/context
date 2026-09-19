@@ -51,8 +51,26 @@ export function runDestinationChecks(check) {
   );
   check(
     "...and is never produced, so the two spellings converge on the next save",
-    destinationPattern("0-inbox/calendar") === "0-inbox/calendar/YYYY-MM-DD.md" &&
+    destinationPattern("0-inbox/calendar") === "0-inbox/calendar/YYYY/MM/YYYY-MM-DD.md" &&
       !destinationPattern("x").includes("{date}"),
+  );
+  check(
+    "a pattern this module produced answers with the folder it was built from",
+    normalizeDestinationFolder(destinationPattern("0-inbox/calendar")).folder === "0-inbox/calendar",
+  );
+  check(
+    "...so saving the rendered pattern back, twice, does not grow it a folder at a time",
+    (() => {
+      let folder = "0-inbox/calendar";
+      for (let round = 0; round < 3; round += 1) {
+        folder = normalizeDestinationFolder(destinationPattern(folder)).folder;
+      }
+      return folder === "0-inbox/calendar";
+    })(),
+  );
+  check(
+    "a customer folder that really is called 2026/09 is theirs, not a pattern to strip",
+    normalizeDestinationFolder("2-areas/2026/09").folder === "2-areas/2026/09",
   );
   check("the token is the one the pattern carries", DATE_TOKEN === "YYYY-MM-DD");
   check(
@@ -171,12 +189,12 @@ export function runDestinationChecks(check) {
   check(
     "a pattern resolves to the key it writes on the day",
     resolveDestinationPattern("2-areas/comms/YYYY-MM-DD.md", new Date(2026, 8, 12)) ===
-      "2-areas/comms/2026-09-12.md",
+      "2-areas/comms/2026/09/2026-09-12.md",
   );
   check(
     "a bare folder resolves too, so the preview works while somebody is still typing",
     resolveDestinationPattern("2-areas/comms", new Date(2026, 0, 5)) ===
-      "2-areas/comms/2026-01-05.md",
+      "2-areas/comms/2026/01/2026-01-05.md",
   );
   /*
     21:30 on the 12th in a timezone behind UTC is the 13th to `toISOString` and
@@ -200,7 +218,7 @@ export function runDestinationChecks(check) {
     );
     check(
       "the day is the day the person had, not the UTC one",
-      resolveDestinationPattern("x/y", evening) === "x/y/2026-09-12.md",
+      resolveDestinationPattern("x/y", evening) === "x/y/2026/09/2026-09-12.md",
     );
   } finally {
     if (realTZ === undefined) delete process.env.TZ;
@@ -208,7 +226,7 @@ export function runDestinationChecks(check) {
   }
   check(
     "months and days are padded, so a listing sorts",
-    resolveDestinationPattern("x/y", new Date(2026, 0, 2)) === "x/y/2026-01-02.md",
+    resolveDestinationPattern("x/y", new Date(2026, 0, 2)) === "x/y/2026/01/2026-01-02.md",
   );
   check(
     "a pattern that is not one resolves to nothing rather than to a guess",

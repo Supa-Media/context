@@ -33,6 +33,7 @@
 // are injected, which is what makes this file testable against a fixture
 // Gmail server and an in-memory store rather than the real internet.
 
+import { placeDayParts } from "./dayPlacement.js";
 import {
   channelDestinationFolder,
   contactDraftsFromCommunication,
@@ -294,6 +295,16 @@ export async function sha256Hex(bytes) {
  * two different senders' same-named `invoice.pdf`, and it is checked FIRST —
  * the same file arriving twice, byte for byte, is one key and one write.
  *
+ * `attachments/YYYY/MM/DD/` since 2026-09-18, for the reason the day notes
+ * beside it are nested: this is the one folder here that grows faster than one
+ * entry a day, so a busy mailbox's `attachments/` held thousands of date
+ * folders. The day survives as its own level — an attachment is reached from
+ * the note that carried it, and keeping the day means the sweep below can go
+ * on naming a day without reading a manifest.
+ *
+ * Forward-only. Files already written under `attachments/YYYY-MM-DD/` stay
+ * there, are still served, and are still swept — see `attachmentDateOf`.
+ *
  * @param {{mailboxSlug: string, date: string, contentHash: string, filename: string}} options
  */
 export function attachmentPath(options) {
@@ -301,7 +312,32 @@ export function attachmentPath(options) {
   const safeName = sanitizeAttachmentFilename(options.filename);
   const folder = channelDestinationFolder("email", options.mailboxSlug, options.folder);
   if (folder === null) throw new TypeError(`not an email destination folder: ${options.folder}`);
-  return `${folder}/attachments/${options.date}/${options.contentHash}-${safeName}`;
+  const [year, month, day] = options.date.split("-");
+  return `${folder}/attachments/${year}/${month}/${day}/${options.contentHash}-${safeName}`;
+}
+
+/**
+ * The day an attachment key says it belongs to, in either shape, or `null`.
+ *
+ * Both branches are load-bearing rather than defensive: the nested one is what
+ * this sync writes now, and the flat one is every file written before
+ * 2026-09-18 — which the retention sweep still has to be able to name a date
+ * for, or an expired attachment is deleted and the day that referenced it is
+ * never re-rendered.
+ *
+ * @param {string} path
+ * @returns {string|null}
+ */
+export function attachmentDateOf(path) {
+  if (typeof path !== "string") return null;
+  const nested = /\/attachments\/(\d{4})\/(\d{2})\/(\d{2})\//.exec(path);
+  if (nested) {
+    const date = `${nested[1]}-${nested[2]}-${nested[3]}`;
+    return isCalendarDate(date) ? date : null;
+  }
+  const flat = /\/attachments\/(\d{4}-\d{2}-\d{2})\//.exec(path);
+  if (flat && isCalendarDate(flat[1])) return flat[1];
+  return null;
 }
 
 /** One attachment's bytes, raw. `assertWritableContentType` in the store never sees Gmail's declared type — see that file's comment. */
@@ -558,8 +594,8 @@ export async function sweepExpiredAttachments(options) {
     await options.store.delete(file.path);
     file.expired = true;
     expiredHashes.push(hash);
-    const dateMatch = /\/attachments\/(\d{4}-\d{2}-\d{2})\//.exec(file.path);
-    if (dateMatch) dates.add(dateMatch[1]);
+    const date = attachmentDateOf(file.path);
+    if (date !== null) dates.add(date);
   }
 
   if (expiredHashes.length > 0) await writeManifest(options.store, options.mailboxSlug, manifest, options.folder);
@@ -1038,7 +1074,13 @@ export async function syncOneDay(options) {
   // (the latest event's `sentAt`) for why this function must never invent a
   // wall-clock fallback here: doing so would override that determinism for
   // every caller that goes through `syncOneDay`, which is every caller.
-  const parts = renderDay(options);
+  /*
+    Rendered in the dated tree, then placed: a day this bucket already holds a
+    flat note for keeps it, parts and all. `dayPlacement.js` has the argument —
+    a regenerated day that changes folders under itself is one day in two
+    places, both of which parse as that day.
+  */
+  const parts = await placeDayParts(options.store, renderDay(options));
   let partsWritten = 0;
   for (const part of parts) {
     const bytes = new TextEncoder().encode(part.text).length;

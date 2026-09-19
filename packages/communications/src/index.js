@@ -8,6 +8,7 @@ export {
   SLUG_FALLBACK,
   channelDestinationFolder,
   channelDayNotePath,
+  flatDayPath,
   channelFolder,
   chooseMailboxSlug,
   contactNotePath,

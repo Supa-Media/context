@@ -13,6 +13,10 @@
 //   return the base slug from chooseMailboxSlug always    -> 1 check failed
 //   accept any segment as the account level               -> 5 checks failed
 //   file a mailbox as a direct child of `0-inbox`          -> 5 checks failed
+//   write the day flat again, with the reader unchanged   -> 5 checks failed
+//   accept a year/month that disagrees with the filename  -> 1 check failed
+//   drop the flat branch of the reader                    -> 4 checks failed
+//   give iMessage an account level too                    -> 2 checks failed
 
 import {
   CHANNELS,
@@ -66,7 +70,7 @@ export function runPathChecks(check) {
     channelDayNotePath(
       { channel: "email", account: "a-at-example-com", date: "2026-09-07" },
       { root: "workspace" }
-    ) === "workspace/0-inbox/email/a-at-example-com/2026-09-07.md"
+    ) === "workspace/0-inbox/email/a-at-example-com/2026/09/2026-09-07.md"
   );
   check(
     "...and a root that traverses is refused rather than normalized away",
@@ -116,13 +120,22 @@ export function runPathChecks(check) {
 
   // -- the paths themselves ------------------------------------------------
   check(
-    "a mailbox day is the mailbox folder and a filename, nothing between",
+    "a mailbox day is filed under its year and month",
     channelDayNotePath({ channel: "email", account: "name-at-example-com", date: "2026-09-07" }) ===
-      "0-inbox/email/name-at-example-com/2026-09-07.md"
+      "0-inbox/email/name-at-example-com/2026/09/2026-09-07.md"
   );
   check(
-    "a channel with no accounts has no account level",
-    channelDayNotePath({ channel: "imessage", date: "2026-09-07" }) === "0-inbox/imessage/2026-09-07.md"
+    "...and the filename keeps the whole date, so a note moved out of its folder still says what it is",
+    channelDayNotePath({ channel: "email", account: "name-at-example-com", date: "2026-09-07" }).endsWith("/2026-09-07.md")
+  );
+  check(
+    "a machine has no account level, and is dated like everything else",
+    channelDayNotePath({ channel: "imessage", date: "2026-09-07" }) === "0-inbox/imessage/2026/09/2026-09-07.md"
+  );
+  check(
+    "Chat is filed per account, the way mail is",
+    channelDayNotePath({ channel: "google-chat", account: "name-at-example-com", date: "2026-09-07" }) ===
+      "0-inbox/google-chat/name-at-example-com/2026/09/2026-09-07.md"
   );
   check(
     "...and passing one anyway is refused rather than ignored",
@@ -137,8 +150,9 @@ export function runPathChecks(check) {
   );
   check("part 1 is the plain name, so a day that grows renames nothing", !channelDayNotePath({ channel: "imessage", date: "2026-09-07", part: 1 }).includes("part"));
   check(
-    "...and part 3 is a sibling of it",
-    channelDayNotePath({ channel: "imessage", date: "2026-09-07", part: 3 }) === "0-inbox/imessage/2026-09-07-part-3.md"
+    "...and part 3 is a sibling of it, in the same month folder",
+    channelDayNotePath({ channel: "imessage", date: "2026-09-07", part: 3 }) ===
+      "0-inbox/imessage/2026/09/2026-09-07-part-3.md"
   );
   check(
     "a channel this package does not file into is refused",
@@ -173,9 +187,54 @@ export function runPathChecks(check) {
   );
   check("...for a channel with no account level too", round({ channel: "google-chat", date: "2026-09-07" })?.channel === "google-chat");
 
+  // -- both shapes, permanently --------------------------------------------
+  //
+  // Forward-only: days written before the dated tree stay flat where they are,
+  // so the recogniser reads both or a year of somebody's mail stops being mail.
+  // This is the branch `docs/decisions/communications.md` refused while no
+  // bucket held a channel-day note; buckets hold them now.
   check(
-    "a `YYYY/MM/` tree is not a channel-day note, and never becomes one",
-    !isChannelDayNotePath("0-inbox/email/name-at-example-com/2026/09/2026-09-07.md")
+    "a flat day written before the dated tree is still a channel-day note",
+    isChannelDayNotePath("0-inbox/email/name-at-example-com/2026-09-07.md")
+  );
+  check(
+    "...and parses to the same day the nested one does",
+    (() => {
+      const flat = parseChannelDayPath("0-inbox/email/name-at-example-com/2026-09-07.md");
+      const nested = parseChannelDayPath("0-inbox/email/name-at-example-com/2026/09/2026-09-07.md");
+      return (
+        flat !== null &&
+        nested !== null &&
+        flat.channel === nested.channel &&
+        flat.account === nested.account &&
+        flat.date === nested.date &&
+        flat.part === nested.part
+      );
+    })()
+  );
+  check(
+    "a flat Chat day from before the account level still reads as Chat",
+    parseChannelDayPath("0-inbox/google-chat/2026-09-07.md")?.channel === "google-chat"
+  );
+  check(
+    "...and its account is empty rather than invented",
+    parseChannelDayPath("0-inbox/google-chat/2026-09-07.md")?.account === ""
+  );
+  check(
+    "a date folder that disagrees with the filename is nobody's note",
+    !isChannelDayNotePath("0-inbox/email/name-at-example-com/2025/01/2026-09-07.md")
+  );
+  check(
+    "...and a month folder with no year in front of it is not one either",
+    !isChannelDayNotePath("0-inbox/email/name-at-example-com/09/2026-09-07.md")
+  );
+  check(
+    "a folder somebody made below the month is still not a channel day",
+    !isChannelDayNotePath("0-inbox/email/name-at-example-com/2026/09/drafts/2026-09-07.md")
+  );
+  check(
+    "a machine still gets no account level, dated or flat",
+    !isChannelDayNotePath("0-inbox/imessage/someone/2026/09/2026-09-07.md")
   );
   check(
     "a forwarded capture sitting in the same folder is not a day",
@@ -262,7 +321,7 @@ export function runPathChecks(check) {
     "a reserved name is never a top-level key, whatever address produced it",
     RESERVED.every((word) => {
       const key = channelDayNotePath({ channel: "email", account: slugifyAddress(word), date: "2026-09-07" });
-      return key.startsWith(`${CHANNEL_FOLDERS.email}/`) && key.split("/").length === 4;
+      return key.startsWith(`${CHANNEL_FOLDERS.email}/`) && key.split("/").length === 6;
     })
   );
   check(

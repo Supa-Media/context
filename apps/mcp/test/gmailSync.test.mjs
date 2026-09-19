@@ -402,7 +402,7 @@ export async function runGmailSyncChecks(check) {
   */
   const plainStore = createMemoryStore({ conditionalWrite: false });
   const plainPart = {
-    path: "0-inbox/email/person-at-example-invalid/2026-09-07.md",
+    path: "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md",
     text: "# a day\n",
   };
   const firstPlainWrite = await writeDayPart(plainStore, plainPart);
@@ -492,7 +492,7 @@ export async function runGmailSyncChecks(check) {
     now: "2026-09-07T12:00:00.000Z",
   });
   check("a day with events writes exactly one part when under the split threshold", oneDayParts.length === 1);
-  check("the path is under the mailbox's own folder, by slug", oneDayParts[0].path === "0-inbox/email/person-at-example-invalid/2026-09-07.md");
+  check("the path is under the mailbox's own folder, by slug, and under the day's month", oneDayParts[0].path === "0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
   const parsedNote = parseChannelDayNote(oneDayParts[0].text);
   check("the rendered note's frontmatter carries the real ADDRESS, not the slug", parsedNote.frontmatter.account === "person@example.invalid");
   check("the message the day was built from is present in the rendered note", parsedNote.messages.length === 1);
@@ -500,7 +500,7 @@ export async function runGmailSyncChecks(check) {
   // -- writing through the store --------------------------------------------------
 
   const writeStore = createMemoryStore();
-  const part = { path: "0-inbox/email/x/2026-09-07.md", text: "hello" };
+  const part = { path: "0-inbox/email/x/2026/09/2026-09-07.md", text: "hello" };
   const first = await writeDayPart(writeStore, part);
   check("a first write of a new path writes", first.wrote === true);
   const second = await writeDayPart(writeStore, part);
@@ -585,16 +585,46 @@ export async function runGmailSyncChecks(check) {
   };
   const firstSync = await syncDayFromGmail(dayOptions);
   check("syncing a day writes exactly the messages that landed that day", firstSync.partsWritten === 1 && firstSync.bytesWritten > 0);
-  const dayNote = await dayStore.get("0-inbox/email/person-at-example-invalid/2026-09-07.md");
+  const dayNote = await dayStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteParsed = parseChannelDayNote(await dayNote.text());
   check("the OTHER day's message is not in this day's note", dayNoteParsed.messages.length === 2);
   const contactPaths = (await dayStore.list({ prefix: "0-inbox/contacts/" })).objects.map((item) => item.key);
   check("Gmail sync organically creates one contact per correspondent", contactPaths.length === 2);
   const firstContact = await dayStore.get(contactPaths[0]);
-  check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[0-inbox/email/person-at-example-invalid/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
+  check("a Gmail-derived contact links to its daily note and never copies the message body", (await firstContact.text()).includes("[[0-inbox/email/person-at-example-invalid/2026/09/2026-09-07#msg-") && !(await firstContact.text()).includes("\nfirst\n"));
 
   const resync = await syncDayFromGmail(dayOptions);
   check("RE-RUNNING THE SAME DAY CHANGES NO BYTES — idempotent upsert by message id", resync.bytesWritten === 0);
+
+  /*
+    A BUCKET SYNCED BEFORE THE DATED TREE, SYNCED AGAIN AFTER IT.
+
+    The dated tree is forward-only, so a day whose note is already flat has to
+    go on being that note. Written end to end rather than only against
+    `placeDayParts` because the failure this guards is not a wrong return
+    value, it is a day that quietly exists twice — the flat copy frozen at
+    whatever the last pass before the deploy wrote, the dated copy growing,
+    and both parsing as 2026-09-07.
+  */
+  const legacyStore = createMemoryStore();
+  const legacyPath = "0-inbox/email/person-at-example-invalid/2026-09-07.md";
+  await legacyStore.put(legacyPath, "---\ntype: channel-day\n---\n\n# 2026-09-07\n");
+  const legacySync = await syncDayFromGmail({ ...dayOptions, store: legacyStore });
+  check("a day already filed flat is written flat, not moved into the tree", legacySync.partsWritten === 1);
+  check(
+    "...so the day exists once, where it always was",
+    (await legacyStore.get(legacyPath)) !== null &&
+      (await legacyStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-07.md")) === null,
+  );
+  check(
+    "...and it is the day's real messages that landed in it, not the placeholder",
+    parseChannelDayNote(await (await legacyStore.get(legacyPath)).text()).messages.length === 2,
+  );
+  await syncDayFromGmail({ ...dayOptions, store: legacyStore, date: "2026-09-08" });
+  check(
+    "...while a day the same bucket has NOT seen is filed under its month — the switch is per day, not per bucket",
+    (await legacyStore.get("0-inbox/email/person-at-example-invalid/2026/09/2026-09-08.md")) !== null,
+  );
 
   // -- backfill across a window, quota-bound ----------------------------------------
 
@@ -622,7 +652,7 @@ export async function runGmailSyncChecks(check) {
   check("...and reports the number of emails found", backfillResult.itemsFound === 2);
   check(
     "the inactive day in the middle really did not get a file",
-    (await backfillStore.get("0-inbox/email/p-at-example-invalid/2026-09-02.md")) === null,
+    (await backfillStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-02.md")) === null,
   );
 
   const tinyBackfillStore = createMemoryStore();
@@ -752,7 +782,7 @@ export async function runGmailSyncChecks(check) {
       date: "2026-09-07",
       contentHash: "abc123",
       filename: "../../../etc/passwd",
-    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/abc123-"),
+    }).startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/abc123-"),
   );
   check(
     "...and the sanitized name itself carries no '..' segment",
@@ -852,7 +882,7 @@ export async function runGmailSyncChecks(check) {
   check("the attachment's bytes actually landed at the content-hashed path", storedAttachment !== null);
   check("...with the exact bytes Gmail served", storedAttachment !== null && (await storedAttachment.text()) === "pdf-bytes!!");
 
-  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md");
+  const dayNoteAfterFetch = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const dayNoteText = dayNoteAfterFetch ? await dayNoteAfterFetch.text() : "";
   check(
     "the channel-day note LINKS to the fetched attachment",
@@ -872,7 +902,7 @@ export async function runGmailSyncChecks(check) {
   });
   check(
     "a mailbox destination folder moves the day note",
-    (await customFolderStore.get("2-areas/communications/supa-mail/2026-09-07.md")) !== null,
+    (await customFolderStore.get("2-areas/communications/supa-mail/2026/09/2026-09-07.md")) !== null,
   );
   check(
     "...and moves the attachment manifest beside that mailbox destination",
@@ -917,7 +947,7 @@ export async function runGmailSyncChecks(check) {
     "A RE-SYNC AFTER EXPIRY DOES NOT RE-FETCH — the manifest remembers this attachment is gone",
     attachmentGmail.calls.filter((call) => call.includes("/attachments/")).length === attachmentCallCountAfterFirstFetch,
   );
-  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md");
+  const noteAfterExpiry = await attachmentStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md");
   const noteTextAfterExpiry = noteAfterExpiry ? await noteAfterExpiry.text() : "";
   check(
     "the note's link is rewritten to name and size only once expired",
@@ -1139,10 +1169,10 @@ export async function runGmailSyncChecks(check) {
       assertSafeKey(path);
       const segments = path.split("/");
       return (
-        segments.length === 6 &&
+        segments.length === 8 &&
         segments[0] === "0-inbox" &&
-        decodeURIComponent(segments[5]).includes("../../privacy.md") === true &&
-        path.startsWith("0-inbox/email/p-at-example-invalid/attachments/2026-09-07/")
+        decodeURIComponent(segments[7]).includes("../../privacy.md") === true &&
+        path.startsWith("0-inbox/email/p-at-example-invalid/attachments/2026/09/07/")
       );
     })(),
   );
@@ -1185,7 +1215,7 @@ export async function runGmailSyncChecks(check) {
         filename: `${"A".repeat(5000)}.pdf`,
       });
       assertSafeKey(path);
-      return sanitizeAttachmentFilename(`${"A".repeat(5000)}.pdf`).length === 150 && path.split("/").length === 6;
+      return sanitizeAttachmentFilename(`${"A".repeat(5000)}.pdf`).length === 150 && path.split("/").length === 8;
     })(),
   );
 
@@ -1420,7 +1450,7 @@ export async function runGmailSyncChecks(check) {
     vanishingThrew === null && vanishingResult !== null && vanishingResult.partsWritten === 1,
   );
   const vanishingNote = await (
-    await vanishingStore.get("0-inbox/email/p-at-example-invalid/2026-09-07.md")
+    await vanishingStore.get("0-inbox/email/p-at-example-invalid/2026/09/2026-09-07.md")
   ).text();
   check(
     "...and the day is written from what Gmail still has",
@@ -1668,7 +1698,7 @@ export async function runGmailSyncChecks(check) {
   check(
     "...and its bytes are fetched into the bucket like any other attachment",
     (await inlineStore.get(
-      `0-inbox/email/p-at-example-invalid/attachments/2026-09-07/${inlineHash}-signature.png`,
+      `0-inbox/email/p-at-example-invalid/attachments/2026/09/07/${inlineHash}-signature.png`,
     )) !== null,
   );
 

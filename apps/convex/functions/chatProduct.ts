@@ -69,7 +69,12 @@ import { hashToken } from "./lib/crypto";
 import { encryptSecret, decryptSecret, requireKeyset } from "./lib/crypto";
 import { randomOpaqueToken } from "./lib/gatewayAuth";
 import { recordAudit } from "./lib/audit";
-import { defaultGoogleDestinationFolder, mailConnectEnabled } from "./googleConnect";
+import {
+  accountSlugFor,
+  defaultGoogleDestinationFolder,
+  mailConnectEnabled,
+  takenAccountSlugs,
+} from "./googleConnect";
 import {
   createPkcePair,
   exchangeGoogleCode,
@@ -588,8 +593,19 @@ export const applyChatConnectionBinding = internalMutation({
         // of somebody's conversations at new keys — and an exception they had
         // set on one of those days (`note_overrides` names one exact path)
         // would not follow, the way `remapPrivacy` makes it follow a move.
+        /*
+          This account's own folder, since 2026-09-18 — two Google accounts
+          used to write one file between them, which no folder rule in
+          `privacy.md` could tell apart. Recorded here, like every other
+          destination, so a later connect or disconnect can never rename the
+          folder somebody's chat is already in.
+        */
         destinationFolder:
-          existing?.chat?.destinationFolder ?? defaultGoogleDestinationFolder("chat", undefined),
+          existing?.chat?.destinationFolder ??
+          defaultGoogleDestinationFolder(
+            "chat",
+            accountSlugFor(args.address, existing, await takenAccountSlugs(ctx, args.workspaceId, args.address)),
+          ),
         lastSyncedAt: existing?.chat?.lastSyncedAt,
       },
       health: (starved.length ? "reconnect_required" : "backfilling") as

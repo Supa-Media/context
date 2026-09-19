@@ -95,7 +95,7 @@ export function runContactChecks(check) {
   const organic = contactDraftsFromCommunication([mailEvent], { selfAddresses: ["OWNER@example.com"] });
   check("an email sync derives its sender as a contact", organic.length === 1 && organic[0].name === "Adam Okonkwo");
   check("the owner's own mailbox is not made into a contact", !organic.some((draft) => draft.name === "Owner"));
-  check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "0-inbox/email/owner-at-example-com/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
+  check("contact activity links to the message in the channel-day note", organic[0].activity[0].path === "0-inbox/email/owner-at-example-com/2026/09/2026-09-07.md" && organic[0].activity[0].anchor.startsWith("msg-"));
   check("a contact path is stable on the identifier rather than the display name", contactPathForDraft(organic[0]) === contactPathForDraft({ ...organic[0], name: "A new display name" }));
   const generated = mergeContactNote("", organic[0]);
   const regenerated = mergeContactNote(generated.text, organic[0]);

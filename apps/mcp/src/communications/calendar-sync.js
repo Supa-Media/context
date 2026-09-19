@@ -10,6 +10,7 @@
 // (a Convex action, today; see this file's header note on the connection row)
 // to persist beside that one workspace's own connection record.
 
+import { placeDayNote } from "./dayPlacement.js";
 import {
   DEFAULT_HORIZON_DAYS,
   addCalendarDays,
@@ -219,9 +220,14 @@ export async function syncCalendarAccount({ connection, store, fetchImpl, now, m
 
   const writes = [];
   if (materialize) for (const date of datesToWrite) {
-    const path = calendarDayNotePath(
-      { date },
-      { root: connection.root, folder: connection.destinationFolder },
+    /*
+      The dated tree for a day this bucket has not seen, and the flat note for
+      a day that already has one — `dayPlacement.js` holds why a day that is
+      regenerated on every pass must not change folders under itself.
+    */
+    const path = await placeDayNote(
+      store,
+      calendarDayNotePath({ date }, { root: connection.root, folder: connection.destinationFolder }),
     );
     const dayEvents = projectDay(cache, date);
     const existing = await store.get(path);

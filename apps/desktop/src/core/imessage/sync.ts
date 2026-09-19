@@ -41,6 +41,7 @@
 
 import {
   channelDayNotePath,
+  flatDayPath,
   contactDraftsFromCommunication,
   contactPathForDraft,
   mergeContactNote,
@@ -225,21 +226,41 @@ async function syncDay(
     return { date, status: "unchanged", parts: 0 };
   }
 
-  // Reuse the nonce a previous run of this same day minted, so regenerating a
-  // day that already exists does not rewrite every message's fence with a new
-  // nonce — which would make "re-running changes no bytes" false on every day
-  // that has ever been synced before. A day with no note yet gets a fresh one.
+  /*
+    Reuse the nonce a previous run of this same day minted, so regenerating a
+    day that already exists does not rewrite every message's fence with a new
+    nonce — which would make "re-running changes no bytes" false on every day
+    that has ever been synced before. A day with no note yet gets a fresh one.
+
+    The probe answers a second question since 2026-09-18, and it is the same
+    question: days are filed under `YYYY/MM` now, and the change is
+    forward-only, so a day this Mac already wrote flat has to go on being that
+    file rather than being written again one folder down. The note that holds
+    the nonce IS the note this day belongs in — one probe, both answers.
+  */
   const firstPartPath = channelDayNotePath({ channel: "imessage", date });
-  const probe = await deps.readNote(firstPartPath);
+  const flatFirstPath = flatDayPath(firstPartPath);
+  let probe = await deps.readNote(firstPartPath);
+  let dated = true;
+  if (probe.ok && !probe.found && flatFirstPath !== null) {
+    const legacy = await deps.readNote(flatFirstPath);
+    if (legacy.ok && legacy.found) {
+      probe = legacy;
+      dated = false;
+    }
+  }
   const nonce = (probe.ok && probe.found && existingNonce(probe.content)) || deps.mintNonce();
 
-  const parts = planChannelDay(
+  const planned = planChannelDay(
     { channel: "imessage", date, events, nonce, now: deps.now(), origin: "desktop-imessage-sync" },
     {},
   );
+  const parts = dated
+    ? planned
+    : planned.map((part) => ({ ...part, path: flatDayPath(part.path) ?? part.path }));
 
   const outcomes = await Promise.all(parts.map((part) => upsertPart(deps, part)));
-  const retired = await retireOrphanParts(deps, date, parts.length, nonce);
+  const retired = await retireOrphanParts(deps, date, parts.length, nonce, dated);
   const errored = [...outcomes, ...retired].find((outcome) => outcome.status === "error");
   if (errored) return { date, status: "error", parts: parts.length, message: errored.message };
   const contactOutcomes = [];
@@ -281,11 +302,21 @@ async function retireOrphanParts(
   date: string,
   livingParts: number,
   nonce: string,
+  /**
+   * Whether this day is being written in the dated tree.
+   *
+   * A day that stayed flat has its orphans flat too — scanning the tree for
+   * them would find nothing and leave a deleted message sitting in
+   * `…/2026-09-07-part-3.md` forever, which is precisely the outcome this
+   * function exists to prevent.
+   */
+  dated: boolean,
 ): Promise<Array<{ status: "written" | "unchanged" | "error"; message?: string }>> {
   const outcomes: Array<{ status: "written" | "unchanged" | "error"; message?: string }> = [];
   const ceiling = livingParts + MAX_ORPHAN_PARTS_SCANNED;
   for (let part = livingParts + 1; part <= ceiling; part += 1) {
-    const path = channelDayNotePath({ channel: "imessage", date, part });
+    const planned = channelDayNotePath({ channel: "imessage", date, part });
+    const path = dated ? planned : (flatDayPath(planned) ?? planned);
     const existing = await deps.readNote(path);
     if (!existing.ok) {
       outcomes.push({ status: "error", message: existing.message });
