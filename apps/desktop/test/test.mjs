@@ -91,7 +91,7 @@ await runTokenStoreChecks(check);
 await runCaptureWindowChecks(check);
 await runTranscriberChecks(check);
 runPlanChecks(check);
-runLocalAgentChecks(check);
+await runLocalAgentChecks(check);
 await runTranscribeRequestChecks(check);
 await runControllerChecks(check);
 await runSessionOrderChecks(check);

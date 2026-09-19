@@ -29,12 +29,14 @@
  * project, their home, or wherever Electron happened to start.
  */
 
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { run } from "../platform/exec.ts";
 import {
   LOCAL_MESSAGES,
+  SCRATCH_PREFIX,
+  abandonedRuns,
   type LocalAgentKind,
   askPlan,
   localAgentFor,
@@ -89,6 +91,53 @@ export function placeSentence(place: LocalAgentAsk["place"]): string {
   return lines.join("\n");
 }
 
+/**
+ * Remove the scratch directories of runs that never came back.
+ *
+ * ## Why a `finally` was not enough
+ *
+ * The header above says the grant is unlinked *"including when the run throws
+ * or times out, because a credential left on disk after a crash is the same
+ * credential whether or not the crash was our fault"* — and a `finally` reaches
+ * neither of the cases that sentence actually describes. It runs on a throw and
+ * on a timeout. It does not run when the process is killed: a force-quit, a
+ * crash in the main process, a machine losing power, at any point in the three
+ * minutes a turn may take. What survives is `mcp.json` with a live bearer grant
+ * in it, in a plain file rather than in the keychain the token normally lives
+ * in — and that difference is the whole reason the keychain is used.
+ *
+ * Nothing looked for one. Before this, `context-agent-` appeared in exactly one
+ * place in the tree: the `mkdtemp` that creates it.
+ *
+ * ## At startup, and unconditionally
+ *
+ * The app takes no single-instance lock, so a second instance launched while
+ * the first is mid-turn will remove that run's config and cost it one generic
+ * failure — an answer the person can ask for again, and `ask` already has the
+ * sentence for it. Weighed against a credential that otherwise stays on disk
+ * for ever, that is the cheaper side, and an age threshold would not fix it:
+ * the crash people actually restart from is the one they restart from
+ * immediately.
+ *
+ * Every failure is swallowed, individually. A sweep that throws on one
+ * undeletable entry and abandons the rest would leave the grant it was called
+ * for, and there is nothing useful to say to somebody about a directory they
+ * cannot see.
+ */
+export async function sweepAbandonedRuns(scratchRoot: string): Promise<void> {
+  if (!scratchRoot) return;
+  let entries: string[];
+  try {
+    entries = await readdir(scratchRoot);
+  } catch {
+    // No `userData` yet is the ordinary first launch, not a failure.
+    return;
+  }
+  for (const name of abandonedRuns(entries)) {
+    await rm(join(scratchRoot, name), { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export function createLocalAgent(deps: LocalAgentDeps): LocalAgentRunner {
   function kind(): LocalAgentKind | null {
     return localAgentFor({ claudePath: deps.claudePath() });
@@ -119,7 +168,7 @@ export function createLocalAgent(deps: LocalAgentDeps): LocalAgentRunner {
         };
       }
 
-      const dir = await mkdtemp(join(deps.scratchRoot || tmpdir(), "context-agent-"));
+      const dir = await mkdtemp(join(deps.scratchRoot || tmpdir(), SCRATCH_PREFIX));
       const configPath = join(dir, "mcp.json");
       try {
         await writeFile(configPath, JSON.stringify(mcpConfigFor(endpoint, token)), {

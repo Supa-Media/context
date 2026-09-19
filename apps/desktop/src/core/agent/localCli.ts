@@ -71,6 +71,38 @@
  * right direction for a list whose job is to keep two specific tools off it.
  */
 
+/**
+ * What a per-run scratch directory is called, under the app's `userData`.
+ *
+ * One constant because two readers need it and they must not drift: `mkdtemp`
+ * makes the name and the startup sweep recognises it. A sweep looking for a
+ * prefix nothing creates is a guard that silently does nothing, which is the
+ * worse half of that pair — it reports success while a grant sits on disk.
+ */
+export const SCRATCH_PREFIX = "context-agent-";
+
+/**
+ * Which entries under `userData` are runs that never finished.
+ *
+ * `main/localAgent.ts` unlinks its directory in a `finally`, which covers a
+ * throw and a timeout and **cannot cover being killed** — a force-quit, a crash
+ * in the main process, a machine losing power inside the three minutes a turn
+ * may take. What is left is `mcp.json`, holding this context's bearer grant, in
+ * a file rather than in the keychain the token normally lives in. That is the
+ * weaker of the two stores by design, and a leftover makes the weakening
+ * permanent.
+ *
+ * Pure, and exact rather than fuzzy: an entry *is* the prefix plus something,
+ * or it is somebody else's. `context-agentless` is not one of ours, and neither
+ * is the prefix on its own — this decides what gets deleted out of a directory
+ * that also holds the mirror, the settings and the caches.
+ */
+export function abandonedRuns(entries: readonly string[]): string[] {
+  return entries.filter(
+    (entry) => entry.startsWith(SCRATCH_PREFIX) && entry.length > SCRATCH_PREFIX.length,
+  );
+}
+
 /** Which CLI to drive, when one is present. */
 export type LocalAgentKind = "claude";
 
