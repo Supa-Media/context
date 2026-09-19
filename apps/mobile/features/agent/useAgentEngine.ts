@@ -33,6 +33,11 @@ import type { AgentPage } from "./page";
  * pixel depends on, and putting it in state would re-render the panel — and
  * every child holding a draft — each time one is minted.
  *
+ * **A ref outlives the props that filled it**, which is why the workspace is
+ * stored beside the token: the console switches context without remounting,
+ * so "the token is still alive" is not the same question as "the token is for
+ * the context being asked about". See `token` below.
+ *
  * ## Why the refusal on 401 is a re-mint and not a retry loop
  *
  * A token expires an hour in. The first turn after that gets a 401, and one
@@ -48,7 +53,24 @@ export function useAgentEngine(options: {
   endpoint: string | null;
 }): AgentEngine {
   const mint = useAction(api.functions.agentGrant.mintConsoleGrant);
-  const token = useRef<{ value: string; expiresAt: number } | null>(null);
+  /**
+   * The live grant, and **which context it is a grant for**.
+   *
+   * The workspace is held beside the token rather than inferred from the
+   * closure, because this ref outlives the value of `workspaceId` that filled
+   * it: switching context in the console is a `setState` inside the layout,
+   * not a remount, so the hook keeps its ref straight across the switch. A
+   * check on expiry alone reads "still alive" as "still the right one", and
+   * the gateway resolves the session from the token — so the next turn is
+   * answered out of the context the person just left, for the rest of that
+   * hour, while `place.context` in the same request names the one they are in.
+   *
+   * One slot and not a map, deliberately. A cache per workspace would keep a
+   * live credential in memory for a context nobody is looking at, which is the
+   * thing the header above says this hook does not do; a switch back costs one
+   * round trip on a session the person already holds.
+   */
+  const token = useRef<{ value: string; expiresAt: number; workspaceId: string } | null>(null);
   const route = options.endpoint === null ? null : agentEndpoint(options.endpoint);
   const workspaceId = options.workspaceId;
   /**
@@ -77,11 +99,20 @@ export function useAgentEngine(options: {
   const tokenFor = useCallback(
     async (force: boolean): Promise<string> => {
       const held = token.current;
-      if (!force && held !== null && held.expiresAt - 60_000 > Date.now()) {
+      if (
+        !force &&
+        held !== null &&
+        held.workspaceId === workspaceId &&
+        held.expiresAt - 60_000 > Date.now()
+      ) {
         return held.value;
       }
       const minted = await mint({ workspaceId: workspaceId as Id<"workspaces"> });
-      token.current = { value: minted.accessToken, expiresAt: minted.expiresAt };
+      token.current = {
+        value: minted.accessToken,
+        expiresAt: minted.expiresAt,
+        workspaceId: workspaceId as string,
+      };
       return minted.accessToken;
     },
     [mint, workspaceId],

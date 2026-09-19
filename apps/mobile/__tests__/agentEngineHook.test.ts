@@ -138,6 +138,45 @@ function engine(options: { workspaceId?: string | null; endpoint?: string | null
   return held as { current: AgentEngine };
 }
 
+/**
+ * Mount the hook and hand back a way to change the workspace **without
+ * remounting it**.
+ *
+ * That is the whole point: the console's layout does not unmount when somebody
+ * switches context. `useFileBrowser`'s context effect resets the selection and
+ * the listings, `useLiveConsoleData`'s `selectContext` is a `setState` inside
+ * the same tree, and this hook's `useRef` lives straight through it. A harness
+ * that remounted would give the ref a fresh `null` and prove nothing.
+ */
+function switchableEngine(first: string): {
+  held: { current: AgentEngine };
+  switchTo: (workspaceId: string) => void;
+} {
+  const held = { current: null as AgentEngine | null };
+  function Probe({ workspaceId }: { workspaceId: string }) {
+    const value = useAgentEngine({ workspaceId, endpoint: ENDPOINT });
+    useEffect(() => {
+      held.current = value;
+    }, [value]);
+    held.current = value;
+    return null;
+  }
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+  roots.push(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+  act(() => root.render(createElement(Probe, { workspaceId: first })));
+  return {
+    held: held as { current: AgentEngine },
+    switchTo: (workspaceId: string) => {
+      act(() => root.render(createElement(Probe, { workspaceId })));
+    },
+  };
+}
+
 async function ask(held: { current: AgentEngine }, question = "what did we decide?") {
   let answer = "";
   await act(async () => {
@@ -192,6 +231,57 @@ describe("spending the grant", () => {
     expect(mockMintCalls).toHaveLength(2);
     expect((requests[1]!.init.headers as Record<string, string>).Authorization).toBe(
       "Bearer cat_minted_2",
+    );
+  });
+
+  /*
+    A LIVE TOKEN IS A TOKEN FOR **THIS** CONTEXT. The reuse rule above is the
+    one this qualifies, and the two have to be read together: the held token is
+    keyed by time and the grant is bound to a workspace, so "still alive" was
+    being read as "still the right one".
+
+    A grant is minted for the context the panel was asking about. Switching
+    context in the console does not remount the layout — the selection is state
+    inside it — so the ref carries the previous context's grant across, and the
+    gateway resolves the session from the token rather than from the question.
+    The turn is then answered out of a context the person is not looking at,
+    for the rest of that token's hour, while `place.context` in the same
+    request names the one they are.
+
+    Every token involved is one this person holds, so nothing crosses a tenant
+    boundary; what breaks is that the panel is a panel *about a context*.
+  */
+  test("a context switch is not served the previous context's grant", async () => {
+    const { held, switchTo } = switchableEngine("ws_alfa");
+    await ask(held, "what is in this context?");
+
+    switchTo("ws_bravo");
+    await ask(held, "and in this one?");
+
+    expect(mockMintCalls).toEqual([{ workspaceId: "ws_alfa" }, { workspaceId: "ws_bravo" }]);
+    expect((requests[1]!.init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer cat_minted_2",
+    );
+  });
+
+  test("...and switching back does not spend the other context's grant either", async () => {
+    const { held, switchTo } = switchableEngine("ws_alfa");
+    await ask(held, "first");
+    switchTo("ws_bravo");
+    await ask(held, "second");
+    switchTo("ws_alfa");
+    await ask(held, "third");
+
+    // Three mints, each naming the context its turn was about. Caching per
+    // workspace would be a credential kept alive for a context nobody is in,
+    // which is the thing the header says this hook does not do.
+    expect(mockMintCalls).toEqual([
+      { workspaceId: "ws_alfa" },
+      { workspaceId: "ws_bravo" },
+      { workspaceId: "ws_alfa" },
+    ]);
+    expect((requests[2]!.init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer cat_minted_3",
     );
   });
 });
