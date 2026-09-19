@@ -1835,10 +1835,143 @@ only live row was the meeting the key beside it already raised.
 
 The checks are `a phone with a note open draws one microphone, on the bottom
 row`, `the keyboard takes the bottom row away, so the microphone comes back`,
-and `a pointer layout has no bottom row, so the floating one is it` — driven
+and — since the console's corner became a `+`, see *A meeting opens in the
+panel* below — `the corner is the + now, so the editor draws no microphone at
+rest` beside `...and a pointer surface with no + keeps it, because nothing
+replaced it`. All of them driven
 through the real editor in
 `apps/mobile/__tests__/oneMicrophone.test.ts`, because the condition has two
 halves and no unit test of either component can see them together.
+
+### The press records, and the indicator is the disclosure (2026-09-19)
+
+**This reverses *"it navigates. It does not record"* and half of the section
+above it, at the owner's instruction, and the reversal is narrower than it
+sounds.** The rule was that no control anywhere may open a microphone without
+the sentence about the audio beside it, which the phone's seventh key satisfied
+by raising a destination sheet: two rows naming a context and a folder, an
+audience line on each, the audio sentence, and a Start beside it. Every meeting
+anybody has ever recorded in this product went through that sheet.
+
+The owner used it and removed it: *"all meetings from now on should go into
+0-inbox/meetings, no need to ask people it will just confuse them"*, and, of
+the sentence that remained on the running meeting's card, *"we dont need all
+these extra details"*. So:
+
+- **Pressing New meeting starts recording.** No sheet, no destination question,
+  no Start. `useMeetingFlow.startMeetingFlow` opens the microphone.
+- **The destination is a rule, not a choice**: the person's own inbox —
+  `0-inbox/meetings`, or whatever folder they have set for their own context
+  (`automaticDestination`). Filing afterwards is what an inbox is for.
+- **The audio sentence is said once**, at first run and in the meetings settings
+  pane (`features/meetings/disclosure.ts`), rather than in front of every
+  conversation.
+
+**What *Consent is the customer's* actually protects is untouched, and it was
+never the question.** That section's test is "a session in `recording` always
+has a surface", and the surfaces got *better* rather than thinner: on a console
+the right panel opens on the running meeting with a red mark, a clock, a live
+meter, the path the note is going to, a name field and the two controls that end
+it; fold that panel and the clock moves into the title bar
+(`ConsoleLiveMeeting`); on a phone the press lands on the meeting's own screen,
+which is all of the above plus the notepad. What was removed is a *modal in
+front of* the indicator, not the indicator.
+
+**The privacy half of the destination sheet is kept, and with the sheet gone it
+matters more rather than less.** `destination.ts` argued that a meeting recorded
+while reading something in a shared workspace must not land in that workspace,
+visible to everyone in it, before the person has read a word of the transcript —
+and that was a rule with a sheet, an audience line and a row in front of it.
+There is nothing in front of it now, so the rule is absolute: the destination is
+`ownPersonalContext`'s inbox, wherever the person is standing, exactly as
+`meetingWorkspaceId` already answered for a meeting nobody addressed. The check
+is `a meeting recorded in a shared workspace still lands in your own inbox`, and
+its pure half is `standing in a shared workspace does not put the meeting in it`.
+
+**The whole-call switch outlived the sheet on purpose.** It was a row on it, and
+in a browser it is the only way to take the far side of a call — `getDisplayMedia`
+costs a source picker, so it cannot be a default and would have been deleted
+along with the sheet. It is a per-device setting now
+(`features/meetings/machineAudio.ts`), set in the meetings pane and read at the
+press; the defaults are the sheet's own, on where a shell can tap silently, off
+where a picker would appear in front of every in-person meeting.
+
+**Two presses can still be refused, and both say so.** A device whose controller
+has not been pointed at a context yet, and somebody who owns no personal
+workspace — offered their @name instead. `MeetingRefusal` is what is left of the
+sheet, and it exists because a control that quietly does nothing is the defect
+this feature has closed at every layer.
+
+**The phone's route to its finished meetings moved with the sheet it hung off.**
+"Past meetings" was a row on the destination sheet; the key records now, so the
+row is on the account menu — the one menu a phone always has. The alternatives
+are unchanged and still refused: an eighth key does not fit, and a long press is
+not discoverability. `routeReachability.test.ts` holds it, and the region
+`bottomBar` left its claimed-regions list in the same change, which is the guard
+noticing that the sheet took a route with it.
+
+The checks are `one press opens the microphone, with no sheet in the way`,
+`a meeting recorded in a shared workspace still lands in your own inbox`,
+`two presses in the same moment record one meeting`,
+`pressing it again while one is running shows that one rather than starting a
+second`, `a device with no context yet says so rather than throwing`,
+`somebody who owns no workspace is offered their name, not a recording`,
+`the machine's own audio follows the setting, not a question`, and, on the phone
+itself, `the app's other place is the last key, and pressing it records`.
+
+### A meeting opens in the panel, and the corner is a `+` (2026-09-19)
+
+**A meeting was a page, and it should not have been.** `/meetings/:id` is a full
+screen: opening a running meeting from the console replaced the note somebody
+was reading, and getting back was a navigation. The owner's words are the whole
+of the argument — *"meetings should stop opening up in the big ugly page and
+only open up in the side panel"*.
+
+So the console's right panel — which already held chat, and already held a
+read-only card about a running meeting — is where a meeting lives now
+(`features/console/aside/MeetingsTab.tsx`). The name, the clock, the meter,
+where the note is going, a composer that stamps a typed line with the meeting's
+own clock, and the controls that stop it. Nothing in the console navigates to
+`/meetings/:id` any more; the route stays, because a phone has no panel and an
+old link must not break.
+
+**A finished meeting is a file, and the panel says so rather than editing it.**
+Its summary, its notes and its path are shown, and the one action is *Open the
+note* — into the editor behind the panel, which is where this product renames
+and edits Markdown. A second, weaker editor in a 330pt column, writing to a
+record whose note has already been filed, is how a rename ends up on a device
+and never in the bucket.
+
+**An explicit start takes the tab; a meeting merely starting still does not.**
+`tabs.ts` refuses the seize because a panel that swaps out from under a composer
+loses a half-typed question. Pressing New meeting *is* somebody asking, which is
+the same trade the ⌘K handoff already makes in the other direction.
+
+**The corner is a `+`.** It was a microphone, and it was drawn only over a live
+editor — so it vanished on a folder page, on the map and on search: *"it should
+show up all the time, even when on a folder page, and not just show up when on
+a note"*. `CreateButton` is mounted by the console **layout** rather than by the
+note editor, which is the whole of that fix, and it offers the three things
+somebody starts from a console: a meeting, a note, a chat. Dictation is not a
+fourth — it needs a caret, so it stays on the note's own context menu, and the
+live capsule and failure card stay with `VoiceButton` because they are the only
+way to stop a run.
+
+**Two indicators in one corner is the defect this product keeps re-finding, so
+the floating recording bar stands down while a console is carrying the
+meeting** (`features/meetings/carried.ts`, the shape `bottomChrome.ts` already
+uses). A phone-width console carries it nowhere, and the bar is still the whole
+indicator there.
+
+The checks are `and one opens in the panel rather than on a page`,
+`its note opens in the editor behind the panel, which is where a file is
+edited`, `a filed meeting offers no second editor of its own`,
+`the + menu's New meeting opens the panel on Meetings`,
+`and a meeting that merely starts still only marks the tab`,
+`the corner is the + now, so the editor draws no microphone at rest`, and
+`...and a pointer surface with no + keeps it, because nothing replaced it` —
+the last one being the fixture and the demo console, which are desktop-width
+consoles with no `+` in that corner at all.
 
 ### The phone has a meter, and it always did
 

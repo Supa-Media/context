@@ -64,6 +64,7 @@ export function AccountBlock({
   initial,
   onSignOut,
   onOpenSettings,
+  onOpenMeetings,
   compact = false,
   touch = false,
 }: {
@@ -80,6 +81,17 @@ export function AccountBlock({
    * name, so it is here, beside the sign-out it has always sat next to.
    */
   onOpenSettings?: () => void;
+  /**
+   * The meetings already recorded, for a surface with no other way to them.
+   *
+   * **A phone's.** At every pointer density `SwitcherMenu` carries this row and
+   * this one is absent, so there are not two. The phone's own route used to
+   * hang off the destination sheet the meetings key raised — *"Past meetings"*,
+   * on the sheet that asked where to record — and that sheet is gone: the key
+   * records now. A finished meeting a phone cannot reach is the defect that
+   * sheet row existed to close, so the row moved rather than going with it.
+   */
+  onOpenMeetings?: () => void;
   compact?: boolean;
   /** Phone sizing: sign-out clears `layout.minTouchTarget` on both axes. */
   touch?: boolean;
@@ -94,6 +106,7 @@ export function AccountBlock({
           initial={initial}
           onSignOut={onSignOut}
           onOpenSettings={onOpenSettings}
+          onOpenMeetings={onOpenMeetings}
         />
       </View>
     );
@@ -150,7 +163,7 @@ export function Avatar({ initial }: { initial: string }) {
 }
 
 /** The two things `compact`'s single control can do. */
-type AccountMenuActionId = "settings" | "signOut";
+type AccountMenuActionId = "meetings" | "settings" | "signOut";
 
 /**
  * The compact corner, merged into one disclosure control.
@@ -169,12 +182,14 @@ function AccountMenuTrigger({
   initial,
   onSignOut,
   onOpenSettings,
+  onOpenMeetings,
 }: {
   name: string;
   detail?: string;
   initial: string;
   onSignOut: () => void;
   onOpenSettings?: () => void;
+  onOpenMeetings?: () => void;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [open, setOpen] = useState(false);
@@ -197,6 +212,13 @@ function AccountMenuTrigger({
   );
 
   const items: MenuItem<AccountMenuActionId>[] = [];
+  if (onOpenMeetings !== undefined) {
+    items.push({
+      id: "meetings",
+      label: "Meetings",
+      testID: "account-meetings",
+    });
+  }
   if (onOpenSettings !== undefined) {
     items.push({
       id: "settings",
@@ -243,7 +265,8 @@ function AccountMenuTrigger({
           titleDetail={detail}
           anchor={anchor}
           onSelect={(id) => {
-            if (id === "settings") onOpenSettings?.();
+            if (id === "meetings") onOpenMeetings?.();
+            else if (id === "settings") onOpenSettings?.();
             else onSignOut();
           }}
           onDismiss={() => setOpen(false)}

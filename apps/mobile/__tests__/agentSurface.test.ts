@@ -29,9 +29,9 @@ import { meetings } from "../features/meetings/controller";
  * ## The one that is not obvious: opening the panel hides the bar that hides
  * the button
  *
- * `NoteEditor` passes `barMicrophone={compact && !barUp}`. Raising a `Modal`
+ * `NoteEditor` passes `microphoneElsewhere={compact && !barUp}`. Raising a `Modal`
  * takes the caret out of the editor, which puts the keyboard accessory bar
- * away, which puts the frame's toolbar back — so `barMicrophone` flips to
+ * away, which puts the frame's toolbar back — so `microphoneElsewhere` flips to
  * `true` a frame after the panel opens. `VoiceButton` stands down when that is
  * true, and a control that stands down unmounts the `Modal` it owns.
  *
@@ -213,21 +213,21 @@ describe("composing with the one microphone", () => {
       The phone sequence, driven as `NoteEditor` drives it: the keyboard is up
       so the floating control is drawn, the conversation opens, and the `Modal`
       takes the caret — which puts the accessory bar away and the frame's
-      toolbar back, flipping `barMicrophone` to true a frame later.
+      toolbar back, flipping `microphoneElsewhere` to true a frame later.
     */
-    render(button({ compact: true, barMicrophone: false }));
+    render(button({ compact: true, microphoneElsewhere: false }));
     press("voice-button");
     press("voice-sheet-agent");
     expect(findByTestId("agent-panel")).not.toBeNull();
 
-    render(button({ compact: true, barMicrophone: true }));
+    render(button({ compact: true, microphoneElsewhere: true }));
 
     expect(findByTestId("agent-panel")).not.toBeNull();
   });
 
   test("the button itself still stands down for the bottom row", () => {
     // The rule #700 established is untouched: nothing is drawn at rest.
-    render(button({ compact: true, barMicrophone: true }));
+    render(button({ compact: true, microphoneElsewhere: true }));
 
     expect(findByTestId("voice-button")).toBeNull();
     expect(findByTestId("agent-panel")).toBeNull();

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { AgentConversation } from "../../agent/AgentConversation";
 import type { AgentEngine } from "../../agent/engine";
 import type { AgentPage } from "../../agent/page";
@@ -7,13 +7,11 @@ import { Dot } from "../../design/components/Dot";
 import { Text } from "../../design/components/Text";
 import { layout, radii, space } from "../../design/tokens";
 import { useThemedStyles, type Colors } from "../../design/theme";
-import { clock } from "../../meetings/format";
-import { recordElapsedMs } from "../../meetings/controller";
-import { useMeetingsSnapshot, useTick } from "../../meetings/useMeetings";
+import { useMeetingsSnapshot } from "../../meetings/useMeetings";
+import { MeetingsTab } from "./MeetingsTab";
 import {
   ASIDE_TABS,
   CHAT_INTRO,
-  NO_MEETING,
   asideTabFor,
   meetingNeedsAttention,
   type AsideTab,
@@ -50,7 +48,9 @@ export function AsidePanel({
   engine,
   place,
   asked,
-  onOpenMeeting,
+  started,
+  newChat,
+  onOpenNote,
 }: {
   engine: AgentEngine;
   /** Where the person is, rebuilt by the console on every render. */
@@ -65,8 +65,32 @@ export function AsidePanel({
    * different event from "the panel re-rendered".
    */
   asked: { text: string; at: number } | null;
-  /** Open the running meeting's own screen. `null` where there is nowhere to go. */
-  onOpenMeeting: ((id: string) => void) | null;
+  /**
+   * When somebody last asked for a meeting, from the console's + menu.
+   *
+   * A counter, for `asked`'s reason: recording twice in one session is
+   * ordinary and a boolean looks unchanged the second time.
+   *
+   * **This takes the tab, where a meeting merely *starting* does not**, and the
+   * two are not in tension — `tabs.ts` refuses the meeting because nobody asked
+   * for it, and this is somebody asking, in the menu's own words. A meeting
+   * that begins any other way (a second machine, the phone in a pocket) still
+   * only gets the dot.
+   */
+  started: number | null;
+  /**
+   * When somebody last asked for a **new** conversation, from the + menu.
+   *
+   * A counter again, and it is a `key` rather than a command: the transcript
+   * and the draft live inside `AgentConversation`, so the honest way to start a
+   * fresh one is to mount a fresh one. A "clear" method on the conversation
+   * would be a second way to reach the same state, and the one thing this panel
+   * must never do is drop a turn that is in flight into a transcript somebody
+   * has already replaced.
+   */
+  newChat: number | null;
+  /** Open a finished meeting's note in the console. `null` on the demo console. */
+  onOpenNote: ((href: string) => void) | null;
 }) {
   const styles = useThemedStyles(makeStyles);
   const [chosen, setChosen] = useState<AsideTab>("chat");
@@ -84,6 +108,18 @@ export function AsidePanel({
     if (askedAt === null) return;
     setChosen("chat");
   }, [askedAt]);
+
+  /* The same trade pointed the other way. See `started`. */
+  useEffect(() => {
+    if (started === null) return;
+    setChosen("meetings");
+  }, [started]);
+
+  /* And a new conversation is a question about to be typed. See `asked`. */
+  useEffect(() => {
+    if (newChat === null) return;
+    setChosen("chat");
+  }, [newChat]);
 
   const live = useMeetingsSnapshot().live;
   const meetingLive = live !== null;
@@ -142,81 +178,17 @@ export function AsidePanel({
             No `style` prop, so the transcript fills. The modal caps its own —
             see `AgentPanel` — and this is the host the cap was made a prop for.
           */}
-          <AgentConversation engine={engine} place={place} asked={asked} />
+          <AgentConversation
+            key={newChat ?? "first"}
+            engine={engine}
+            place={place}
+            asked={asked}
+          />
         </View>
       ) : (
-        <MeetingsTab live={live} onOpenMeeting={onOpenMeeting} />
+        <MeetingsTab onOpenNote={onOpenNote} />
       )}
     </View>
-  );
-}
-
-/**
- * The Meetings tab.
- *
- * What it shows while something is running is the same three facts the
- * floating bar shows — which meeting, how long, and a way into it — derived
- * the same way, from `recordElapsedMs` against a tick rather than from a timer
- * this component accumulates. That is what makes the number right after a
- * navigation, a backgrounding or a cold start into a running meeting, and it
- * is `useMeetings.ts`'s rule rather than a new one.
- *
- * **The transport is not here.** Start, pause and end live on the bar and on
- * the meeting's own screen, and a fourth place to press End is a fourth place
- * to get the "did that work?" question wrong. This is a window onto a
- * recording, and the way in is a press.
- */
-function MeetingsTab({
-  live,
-  onOpenMeeting,
-}: {
-  live: ReturnType<typeof useMeetingsSnapshot>["live"];
-  onOpenMeeting: ((id: string) => void) | null;
-}) {
-  const styles = useThemedStyles(makeStyles);
-  // `0` and no timer at all when nothing is running — see `useTick`.
-  const now = useTick(live !== null);
-
-  if (live === null) {
-    return (
-      <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
-        <Text variant="rowSub" style={styles.empty} testID="aside-no-meeting">
-          {NO_MEETING}
-        </Text>
-      </ScrollView>
-    );
-  }
-
-  const elapsed = clock(recordElapsedMs(live, now === 0 ? Date.now() : now));
-  const paused = live.session.state === "paused";
-
-  return (
-    <ScrollView contentContainerStyle={styles.body} testID="aside-meetings">
-      <Pressable
-        onPress={onOpenMeeting === null ? undefined : () => onOpenMeeting(live.session.id)}
-        role={onOpenMeeting === null ? undefined : "button"}
-        accessibilityLabel={
-          onOpenMeeting === null ? undefined : `Open ${live.session.title}, ${elapsed}`
-        }
-        style={styles.liveCard}
-        testID="aside-live-meeting"
-      >
-        <View style={styles.liveHead}>
-          <Dot tone={paused ? "warn" : "crit"} />
-          <Text variant="rowTitle" style={styles.liveTitle}>
-            {live.session.title}
-          </Text>
-        </View>
-        <Text variant="mono" style={styles.liveClock} testID="aside-live-clock">
-          {elapsed}
-        </Text>
-        <Text variant="foot" style={styles.liveFoot}>
-          {paused
-            ? "Paused. Nothing is being recorded right now."
-            : "Recording. The note lands wherever you sent it when you started."}
-        </Text>
-      </Pressable>
-    </ScrollView>
   );
 }
 
@@ -245,18 +217,4 @@ const makeStyles = (colors: Colors) =>
     tabLabelCurrent: { color: colors.text },
     body: { flex: 1, minHeight: 0 },
     intro: { color: colors.muted, paddingHorizontal: space.x4, paddingTop: space.x3 },
-    empty: { color: colors.muted, padding: space.x4 },
-    liveCard: {
-      margin: space.x3,
-      padding: space.x4,
-      gap: space.x2,
-      borderRadius: radii.card,
-      backgroundColor: colors.chrome,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.line,
-    },
-    liveHead: { flexDirection: "row", alignItems: "center", gap: space.x2 },
-    liveTitle: { flexShrink: 1 },
-    liveClock: { color: colors.text, fontVariant: ["tabular-nums"] },
-    liveFoot: { color: colors.muted },
   });

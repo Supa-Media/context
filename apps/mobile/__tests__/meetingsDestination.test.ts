@@ -1,224 +1,146 @@
 import { describe, expect, test } from "@jest/globals";
 /*
   The gateway's own folder rule, imported by the *suite* and not by the app.
-  See `the sheet never offers a folder the gateway would refuse` below for why
-  the phone cannot import it and why the test must.
+  See `a folder this device will file into is one the gateway accepts` below
+  for why the phone cannot import it and why the test must.
 */
 import { MEETINGS_FOLDER, normalizeMeetingFolder } from "@context/meetings";
 
 import {
-  CONTEXT_ROOT_REFUSAL,
   INBOX_FOLDER,
-  UNFILEABLE_FOLDER_REFUSAL,
-  chooseOffer,
+  ONLY_YOU,
+  UNFILEABLE_FOLDER,
+  automaticDestination,
+  canSaveMeetingFolder,
   describeDestination,
+  meetingFolderProblem,
   meetingWorkspaceId,
-  resolveDestinations,
-  sameDestination,
-  recallDestination,
-  rememberDestination,
+  parseDestination,
   type DestinationContext,
   type MeetingDestination,
 } from "../features/meetings/destination";
-import { destinationKey, meetingKeys } from "../features/meetings/keys";
-import { forgetAllMeetings } from "../features/meetings/local";
-import { memoryStore } from "../features/offline/memory";
 
 /**
  * Where a meeting goes, decided before the microphone opens.
  *
- * The rules are `features/meetings/destination.ts`'s and the reason they are a
- * pure module rather than state inside the sheet is `console/capabilities.ts`'s,
- * verbatim: every guard that lived inside a hook survived a full sabotage sweep
- * untouched, and every guard expressed as a module was held. This is the file
- * that holds them.
+ * ## The question went, and the rules did not
+ *
+ * This file used to be about a *sheet*: two offers, an audience line on each,
+ * a refusal beside the one you could not take, and a remembered choice. The
+ * owner removed the question — *"all meetings from now on should go into
+ * 0-inbox/meetings, no need to ask people it will just confuse them"* — and
+ * `resolveDestinations` and everything that served it went with the surface
+ * that asked, rather than being left in the tree as code with no caller.
+ *
+ * What survived is what still decides something:
+ *
+ *  - **`automaticDestination`**, the rule that replaced the question, and the
+ *    privacy property it inherited: a meeting lands in the person's *own*
+ *    inbox, whatever context they are standing in. That was a rule with a sheet
+ *    in front of it; with no sheet there is nothing between the press and the
+ *    bucket, so it matters more rather than less.
+ *  - **The folder gate**, which is now the settings pane's: somebody can still
+ *    type a folder their gateway would refuse, and the two sides have to agree.
+ *  - **The routing**, which never had anything to do with the sheet.
+ *
+ * The reason all of it is a pure module rather than state inside a component is
+ * `console/capabilities.ts`'s, verbatim: every guard expressed inside a hook
+ * survived a full sabotage sweep untouched, and every guard expressed as a
+ * module was held.
  *
  * ## Sabotage record
  *
  * Each of these was applied to `destination.ts`, the suite was run, the named
  * test failed, and the change was reverted.
  *
- *  1. `preselect` returns `offers.length - 1` rather than `0` when nothing is
- *     remembered — the current page becomes the default.
- *     → 3 fail, including both halves of the rule: `the default is the viewer's
- *     own inbox, even inside a shared workspace` and `… even standing in a
- *     colleague's workspace`.
- *  2. `const yours = context.kind === "personal"` — the audience keyed off the
- *     kind alone rather than off whose context it is.
- *     → `a page in somebody else's workspace names an audience too` fails. Worth
- *     noting: the *shared-workspace* test does not catch this one, because a
- *     shared context is not `personal` either way. The case that fails is the
- *     colleague's workspace, which is why it has a test of its own.
- *  3. `const folder = page.path` — the `parentPath` call dropped.
- *     → `a note resolves to the folder it sits in, so the meeting lands beside
- *     it` fails.
- *  4. `pageOffer` synthesises a page from the first context when handed `null`.
- *     → `with no page open there is one offer, and it is the inbox` and `a
- *     remembered choice for somewhere else is not offered on its own` fail.
- *  5. `input.contexts.find((c) => c.kind === "personal")` in place of
+ *  1. `automaticDestination` resolves the context the person is standing in
+ *     rather than their own.
+ *     → `standing in a shared workspace does not put the meeting in it` and
+ *     `nor does standing in a colleague's personal context` fail.
+ *  2. `input.contexts.find((c) => c.kind === "personal")` in place of
  *     `ownPersonalContext` — the `role` half of ownership dropped.
- *     → `somebody who owns no workspace is offered the claim, not a recording`
+ *     → `a context that is shared but owned is still not where a meeting
+ *     lands` fails. Worth noting which test does *not* catch it: every one
+ *     that passes a list with a real personal workspace in it.
+ *  3. `inboxFolderOf` returns the stored setting without checking it.
+ *     → `a stored folder the gateway would refuse falls back to the inbox`
  *     fails.
- *  6. `pageOffer` returns `null` when `canEdit` is false — the read-only page
- *     hidden rather than refused.
- *     → 3 fail, led by `a read-only page is offered and refused, never hidden`.
- *  7. The `offer.refusal === null` half of `preselect`'s match dropped.
- *     → `a remembered choice that has gone read-only falls back to the inbox`
- *     fails.
- *  8. `recallDestination` returns the parsed JSON without re-validating.
- *     → `a remembered destination is re-validated on the way out of the device`
- *     fails.
- *  9. `chooseOffer` drops its `refusal !== null` guard.
- *     → `pressing a refused offer leaves the selection where it was` fails.
- * 10. `refusalFor` drops its `folder === ""` arm — the root offered as a live
- *     destination again, which is what shipped.
- *     → `a context root is offered and refused, because no meeting can be filed
- *     there` and both halves of `the sheet never offers a folder the gateway
- *     would refuse` fail.
- * 11. `fileableFolder` returns `true` unconditionally.
- *     → `an offer with no refusal is a folder `normalizeMeetingFolder`
- *     accepts` fails, naming the folder it offered.
+ *  4. `fileableFolder` returns `true` unconditionally.
+ *     → `a folder this device will file into is one the gateway accepts`
+ *     fails, naming the folder it let through.
+ *  5. `meetingWorkspaceId` falls back to `contexts[0]` for an unknown slug.
+ *     → `a context this account cannot reach is null, not a fallback` fails.
+ *  6. `parseDestination` skips its `safeNotePath` check.
+ *     → `a folder that could not be a bucket key is not a destination` fails.
  */
 
 const OWN: DestinationContext = { slug: "testagent1", kind: "personal", role: "owner" };
 const SHARED: DestinationContext = { slug: "field-notes", kind: "shared", role: "editor" };
-const READ_ONLY: DestinationContext = { slug: "field-notes", kind: "shared", role: "member" };
 const SOMEBODY_ELSE: DestinationContext = { slug: "testagent2", kind: "personal", role: "member" };
 
-function offers(choice: ReturnType<typeof resolveDestinations>) {
-  if (choice.kind !== "choose") throw new Error(`expected offers, got ${choice.kind}`);
-  return choice;
+function destinationOf(contexts: readonly DestinationContext[]): MeetingDestination {
+  const answer = automaticDestination({ contexts });
+  if (answer.kind !== "destination") throw new Error(`expected a destination, got ${answer.kind}`);
+  return answer.destination;
 }
 
 /* -------------------------------------------------------------------------- */
 
-describe("the default is the person's own workspace, wherever they are standing", () => {
-  test("the default is the viewer's own inbox, even inside a shared workspace", () => {
-    /*
-      The important half of the whole feature. A meeting recorded while reading
-      something in a shared workspace must not land in that workspace, visible
-      to everyone in it, before the person has read a word of the transcript.
-    */
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SHARED],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-      }),
-    );
-
-    expect(choice.selectedIndex).toBe(0);
-    const chosen = choice.offers[0]!.destination;
-    expect(chosen.kind).toBe("personalInbox");
-    expect(chosen.contextSlug).toBe("testagent1");
-    expect(chosen.folder).toBe(INBOX_FOLDER);
+describe("what a press of New meeting records into, with nobody asked", () => {
+  test("a press records into the person's own inbox", () => {
+    expect(destinationOf([OWN])).toEqual({
+      kind: "personalInbox",
+      contextSlug: "testagent1",
+      folder: INBOX_FOLDER,
+    });
   });
 
-  test("the default is the viewer's own inbox, even standing in a colleague's workspace", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SOMEBODY_ELSE],
-        page: { contextSlug: "testagent2", path: "2-areas/hiring/notes.md", isNote: true },
-      }),
-    );
-
-    expect(choice.selectedIndex).toBe(0);
-    expect(choice.offers[0]!.destination.contextSlug).toBe("testagent1");
-  });
-
-  test("the default is the meetings folder inside the inbox, not the inbox itself", () => {
+  test("the inbox is the meetings drawer inside it, not the inbox itself", () => {
     /*
-      The regression this pins. `0-inbox` is where unfiled things arrive; what
-      arrives there is sorted by what it is. Offering the bare inbox was not
-      "the default, unchanged" — a chosen folder replaces the whole default, so
-      it meant "not 0-inbox/meetings", and a meeting recorded on the default row
-      landed loose in the inbox with nothing on the sheet saying so.
+      `0-inbox` is where unfiled things arrive; what arrives there is sorted by
+      what it is. A meeting filed loose in the inbox lands beside forwarded
+      mail, which is the regression this constant pins.
     */
     expect(INBOX_FOLDER).toBe("0-inbox/meetings");
   });
 
-  test("a device that remembered the old default gets the new one, not the old row", async () => {
+  test("standing in a shared workspace does not put the meeting in it", () => {
     /*
-      The trap in moving a default. A remembered `0-inbox` no longer matches the
-      inbox row — but it does match the *page* row for somebody standing in
-      their own `0-inbox`, so without this the sheet would open preselected on
-      the row that files the meeting loose in the inbox, silently, on every
-      device that had recorded one meeting before the change.
+      The privacy rule this module was built for, arriving at a surface with no
+      sheet in front of it. A transcript dropped into a folder colleagues watch,
+      before the person who recorded it has read a word of it, is the failure.
     */
-    const store = memoryStore();
-    await store.set(
-      destinationKey(),
-      JSON.stringify({ kind: "personalInbox", contextSlug: "testagent1", folder: "0-inbox" }),
-    );
-    expect(await recallDestination(store)).toBeNull();
-
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN],
-        page: { contextSlug: "testagent1", path: "0-inbox", isNote: false },
-        remembered: await recallDestination(store),
-      }),
-    );
-    expect(choice.offers[choice.selectedIndex]!.destination.folder).toBe(INBOX_FOLDER);
+    expect(destinationOf([OWN, SHARED]).contextSlug).toBe("testagent1");
   });
 
-  test("...but a folder somebody actually navigated to is still remembered", async () => {
-    // `personalInbox` + `0-inbox` was the old default and had no second row to
-    // press. A `currentPage` choice is a decision about a folder somebody went
-    // to, `0-inbox` included, and survives.
-    const store = memoryStore();
-    const chosen = {
-      kind: "currentPage" as const,
-      contextSlug: "testagent1",
-      folder: "0-inbox",
-      label: "0-inbox",
-    };
-    await store.set(destinationKey(), JSON.stringify(chosen));
-    expect(await recallDestination(store)).toEqual(chosen);
+  test("nor does standing in a colleague's personal context", () => {
+    expect(destinationOf([OWN, SOMEBODY_ELSE]).contextSlug).toBe("testagent1");
   });
 
-  test("the offered default is exactly what the gateway files into when nobody chooses", () => {
-    // The real package, not a copy of its constant: this is the assertion that
-    // lets `INBOX_FOLDER` be spelled here rather than imported.
-    expect(INBOX_FOLDER).toBe(MEETINGS_FOLDER);
+  test("a context that is shared but owned is still not where a meeting lands", () => {
+    // `createWorkspace` makes its caller `owner` of a shared context too, so
+    // "a context you own" alone is not the rule — `kind` has to be personal.
+    const ownedShared: DestinationContext = { slug: "field-notes", kind: "shared", role: "owner" };
+    expect(destinationOf([ownedShared, OWN]).contextSlug).toBe("testagent1");
   });
 
-  test("the person's own row says only they can see it", () => {
-    const choice = offers(resolveDestinations({ contexts: [OWN, SHARED], page: null }));
-    expect(choice.offers[0]!.audience).toBe("Only you");
-    expect(choice.offers[0]!.tone).toBe("quiet");
+  test("the audience is named even though nobody was asked", () => {
+    const answer = automaticDestination({ contexts: [OWN, SHARED] });
+    expect(answer.kind === "destination" && answer.audience).toBe(ONLY_YOU);
+  });
+
+  test("somebody who owns no workspace is offered the claim, not a recording", () => {
+    // The one case with no answer: every fallback available here is somebody
+    // else's bucket, so the press raises the claim instead of a microphone.
+    expect(automaticDestination({ contexts: [SHARED, SOMEBODY_ELSE] })).toEqual({
+      kind: "claimName",
+    });
   });
 });
 
-/*
-  The folder the first offer names is a setting now, not a constant. It was the
-  one capture destination a person could not change: mail, calendars and Chat
-  each carry an editable folder per connection, and a meeting carried
-  `MEETINGS_FOLDER` interpolated into a sentence with no control beside it.
-
-  What is NOT a setting, and must never become one, is whether the question is
-  asked. Every test in the block above still holds: the first offer is the
-  person's own workspace wherever they are standing, and the sheet still asks.
-
-  ## Sabotage record
-
-  Applied to `inboxFolderOf` in `features/meetings/destination.ts`.
-
-    honour a stored folder without checking it is fileable      1
-    ignore the setting and always answer INBOX_FOLDER           3
-    keep the stored spelling rather than collapsing it          2
-
-  The first row is one test because the eight refused spellings are asserted
-  together — they are one rule asked eight ways — and it is the test that fails
-  if the gate goes.
-*/
-describe("where the first offer points is the workspace's own setting", () => {
+describe("where it lands is the workspace's own setting", () => {
   const filedUnder = (meetingsFolder?: string) =>
-    offers(
-      resolveDestinations({
-        contexts: [{ ...OWN, meetingsFolder }, SHARED],
-        page: null,
-      }),
-    ).offers[0]!.destination.folder;
+    destinationOf([{ ...OWN, meetingsFolder }, SHARED]).folder;
 
   test("a workspace that has never chosen gets the default it always had", () => {
     expect(filedUnder(undefined)).toBe(INBOX_FOLDER);
@@ -228,283 +150,42 @@ describe("where the first offer points is the workspace's own setting", () => {
     expect(filedUnder("2-areas/meetings")).toBe("2-areas/meetings");
   });
 
-  test("the setting names a folder and nothing else — the sheet still asks", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [{ ...OWN, meetingsFolder: "2-areas/meetings" }, SHARED],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-      }),
-    );
-    // Two offers, the person's own first, exactly as before. A setting that
-    // answered the question silently would be a different product.
-    expect(choice.offers).toHaveLength(2);
-    expect(choice.selectedIndex).toBe(0);
-    expect(choice.offers[1]!.destination.kind).toBe("currentPage");
-  });
-
-  test("a stored folder the gateway would refuse falls back rather than being offered", () => {
-    /*
-      An offer with no refusal on it is a promise the gateway has to keep. A
-      row written by a newer control plane — or one predating a rule this
-      bundle ships — must not produce a destination whose write is rejected.
-      Checked against the real package, the same way this suite checks the
-      request path.
-    */
-    for (const refused of [
-      "",
-      "   ",
-      "/",
-      ".plumbing/meetings",
-      "2-areas/../../etc",
-      "2-areas/a..b",
-      "1-projects/board.md",
-      "2-areas/%2e%2e/meetings",
-    ]) {
-      expect(normalizeMeetingFolder(refused)).toBeNull();
-      expect(filedUnder(refused)).toBe(INBOX_FOLDER);
-    }
-  });
-
-  test("every folder it does offer is one the gateway files into", () => {
-    for (const allowed of ["2-areas/meetings", "1-projects/calls", "0-inbox/meetings"]) {
-      const folder = filedUnder(allowed);
-      expect(folder).toBe(allowed);
-      expect(normalizeMeetingFolder(folder)).toBe(allowed);
-    }
-  });
-
-  test("a spelling the gateway would collapse is collapsed before it is offered", () => {
-    // The offer has to carry the spelling the write will use, or a remembered
-    // choice stops matching the row it came from.
+  test("a setting stored with a trailing slash names the same folder", () => {
     expect(filedUnder("2-areas/meetings/")).toBe("2-areas/meetings");
-    expect(filedUnder("  2-areas//meetings  ")).toBe("2-areas/meetings");
-    expect(normalizeMeetingFolder("2-areas/meetings/")).toBe("2-areas/meetings");
   });
 
-  test("the default is still the package's spelling, not a second copy", () => {
-    expect(INBOX_FOLDER).toBe(MEETINGS_FOLDER);
-  });
-});
-
-describe("the second offer is the page somebody is looking at", () => {
-  test("a folder resolves to itself", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SHARED],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-      }),
-    );
-    const page = choice.offers[1]!.destination;
-    expect(page.kind).toBe("currentPage");
-    expect(page.folder).toBe("1-projects/portal");
-    expect(page.contextSlug).toBe("field-notes");
-  });
-
-  test("a note resolves to the folder it sits in, so the meeting lands beside it", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SHARED],
-        page: { contextSlug: "field-notes", path: "1-projects/portal/kickoff.md", isNote: true },
-      }),
-    );
-    expect(choice.offers[1]!.destination.folder).toBe("1-projects/portal");
-  });
-
-  /**
-   * **The offer the gateway was guaranteed to refuse, and the state a phone
-   * arrives in.**
-   *
-   * `app/(app)/console/_layout.tsx` passes `path: data.files.selectedPath ??
-   * ""`, so "nothing selected" — a context opened and not yet navigated —
-   * reaches this module as a root. It used to come back as a live, pressable,
-   * unrefused second row labelled "the root of your context", and
-   * `normalizeMeetingFolder("")` is `null`: press it, record, end the meeting,
-   * and the gateway filed the note in `0-inbox` and set `folderRejected`. A
-   * control that appears to work and does nothing, on the default path.
-   *
-   * Nothing caught it because the one double that could have — `fakeGateway` —
-   * had been taught to honour `folder: ""`, and no mobile test drove an empty
-   * folder through a gateway at all. Both halves are closed: this test, and
-   * `an empty folder is refused, the way the real gateway refuses it` in
-   * `meetingsDestinationWiring.test.ts`.
-   *
-   * The row is still **drawn**, with the reason beside it, which is the same
-   * rule as the read-only page further down.
-   */
-  test("a context root is offered and refused, because no meeting can be filed there", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SHARED],
-        page: { contextSlug: "field-notes", path: "", isNote: false },
-      }),
-    );
-    expect(choice.offers).toHaveLength(2);
-    const root = choice.offers[1]!;
-    expect(root.destination.folder).toBe("");
-    expect(root.destination).toMatchObject({ label: "the root of your context" });
-    expect(root.refusal).toBe(CONTEXT_ROOT_REFUSAL);
-    // And it is not what Start would start: the inbox keeps the selection.
-    expect(choice.selectedIndex).toBe(0);
-  });
-
-  test("a shared page names who will see it, in a warning tone", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SHARED],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-      }),
-    );
-    expect(choice.offers[1]!.audience).toBe("Visible to the team");
-    expect(choice.offers[1]!.tone).toBe("warn");
-  });
-
-  test("a page in somebody else's workspace names an audience too", () => {
+  test("a stored folder the gateway would refuse falls back to the inbox", () => {
     /*
-      `kind === "personal"` is not "yours" — a personal context shared with you
-      keeps its kind, which is the exact confusion `console/identity.ts` exists
-      to end. Reporting `Only you` for a colleague's workspace would be the worst
-      version of this bug: the reassuring sentence, on the one row where it is
-      false.
+      The setting is validated where it is typed, and this is the second gate:
+      a value that reached the store from an older build, another device or a
+      hand-edited file must not point a recording at a folder the gateway will
+      answer 400 for, for the life of that meeting.
     */
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SOMEBODY_ELSE],
-        page: { contextSlug: "testagent2", path: "2-areas/hiring", isNote: false },
-      }),
+    expect(filedUnder("a..b")).toBe(INBOX_FOLDER);
+    expect(filedUnder("")).toBe(INBOX_FOLDER);
+  });
+
+  test("and the shared context's own setting is never consulted", () => {
+    // It is not where the meeting is going, so its folder is not a fact about
+    // this recording. Reading it would be the "current context" default this
+    // module refuses, arriving through the setting instead of the destination.
+    expect(destinationOf([OWN, { ...SHARED, meetingsFolder: "9-theirs" }]).folder).toBe(
+      INBOX_FOLDER,
     );
-    expect(choice.offers[1]!.audience).toBe("Visible to the team");
-    expect(choice.offers[1]!.tone).toBe("warn");
-  });
-
-  test("a page inside the viewer's own workspace is not a second audience", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN],
-        page: { contextSlug: "testagent1", path: "1-projects/portal", isNote: false },
-      }),
-    );
-    expect(choice.offers[1]!.audience).toBe("Only you");
-    expect(choice.offers[1]!.tone).toBe("quiet");
-  });
-
-  test("the page that is already the inbox is one row, not the same row twice", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN],
-        page: { contextSlug: "testagent1", path: INBOX_FOLDER, isNote: false },
-      }),
-    );
-    expect(choice.offers).toHaveLength(1);
-  });
-
-  test("with no page open there is one offer, and it is the inbox", () => {
-    // The meetings list, or anywhere outside a context.
-    const choice = offers(resolveDestinations({ contexts: [OWN, SHARED], page: null }));
-    expect(choice.offers).toHaveLength(1);
-    expect(choice.offers[0]!.destination.kind).toBe("personalInbox");
-  });
-
-  test("a page in a context this person is not a member of is not offered", () => {
-    // The list is the whole of what they can reach. A page naming anything
-    // else is a stale URL, not a destination.
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN],
-        page: { contextSlug: "field-notes", path: "1-projects", isNote: false },
-      }),
-    );
-    expect(choice.offers).toHaveLength(1);
-  });
-
-  test("a page whose path could not be a bucket key is not offered", () => {
-    for (const path of ["/1-projects", "1-projects/../..", "a\\b"]) {
-      const choice = offers(
-        resolveDestinations({
-          contexts: [OWN, SHARED],
-          page: { contextSlug: "field-notes", path, isNote: false },
-        }),
-      );
-      expect(choice.offers).toHaveLength(1);
-    }
   });
 });
 
-describe("a capability that is absent is reported, never hidden and never faked", () => {
-  test("a read-only page is offered and refused, never hidden", () => {
-    /*
-      CLAUDE.md's rule, and the console's: a disabled action is dimmed with the
-      reason beside it. Removing the row would leave somebody looking for a
-      choice the product says they have.
-    */
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, READ_ONLY],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-      }),
-    );
-    expect(choice.offers).toHaveLength(2);
-    expect(choice.offers[1]!.refusal).toContain("read");
-    expect(choice.selectedIndex).toBe(0);
-  });
-
-  test("a role this build does not recognise is refused, not trusted", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, { slug: "field-notes", kind: "shared", role: "auditor" }],
-        page: { contextSlug: "field-notes", path: "1-projects", isNote: false },
-      }),
-    );
-    expect(choice.offers[1]!.refusal).not.toBeNull();
-  });
-
-  test("somebody who owns no workspace is offered the claim, not a recording", () => {
-    // `kind === "personal"` is not ownership: a personal context shared with
-    // you keeps its kind and is still not you.
-    const choice = resolveDestinations({
-      contexts: [SOMEBODY_ELSE, SHARED],
-      page: { contextSlug: "field-notes", path: "1-projects", isNote: false },
-    });
-    expect(choice.kind).toBe("claimName");
-  });
-
-  test("somebody with no contexts at all is offered the claim", () => {
-    expect(resolveDestinations({ contexts: [], page: null }).kind).toBe("claimName");
-  });
-});
-
-/* -------------------------------------------------------------------------- */
-
-/**
- * **The two layers, held against each other rather than described.**
- *
- * An offer with no `refusal` on it is a promise, and the only thing that can
- * keep it is `normalizeMeetingFolder`. `destination.ts` therefore states that
- * rule a second time — it has to, because the phone does not bundle
- * `@context/meetings` (Metro is configured with `@context/shared` as its only
- * shared package) — and `paths.js` is emphatic that two implementations of
- * "does this string escape its bucket" is how one of them ends up weaker.
- *
- * The suite is not the phone, so it *can* import the real one. Every shape
- * either side cares about goes through both, and the assertion is one-way on
- * purpose: **an unrefused offer must be a folder the gateway accepts.** Being
- * stricter here costs a row and is allowed; being laxer costs a destination and
- * is the defect.
- *
- * SABOTAGE: drop any arm of `fileableFolder`, or the `folder === ""` arm of
- * `refusalFor`. MEASURED: this test fails, naming the folder.
- */
-describe("the sheet never offers a folder the gateway would refuse", () => {
+describe("the folder somebody types in settings, and what the gateway will take", () => {
   /**
-   * Folders that survive `safeNotePath` — which is the only gate a page has to
-   * pass to reach `pageOffer` at all — paired with what the gateway does.
+   * Folders that reach the setting, paired with what the gateway does.
    *
-   * Anything `safeNotePath` already refuses (`../x`, `a\\b`, a leading slash, a
-   * control character) is not on this list: such a page is not offered in the
-   * first place, and `a page whose path could not be a bucket key is not
-   * offered` above is where that is held.
+   * The table was the sheet's — every folder a *page* could offer — and it is
+   * the settings field's now, which is the surviving place a folder is chosen.
+   * The shapes are unchanged because the gateway's rules are: `..` inside a
+   * segment, a segment that percent-decodes to `..`, a dot-prefixed folder, a
+   * folder named like a note, a trailing empty segment, and the length bound.
    */
   const REACHABLE_FOLDERS: readonly string[] = [
-    "",
     "1-projects",
     "1-projects/portal",
     "2-areas/team/notes",
@@ -517,290 +198,86 @@ describe("the sheet never offers a folder the gateway would refuse", () => {
     "scopes.yml",
     // A segment that percent-DECODES to `..`. The gateway added this rule when
     // it found that the storage adapter decodes before it compares, so `%2e%2e`
-    // is a `".."` segment there and at no earlier layer. `safeNotePath` does
-    // not decode either, so this reaches the sheet as an ordinary folder name.
+    // is a `".."` segment there and at no earlier layer.
     "%2e%2e",
     "1-projects/%2E%2E",
     // A space shielded from `normalizeRoot`'s whole-string trim by a separator.
-    // `safeNotePath` trims and refuses a LEADING slash; it does nothing about a
-    // TRAILING one, and an empty last segment is legal here — so this arrives
-    // intact. The gateway refuses it because normalizing its own answer again
-    // would give something different.
     "ok/a /",
-    // Legal on both sides. Being on this list does NOT hold that — the two
-    // tests below only look at folders the gateway refuses — so
-    // `STILL_OFFERABLE` under them names these again and asserts it.
+    // Legal on both sides. Being on this list does not hold that; the count
+    // below is what stops the table quietly becoming all-refusals.
     "2-areas/team notes",
     "2-areas/ team",
     "100%",
-    // One segment past the gateway's 128-character bound, which nothing on the
-    // console's side has an opinion about.
+    // One segment past the gateway's 128-character bound.
     `${"a".repeat(64)}/${"b".repeat(64)}`,
-    // Legal on both sides, and worth being on the list so that a rule which
-    // simply refused everything could not pass this test.
     `${"a".repeat(60)}/${"b".repeat(60)}`,
   ];
 
-  test("an offer with no refusal is a folder `normalizeMeetingFolder` accepts", () => {
+  test("the folder a recording actually uses is one the gateway accepts", () => {
+    /*
+      THE PROMISE, STATED ABOUT THE VALUE THAT IS USED RATHER THAN THE ONE THAT
+      WAS TYPED — and the difference is not pedantry, it is where the first
+      version of this test was wrong.
+
+      A setting is stored as it was typed; `inboxFolderOf` is what a recording
+      reads, and it collapses the value the way the gateway collapses it and
+      falls back to the inbox for anything it would not file into. So `ok/a /`
+      is savable and is never *used*: `ok/a ` is, and the gateway takes it. The
+      thing that costs a meeting is a destination the gateway answers 400
+      `meeting_invalid` for — the code no client retries — so that is what is
+      asserted, at the layer that produces it.
+    */
     for (const folder of REACHABLE_FOLDERS) {
-      const choice = offers(
-        resolveDestinations({
-          contexts: [OWN, SHARED],
-          page: { contextSlug: "field-notes", path: folder, isNote: false },
-        }),
-      );
-      const offer = choice.offers[1];
-      if (offer === undefined || offer.refusal !== null) continue;
-      expect([folder, normalizeMeetingFolder(folder)]).not.toEqual([folder, null]);
+      const used = destinationOf([{ ...OWN, meetingsFolder: folder }]).folder;
+      expect([folder, normalizeMeetingFolder(used)]).not.toEqual([folder, null]);
     }
   });
 
-  test("and it refuses every one of them that the gateway refuses", () => {
-    /*
-      The other direction, asserted as a *count* rather than folder by folder:
-      the point is that the table above really does contain refusals on both
-      sides, so the test above is not passing vacuously on a list the sheet
-      happens to offer nothing for.
-    */
+  test("and a folder it would refuse is never the one a recording uses", () => {
     const refusedByGateway = REACHABLE_FOLDERS.filter(
       (folder) => normalizeMeetingFolder(folder) === null,
     );
     /*
-      An exact count, not a floor. `toBeGreaterThan(1)` against a table holding
-      twelve gateway refusals would not notice eleven of them quietly ceasing
-      to be refusals — and this test's whole job is to prove the table is not
-      passing vacuously. Adding a shape to the table is meant to make you come
-      here and say which side it is on.
+      An exact count, not a floor: the point is that the table really does
+      contain refusals on both sides, so the test above is not passing
+      vacuously. Adding a shape is meant to make you come here and say which
+      side it is on.
     */
-    expect(refusedByGateway).toHaveLength(12);
-    /*
-      And the table's own size, because the count above is one-directional:
-      MEASURED, deleting `"scopes.yml"` reddens it, and deleting
-      `"2-areas/team/notes"` — an ACCEPTED entry — is silent, so four of the
-      seven accepted shapes could be removed invisibly. Three are held by
-      `STILL_OFFERABLE`; this holds the rest.
-    */
-    expect(REACHABLE_FOLDERS).toHaveLength(19);
+    expect(refusedByGateway).toHaveLength(11);
+    expect(REACHABLE_FOLDERS).toHaveLength(18);
 
     for (const folder of refusedByGateway) {
-      const choice = offers(
-        resolveDestinations({
-          contexts: [OWN, SHARED],
-          page: { contextSlug: "field-notes", path: folder, isNote: false },
-        }),
-      );
-      /*
-        NO OFFER IS A REFUSAL, and reading `?.refusal ?? null` said the
-        opposite. `resolveDestinations` drops a context entirely when
-        `safeNotePath` refuses the page's path, so a folder caught one layer
-        earlier arrived here looking unrefused — a false RED, which is the
-        less dangerous direction and still sends somebody to change working
-        code until the test stops complaining. Found by putting `"/ ok"` in
-        the table above: refused by `safeNotePath` for its leading slash, so
-        it never reaches the sheet at all, and it is out of a list whose name
-        claims its members do.
-      */
-      const offer = choice.offers[1];
-      expect([folder, offer === undefined || offer.refusal !== null]).toEqual([folder, true]);
+      const used = destinationOf([{ ...OWN, meetingsFolder: folder }]).folder;
+      expect([folder, used]).not.toEqual([folder, folder]);
+      expect([folder, normalizeMeetingFolder(used)]).not.toEqual([folder, null]);
     }
   });
 
-
-  /*
-    STRICTER ON THE PHONE IS FINE — UP TO A POINT, AND THIS IS THE POINT.
-
-    The two tests above are one-directional by design: they hold that the sheet
-    never offers what the gateway refuses, and say nothing about the sheet
-    refusing what the gateway accepts. That asymmetry is deliberate — the phone
-    may be conservative — but it is not free, and unbounded it hides the exact
-    mistake this mirror already made once in reverse: `#247` first shipped a
-    per-segment trim rule on the GATEWAY that refused 36 folders a real vault
-    could have, and review measured the cost before it landed.
-
-    MEASURED, and the reason this block exists: with only the two tests above,
-    replacing the decoded rule with "refuse any segment containing a percent"
-    passes 34/34, and replacing the joined trim with a per-segment trim passes
-    34/34. Both are wrong and neither reddened anything. With this block, each
-    reddens.
-
-    These are folders somebody plausibly has, so refusing one costs a real
-    destination on the surface where people actually choose one.
-  */
-  const STILL_OFFERABLE: readonly string[] = [
-    "1-projects/portal",
-    "2-areas/team notes",
-    "2-areas/ team",
-    "100%",
-    "a%2e%2eb",
-  ];
-
-  test("...and it still offers the folders the gateway accepts", () => {
-    for (const folder of STILL_OFFERABLE) {
-      expect([folder, normalizeMeetingFolder(folder)]).not.toEqual([folder, null]);
-      const choice = offers(
-        resolveDestinations({
-          contexts: [OWN, SHARED],
-          page: { contextSlug: "field-notes", path: folder, isNote: false },
-        }),
-      );
-      /*
-        `?? ` CANNOT BE USED HERE, and the first version of this line used it:
-        `refusal: null` IS the success value, so `offers[1]?.refusal ?? "no
-        offer"` reports "no offer" for a folder that was offered perfectly.
-        The assertion could not pass for any input. It failed loudly rather
-        than quietly, which is the only reason it was cheap — the same slip in
-        a `.not.toEqual` would have passed for every input instead.
-      */
-      const offer = choice.offers[1];
-      expect([folder, offer === undefined ? "no offer at all" : offer.refusal]).toEqual([folder, null]);
-    }
+  test("and the field refuses the ones no collapse can rescue", () => {
+    // `ok/a /` is savable because collapsing it produces a folder the gateway
+    // takes. `a..b` is not, and Save is what says so before anything is stored.
+    expect(canSaveMeetingFolder("a..b", "")).toBe(false);
+    expect(canSaveMeetingFolder(".git", "")).toBe(false);
+    expect(canSaveMeetingFolder("overview.md", "")).toBe(false);
+    expect(canSaveMeetingFolder("2-areas/meetings", "")).toBe(true);
   });
 
-  test("the root says why, and the rest say the folder is not one this context files into", () => {
-    const refusalFor = (path: string) =>
-      offers(
-        resolveDestinations({
-          contexts: [OWN, SHARED],
-          page: { contextSlug: "field-notes", path, isNote: false },
-        }),
-      ).offers[1]!.refusal;
-
-    expect(refusalFor("")).toBe(CONTEXT_ROOT_REFUSAL);
-    expect(refusalFor("a..b")).toBe(UNFILEABLE_FOLDER_REFUSAL);
-    expect(refusalFor(".git")).toBe(UNFILEABLE_FOLDER_REFUSAL);
-    expect(refusalFor("overview.md")).toBe(UNFILEABLE_FOLDER_REFUSAL);
-    // No refusal quotes what it refused: the ack one layer down carries no copy
-    // of the folder either, and for the same reason.
-    expect(UNFILEABLE_FOLDER_REFUSAL).not.toContain("a..b");
-  });
-});
-
-describe("the last choice is remembered, and remembering it decides nothing else", () => {
-  const page: MeetingDestination = {
-    kind: "currentPage",
-    contextSlug: "field-notes",
-    folder: "1-projects/portal",
-    label: "1-projects/portal",
-  };
-
-  test("a remembered choice is preselected", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, SHARED],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-        remembered: page,
-      }),
-    );
-    expect(choice.selectedIndex).toBe(1);
+  test("the refusal says what to do, and does not quote the folder back", () => {
+    expect(meetingFolderProblem("a..b")).toBe(UNFILEABLE_FOLDER);
+    expect(UNFILEABLE_FOLDER).not.toContain("a..b");
   });
 
-  test("a remembered choice for somewhere else is not offered on its own", () => {
-    // Somebody who last recorded into a project and is now on the meetings
-    // list gets the inbox, not a row for a page they are not on.
-    const choice = offers(
-      resolveDestinations({ contexts: [OWN, SHARED], page: null, remembered: page }),
-    );
-    expect(choice.offers).toHaveLength(1);
-    expect(choice.selectedIndex).toBe(0);
+  test("an empty field is not a complaint, and is not a save either", () => {
+    // Somebody who has selected the whole value to retype it is mid-word, not
+    // wrong. `canSaveMeetingFolder` is what refuses to store nothing.
+    expect(meetingFolderProblem("")).toBeNull();
+    expect(canSaveMeetingFolder("", "2-areas/meetings")).toBe(false);
   });
 
-  test("a remembered choice that has gone read-only falls back to the inbox", () => {
-    const choice = offers(
-      resolveDestinations({
-        contexts: [OWN, READ_ONLY],
-        page: { contextSlug: "field-notes", path: "1-projects/portal", isNote: false },
-        remembered: page,
-      }),
-    );
-    expect(choice.selectedIndex).toBe(0);
-  });
-
-  test("a destination survives a round trip through the device", async () => {
-    const store = memoryStore();
-    await rememberDestination(store, page);
-    expect(await recallDestination(store)).toEqual(page);
-  });
-
-  test("a remembered destination is re-validated on the way out of the device", async () => {
-    /*
-      `lastPlace.ts`'s rule, for the same reason: it is a file this process
-      wrote, but it is a file on a *device* — a restored backup, another app
-      with the same store — and the folder in it becomes a key in a request to
-      somebody's bucket.
-    */
-    const store = memoryStore();
-    const forged = [
-      { kind: "currentPage", contextSlug: "field-notes", folder: "../../etc", label: "x" },
-      { kind: "currentPage", contextSlug: "@field-notes", folder: "1-projects", label: "x" },
-      { kind: "personalInbox", contextSlug: "a/b", folder: INBOX_FOLDER },
-      { kind: "elsewhere", contextSlug: "field-notes", folder: "1-projects" },
-      { folder: "1-projects" },
-    ];
-    for (const value of forged) {
-      await rememberDestination(store, value as MeetingDestination);
-      expect(await recallDestination(store)).toBeNull();
-    }
-  });
-
-  test("a device that knows nothing says so rather than guessing", async () => {
-    expect(await recallDestination(memoryStore())).toBeNull();
-  });
-
-  test("the remembered choice leaves the device with the meetings it names", async () => {
-    /*
-      A slug and a folder are the names of somebody's context and somebody's
-      folder — `lastPlace.ts`'s reason for being cleared on sign-out. It is kept
-      under this feature's own namespace so `meetingKeys` already covers it,
-      rather than as a second list for sign-out to keep in step with.
-    */
-    const store = memoryStore();
-    await rememberDestination(store, {
-      kind: "personalInbox",
-      contextSlug: "testagent1",
-      folder: INBOX_FOLDER,
-    });
-    expect(meetingKeys(await store.keys())).toContain(destinationKey());
-
-    await forgetAllMeetings(store);
-    expect(await recallDestination(store)).toBeNull();
-  });
-});
-
-describe("what a press on a row is allowed to do", () => {
-  const offers = [
-    {
-      destination: { kind: "personalInbox" as const, contextSlug: "testagent1", folder: "0-inbox" },
-      audience: "Only you",
-      tone: "quiet" as const,
-      refusal: null,
-    },
-    {
-      destination: {
-        kind: "currentPage" as const,
-        contextSlug: "field-notes",
-        folder: "1-projects",
-        label: "1-projects",
-      },
-      audience: "Visible to the team",
-      tone: "warn" as const,
-      refusal: "You can read this context but not write to it.",
-    },
-  ];
-
-  test("pressing an offer selects it", () => {
-    expect(chooseOffer([offers[0]!, { ...offers[1]!, refusal: null }], 0, 1)).toBe(1);
-  });
-
-  test("pressing a refused offer leaves the selection where it was", () => {
-    expect(chooseOffer(offers, 0, 1)).toBe(0);
-  });
-
-  test("a row the list does not have leaves the selection where it was", () => {
-    // The only caller is a list this module produced, so an index it does not
-    // have is a bug in the caller — not a reason to take a screen down while
-    // somebody is trying to record.
-    expect(chooseOffer(offers, 0, 7)).toBe(0);
-    expect(chooseOffer(offers, 0, -1)).toBe(0);
+  test("the default this module offers is the folder the gateway files into", () => {
+    // The real package, not a copy of its constant.
+    expect(INBOX_FOLDER.startsWith(MEETINGS_FOLDER)).toBe(true);
+    expect(normalizeMeetingFolder(INBOX_FOLDER)).not.toBeNull();
   });
 });
 
@@ -821,17 +298,39 @@ describe("how a destination reads", () => {
       }),
     ).toBe("@field-notes");
   });
+});
 
-  test("two destinations are the same when they name the same folder in the same context", () => {
-    const a: MeetingDestination = {
-      kind: "currentPage",
-      contextSlug: "field-notes",
-      folder: "1-projects",
-      label: "1-projects",
+describe("a destination read back off a device", () => {
+  /**
+   * Every destination that has been to storage comes back through
+   * `parseDestination` — a restored `MeetingRecord`'s is the one that still
+   * does. It is a file on a *device*: a restored backup, a rooted browser,
+   * another app sharing the store, and both fields end up in a request against
+   * the customer's own bucket.
+   */
+  test("a destination this build wrote is a destination", () => {
+    const destination: MeetingDestination = {
+      kind: "personalInbox",
+      contextSlug: "testagent1",
+      folder: INBOX_FOLDER,
     };
-    expect(sameDestination(a, { ...a, label: "something else" })).toBe(true);
-    expect(sameDestination(a, { ...a, folder: "2-areas" })).toBe(false);
-    expect(sameDestination(a, { ...a, contextSlug: "other" })).toBe(false);
+    expect(parseDestination(JSON.parse(JSON.stringify(destination)))).toEqual(destination);
+  });
+
+  test("a folder that could not be a bucket key is not a destination", () => {
+    for (const folder of ["../escape", "/leading", "a\\b", "with\u0001control"]) {
+      expect(
+        parseDestination({ kind: "personalInbox", contextSlug: "testagent1", folder }),
+      ).toBeNull();
+    }
+  });
+
+  test("a slug that is not a slug is not a destination", () => {
+    expect(
+      parseDestination({ kind: "personalInbox", contextSlug: "@testagent1", folder: "0-inbox" }),
+    ).toBeNull();
+    expect(parseDestination({ kind: "somethingElse", contextSlug: "a", folder: "b" })).toBeNull();
+    expect(parseDestination(null)).toBeNull();
   });
 });
 

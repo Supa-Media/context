@@ -8,6 +8,7 @@ import { Text } from "../../design/components/Text";
 import { meetings, recordElapsedMs } from "../controller";
 import { meetingHref } from "../route";
 import { clock } from "../format";
+import { useMeetingCarried } from "../carried";
 import { useMeetingsSnapshot, useTick } from "../useMeetings";
 import { barAudioBadge } from "../keptAudio";
 import { TransportMark } from "./TransportMark";
@@ -23,8 +24,10 @@ import { Waveform } from "./Waveform";
  * "should I show the bar" logic anywhere in the app, and no screen has to know
  * this feature exists to be correct about it.
  *
- * **And `null` on the live meeting's own screen, which is the same rule rather
- * than an exception to it.** This bar exists to reach a recording you have
+ * **And `null` wherever the surface underneath is already showing this
+ * meeting**, which is one rule with two cases rather than two rules.
+ *
+ * The first is the live meeting's own screen. This bar exists to reach a recording you have
  * walked away from; on the screen you have not walked away from, it is a second
  * copy of the same three controls lying over the first. They are not merely
  * near each other — the live screen's transport is `bottomBarHeight` tall at
@@ -75,6 +78,15 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
   const pathname = usePathname();
   const live = snapshot.live;
   const now = useTick(live !== null);
+  /*
+    The second case: the console's right panel, which is a place a meeting is
+    *worked* — named, noted in, stopped — with the note still open beside it. A
+    bar floating over that note while the panel shows the same clock is the
+    duplicate chrome this component already refuses on the meeting's screen.
+    The console claims it while it has a panel to put one in, folded or not;
+    see `features/meetings/carried.ts`.
+  */
+  const carried = useMeetingCarried();
   // Whatever the screen underneath is already floating at this edge, so the two
   // stack instead of overlapping. Zero on every screen that has no chrome there.
   const chrome = useBottomChromeHeight();
@@ -135,7 +147,7 @@ export function RecordingBar({ bottomInset = 0 }: { bottomInset?: number }) {
     })();
   }, [live, pathname, router]);
 
-  if (live === null) return null;
+  if (live === null || carried) return null;
   // The screen underneath is this meeting's own, and it has a transport of its
   // own in this exact 66pt of glass. See the header.
   if (pathname === meetingHref(live.session.id)) return null;

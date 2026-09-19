@@ -1,8 +1,8 @@
 import {
   createElement,
   useCallback,
-  useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
   type ReactElement,
@@ -11,306 +11,237 @@ import { useRouter } from "expo-router";
 
 import { openStore } from "../offline/store";
 import type { KeyValueStore } from "../offline/memory";
-import { DestinationSheet } from "./components/DestinationSheet";
+import { MeetingRefusal } from "./components/MeetingRefusal";
 import { MeetingsController, meetings } from "./controller";
-import {
-  chooseOffer,
-  recallDestination,
-  rememberDestination,
-  resolveDestinations,
-  type CurrentPage,
-  type DestinationContext,
-  type MeetingDestination,
-} from "./destination";
-import { MEETINGS_ROUTE, meetingHref } from "./route";
+import { automaticDestination, type DestinationContext } from "./destination";
+import { recallSystemAudio } from "./machineAudio";
+import { meetingHref } from "./route";
+import { UNTITLED_MEETING } from "./session";
 
 /**
  * The one way into a recording from outside this feature.
  *
- * ## What pressing the key does, and what it deliberately does not
+ * ## Pressing the key records. It used to ask first, and that question is gone
  *
- * It opens a sheet. It does **not** open the microphone, write a session, touch
- * the store, create a folder, or navigate. That is
- * `docs/decisions/meetings.md`'s rule for the rail entry — "it navigates. It
- * does not record", because a control that silently started recording "would be
- * the same product with the indicator removed" — applied to a key one surface
- * further out, where it matters more rather than less: the bottom row is
- * reachable from every screen in the app.
+ * Every meeting ever recorded in this product went through a sheet: two
+ * destination rows, an audience line on each, a sentence about the audio, and
+ * a Start beside it. The owner's reading of that sheet, after using it, is that
+ * it cost a decision on every single capture and taught nobody anything —
+ * *"all meetings from now on should go into 0-inbox/meetings, no need to ask
+ * people it will just confuse them"*. So the destination is a rule
+ * (`automaticDestination`) and the press opens the microphone.
  *
- * ## The sheet opens every time, and that is the point rather than an oversight
+ * **What the sheet was actually protecting is kept, and it was never the
+ * question.** `docs/decisions/meetings.md` forbids a control that starts
+ * recording with no indicator — "the same product with the indicator removed" —
+ * and the indicator is what now carries the disclosure: the panel opens on the
+ * running meeting with a red mark, a clock, the waveform and the path the note
+ * is going to, for the whole length of the run. The sentence about how the
+ * audio is handled is said once, at first run and in settings, rather than in
+ * front of every conversation.
  *
- * A remembered choice preselects a row. It never skips the question. The sheet
- * is where the sentence about the audio lives, and the decision requires the
- * record control to sit *beside* that sentence — so a version that went
- * straight to recording once the destination was known would move recording one
- * tap away from any disclosure, on exactly the path somebody uses most often.
- * `__tests__/meetingsFlow.test.ts` holds that property by name and sabotages it.
+ * The privacy half is kept where it always lived: the destination is the
+ * person's **own** inbox, never the shared context they happen to be reading
+ * in. `automaticDestination` argues that at length; it is the reason this hook
+ * no longer takes a `page` at all.
  *
- * ## The remembered choice is read on mount, not on the press
+ * ## Two things can still stop a press, and both say so
  *
- * The store is async on every platform, and a press that waited on it would
- * either delay the sheet or open it on the wrong row and correct itself a frame
- * later. Reading once when the key is mounted means the press path has no
- * `await` in it at all — which is also what makes "the sheet always opens"
- * something a test can assert rather than something a race decides.
+ * A device whose controller has not been pointed at a context yet
+ * (`NOT_READY_REFUSAL`, the ordinary cold start — or the wiring mistake of
+ * mounting the key without `useMeetingsSetup`), and somebody who owns no
+ * personal workspace, who is offered their @name instead. Both raise
+ * `MeetingRefusal` through the same `sheet` slot the destination sheet used, so
+ * every caller that already mounted one keeps working. A control that quietly
+ * did nothing would hide the wiring mistake for as long as nobody tried to
+ * record.
  *
- * A device that has not answered yet, or that knows nothing, simply gets the
- * default. Nothing waits and nothing is claimed.
+ * ## Where the meeting then shows up is the caller's business
+ *
+ * `onStarted` is the console: it opens the right panel on Meetings, and the
+ * note stays open behind it — a meeting is no longer a page you are thrown to.
+ * A caller that offers no such surface (the phone, whose frame has no panel at
+ * all) gets the meeting's own screen, which is what `MEETINGS_ROUTE` has always
+ * been for.
  *
  * ## What the caller still owes
  *
  * **`useMeetingsSetup()` must be mounted in the same layout**, exactly as
- * `app/(app)/meetings/_layout.tsx` mounts it: it is what points the controller
- * at a context and reads what is already on the device. It is not called from
- * here on purpose — it opens Convex subscriptions and builds the real recorder,
- * and which layout owns that is a decision for whoever mounts the key, not
- * something an entry point should do behind their back.
- *
- * Until it has run, `start()` would throw, so the sheet still opens and Start
- * is **refused with the reason** rather than pressed into an unhandled
- * rejection. That covers two different situations with one honest sentence: the
- * ordinary cold start, where the workspace list has not landed yet and this
- * clears itself a moment later, and the wiring mistake of mounting the key
- * without the setup, where it stays on screen until somebody fixes it. A
- * control that quietly did nothing would hide the second one for as long as
- * nobody tried to record.
+ * `app/(app)/meetings/_layout.tsx` and the console's layout mount it: it is
+ * what points the controller at a context and builds the real recorder. It is
+ * not called from here on purpose — it opens Convex subscriptions, and which
+ * layout owns that is a decision for whoever mounts the key.
  */
 export interface MeetingFlowInput {
   /** Every context the viewer can reach, from the console's own list. */
   contexts: readonly DestinationContext[];
-  /** Where they are standing, or `null` — the meetings list, or no context. */
-  page: CurrentPage | null;
   /** Where to send somebody who owns no workspace. Omitted offers no button. */
   onClaimName?: () => void;
-  /** What the meeting is called until somebody renames it on the live screen. */
+  /** What the meeting is called until somebody renames it in the panel. */
   title?: string;
+  /**
+   * Where a started meeting is shown, when the caller has somewhere to show it.
+   *
+   * The console passes the panel. Absent means this is a surface with nowhere
+   * to put a running meeting, and the meeting's own screen is pushed instead.
+   */
+  onStarted?: (meetingId: string) => void;
   /** Injected by tests. Defaults to this device's store. */
   store?: KeyValueStore;
   /** Injected by tests. Defaults to the app's one controller. */
   controller?: MeetingsController;
 }
 
-/** Said on the sheet when this device has no context to record into yet. */
+/** Said when this device has no context to record into yet. */
 export const NOT_READY_REFUSAL =
   "This device has not opened your context yet, so there is nowhere to record into.";
 
+/** Said when the microphone itself would not open. */
+export const START_FAILED =
+  "This meeting did not start. Check that your browser or system settings allow the microphone, and try again.";
+
+/** Said to somebody who owns no workspace, above the offer to claim one. */
+export const NO_WORKSPACE_REFUSAL =
+  "A meeting is written into your own context, and you do not have one yet.";
+
 export interface MeetingFlow {
-  /** Open the sheet. Opens no microphone and writes no session. */
+  /** Start recording. Asks nothing, and files into your own inbox. */
   startMeetingFlow: () => void;
-  /** Mount this once, wherever the key is. `null` while the sheet is closed. */
+  /** Mount this once, wherever the key is. `null` unless a press was refused. */
   sheet: ReactElement | null;
 }
 
-/** What a meeting is called before anybody renames it. The list screen's. */
-const DEFAULT_TITLE = "New meeting";
-
 export function useMeetingFlow(input: MeetingFlowInput): MeetingFlow {
-  const { contexts, page, onClaimName, title = DEFAULT_TITLE } = input;
+  const { contexts, onClaimName, onStarted, title = UNTITLED_MEETING } = input;
   const router = useRouter();
   const controller = input.controller ?? meetings;
 
-  const [open, setOpen] = useState(false);
-  const [remembered, setRemembered] = useState<MeetingDestination | null>(null);
-  /**
-   * The destination somebody has pressed, or `null` for "whatever the resolver
-   * says".
-   *
-   * **A destination and not an index**, and that is the whole of it. The
-   * resolver recomputes its list on every render, from props that change while
-   * the sheet is open — a context list landing, a page moving underneath, a
-   * grant going away. An index into that list is a reference to a row that may
-   * not be the same row a moment later, or may not exist: press the shared
-   * page's row, lose membership of that context, and `offers[1]` is
-   * `undefined` while the selection still says 1. `confirm` then returned
-   * silently, which is the control that is enabled and does nothing that the
-   * head of this file forbids.
-   *
-   * Holding the destination means the resolver can answer "which row is that
-   * now", and it already knows how: `remembered` is exactly that question, and
-   * a press is fed in through the same argument. So one rule decides both — a
-   * choice that is no longer on offer, or that has gone read-only since it was
-   * pressed, falls back to the inbox, and the row drawn as selected is always
-   * the row Start starts.
-   */
-  const [pressed, setPressed] = useState<MeetingDestination | null>(null);
+  const [refusal, setRefusal] = useState<string | null>(null);
+  const [claim, setClaim] = useState(false);
 
   const store = useMemo(() => input.store ?? openStore(), [input.store]);
 
   /*
     Subscribed rather than read once: the controller is configured by an effect
-    in another layout, so a sheet opened during a cold start has to notice when
-    that lands instead of staying refused until somebody closes and reopens it.
+    in another layout, so a press during a cold start has to see it land.
   */
   const snapshot = useSyncExternalStore(
     controller.subscribe,
     controller.getSnapshot,
     controller.getSnapshot,
   );
-  const blocked = snapshot.status === "ready" ? null : NOT_READY_REFUSAL;
 
-  /**
-   * Whether the machine's own audio is on offer, and whether it is on.
-   *
-   * `capability.systemAudio` is the recorder's answer. Inside the desktop shell
-   * it is the shell's answer to `capabilities()` — asked over the bridge, never
-   * inferred from the fact that a shell is present, because a build macOS has
-   * not verified is refused a loopback tap at the same bridge version as one it
-   * has. In a browser it is `getDisplayMedia` plus something to mix its audio
-   * into, and `systemAudioNeedsPicker` beside it says that the capability costs
-   * the person a source picker. On a phone it is `false` and the sheet says
-   * plainly that the far side of a call is not in the recording.
-   *
-   * Default **on where it is free, off where it costs a picker**. On the
-   * desktop shell somebody recording a call on a machine that can hear the call
-   * means the call, and the switch is there for the genuinely different case —
-   * a conversation in the room while something else is playing. In a browser
-   * the same `true` would put a screen-share picker in front of every meeting
-   * anybody ever records, including the in-person ones, which is how a feature
-   * gets switched off wholesale. So the browser asks to be asked.
-   *
-   * `null` is "the person has not said", kept separate from a `false` they
-   * chose: the default has to follow the surface, and a surface can change
-   * under this hook — the desktop shell answers `capabilities()` over IPC after
-   * the first render. Once somebody presses the switch their answer stands.
-   */
   const canSystemAudio = snapshot.capture.systemAudio;
   const needsPicker = snapshot.capture.systemAudioNeedsPicker;
-  const [chosenSystemAudio, setSystemAudio] = useState<boolean | null>(null);
-  const systemAudio = chosenSystemAudio ?? !needsPicker;
-
-  useEffect(() => {
-    let live = true;
-    void recallDestination(store).then((answer) => {
-      if (live) setRemembered(answer);
-    });
-    return () => {
-      live = false;
-    };
-  }, [store]);
-
-  const choice = useMemo(
-    () => resolveDestinations({ contexts, page, remembered: pressed ?? remembered }),
-    [contexts, page, pressed, remembered],
-  );
+  const live = snapshot.live;
 
   /*
-    Always a row this list has, because `resolveDestinations` answers with one:
-    the personal inbox is offer zero and `preselect` falls back to it. That is
-    what makes `confirm`'s `offer === undefined` unreachable rather than
-    reachable-and-silent.
+    One press, one meeting. `start()` is async — it mints an id and opens a
+    device — and a second press before it resolves used to be a second
+    recording of the same conversation, in two files, with one clock on screen.
+    A ref rather than state because nothing renders from it and a render would
+    be one frame too late.
   */
-  const selectedIndex = choice.kind === "choose" ? choice.selectedIndex : 0;
+  const starting = useRef(false);
 
-  const startMeetingFlow = useCallback(() => {
-    setPressed(null);
-    setOpen(true);
-  }, []);
-
-  const close = useCallback(() => {
-    setOpen(false);
-    setPressed(null);
-  }, []);
-
-  const select = useCallback(
-    (index: number) => {
-      if (choice.kind !== "choose") return;
-      // `chooseOffer` still decides whether the press lands — a refused row
-      // leaves the selection where it was — and what is stored is the row it
-      // settled on rather than the number naming it.
-      const next = choice.offers[chooseOffer(choice.offers, selectedIndex, index)];
-      setPressed(next?.destination ?? null);
+  const show = useCallback(
+    (id: string) => {
+      if (onStarted !== undefined) {
+        onStarted(id);
+        return;
+      }
+      router.push(meetingHref(id));
     },
-    [choice, selectedIndex],
+    [onStarted, router],
   );
 
-  const confirm = useCallback(() => {
-    if (choice.kind !== "choose") return;
-    const offer = choice.offers[selectedIndex];
+  const startMeetingFlow = useCallback(() => {
+    setRefusal(null);
+    setClaim(false);
+
     /*
-      Checked again here rather than trusted from the selection. `chooseOffer`
-      refuses a refused row and `preselect` falls back off one, so both halves
-      are unreachable today — and this is the last gate before somebody's
-      meeting is pointed at a context they cannot write to, which is not a
-      place to rely on an invariant holding one call site away.
+      Already recording: show the one that is running rather than starting a
+      second. There is one microphone on this machine, and the panel this opens
+      is the only place to stop the run — pressing New meeting while one is live
+      is somebody looking for it.
     */
-    if (offer === undefined || offer.refusal !== null) return;
-    if (blocked !== null) return;
+    if (live !== null) {
+      show(live.session.id);
+      return;
+    }
 
-    const destination = offer.destination;
-    close();
+    if (snapshot.status !== "ready") {
+      setRefusal(NOT_READY_REFUSAL);
+      return;
+    }
+
+    const answer = automaticDestination({ contexts });
+    if (answer.kind === "claimName") {
+      setClaim(true);
+      return;
+    }
+
+    if (starting.current) return;
+    starting.current = true;
+
     void (async () => {
-      /*
-        Written down before the meeting starts, and `rememberDestination`
-        swallows its own failures: a device that will not remember the choice
-        still records the meeting.
-      */
-      await rememberDestination(store, destination);
-      setRemembered(destination);
-      /*
-        `systemAudio` is passed only where it was asked, so a phone sends
-        nothing and the controller falls back to what the build can do without
-        asking again — which is `false` there. Sending the switch's value from a
-        surface that never drew it would be this layer inventing an answer on
-        somebody's behalf.
-      */
-      const id = await controller.start({
-        title,
-        destination,
-        ...(canSystemAudio ? { systemAudio } : {}),
-      });
-      router.push(meetingHref(id));
+      try {
+        /*
+          Read at the press rather than held in state: it is a device setting
+          changed in another pane, and a value captured on mount would record
+          the wrong thing for anybody who changed it without reloading. The
+          read is a local store hit, and `recallSystemAudio` swallows its own
+          failures — a device that cannot answer records without the tap, which
+          is the same default as never having chosen.
+
+          Sent only where the recorder offers it at all: absent means "whatever
+          this build can do without asking again", which is the honest answer
+          for a surface that never drew the switch.
+        */
+        const systemAudio = canSystemAudio ? await recallSystemAudio(store, needsPicker) : false;
+        const id = await controller.start({
+          title,
+          destination: answer.destination,
+          ...(canSystemAudio ? { systemAudio } : {}),
+        });
+        show(id);
+      } catch {
+        /*
+          A start that rejects used to be an unhandled rejection with nothing
+          on screen: the press did nothing, twice over. `RecordingBar`'s End
+          makes the same argument about the other end of a meeting — *"I don't
+          know if it succeeded, if it failed. Just nothing at all."* — and the
+          answer is the same, a sentence rather than a silence. What went wrong
+          is not quoted: `controller.start` throws for a device that is not
+          configured and for a recorder that would not open, and neither has a
+          message written to be read by the person holding the machine.
+        */
+        setRefusal(START_FAILED);
+      } finally {
+        starting.current = false;
+      }
     })();
-  }, [
-    blocked,
-    canSystemAudio,
-    choice,
-    close,
-    controller,
-    router,
-    selectedIndex,
-    store,
-    systemAudio,
-    title,
-  ]);
+  }, [canSystemAudio, contexts, controller, live, needsPicker, show, snapshot.status, store, title]);
 
-  const sheet = open
-    ? createElement(DestinationSheet, {
-        choice,
-        selectedIndex,
-        onSelect: select,
-        onStart: confirm,
-        onCancel: close,
-        /*
-          The phone's only route to `/meetings`. `push`, not `replace`, and the
-          sheet is closed first: this is a navigation out of a modal, and the
-          way back is the browser's own Back plus the list's own control.
+  const dismiss = useCallback(() => {
+    setRefusal(null);
+    setClaim(false);
+  }, []);
 
-          It navigates and does not record, which is the same rule the rail
-          entry follows one surface out — see `DestinationSheet.onOpenMeetings`
-          for why the row is on this sheet rather than on a key of its own.
-        */
-        onOpenMeetings: () => {
-          close();
-          router.push(MEETINGS_ROUTE);
-        },
-        blocked,
-        /*
-          Offered only where something would answer it. `null` draws the
-          mic-only sentence instead — the honest absence rather than a control
-          that cannot do what it says.
-        */
-        systemAudio: canSystemAudio
-          ? { on: systemAudio, onToggle: setSystemAudio, needsPicker }
-          : null,
-        onClaimName:
-          onClaimName === undefined
-            ? undefined
-            : () => {
-                close();
-                onClaimName();
-              },
-      })
-    : null;
+  const sheet =
+    claim || refusal !== null
+      ? createElement(MeetingRefusal, {
+          reason: claim ? NO_WORKSPACE_REFUSAL : (refusal ?? NOT_READY_REFUSAL),
+          onClaimName:
+            claim && onClaimName !== undefined
+              ? () => {
+                  dismiss();
+                  onClaimName();
+                }
+              : null,
+          onClose: dismiss,
+        })
+      : null;
 
   return { startMeetingFlow, sheet };
 }

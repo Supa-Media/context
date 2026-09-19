@@ -44,11 +44,16 @@ import type { DictationEngine } from "./engine";
  * bottom row — the same `mic` glyph twice on a 390pt screen, raising two
  * different sheets. *"Why are there 2 microphones?"*
  *
+ * **And the same is now true of the console**, for a different control: the
+ * corner holds a `+` rather than a microphone, so this draws none at rest at
+ * any pointer density either. Dictation is reached from the note's own context
+ * menu — see `microphoneElsewhere`.
+ *
  * The seventh key is the one that stays, and that was not decided here:
  * `docs/decisions/meetings.md` makes it the phone's only way into meeting
  * capture, and the only route to a *finished* meeting hangs off the sheet it
  * raises — a route that exists because somebody recorded a meeting on their
- * phone and could not find it afterwards. So `barMicrophone` stands this
+ * phone and could not find it afterwards. So `microphoneElsewhere` stands this
  * control down while that key is on the glass, which leaves dictation offered
  * at exactly the moment it has somewhere to type: the keyboard accessory bar
  * takes the toolbar away (`AppFrame`'s `toolbarHidden`), and the microphone
@@ -94,7 +99,7 @@ export function VoiceButton({
   controls,
   compact,
   onRecordMeeting,
-  barMicrophone = false,
+  microphoneElsewhere = false,
   bottomInset = 0,
   place,
   engine,
@@ -117,15 +122,29 @@ export function VoiceButton({
   /** Hands off to `useMeetingFlow`, which owns the meeting's own consent sheet. */
   onRecordMeeting: () => void;
   /**
-   * Whether another control on this glass already opens the microphone.
+   * Whether this corner belongs to something else, so no microphone is drawn
+   * at rest.
    *
-   * True on a phone whenever the frame's bottom toolbar is showing, because its
-   * seventh key is that control. False by default, which is the right answer
-   * for every pointer density — there is no bottom bar at any of them
-   * (`regionsFor`) — and for the fixtures, which mount this pane with no frame
-   * around it at all.
+   * Two surfaces set it, for the same reason and not for the same control:
+   *
+   *  - **A phone**, whenever the frame's bottom toolbar is showing, because its
+   *    seventh key *is* the microphone. Two mic glyphs 24pt apart is the defect
+   *    `oneMicrophone.test.ts` exists for.
+   *  - **The console at every pointer density**, because the corner is the `+`
+   *    now (`features/console/CreateButton.tsx`) and there is one corner. The
+   *    microphone did not lose its door in the trade: "Dictate here" is on the
+   *    note's own context menu, where the caret is, and `startDictation` is how
+   *    it reaches this component.
+   *
+   * It was called `barMicrophone` while the phone's bar was the only caller.
+   * The name is the *condition* now rather than the control, because a second
+   * caller with a different control is exactly what proved the old name was
+   * describing the wrong half.
+   *
+   * False by default, which is right for the fixtures — they mount this pane
+   * with no frame and no `+` around it at all.
    */
-  barMicrophone?: boolean;
+  microphoneElsewhere?: boolean;
   /**
    * Where the person is, for the conversation.
    *
@@ -314,7 +333,7 @@ export function VoiceButton({
     under the thumb that opened it would be this button answering a press by
     disappearing.
   */
-  if (barMicrophone && !asking && !talking && state.name !== "failed") return null;
+  if (microphoneElsewhere && !asking && !talking && state.name !== "failed") return null;
 
   return (
     <View style={[styles.dock, { bottom }]} pointerEvents="box-none">
@@ -326,7 +345,7 @@ export function VoiceButton({
         </View>
       ) : null}
 
-      {barMicrophone ? null : (
+      {microphoneElsewhere ? null : (
         <Pressable
           onPress={ask}
           role="button"

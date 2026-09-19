@@ -114,7 +114,7 @@ export type ReachabilityDensity = (typeof DENSITIES)[number];
  * constrains nothing and the density claim rests on the evidence alone.
  */
 export type ReachabilityRegion =
-  "switcher" | "contextStrip" | "bottomBar" | "screen";
+  "switcher" | "contextStrip" | "bottomBar" | "account" | "screen";
 
 /** One file that must still contain the wiring, and the strings that prove it. */
 export interface Evidence {
@@ -649,22 +649,28 @@ export const ROUTE_REACHABILITY: readonly RouteReachability[] = [
       {
         /*
           The phone's only route to the list, and the reason this whole file
-          exists. See `DestinationSheet.onOpenMeetings` for why it is a row on
-          that sheet rather than an eighth key or a menu over sign-out.
+          exists.
+
+          **It moved, and what moved it is worth recording.** It used to be a
+          "Past meetings" row on the destination sheet the bottom row's meetings
+          key raised — the sheet that asked where to record. That sheet is gone
+          (`useMeetingFlow`: the key records now), and a route that hangs off a
+          deleted surface is exactly the silent loss this file exists to catch.
+          So the row is on the account menu, which is the one menu a phone
+          always has, beside the only sign-out it has.
         */
-        surface:
-          "Past meetings, on the sheet the bottom row's meetings key opens",
+        surface: "Meetings, on the account menu",
         control: {
-          file: "features/meetings/components/DestinationSheet.tsx",
-          contains: ['label="Past meetings"', "onPress={onOpenMeetings}"],
+          file: "features/console/AccountBlock.tsx",
+          contains: ['testID: "account-meetings"', "onOpenMeetings?.()"],
         },
         navigation: [
           {
-            file: "features/meetings/useMeetingFlow.ts",
+            file: CONSOLE_LAYOUT,
             contains: ["MEETINGS_ROUTE", "router.push(MEETINGS_ROUTE)"],
           },
         ],
-        region: "bottomBar",
+        region: "account",
         densities: PHONE,
       },
       {

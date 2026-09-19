@@ -181,6 +181,14 @@ const REGION_DENSITIES: Record<ReachabilityRegion, ReadonlySet<ReachabilityDensi
   switcher: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "switcher")),
   contextStrip: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "account")),
   bottomBar: new Set(DENSITIES.filter((d) => regionsFor(d, initialFrame).bottomBar)),
+  /*
+    The pinned account mark, which is the phone's — `topBarLeadFor` answers
+    "account" at exactly the densities that draw it, and it is the same set
+    `contextStrip` reads. Two regions off one answer is right rather than
+    redundant: they are two controls in that corner and either can be deleted
+    without the other.
+  */
+  account: new Set(DENSITIES.filter((d) => topBarLeadFor(d) === "account")),
   screen: new Set(DENSITIES),
 };
 
@@ -245,12 +253,21 @@ describe("the guard can see", () => {
       if (!entry.reachable) continue;
       for (const point of entry.from) claimed.add(point.region);
     }
-    expect([...claimed].sort()).toEqual(["bottomBar", "contextStrip", "screen", "switcher"]);
+    /*
+      `bottomBar` left this list when the destination sheet did. The phone's
+      meetings key used to raise a sheet with "Past meetings" on it, and that
+      row was the one claim any bottom-row control made; the key records now,
+      and the route to the list moved to the account menu — which is `account`,
+      the region that replaced it here. Every key on that row still navigates,
+      but within the console rather than to a route of its own.
+    */
+    expect([...claimed].sort()).toEqual(["account", "contextStrip", "screen", "switcher"]);
 
     // And the table itself is not empty on either side, which is what makes
     // "claimed at a density this region is not drawn at" a reachable failure.
     expect([...REGION_DENSITIES.switcher]).toEqual(["medium", "wide"]);
     expect([...REGION_DENSITIES.contextStrip]).toEqual(["compact"]);
+    expect([...REGION_DENSITIES.account]).toEqual(["compact"]);
     expect([...REGION_DENSITIES.bottomBar]).toEqual(["compact"]);
   });
 });

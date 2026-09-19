@@ -54,12 +54,12 @@ import { createRoot } from "react-dom/client";
  *
  * Applied, suite run, named test observed failing, reverted.
  *
- *  1. `barMicrophone` hard-coded to `false` at the mount site.
+ *  1. `microphoneElsewhere` hard-coded to `false` at the mount site.
  *     → **2 fail**: `a phone with a note open draws one microphone, on the
  *     bottom row` — the bug exactly as reported — and the second half of `the
  *     keyboard takes the bottom row away, so the microphone comes back`, which
  *     is the same screen again once the keyboard has gone.
- *  2. `barMicrophone` hard-coded to `true`.
+ *  2. `microphoneElsewhere` hard-coded to `true`.
  *     → **2 fail**: `the keyboard takes the bottom row away, so the microphone
  *     comes back` and `a pointer layout has no bottom row, so the floating one
  *     is it`. Dictation would be unreachable on a phone browser and on every
@@ -132,7 +132,7 @@ beforeEach(() => {
  * reports as 0 — so without the stub every density reads as `compact` by
  * accident and the pointer case below would pass for the wrong reason.
  */
-function mountNote(width: number) {
+function mountNote(width: number, createButton = true) {
   Object.defineProperty(document.documentElement, "clientWidth", {
     value: width,
     configurable: true,
@@ -164,7 +164,7 @@ function mountNote(width: number) {
   act(() => {
     root.render(
       createElement(VoiceHostProvider, {
-        value: { page: PAGE, onRecordMeeting: () => {} },
+        value: { page: PAGE, onRecordMeeting: () => {}, createButton },
         children: createElement(NoteEditor, {
           state,
           canEdit: true,
@@ -227,16 +227,37 @@ describe("the phone", () => {
 });
 
 describe("a pointer layout", () => {
-  test("a pointer layout has no bottom row, so the floating one is it", () => {
+  test("the corner is the + now, so the editor draws no microphone at rest", () => {
     /*
-      `regionsFor` answers `bottomBar: false` at every density but `compact`, so
-      there is no seventh key to yield to and no accessory bar either — a
-      desktop has a real keyboard and the chords that go with it. Taking the
-      floating control away here would delete dictation from the surface the
-      sketch drew it on.
+      THE RULE THIS FILE HOLDS, ARRIVING AT THE OTHER DENSITY.
+
+      It used to read "a pointer layout has no bottom row, so the floating one
+      is it", and that was true while nothing else was in the corner. The
+      console mounts a `+` there now — `features/console/CreateButton.tsx`, and
+      the owner's words for why: *"we need to get rid of the microphone button
+      bottom right and instead it should be a + button"* — so the same rule as
+      the phone's applies for a different control. One corner, one control.
+
+      Dictation did not lose its door with the glyph: "Dictate here" is on the
+      note's own context menu, where there is a caret to type into, and
+      `editorVoiceMenu.test.ts` drives it from there through this same
+      component.
     */
     const app = mountNote(1280);
     expect(app.accessory()).toBeNull();
+    expect(app.find("voice-button")).toBeNull();
+  });
+
+  test("...and a pointer surface with no + keeps it, because nothing replaced it", () => {
+    /*
+      The E2E fixture and the landing page's demo console: desktop-width
+      consoles that render `BrowsePane` with no layout around them, so no `+`
+      is drawn in that corner. Taking the microphone away from them on a rule
+      keyed off the width would delete dictation from the one surface
+      `e2e/webkit/voice.spec.ts` drives it on — which is why the host publishes
+      the fact rather than the editor deriving it.
+    */
+    const app = mountNote(1280, false);
     expect(app.find("voice-button")).not.toBeNull();
   });
 });
