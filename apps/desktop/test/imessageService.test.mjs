@@ -27,6 +27,11 @@
  *   `#run`'s catch-all putting `error.message` into `lastError`         2 FAIL
  *   `upsertPart` reporting the gateway's own error text as `lastError`
  *     when that text quotes the note it refused                         2 FAIL
+ *   a pass whose every day was refused stamps `lastSyncedAt` again      1 FAIL
+ *   the baseline pass stamps `lastSyncedAt` again                       1 FAIL
+ *   `lastSyncedAt` is never stamped at all — the over-correction, and
+ *     the reason the two positive checks are here                       2 FAIL
+ *   the catch-all for a pass that threw stamps `lastSyncedAt` again     1 FAIL
  */
 
 import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
@@ -246,6 +251,10 @@ export async function runImessageServiceChecks(check, skip) {
     await service.syncNow();
     check("turned on, the first pass baselines at the newest existing row", offStore.written.at(-1)?.lastRowId === 1);
     check("...and writes no old iMessage history on first enable", !offGateway.requests.some((request) => request?.params?.name === "write_note"));
+    check(
+      "...and having filed nothing, the baseline pass does not claim a sync either",
+      service.status().lastSyncedAt === null,
+    );
     check("...and the database was still never written to", (await dbFingerprint(dbPath)) === untouched);
     check("...and the credential never crossed as anything but an Authorization header", !JSON.stringify(offGateway.requests).includes("not-a-real-token"));
     check("...and the enabled service watches exactly this Mac's allowed chat.db", observedPath === dbPath);
@@ -287,6 +296,10 @@ export async function runImessageServiceChecks(check, skip) {
     );
     check("...as a private note, never team-visible", wroteNote?.params?.arguments?.visibility === "private");
     check("...and the new message really is in it", String(wroteNote?.params?.arguments?.content).includes("second message after a filesystem change"));
+    check(
+      "...and THIS is the pass that stamps `last synced`, because it is the one that filed something",
+      typeof service.status().lastSyncedAt === "number",
+    );
     const statusesAfterChangedPass = offStatuses.length;
     observedChange();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -463,11 +476,23 @@ export async function runImessageServiceChecks(check, skip) {
     });
     service.reconfigure();
     await service.syncNow();
-    service.stop();
 
     const finalStatus = service.status();
     check("a refused write really does surface as an error a person can see", typeof finalStatus.lastError === "string" && finalStatus.lastError.length > 0);
     check("...and the cursor is held back, so the day is retried rather than lost", failStore.written.at(-1)?.lastRowId === 4);
+    /*
+      The check the card needed and did not have.
+
+      A gateway refusing every write still ends a pass, and the service used to
+      stamp `lastSyncedAt` for it — so the console said *"Import is on; last
+      synced <a moment ago>"* above the refusal, and kept saying it, more
+      recently each pass, over an import that had never filed one note. This is
+      the assertion that makes "last synced" mean what `contract.ts` says.
+    */
+    check(
+      "A PASS WHERE EVERY WRITE WAS REFUSED NEVER CLAIMS A SYNC",
+      finalStatus.lastSyncedAt === null && failStatuses.every((status) => status.lastSyncedAt === null),
+    );
 
     // The gateway's refusal quoted the whole note back. Every status this
     // service emitted, plus the one it answers now, is searched for all four
@@ -489,6 +514,24 @@ export async function runImessageServiceChecks(check, skip) {
       "...and the cursor file holds a row number and a version, and no content at all",
       failStore.written.every((entry) => Object.keys(entry).sort().join(",") === "lastRowId,version"),
     );
+
+    /*
+      The regression guard on the other side of that gate: a pass that recovers
+      must still stamp.
+
+      The fix above makes `lastSyncedAt` conditional on a written day, and the
+      way to get that wrong is to make it conditional on nothing — a field that
+      is never stamped tells a person as little as one that always is. Same
+      service, same held-back cursor, a gateway that now accepts the write.
+    */
+    const recovered = stubFetch();
+    globalThis.fetch = recovered.impl;
+    await service.syncNow();
+    service.stop();
+    const recoveredStatus = service.status();
+    check("the day held back by the refusal is filed on the retry, not lost", recovered.notes.size > 0);
+    check("...and THAT pass stamps `last synced`, because it filed something", typeof recoveredStatus.lastSyncedAt === "number");
+    check("...and clears the refusal it recovered from", recoveredStatus.lastError === null);
 
     // -- NO chat.db AT ALL: unknown, not denied, and no gateway traffic ------
     const noDb = stubFetch();
@@ -542,6 +585,7 @@ export async function runImessageServiceChecks(check, skip) {
     );
     check("...and reconfigure refuses to install a watcher on that outside path", decoyWatcherInstalled === false);
     check("...and says only that the pass could not complete, never which file or why", service.status().lastError === "iMessage import could not complete a sync pass");
+    check("...and a pass that threw claims no sync either — the loudest case of filing nothing", service.status().lastSyncedAt === null);
     check("...and no cursor is written at all, so nothing about that file is remembered", decoyStore.written.length === 0);
   } finally {
     service?.stop();
