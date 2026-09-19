@@ -119,6 +119,27 @@ const workspaceSummary = v.object({
    * would be a second place for the default to drift.
    */
   meetingsFolder: v.optional(v.string()),
+  /**
+   * When this context last changed, and when this member last caught up.
+   *
+   * The pair, rather than a boolean, because the console decides what to draw
+   * from it — a dot on this context's mark when the first is newer than the
+   * second — and a server-computed `hasNew` would be a second place for that
+   * rule to live. Both are absent for a context nothing has been recorded in
+   * and a member who has never looked, which reads as "nothing to say" and is
+   * the right answer for a context that has just been created.
+   *
+   * Neither is a count. A count would have to be a count of what *this* reader
+   * may see, which is a per-member question over a shared row — the number
+   * lives in the context itself, one press away.
+   *
+   * **`activityAt` is already narrowed to this reader** by the query: an owner
+   * is served the context's own stamp, and everybody else the team-tier one,
+   * so the dot never reports the time of a private change to somebody the file
+   * itself would refuse. See `schema.ts`, `activityTeamAt`.
+   */
+  activityAt: v.optional(v.number()),
+  activitySeenAt: v.optional(v.number()),
   joinedAt: v.number(),
   createdAt: v.number(),
   /**
@@ -578,6 +599,15 @@ export const listMyWorkspaces = query({
         role: membership.role,
         icon: workspace.icon,
         meetingsFolder: workspace.meetingsFolder,
+        /*
+          The owner's stamp counts every line; everybody else's counts the
+          `team` ones. Narrowed here rather than on the client, because a
+          number that reaches a device has been disclosed whatever the device
+          then does with it.
+        */
+        activityAt:
+          membership.role === "owner" ? workspace.activityAt : workspace.activityTeamAt,
+        activitySeenAt: membership.activitySeenAt,
         joinedAt: membership.joinedAt,
         createdAt: workspace.createdAt,
       });
@@ -598,6 +628,14 @@ export const listMyWorkspaces = query({
         role: PINNED_CONTEXT_ROLE,
         icon: pinned.icon,
         meetingsFolder: pinned.meetingsFolder,
+        /*
+          A pinned reader has no membership row, so there is nothing that could
+          hold "when did they last look" — and a mark that lights for everybody
+          and never goes out is worse than one that never lights. The shared
+          context's own activity is still there when they open it.
+        */
+        activityAt: undefined,
+        activitySeenAt: undefined,
         /*
           Nobody joined, so there is no join time. The workspace's own creation
           is the only honest date available and is what the field means for a

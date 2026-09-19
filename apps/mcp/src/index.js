@@ -1018,6 +1018,33 @@ async function route(request, env, ctx) {
           workspaceId: session.workspaceId,
         });
 
+      /**
+       * That something landed in this context's `activity.md`, and at which
+       * tier.
+       *
+       * Bound to the workspace this store reaches, like the progress reporter
+       * above and for the same reason: a cross-context write lights the dot on
+       * the context it was written into, never on the one the client happened
+       * to connect to.
+       *
+       * Deferred where the host can, and dropped where it cannot — the same
+       * trade `reportUsage` makes, and the same reasoning: a dot that does not
+       * light is a slightly quieter console, and a fetch nothing keeps alive
+       * is a subrequest spent on nothing. The line is in the customer's bucket
+       * either way, which is where it matters.
+       */
+      store.reportActivity = (teamVisible) => {
+        const send = controlPlane
+          .reportActivity(session.workspaceId, teamVisible === true)
+          .catch(() => {});
+        if (typeof store.defer !== "function") return;
+        try {
+          store.defer(send);
+        } catch {
+          // A host whose `waitUntil` refuses the work simply does not report.
+        }
+      };
+
       // Capture is anchored to the context its grant was approved for, so the
       // inbox store is built without the opener at all rather than with one
       // nothing calls. That makes "a capture-only credential reaches exactly
@@ -4902,6 +4929,22 @@ async function recordActivity(store, change) {
         effectiveVisibility(ACTIVITY_PATH, state.rules, state.overrides) !== "private"
       ) {
         await persistExactVisibility(store, ACTIVITY_PATH, "private", state.rules);
+      }
+      /*
+        Across the boundary: this context changed, at this tier. It is what
+        lights the dot on this workspace's mark in somebody else's console, and
+        it carries nothing about *what* changed — see `reportActivity`.
+
+        The tier goes with it because a member who is not the owner is served
+        the team-tier stamp: a private line that moved their dot would tell
+        them the exact time of a change the file, the tree and `list_changes`
+        all refuse them. `next.entry.vis` is the entry's own flag, the one
+        already written into the line.
+      */
+      try {
+        store.reportActivity?.(next.entry.vis === "team");
+      } catch {
+        // A reporter that throws synchronously is still not a failed change.
       }
       return;
     }

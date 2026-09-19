@@ -51,6 +51,17 @@ export interface ConsoleContext {
   displayName: string;
   role: string;
   kind: string;
+  /**
+   * Whether something has changed in this context since this person last
+   * looked at it — the dot on its mark in the switcher row.
+   *
+   * A boolean, decided in one place (`hasNewActivity`) from the two timestamps
+   * the control plane returns, because a rule expressed at three call sites is
+   * a rule three of them can disagree about. `false` for a context nothing has
+   * been recorded in, for one whose reader is caught up, and for the pinned
+   * context, which has no membership row to remember a visit in.
+   */
+  hasNewActivity?: boolean;
   status: StatusTone;
   /**
    * What this workspace draws in its mark, when its owner chose something

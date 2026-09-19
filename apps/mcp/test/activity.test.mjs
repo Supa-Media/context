@@ -19,6 +19,10 @@
  *     because it names paths across the whole context.
  *  3. A team-tier caller reading it through `read_activity` sees the team
  *     lines and nothing else — not a placeholder, not a count, not a gap.
+ *  4. What the gateway tells the control plane when a line lands is one
+ *     workspace id and the line's tier — it is only told when a line actually
+ *     landed, and a private line is reported as private so that no member's
+ *     dot can carry the time of a change they may not see.
  *
  * ## Sabotage record
  *
@@ -35,6 +39,10 @@
  *   `visibleEntries` trusting `canSee` without `vis`                        1
  *   the private ACL dropped from the gateway's activity write               1
  *   `read_activity` serving the owner's view to a team caller               3
+ *   the control-plane report dropped from `recordActivity`                  2
+ *   the write's summary added to the report body                           2
+ *   the report moved above the "nothing to say" return                      1
+ *   `teamVisible` hard-coded true in `reportActivity`                       2
  */
 
 import worker from "../src/index.js";
@@ -879,6 +887,105 @@ async function runWiredChecks(check) {
   check(
     "and it is not offered as a note to a team reader",
     !listed.includes(ACTIVITY_PATH),
+  );
+
+  /*
+    WHAT THE GATEWAY TELLS THE CONTROL PLANE THAT A LINE LANDED.
+
+    The console draws a dot on another context's mark without opening that
+    context's bucket, so something has to cross the boundary. The whole of
+    what may cross is one workspace id — the same rule `usageReporting.test.mjs`
+    states for the counters, and for the same reason: what changed, who
+    changed it and where are in the customer's bucket, and a second copy on
+    our side built so a dot can be drawn is the first non-negotiable being
+    spent on a pixel.
+
+    Asserted over the serialized body rather than over a field list, so a
+    field somebody adds later is caught by the shape rather than by being
+    remembered.
+  */
+  const reports = () =>
+    controlPlane.calls.filter((entry) => entry.path === "/gateway/activity");
+
+  controlPlane.calls.length = 0;
+  await call(OWNER, "write_note", {
+    path: "1-projects/beta.md",
+    content: `# Beta\n\n${"c".repeat(400)}\n`,
+    summary: "a sentence that must not cross the wire",
+  });
+  await Promise.resolve();
+  {
+    const sent = reports();
+    check("a line landing reports it to the control plane", sent.length === 1);
+    check(
+      "with the context it was written into, its tier, and nothing else",
+      JSON.stringify(sent[0]?.body) ===
+        JSON.stringify({ workspaceId: "ws_activity", teamVisible: false }),
+    );
+    // Belt and braces on the line above, and the one that would actually be
+    // written by accident: a summary, a path, or a name leaking into the body
+    // of a request whose only job is to move a boolean.
+    const body = JSON.stringify(sent[0]?.body ?? {});
+    check(
+      "and no path, summary, person or client in it",
+      !body.includes("beta") &&
+        !body.includes("must not cross") &&
+        !body.includes("@activity") &&
+        !body.includes("Claude Code"),
+    );
+  }
+
+  /*
+    AND THE TIER, WHICH IS THE ONE FIELD THAT IS ALLOWED TO CROSS.
+
+    Not a fact about the note: it says which of the two stamps on the workspace
+    row may move. A member who is not the owner reads `activityTeamAt`, so a
+    private line that moved their dot would hand them the exact time of a
+    change the file, the tree and `list_changes` all refuse them — the one
+    place in the product where a private write would leak its clock.
+  */
+  controlPlane.calls.length = 0;
+  await call(OWNER, "write_note", {
+    path: "1-projects/gamma.md",
+    content: `# Gamma\n\n${"d".repeat(400)}\n`,
+    visibility: "team",
+    confirm_team_publish: true,
+  });
+  await Promise.resolve();
+  check(
+    "a team line reports its tier as team",
+    reports()[0]?.body?.teamVisible === true,
+  );
+
+  controlPlane.calls.length = 0;
+  await call(OWNER, "write_note", {
+    path: "3-teams/salaries.md",
+    content: `# Salaries\n\n${"e".repeat(400)}\n`,
+  });
+  await Promise.resolve();
+  check(
+    "and a private one reports false, so no member's dot moves for it",
+    reports()[0]?.body?.teamVisible === false,
+  );
+
+  /*
+    And the half that is easy to get backwards: the stamp follows the *line*,
+    not the operation. A change the feed declines to mention must not light a
+    dot, or the console sends somebody to look for something that was never
+    written down — the "workspace can feel dead" problem inverted into a
+    workspace that cries wolf.
+  */
+  controlPlane.calls.length = 0;
+  const beta = await call(OWNER, "read_note", { path: "1-projects/beta.md" });
+  await call(OWNER, "write_note", {
+    path: "1-projects/beta.md",
+    content: `# Beta\n\n${"c".repeat(400)}\nx\n`,
+    expected_etag: beta?.etag,
+  });
+  await Promise.resolve();
+  check(
+    "a change too small to mention reports nothing",
+    reports().length === 0,
   );
 
   restore();

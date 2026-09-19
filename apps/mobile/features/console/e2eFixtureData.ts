@@ -35,6 +35,19 @@ export function useE2EFixtureConsoleData(): ConsoleData {
     ...demo,
     files: { ...demo.files, canEdit: true, canShare: true, canSetVisibility: true },
     /*
+      One other context with something new in it.
+
+      The shared one, because that is the question the meeting actually asked
+      — "especially in shared workspaces too" — and because `public-worship`
+      is the demo's `warn` row, so this draws the one collision worth looking
+      at: a context in storage trouble carries `WorkspaceMark`'s own alarm and
+      this dot at the same time, on opposite corners. A fixture that put the
+      dot on a healthy row could not show that they do not overlap.
+    */
+    contexts: demo.contexts.map((context) =>
+      context.slug === "public-worship" ? { ...context, hasNewActivity: true } : context,
+    ),
+    /*
       An activity view with something unread in it.
 
       The feature this holds on to is the one a green suite cannot see: the

@@ -377,6 +377,35 @@ describe("the row, drawn", () => {
       ...over,
     });
 
+  /*
+    THE DOT ON SOMEBODY ELSE'S CONTEXT.
+
+    The half of the activity feed that answers the question it was asked for:
+    a person works in their own context all day, and what they cannot see is
+    that the shared one moved. The rule is `hasNewActivity`'s; what is asserted
+    here is that this row draws it, and says it to a screen reader — a mark
+    only sighted people get is the failure `ContextStrip`'s rule already names.
+  */
+  test("a context that has changed since you looked carries a mark", () => {
+    const moved = four().map((entry) =>
+      entry.slug === "supa" ? { ...entry, hasNewActivity: true } : entry,
+    );
+    const ui = mount(row({ contexts: moved }));
+    expect(ui.need("context-foot-supa").getAttribute("aria-label")).toBe(
+      "Switch to @supa, which has changed",
+    );
+    expect(ui.need("context-foot-public-worship").getAttribute("aria-label")).toBe(
+      "Switch to @public-worship",
+    );
+  });
+
+  test("and nothing is marked when nothing has moved", () => {
+    const ui = mount(row());
+    expect(ui.need("context-foot-supa").getAttribute("aria-label")).toBe(
+      "Switch to @supa",
+    );
+  });
+
   test("pressing a workspace asks to go to it", () => {
     const opened: string[] = [];
     const ui = mount(row({ onOpen: (slug: string) => opened.push(slug) }));

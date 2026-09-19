@@ -122,6 +122,8 @@ export function createControlPlaneStub(options = {}) {
   const pendingAuthorizations = new Map();
   /** opaque gateway job ticket → job */
   const gatewayJobs = new Map();
+  /** workspaceId → when the gateway last said that context changed */
+  const activityStamps = new Map();
 
   /** Every call the worker made, for assertions about what was sent. */
   const calls = [];
@@ -534,6 +536,25 @@ export function createControlPlaneStub(options = {}) {
         return ok({ ok: true });
       }
 
+      case "/gateway/activity": {
+        // One field in, one word out. The real route answers `{ok: true}` on
+        // every path — including an id that is not a workspace — because the
+        // difference between "no such context" and "not yours" is exactly the
+        // oracle a gateway-authenticated route must not be, and the stub is
+        // only useful as a contract if it is identical in that.
+        if (typeof body.workspaceId === "string" && body.workspaceId) {
+          const at = Date.now();
+          const previous = activityStamps.get(body.workspaceId) ?? {};
+          activityStamps.set(body.workspaceId, {
+            at,
+            // Only a `team` line moves the stamp a non-owner member reads, and
+            // an omitted flag reads as private — the real mutation's rule.
+            teamAt: body.teamVisible === true ? at : previous.teamAt,
+          });
+        }
+        return ok({ ok: true });
+      }
+
       case "/gateway/usage": {
         // The reference implementation of the counter route: it accepts a list
         // of {metric, workspaceId, count} and answers how many it applied.
@@ -594,6 +615,7 @@ export function createControlPlaneStub(options = {}) {
     accessTokens,
     refreshTokens,
     gatewayJobs,
+    activityStamps,
     pendingAuthorizations,
     calls,
   };

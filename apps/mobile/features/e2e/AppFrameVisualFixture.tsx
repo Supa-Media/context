@@ -8,6 +8,7 @@ import { SaveChip } from "../console/ConsoleShell";
 import { SwitcherMenu } from "../console/SwitcherMenu";
 import { useE2EFixtureConsoleData } from "../console/e2eFixtureData";
 import { selectedContext } from "../console/types";
+import { ContextFootRow } from "../console/ContextFootRow";
 import { Explorer } from "../console/files/Explorer";
 import { TabStrip } from "../console/files/TabStrip";
 import type { TabsState } from "../console/files/tabs";
@@ -248,7 +249,37 @@ export function AppFrameVisualFixture({ panel = false }: { panel?: boolean }) {
           it was empty. Copying `console/_layout`'s own wiring is the point of a
           fixture meant to answer "does this look like the design".
         */
-        explorer={<Explorer files={data.files} contextLabel="@seyi" activity={data.activity} />}
+        explorer={
+          <Explorer
+            files={data.files}
+            contextLabel="@seyi"
+            activity={data.activity}
+            /*
+              THE WORKSPACE ROW AT THE FOOT OF THE COLUMN.
+
+              Supplied by `console/_layout` in the product and by nothing here
+              until now, which is the failure this file's own header names: the
+              board could not show the row, so it could not show the dot on
+              another context's mark — the half of the activity feed the
+              meeting asked for by name ("especially in shared workspaces
+              too"). The fixture's `public-worship` carries it, and carries a
+              storage `warn` at the same time, so this is also where the two
+              marks are seen not to collide.
+
+              `recent` is empty and `onOpen` goes nowhere: this is a board, and
+              switching contexts is not one of the things it is for.
+            */
+            workspaces={
+              <ContextFootRow
+                contexts={data.contexts}
+                currentSlug={route.kind === "context" ? route.slug : null}
+                recent={[]}
+                onOpen={(slug) => setRoute({ kind: "context", slug, view: "browse" })}
+                menu={null}
+              />
+            }
+          />
+        }
         /*
           The real status bar, on the real segment model.
 

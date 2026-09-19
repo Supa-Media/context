@@ -17,7 +17,11 @@ import { expect, test } from "@playwright/test";
  *     `activity` reached the column through the same slot the console uses;
  *  2. pressing it puts the list over the tree, with the sentence a person
  *     reads rather than a log line;
- *  3. the list sits over the column and not across the note, which is a
+ *  3. the dot on *another* context's mark is drawn, and costs the row no
+ *     width — the half of this feature the meeting asked for by name, and one
+ *     the console layout supplies through a slot the board did not fill until
+ *     this spec needed it;
+ *  4. the list sits over the column and not across the note, which is a
  *     geometry claim jsdom cannot make at all — `getBoundingClientRect` is
  *     zeroes there, and a popover anchored to the wrong edge is precisely the
  *     defect that shipped the last time a menu was placed without looking
@@ -91,4 +95,33 @@ test("closing it catches up, and the line goes back to the note count", async ({
   await expect(
     page.getByTestId("explorer-activity").or(page.getByTestId("explorer-counts")),
   ).toBeVisible();
+});
+
+test("another context that has moved carries a dot, and pays no width for it", async ({
+  page,
+}) => {
+  // `public-worship` is the fixture's shared context, and the one the meeting
+  // was actually about: you work in your own all day and cannot see that the
+  // shared one moved.
+  const marked = page.getByTestId("context-foot-public-worship");
+  const quiet = page.getByTestId("context-foot-lk");
+  await expect(marked).toBeVisible();
+
+  // Said, not just drawn. A mark only sighted people get is the failure
+  // `ContextStrip`'s own rule already names.
+  await expect(marked).toHaveAttribute(
+    "aria-label",
+    "Switch to @public-worship, which has changed",
+  );
+  await expect(quiet).toHaveAttribute("aria-label", "Switch to @lk");
+
+  // And the geometry claim, which is the whole reason this is here rather than
+  // in jsdom: the row is a fixed target and the dot is absolutely positioned
+  // over it, so a marked context must be exactly the size of an unmarked one.
+  // Get this wrong and the dot pushes the names the row exists to fit.
+  const a = await marked.boundingBox();
+  const b = await quiet.boundingBox();
+  if (a === null || b === null) throw new Error("nothing drawn");
+  expect(Math.abs(a.width - b.width)).toBeLessThan(1);
+  expect(Math.abs(a.height - b.height)).toBeLessThan(1);
 });

@@ -156,14 +156,49 @@ export function ContextFootRow({
             of unlabelled glyphs to a screen reader is not collapsed, it is
             broken".
           */
-          accessibilityLabel={`Switch to ${atName(context.slug)}`}
+          accessibilityLabel={
+            context.hasNewActivity
+              ? `Switch to ${atName(context.slug)}, which has changed`
+              : `Switch to ${atName(context.slug)}`
+          }
           onPress={() => onOpen(context.slug)}
           radius={plan.named ? radii.pill : radii.sm}
           style={plan.named ? styles.pill : styles.mark}
           hoverStyle={styles.itemHover}
           testID={`context-foot-${context.slug}`}
         >
-          <WorkspaceMark label={atName(context.slug)} tone={context.status} icon={iconFor(context)} />
+          {/*
+            SOMETHING HAS HAPPENED IN THAT CONTEXT SINCE YOU LOOKED AT IT.
+
+            The other half of the feature, and the half the meeting actually
+            asked for — "especially in shared workspaces too". A person works
+            in their own context all day; what they cannot see is that the
+            shared one moved.
+
+            The dot hangs off the **mark**, not off the row, which is why there
+            is a wrapper here: this row draws two different shapes — a bare
+            24pt target and a padded pill with a name in it — and the mark sits
+            at a different offset inside each. Positioned against the row, the
+            dot floated four points clear of the square in the bare case, which
+            is what a browser showed and no test could.
+
+            Absolute, so it costs the row no width: `foot.ts` has already
+            decided what fits, and a dot that took a point would push out the
+            names this row exists to fit. 6pt, the same as the tree's folder
+            dot, because it means the same thing one level up.
+
+            It cannot collide with the storage alarm. `tone` is the mark's
+            *fill* — an amber or red square — not a badge in a corner, so a
+            context in trouble that has also moved reads as both at once.
+          */}
+          <View style={styles.markSlot}>
+            <WorkspaceMark
+              label={atName(context.slug)}
+              tone={context.status}
+              icon={iconFor(context)}
+            />
+            {context.hasNewActivity ? <View style={styles.newDot} aria-hidden /> : null}
+          </View>
           {plan.named ? (
             <Text variant="pill" numberOfLines={1} style={styles.pillLabel}>
               {atName(context.slug)}
@@ -233,6 +268,32 @@ const makeStyles = (colors: Colors) =>
       backgroundColor: colors.chipFill,
     },
     pillLabel: { color: colors.text2 },
+    /**
+     * The box the mark occupies, so the dot has that to hang off.
+     *
+     * `WorkspaceMark`'s own 18pt, restated: it draws no wrapper of its own and
+     * this needs a positioning parent that is the square rather than the row.
+     */
+    markSlot: { position: "relative", width: 18, height: 18 },
+    /**
+     * The activity dot, straddling the mark's leading top corner.
+     *
+     * Absolutely positioned so it costs the row no width — see the comment at
+     * the call site — and ringed in the row's ground so it reads as a mark
+     * *on* the square rather than as part of it. `-2` on both sides puts its
+     * centre on the corner, which is what keeps it reading as attached at 6pt.
+     */
+    newDot: {
+      position: "absolute",
+      top: -2,
+      left: -2,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.accent,
+      borderWidth: 1.5,
+      borderColor: colors.chromeSurface,
+    },
     /** A recent, narrow: the mark alone, in a 24pt target. */
     mark: {
       width: 24,
