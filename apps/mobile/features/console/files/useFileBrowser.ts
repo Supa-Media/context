@@ -1608,7 +1608,18 @@ export function useFileBrowser(options: {
        */
       revert?: () => void,
     ): Promise<boolean> => {
-      if (!options.canEdit || workspaceId === null) return false;
+      if (!options.canEdit || workspaceId === null) {
+        /*
+          Reverted, and this is not theoretical. A read-only console keeps all
+          fourteen mutating methods — `menu.ts` opens by saying so, and
+          `useDemoFileBrowser` sets every one of them to a no-op — so a call
+          that slips past `canEdit` reaches here rather than throwing. Before
+          the drawing existed that was a silent no-op; now it would be a row
+          left sitting at a path nothing will ever write.
+        */
+        revert?.();
+        return false;
+      }
       /*
         Known offline, it is not sent at all. Every `work()` here awaits a
         Convex action with no client-side timeout, so the alternative is
@@ -2396,13 +2407,22 @@ export function useFileBrowser(options: {
    * the screen right *now*; `cascadeFrom` is what makes it true, folder by
    * folder, as `refresh` commits each page.
    */
-  const moveResult = useCallback(
-    (from: string, to: string) =>
-      isFolderPath(from) && subtreeOf(listings, from).length > 0
-        ? { touched: [from, to], cascadeFrom: to }
-        : { touched: [from, to] },
-    [isFolderPath, listings],
-  );
+  const moveResult = useCallback((from: string, to: string) => {
+    /*
+      `listingsRef` and not the closed-over `listings`, and the call site has
+      to make it **before** `drawMove` — the drawing re-keys the subtree, and a
+      verdict taken after it would find nothing under `from` and quietly skip
+      the cascade. That is exactly what an *undo* does, which is the path this
+      was wrong on: moving a folder back left its contents drawn with the
+      visibility the destination gave them.
+    */
+    const loaded = listingsRef.current;
+    const known = findEntry(loaded, from);
+    const isFolder = known === null ? !isMarkdown(from) : known.kind === "folder";
+    return isFolder && subtreeOf(loaded, from).length > 0
+      ? { touched: [from, to], cascadeFrom: to }
+      : { touched: [from, to] };
+  }, []);
 
   /**
    * Rename or move a note through the queue. Shared by `rename` and `move`,
@@ -2606,14 +2626,16 @@ export function useFileBrowser(options: {
           // it. It goes through `run` for the same reason the move did: a
           // failure has to reach the notice line, and the tree has to reload.
           undo: () => {
+            // Verdict first — see `moveResult`.
+            const back = moveResult(to, path);
             const undoUndo = drawMove(to, path);
-            void run(async () => {
-              await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
-              return {
-                ...moveResult(to, path),
-                message: `Moved back to ${folderLabel(from)}.`,
-              };
-            }, undoUndo);
+            void run(
+              async () => {
+                await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
+                return { ...back, message: `Moved back to ${folderLabel(from)}.` };
+              },
+              undoUndo,
+            );
           },
         };
       }, undoDraw);
@@ -2804,11 +2826,13 @@ export function useFileBrowser(options: {
           ...result,
           message: `Renamed to ${name}.`,
           undo: () => {
-            const back = selectedPathRef.current === to;
-            const undoUndo = back ? drawListingMove(to, path) : drawMove(to, path);
+            // Verdict first — see `moveResult`.
+            const backResult = moveResult(to, path);
+            const open = selectedPathRef.current === to;
+            const undoUndo = open ? drawListingMove(to, path) : drawMove(to, path);
             void run(async () => {
               await moveEntry({ workspaceId: workspaceId!, from: to, to: path });
-              return { ...moveResult(to, path), message: `Renamed back to ${was}.` };
+              return { ...backResult, message: `Renamed back to ${was}.` };
             }, undoUndo).then((ok) => {
               // The editor follows the file, in both directions. Without this
               // an undone rename left the open tab pointing at a path the

@@ -291,6 +291,101 @@ describe("a folder move into another folder", () => {
   });
 });
 
+describe("undoing a move", () => {
+  test("puts it back and reloads the subtree, which the move's own cascade did", () => {
+    /*
+      The verdict for a cascade has to be taken BEFORE the drawing re-keys the
+      paths, and the undo is where that was wrong: `moveResult` asked what was
+      loaded under the source *after* `drawMove` had already moved it, found
+      nothing, and skipped the cascade — so a folder moved back kept its
+      contents drawn with the visibility the destination had given them.
+    */
+    return (async () => {
+      unmount = mount();
+      await settle();
+      await openTree();
+      await act(async () => {
+        browser.toggleFolder("2-areas");
+      });
+      await settle();
+
+      const everywhere = async (args: never) => {
+        const { path } = args as unknown as { path: string };
+        const at = path.startsWith("2-areas/foo")
+          ? `1-projects/foo${path.slice("2-areas/foo".length)}`
+          : path;
+        const page = BUCKET[at];
+        if (page === undefined) throw new ConvexError({ code: "FILE_NOT_FOUND", message: "Gone." });
+        return { ...page, path };
+      };
+      actions[name("listFiles")] = everywhere;
+
+      await act(async () => {
+        browser.move("1-projects/foo", "2-areas");
+      });
+      await settle();
+
+      const asked: string[] = [];
+      actions[name("listFiles")] = async (args: never) => {
+        asked.push((args as unknown as { path: string }).path);
+        return everywhere(args);
+      };
+
+      const undo = browser.toasts[0]?.undo;
+      expect(undo).toBeDefined();
+      await act(async () => {
+        undo!();
+      });
+      await settle();
+
+      expect(pathsIn(browser.listings["1-projects"])).toEqual(["1-projects/foo"]);
+      expect(asked).toContain("1-projects/foo");
+      expect(asked).toContain("1-projects/foo/deep");
+    })();
+  });
+});
+
+describe("a console that cannot edit", () => {
+  test("draws nothing, rather than a row that will never be written", () => {
+    /*
+      A read-only console keeps all fourteen mutating methods — `menu.ts` opens
+      by saying so, and `useDemoFileBrowser` sets each of them to a no-op — so
+      a call that slips past `canEdit` reaches `run` rather than throwing.
+      Before, that was a silent no-op; with a drawing in front of it, it would
+      leave the row sitting at a path nothing will ever write.
+    */
+    return (async () => {
+      const container = document.createElement("div");
+      document.body.appendChild(container);
+      const root = createRoot(container, { onUncaughtError: () => {}, onCaughtError: () => {} });
+      function Probe() {
+        browser = useFileBrowser({ workspaceId: WORKSPACE, canEdit: false, tier: "private" });
+        return null;
+      }
+      act(() => {
+        root.render(createElement(Probe));
+      });
+      unmount = () => {
+        act(() => root.unmount());
+        container.remove();
+      };
+      await settle();
+      await act(async () => {
+        browser.toggleFolder("1-projects");
+      });
+      await settle();
+
+      await act(async () => {
+        browser.rename("1-projects/foo", "bar");
+      });
+      await settle();
+
+      expect(pathsIn(browser.listings["1-projects"])).toEqual(["1-projects/foo"]);
+      expect(browser.listings["1-projects/bar"]).toBeUndefined();
+    })();
+  });
+});
+
 describe("a new folder", () => {
   test("is drawn before createDirectory answers, and taken back if it refuses", async () => {
     unmount = mount();
