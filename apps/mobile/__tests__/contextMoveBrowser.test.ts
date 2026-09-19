@@ -244,3 +244,45 @@ describe("watching them", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * THE PRESS THAT HAS TO OUTLIVE THE PROCESS.
+ *
+ * A finished move stays listable for a day, so the console asks for it again
+ * on every launch. Dismissal used to live in `BrowsePane`'s own `useState`,
+ * which made that Dismiss button a control that worked until the app was
+ * closed — "Moved 1 note to @supa." every morning for a day. The answer has
+ * to reach the row, and this is the wire that carries it.
+ */
+describe("dismissing a finished one", () => {
+  test("the answer goes to the row rather than staying on the device", async () => {
+    actions[name("contextMoves", "dismissContextMove")] = async () => ({ dismissed: true });
+    mount({ isOwner: true, destinations: [WORK] });
+    await settle();
+
+    act(() => browser.dismissContextMove("mv1"));
+    await settle();
+
+    expect(
+      calls.filter((call) => call.name === name("contextMoves", "dismissContextMove")),
+    ).toEqual([
+      { name: name("contextMoves", "dismissContextMove"), args: { moveId: "mv1" } },
+    ]);
+  });
+
+  test("a write that fails costs the line once more, not an error over it", async () => {
+    actions[name("contextMoves", "dismissContextMove")] = async () => {
+      throw new Error("offline");
+    };
+    mount({ isOwner: true, destinations: [WORK] });
+    await settle();
+
+    act(() => browser.dismissContextMove("mv1"));
+    await settle();
+
+    // An error banner raised over a dismissal is the notice again, wearing a
+    // worse hat. The pane has already hidden the line from its own state;
+    // what a lost write costs is seeing it on the next launch.
+    expect(browser.notice).toBe(null);
+  });
+});

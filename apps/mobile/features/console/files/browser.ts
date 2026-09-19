@@ -463,6 +463,19 @@ export interface FileBrowser {
   contextMoves: readonly ContextMoveProgress[];
   /** Pick a stopped move back up. Everything already carried stays carried. */
   resumeContextMove: (id: string) => void;
+  /**
+   * Record that a move's outcome has been read, so it stops being listed.
+   *
+   * Per account rather than per screen: the row stays listable for a day, so
+   * a dismissal only the device remembered was the same line again on the
+   * next launch — and on the other device, which never asked.
+   *
+   * Takes any id and is refused for anything but a **completed** move, which
+   * is the server's rule to keep (`dismissContextMove`): a failed move's
+   * notice holds the only control that can finish it. Callers still hide the
+   * line locally; that is what "Not now" means on a failure.
+   */
+  dismissContextMove: (id: string) => void;
   duplicate: (path: string) => void;
   archive: (path: string) => void;
   /** Recoverable delete: moves the entry into the archive-backed trash and offers Undo. */

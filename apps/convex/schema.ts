@@ -1938,6 +1938,22 @@ const schema = defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
     completedAt: v.optional(v.number()),
+    /**
+     * When the owner read the outcome and said so, on any device.
+     *
+     * A finished row outlives the screen that was watching it — it stays
+     * listable for a day so a move does not vanish from somebody else's
+     * console at ninety-nine percent. Without this the console had nowhere
+     * durable to put "I have read that", so the notice came back on every
+     * launch for the rest of the day, and its Dismiss button only ever
+     * reached memory that the next launch threw away.
+     *
+     * Set for a `complete` row only. A `failed` one's notice carries the
+     * Resume button that is the clean way to finish it, so it can be put
+     * aside for a session but never answered for good —
+     * `dismissContextMove` is where that argument lives.
+     */
+    dismissedAt: v.optional(v.number()),
   })
     .index("by_source_updatedAt", ["sourceWorkspaceId", "updatedAt"])
     .index("by_destination_updatedAt", ["destinationWorkspaceId", "updatedAt"])

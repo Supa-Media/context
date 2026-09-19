@@ -208,6 +208,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       moveToContext: noop,
       contextMoves: [],
       resumeContextMove: noop,
+      dismissContextMove: noop,
       duplicate: noop,
       archive: noop,
       destroy: noop,

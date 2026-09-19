@@ -91,6 +91,7 @@ function browser(readRaw: FileBrowser["readRaw"]): FileBrowser {
     moveToContext: noop,
     contextMoves: [],
     resumeContextMove: noop,
+    dismissContextMove: noop,
     duplicate: noop,
     archive: noop,
     destroy: noop,
