@@ -802,8 +802,10 @@ const storageMigrationResultValidator = v.object({
  *
  * `observed: false` is a bucket that would not answer, and it carries no state
  * — the caller records nothing rather than writing down a guess. `observed`
- * with `state: null` is the real answer "nobody has ever run this here", which
- * is a different fact and the one the console was missing.
+ * with `state: null` is the real answer "there is pre-v1 plumbing here and
+ * nothing has moved it", which is a different fact and the one the console was
+ * missing. A bucket that never held any answers `complete`, because that is
+ * what its hidden files are — see `apps/mcp/src/storageLayout.js`.
  */
 const storageLayoutReadValidator = v.object({
   kind: v.literal("storageLayoutRead"),
@@ -3774,11 +3776,15 @@ export async function executeOperation(
         };
       }
       case "readStorageLayout": {
-        // One `get` against a single JSON key, and nothing else. The read
-        // deliberately does not take the conditional-write capabilities
-        // `migrateStorage` requires: a bucket that can never run the migration
-        // can still say whether it already has, and `unsupported` is the
-        // migration's refusal, recorded where the refusal happens.
+        // One `get` against a single JSON key, plus — only where there is no
+        // state file to read — one `list` per legacy prefix capped at a single
+        // object, because "no state file" is also what a bucket we scaffolded
+        // ourselves looks like and that one has nothing to migrate at all.
+        // Still read-only, and it deliberately does not take the
+        // conditional-write capabilities `migrateStorage` requires: a bucket
+        // that can never run the migration can still say whether it needs one,
+        // and `unsupported` is the migration's refusal, recorded where the
+        // refusal happens.
         const observation = await readStorageLayoutStateOp(store);
         return {
           kind: "storageLayoutRead",

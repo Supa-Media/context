@@ -219,6 +219,95 @@ describe("an owner can edit their context", () => {
     expect(binding?.storageLayoutAt).toBeGreaterThan(0);
   });
 
+  /**
+   * Let the observation the mutation queued actually run, and hand back what
+   * it recorded.
+   *
+   * `observeStorageLayout` schedules rather than probes — a public function
+   * that opened a credential would have `runFileOperation` in its own call
+   * graph — so the answer arrives a scheduler hop later and the binding is
+   * where it lands. Polled rather than slept on: the hop is immediate in
+   * practice, and a fixed sleep is how this file would get slow.
+   */
+  async function observedLayout(f: Fixture): Promise<void> {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await f.t.finishInProgressScheduledFunctions();
+      const checked = await f.t.run(async (ctx) =>
+        (
+          await ctx.db
+            .query("storageBindings")
+            .withIndex("by_workspace", (q) => q.eq("workspaceId", f.workspaceId))
+            .unique()
+        )?.storageLayoutCheckedAt,
+      );
+      // `t.run`'s result crosses a serialization boundary, where an absent
+      // optional field arrives as `null` rather than `undefined`.
+      if (typeof checked === "number") return;
+      await new Promise((resolve) => setTimeout(resolve, 1));
+    }
+  }
+
+  /*
+    AND A BUCKET THAT WAS BORN ON THE LAYOUT IS TOLD SO, HAVING RUN NOTHING.
+
+    This is the whole chain the owner's console runs on its first load —
+    mutation, scheduler, file operation, the gateway's own read, the recorded
+    answer — for the case that used to come out wrong. "No migration state
+    file" was read as "nobody has migrated this", which is true of a context we
+    scaffolded ourselves and beside the point: it has never held a `.audit/` or
+    a `.history/`, so there has never been anything here to migrate. Every new
+    workspace was offered a one-time storage update minutes after it was
+    created.
+
+    The fixture's bucket is exactly that bucket: notes, `index.md`,
+    `privacy.md`, and no plumbing of any generation.
+  */
+  test("a bucket born on the layout answers 'already current', having run nothing", async () => {
+    const f = await fixture();
+    const before = f.backend.snapshot();
+
+    expect(
+      await asUser(f.t, f.owner).mutation(api.functions.storage.observeStorageLayout, {
+        workspaceId: f.workspaceId,
+      }),
+    ).toEqual({ queued: true });
+    await observedLayout(f);
+
+    const binding = await asUser(f.t, f.owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId: f.workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBe("complete");
+    // Asking is a question, not a checkpoint: nothing was copied, written or
+    // deleted to find that out.
+    expect(f.backend.snapshot()).toEqual(before);
+  });
+
+  test("and one with pre-v1 plumbing in it still has the migration to run", async () => {
+    /*
+      The sabotage guard for the case above. Answering `complete` for a bucket
+      that still holds legacy objects retires the offer with work behind it —
+      pre-v1 plumbing left where no screen mentions it, dual reads carrying it
+      for ever, and nothing anywhere saying so.
+    */
+    const f = await fixture();
+    f.backend.seed(".history/1-projects/shared.md.2026-01-01.md", "an old version");
+
+    await asUser(f.t, f.owner).mutation(api.functions.storage.observeStorageLayout, {
+      workspaceId: f.workspaceId,
+    });
+    await observedLayout(f);
+
+    const binding = await asUser(f.t, f.owner).query(
+      api.functions.storage.getStorageBinding,
+      { workspaceId: f.workspaceId },
+    );
+    expect(binding?.storageLayoutState).toBeUndefined();
+    // Asked, though — which is what tells the console this is the real "nobody
+    // has run it" rather than a question nobody has put.
+    expect(binding?.storageLayoutCheckedAt).toBeGreaterThan(0);
+  });
+
   test("lists a folder", async () => {
     const f = await fixture();
     const listing = await asUser(f.t, f.owner).action(api.functions.files.listFiles, {

@@ -210,13 +210,87 @@ export async function runStorageLayoutChecks() {
  * would record a false absence, which is the nag again with extra steps.
  */
 export async function runStorageLayoutReadChecks() {
-  const never = memoryStore();
+  const never = memoryStore({ ".audit/a.json": "legacy" });
   const fresh = await readStorageLayoutState(never);
   check(
     "a bucket nobody has migrated is observed to have no state",
     fresh.observed === true && fresh.state === null,
   );
-  check("reading the state writes nothing", never.objects.size === 0);
+  check("reading the state writes nothing", never.objects.size === 1);
+
+  /*
+    THE BUCKET THAT WAS OFFERED AN UPDATE IT COULD NOT NEED.
+
+    An absent state file was the whole answer, so a context we scaffolded
+    ourselves — born on the v1 layout, never in its life the owner of a
+    `.audit/` or a `.history/` — was indistinguishable from a bucket that
+    predates `.context/` and still has all of it to move. Every newly created
+    workspace was therefore offered the one-time update on its first console
+    load, and dismissing it was the only thing that ever ended it.
+
+    Nothing to move is `complete`: the same answer a migrated bucket gives,
+    because it is the same fact about the hidden files.
+  */
+  const born = memoryStore({
+    "index.md": "# Context",
+    "privacy.md": "rules",
+    "1-projects/a.md": "note",
+    ".context/manifest.json": '{"schemaVersion":1}',
+  });
+  const nothingToDo = await readStorageLayoutState(born);
+  check(
+    "a bucket that never held pre-v1 plumbing is already on the layout",
+    nothingToDo.observed === true && nothingToDo.state === "complete",
+  );
+  check("and answering that question writes nothing", born.objects.size === 4);
+
+  /*
+    The sabotage guard for the case above, and the one that matters: a bucket
+    with legacy objects still in it is unmigrated however empty the rest of it
+    looks, and `complete` there would retire an offer with work behind it —
+    pre-v1 plumbing left where no screen mentions it.
+  */
+  for (const legacy of [
+    ".audit/a.json",
+    ".history/a.md.old",
+    ".images/p.png",
+    ".index/v2/manifest.json",
+    ".meetings/sessions/m.json",
+    ".note-acl/a.json",
+    ".granola-events/pending/a.json",
+    ".proposals/pending/a.json",
+    ".context-probe/a",
+  ]) {
+    const waiting = await readStorageLayoutState(memoryStore({ [legacy]: "x" }));
+    check(
+      `${legacy} keeps the bucket unmigrated`,
+      waiting.observed === true && waiting.state === null,
+    );
+  }
+
+  /*
+    And a bucket that will not answer the listing is not read as empty. Closing
+    the offer on a bucket we could not see into is the one failure here that is
+    silent and permanent, so an unreadable store falls back to the answer this
+    whole check replaced.
+  */
+  const listRefused = memoryStore();
+  listRefused.list = async () => {
+    throw new Error("bucket said no");
+  };
+  const unknown = await readStorageLayoutState(listRefused);
+  check(
+    "a listing that fails does not retire the offer",
+    unknown.observed === true && unknown.state === null,
+  );
+
+  const noList = memoryStore();
+  delete noList.list;
+  const oldStore = await readStorageLayoutState(noList);
+  check(
+    "nor does a store too old to list at all",
+    oldStore.observed === true && oldStore.state === null,
+  );
 
   const migrated = memoryStore({ ".audit/a.json": "legacy" });
   const done = await migrateStorageLayout(migrated);
@@ -233,7 +307,7 @@ export async function runStorageLayoutReadChecks() {
     *migration's* refusal to record on the path that refuses — inventing
     `unsupported` here would answer for a bucket nobody asked to migrate.
   */
-  const noConditionals = memoryStore();
+  const noConditionals = memoryStore({ ".audit/a.json": "legacy" });
   noConditionals.capabilities = {
     conditionalCreate: false,
     conditionalWrite: false,

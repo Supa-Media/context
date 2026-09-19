@@ -172,27 +172,87 @@ function validState(state) {
  *
  * **`observed` and `state` are two different questions and both are answered.**
  * `observed` is whether the bucket told us anything; `state` is what it said,
- * and `null` means it genuinely has no migration state — nobody has ever run
- * this here. Collapsing them would turn "we could not find out" into "never
- * run", which records a false absence and is the nag again.
+ * and `null` means there is pre-v1 plumbing here and nothing has ever moved
+ * it. Collapsing them would turn "we could not find out" into "never run",
+ * which records a false absence and is the nag again.
  *
- * Read-only by construction: one `get`, no `put`, no `delete`, and no
- * capability requirement. A bucket that can never *run* the migration can
- * still answer this, and answering is not the same as refusing — `unsupported`
- * belongs to the path that refuses and is recorded there.
+ * **An absent state file is not by itself an unmigrated bucket.** A bucket we
+ * scaffolded ourselves was born on the v1 layout and has never held a single
+ * legacy object, so it has no state file for the same reason a migrated one
+ * does: there was never anything to migrate. It answers `complete`, which is
+ * what its hidden files actually are. `hasLegacyPlumbing` below is the
+ * difference, and it is why every newly created workspace used to be offered
+ * a one-time update on its first console load.
+ *
+ * Read-only by construction: one `get`, plus — only where that `get` finds no
+ * state file — one `list` per legacy prefix capped at a single object. No
+ * `put`, no `delete`, and no capability requirement. A bucket that can never
+ * *run* the migration can still answer this, and answering is not the same as
+ * refusing — `unsupported` belongs to the path that refuses and is recorded
+ * there.
  */
 export async function readStorageLayoutState(store) {
+  let persisted;
   try {
-    const persisted = await readJson(store, STORAGE_LAYOUT_MIGRATION_KEY);
-    if (persisted.value === null) return { observed: true, state: null };
-    if (!validState(persisted.value)) return { observed: false, state: null };
-    return { observed: true, state: persisted.value.state };
+    persisted = await readJson(store, STORAGE_LAYOUT_MIGRATION_KEY);
   } catch {
     // Unreachable, oversized, or not JSON. `countNotes` makes the same choice
     // for the same reason: a bucket that stops answering costs the observation
     // and nothing else.
     return { observed: false, state: null };
   }
+  if (persisted.value !== null) {
+    if (!validState(persisted.value)) return { observed: false, state: null };
+    return { observed: true, state: persisted.value.state };
+  }
+  // No state file, which is the answer for two buckets that have nothing in
+  // common. `hasLegacyPlumbing` is what tells them apart.
+  return {
+    observed: true,
+    state: (await hasLegacyPlumbing(store)) ? null : "complete",
+  };
+}
+
+/**
+ * Whether there is anything here for this migration to move.
+ *
+ * ## The bucket that was offered an update it could not possibly need
+ *
+ * "No state file" was read as "nobody has run the migration", and for a bucket
+ * that predates `.context/` that is right. For a bucket **we scaffolded
+ * ourselves** it is nonsense: `scaffoldContext` writes the v1 layout and
+ * nothing else, so a context created last week has never had a `.audit/` or a
+ * `.history/` in it, will never grow one, and has no state file either —
+ * because nothing has ever needed to migrate it. It looked exactly like an
+ * unmigrated bucket, so every new workspace was offered the update on its
+ * first console load, and `Not now` was the only thing that ever ended it.
+ *
+ * So the question the offer actually rests on is asked directly: is any pre-v1
+ * plumbing in this bucket? Nine `list`s capped at one object each, and only
+ * ever on the path where there is no state file to read. None of them means
+ * the hidden files are already on the current layout, which is `complete` —
+ * the same answer a migrated bucket gives, because it is the same fact.
+ *
+ * Read-only, like the rest of this observation: `list` with `limit: 1`, no
+ * `put`, no `delete`, no capability requirement.
+ *
+ * A store that will not answer is **not** read as empty. Listing is how the
+ * offer gets closed, and closing it on a bucket we could not see into would
+ * strand pre-v1 plumbing where no screen mentions it — so a refusal, or a
+ * store too old to have `list` at all, falls back to the answer this function
+ * replaced: no state recorded, and the offer stays.
+ */
+async function hasLegacyPlumbing(store) {
+  if (typeof store.list !== "function") return true;
+  for (const [legacy] of LEGACY_STORAGE_PREFIXES) {
+    try {
+      const page = await store.list({ prefix: legacy, limit: 1 });
+      if ((page?.objects?.length ?? 0) > 0) return true;
+    } catch {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Read a v1 plumbing object, falling back to its pre-v1 key. */
