@@ -98,7 +98,7 @@ import {
 } from "./forms.js";
 import { enforceOrigin, isTransportPath } from "./origin.js";
 import { roomKey } from "./presence.js";
-import { PresenceRoom } from "./presenceRoom.js";
+import { PresenceRoom as PresenceRoomDurableObject } from "./presenceRoom.js";
 import { validateArguments } from "./toolArguments.js";
 import {
   handleMeetings,
@@ -1175,8 +1175,18 @@ async function route(request, env, ctx) {
  * the only export here besides the default, and it holds no state of its own —
  * see `presenceRoom.js` for why an object with no storage is the whole design
  * rather than an omission.
+ *
+ * `export const` rather than `export { PresenceRoom }`, and the difference
+ * matters to something other than taste: `gatewayFormat.helpers.ts` evaluates
+ * this file's body to extract the privacy functions, and it handles export
+ * forms that *introduce* a binding while deliberately refusing ones that only
+ * *name* an existing one — "there is no reading of those that keeps this
+ * extraction honest". A re-export list is the second kind and reddens every
+ * scaffolding test that reads this source. This is the first kind, it is what
+ * the Workers runtime wants either way, and it keeps that contract strict
+ * rather than teaching it a new shape to tolerate.
  */
-export { PresenceRoom };
+export const PresenceRoom = PresenceRoomDurableObject;
 
 export default {
   async fetch(request, env, ctx) {

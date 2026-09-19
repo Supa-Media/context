@@ -29,6 +29,7 @@ import type { DecorationSet, ViewUpdate } from "@codemirror/view";
 import { StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { clampToDocument, type PresenceMember } from "./protocol";
+import { darkColors } from "../../design/tokens";
 
 /** Replace the whole roster. Nothing here merges: the reducer already did. */
 export const setRemoteCarets = StateEffect.define<PresenceMember[]>();
@@ -107,7 +108,7 @@ export function buildCaretDecorations(
         to,
         deco: Decoration.mark({
           class: "cm-presence-selection",
-          attributes: { style: `background-color: ${withAlpha(member.color)}` },
+          attributes: { style: `background-color: ${withAlpha(inkFor(member))}` },
         }),
       });
     }
@@ -117,7 +118,7 @@ export function buildCaretDecorations(
     ranges.push({
       from: head,
       to: head,
-      deco: Decoration.widget({ widget: new CaretWidget(member.name, member.color, labelled), side: 1 }),
+      deco: Decoration.widget({ widget: new CaretWidget(member.name, inkFor(member), labelled), side: 1 }),
     });
   }
 
@@ -127,10 +128,21 @@ export function buildCaretDecorations(
   return builder.finish();
 }
 
+/**
+ * The colour a member is drawn in.
+ *
+ * A peer that sent nothing usable gets the muted chrome token rather than a
+ * hue: an unknown member should read as present and unremarkable, not as a
+ * ninth person in a palette of eight.
+ */
+function inkFor(member: PresenceMember): string {
+  return member.color ?? darkColors.chromeMuted;
+}
+
 /** A selection highlight at the caret colour, kept light enough to read through. */
 function withAlpha(color: string): string {
   const hex = /^#([0-9a-fA-F]{6})$/.exec(color);
-  if (!hex) return "rgba(141, 133, 123, 0.22)";
+  if (!hex) return `rgba(141, 133, 123, 0.22)`;
   const value = hex[1];
   const r = parseInt(value.slice(0, 2), 16);
   const g = parseInt(value.slice(2, 4), 16);
@@ -211,7 +223,7 @@ const caretTheme = EditorView.baseTheme({
     fontWeight: "600",
     lineHeight: "1.4",
     whiteSpace: "nowrap",
-    color: "#100F0E",
+    color: darkColors.ink,
     pointerEvents: "none",
     userSelect: "none",
   },

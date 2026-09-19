@@ -26,7 +26,8 @@ export const PRESENCE_PROTOCOL_VERSION = 1;
 export interface PresenceMember {
   id: string;
   name: string;
-  color: string;
+  /** `null` when the peer sent no usable colour; the view supplies one. */
+  color: string | null;
   /** The selection's fixed end, in document offsets. */
   anchor: number;
   /** The end that moves, and where the caret is drawn. */
@@ -49,9 +50,17 @@ function offset(value: unknown): number {
   return rounded > MAX_OFFSET ? MAX_OFFSET : rounded;
 }
 
-/** A colour from a peer is drawn into this document, so it is not taken on trust. */
-function color(value: unknown): string {
-  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#8D857B";
+/**
+ * A colour from a peer is drawn into this document, so it is not taken on trust.
+ *
+ * `null` rather than a fallback hex, because this module decides what is *safe*
+ * and the view decides what things *look like*: naming a colour here would put
+ * a literal in a wire module and take the choice away from the palette, which
+ * `paletteDiscipline.test.ts` is right to refuse. A peer that sends nonsense
+ * gets whatever muted token the renderer picks for an unknown member.
+ */
+function color(value: unknown): string | null {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value) ? value : null;
 }
 
 function name(value: unknown): string {
@@ -60,7 +69,13 @@ function name(value: unknown): string {
   // redundant: this module is also what a self-hosted or older gateway talks
   // to, and a label is drawn into the page either way. Escaped rather than
   // pasted, so the class is readable in the source instead of invisible in it.
+  // Stripping control characters IS the point here: this string is drawn into a
+  // label in somebody else's editor, and `no-control-regex` exists to catch the
+  // ones nobody meant to match. The directive sits on the line it governs —
+  // `eslint-disable-next-line` means the next LINE, not the next statement, and
+  // a version of this with the explanation in between disabled a comment.
   const cleaned = value
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "")
     .trim();
   if (cleaned.length === 0) return "Someone";

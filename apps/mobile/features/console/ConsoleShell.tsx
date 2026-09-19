@@ -329,6 +329,7 @@ export function SaveChip({ editor }: { editor: EditorState }) {
  */
 export function PresenceChip({ presence }: { presence: Presence }) {
   const styles = useThemedStyles(presenceStyles);
+  const c = useThemedStyles(presenceInk);
   if (presence.phase === "unavailable" || presence.phase === "idle") return null;
   if (presence.summary === "") return null;
 
@@ -350,7 +351,9 @@ export function PresenceChip({ presence }: { presence: Presence }) {
           key={member.id}
           style={[
             styles.avatar,
-            { backgroundColor: member.color },
+            // `null` when a peer sent no usable colour; the muted chrome token
+            // reads as present and unremarkable rather than as a ninth hue.
+            { backgroundColor: member.color ?? c.chromeMuted },
             index === 0 ? null : styles.overlap,
           ]}
         >
@@ -375,6 +378,9 @@ function initialsFor(name: string): string {
   const bare = name.startsWith("@") ? name.slice(1) : name;
   return bare.slice(0, 2).toLowerCase() || "?";
 }
+
+/** The tokens the avatars need as *values* rather than as a style sheet. */
+const presenceInk = (c: Colors) => ({ chromeMuted: c.chromeMuted });
 
 const presenceStyles = (c: Colors) =>
   StyleSheet.create({

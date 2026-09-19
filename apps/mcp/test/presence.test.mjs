@@ -258,7 +258,7 @@ export async function runPresenceChecks(check) {
     "a bidi override is stripped from a display name",
     // A name that can reorder the line it is drawn in can make one person's
     // label read as another's.
-    normalizeDisplayName("‮real-name") === "real-name",
+    normalizeDisplayName(`${String.fromCharCode(0x202e)}real-name`) === "real-name",
   );
   check("an empty display name becomes a placeholder", normalizeDisplayName("   ") === "Someone");
   check("a non-string display name becomes a placeholder", normalizeDisplayName(null) === "Someone");

@@ -79,18 +79,20 @@ describe("the presence wire", () => {
 
   test("a peer's name cannot carry control characters into the label", () => {
     const frame = decodeServerFrame(
-      JSON.stringify({ t: "join", member: { id: "m2", name: "‮evil\nname", a: 0, h: 0 } }),
+      JSON.stringify({ t: "join", member: { id: "m2", name: `${String.fromCharCode(0x202e)}evil\nname`, a: 0, h: 0 } }),
     );
     expect(frame && frame.t === "join" ? frame.member.name : "").toBe("evilname");
   });
 
   test("a peer's colour is refused unless it is a plain hex", () => {
     // It is written into a style attribute. "red; background: url(...)" is the
-    // shape this refuses, and the fallback is the muted grey.
+    // shape this refuses. `null` rather than a fallback hex: this module decides
+    // what is safe and the view decides what things look like, so the
+    // substitute comes from the palette rather than from a literal on the wire.
     const frame = decodeServerFrame(
       JSON.stringify({ t: "join", member: { id: "m2", name: "@x", color: "red;x:y", a: 0, h: 0 } }),
     );
-    expect(frame && frame.t === "join" ? frame.member.color : "").toBe("#8D857B");
+    expect(frame && frame.t === "join" ? frame.member.color : "unread").toBeNull();
   });
 
   test("offsets from a peer are bounded before they are believed", () => {

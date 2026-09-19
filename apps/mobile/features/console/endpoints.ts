@@ -50,6 +50,8 @@ const RESERVED_FIRST_SEGMENTS = new Set([
   "meetings",
   // The agent turn, `/agent` on the gateway.
   "agent",
+  // The presence socket, `/presence` on the gateway.
+  "presence",
 ]);
 
 /**
