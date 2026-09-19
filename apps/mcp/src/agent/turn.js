@@ -13,9 +13,14 @@
  *
  * The agent is offered the read tools and `propose_note`, and never
  * `write_note`, `move_note`, `set_visibility` or anything else that changes the
- * bucket. Not because a model cannot be trusted with a write — the scope clamp
- * would already refuse one this connection may not make — but because a note is
- * the customer's own record of their work, and an edit they did not read is a
+ * bucket — and the list is enforced at the call as well as in the prompt, so a
+ * model that names one anyway reaches nothing. It has to be both: what comes
+ * back from the provider is a name the *model* wrote, and a note it read can
+ * have told it what to write there.
+ *
+ * Not because a model cannot be trusted with a write — the scope clamp would
+ * already refuse one this connection may not make — but because a note is the
+ * customer's own record of their work, and an edit they did not read is a
  * different product. A proposal lands in the review queue the console already
  * has, and they say yes.
  *
@@ -46,6 +51,29 @@ const MAX_ROUNDS = 8;
 
 /** The one write the agent may make, and it is not a write to the bucket. */
 const PROPOSAL_TOOL = "propose_note";
+
+/**
+ * Tools a model is never offered, whatever their annotations say.
+ *
+ * `readOnlyHint` answers "does this change anything?" — and
+ * `export_encryption_keys` truthfully answers no. It returns this context's
+ * workspace data key(s) in the clear, and its own description says there is no
+ * un-export. Reading that flag as "safe to hand a model" is reading an answer
+ * to a different question, so the answer to this one is written down here
+ * instead of inferred.
+ *
+ * What makes it worth a named list rather than a judgement call: the agent is
+ * also offered `propose_note`, which puts its content in the bucket. Export
+ * then propose and the key that opens every encrypted note in this context is
+ * sitting in plaintext beside the notes it opens — the one place the encryption
+ * exists to survive, and the thing non-negotiable #1 says never happens. The
+ * turn never needs either tool to answer a question about somebody's notes.
+ *
+ * `rotate_encryption_keys` is named too although `readOnlyHint: false` already
+ * keeps it out: a list of "the key material tools" that named one of the two
+ * would read as a ruling that the other is fine to automate.
+ */
+const WITHHELD_FROM_AGENT = new Set(["export_encryption_keys", "rotate_encryption_keys"]);
 
 /** The longest question this route accepts. */
 export const MAX_QUESTION_LENGTH = 8000;
@@ -81,7 +109,9 @@ export class AgentRefusal extends Error {
  */
 export function agentTools(offered) {
   return offered.filter(
-    (tool) => tool.annotations?.readOnlyHint === true || tool.name === PROPOSAL_TOOL,
+    (tool) =>
+      !WITHHELD_FROM_AGENT.has(tool.name) &&
+      (tool.annotations?.readOnlyHint === true || tool.name === PROPOSAL_TOOL),
   );
 }
 
@@ -241,6 +271,25 @@ export async function runTurn(options) {
   */
   const steps = [];
 
+  /*
+    THE NARROWED LIST IS ENFORCED HERE, NOT ONLY IN THE PROMPT.
+
+    `agentTools` decides what the model is *told about*. What comes back is a
+    name the model wrote, and handing that to `callTool` — which is the client's
+    own dispatcher, holding this connection's whole authority — would make
+    "writes are proposals" a property of the prompt rather than of the gateway.
+    A model names a tool it was never offered when it is confused, and when a
+    sentence in a note it just read told it to; a personal context takes email
+    into `0-inbox/`, so that sentence is one anybody who knows the address can
+    write.
+
+    Built from `tools` rather than from a list of its own, so a tool withheld
+    upstream — by the scope clamp, by a disabled plugin, by
+    `WITHHELD_FROM_AGENT` — is undispatchable here for free, and there is still
+    exactly one place that decides what the agent may reach.
+  */
+  const offeredNames = new Set((tools ?? []).map((tool) => tool.name));
+
   for (let round = 0; round < MAX_ROUNDS; round += 1) {
     const answer = await requestCompletion(
       provider,
@@ -255,6 +304,23 @@ export async function runTurn(options) {
     messages.push({ role: "assistant", text: answer.text, toolCalls: answer.toolCalls });
 
     for (const call of answer.toolCalls) {
+      if (!offeredNames.has(call.name)) {
+        /*
+          Answered in band rather than thrown, like every other refusal in this
+          loop: the model reads it and uses a tool it was actually given, which
+          is what a client would do. No `steps` entry, because nothing ran —
+          and because `call.name` is unbounded text the model produced, and
+          `steps` is rendered to the person.
+        */
+        messages.push({
+          role: "tool",
+          id: call.id,
+          name: call.name,
+          text: "There is no such tool. Use only the tools you were given.",
+          isError: true,
+        });
+        continue;
+      }
       let result;
       try {
         result = await callTool(call.name, call.args);

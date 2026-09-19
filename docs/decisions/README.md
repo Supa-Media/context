@@ -116,6 +116,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - `search` and `fetch` exist because ChatGPT's chats can call nothing else
 - The advertised `inputSchema` is enforced, and it is enforced in one place
 - Reach is described from the clamp that will decide it, on both surfaces
+- The agent's tool list is enforced at the call, and `readOnlyHint` does not decide it
 
 ## [Markdown forms](./forms.md)
 

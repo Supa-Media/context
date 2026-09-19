@@ -22,8 +22,11 @@
  * for the same reason and by the same code as it is to that grant's client.
  *
  * **Writes are proposals.** `write_note` is never offered, however wide the
- * grant, and a model that asks for it anyway is refused by the tool layer
- * rather than by a list the model was shown.
+ * grant, and a model that names it anyway is refused *at the dispatch* — not by
+ * the list it was shown, which it can always ignore, and not by the tool layer,
+ * which on an owner's own grant would have carried the write out. The first
+ * draft of this file asserted only the offering and said this sentence anyway;
+ * section 4b is the sentence.
  *
  * ## Sabotage record
  *
@@ -54,6 +57,22 @@
  *     the wire and one at the function.
  *  4. The turn recording `steps` with the arguments each tool was called with.
  *     → **1 fails**: `the steps name tools and never arguments`.
+ *  5. `agentTools` dropping the `WITHHELD_FROM_AGENT` filter — the shape of
+ *     "`readOnlyHint` already says whether a model may call it".
+ *     → **2 fail**: `the key export is never offered to the agent` and `...and
+ *     does not run at all, whatever the model named`, one at the offering and
+ *     one at the call. Two guards, and the export needs both gone to land.
+ *  6. `runTurn` dispatching `call.name` without checking it against `tools` —
+ *     the state this file was merged in.
+ *     → **2 fail**: `a tool the agent was never offered writes nothing` and
+ *     `...and does not run at all, whatever the model named`. The first one is
+ *     the damage: the note really is in the bucket.
+ *  7. `export_encryption_keys` renamed throughout `index.js` and nowhere else —
+ *     the drift that makes a literal in `WITHHELD_FROM_AGENT` stop matching,
+ *     which the absence check cannot see.
+ *     → `this connection's client really is offered the key export` fails (with
+ *     four in the encryption suite). The absence check passes, vacuously, which
+ *     is the whole reason its companion is there.
  */
 
 import worker from "../src/index.js";
@@ -148,6 +167,23 @@ async function ask(env, tokenValue, body) {
     parsed = null;
   }
   return { status: response.status, body: parsed, text };
+}
+
+/** What the same connection's MCP client is offered, for comparison. */
+async function clientToolNames(env, tokenValue) {
+  const { ctx, settle } = createWorkerCtx();
+  const response = await worker.fetch(
+    new Request("https://mcp.context.test/mcp", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${tokenValue}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }),
+    env,
+    ctx,
+  );
+  const names = (JSON.parse(await response.text())?.result?.tools ?? []).map((tool) => tool.name);
+  await settle();
+  return names;
 }
 
 export async function runAgentChecks(check) {
@@ -281,6 +317,39 @@ export async function runAgentChecks(check) {
     check("the read tools are offered", offeredNames.includes("read_note"));
 
     /*
+      AND `readOnlyHint` IS THE WRONG AXIS FOR "MAY A MODEL CALL THIS".
+
+      `export_encryption_keys` mutates nothing, so it is annotated
+      `readOnlyHint: true` — correct, for what that flag answers. It also
+      returns this context's workspace data key(s) **in the clear**, and its own
+      description says there is no un-export. `agentTools` read that flag as
+      "safe to hand a model" and offered it, on the one grant tier that can call
+      it — this one.
+
+      Where that ends is not the answer on the screen. `propose_note` is offered
+      too and writes its content into the bucket, so a turn talked into
+      exporting and then proposing puts the key that opens every encrypted note
+      in this context next to the notes it opens: plaintext, at rest, in the one
+      place the encryption exists to survive. Non-negotiable #1 — credentials
+      never live in the bucket.
+
+      `WITHHELD_FROM_AGENT` holds the name as a string literal, so a check that
+      only asserts absence would keep passing after somebody renamed the tool
+      and quietly unwithheld it. The companion check below asserts the same
+      connection's *client* is still offered it, which is the half that fails on
+      that rename.
+    */
+    const clientNames = await clientToolNames(env, TOKEN_OWNER);
+    check(
+      "this connection's client really is offered the key export",
+      clientNames.includes("export_encryption_keys"),
+    );
+    check(
+      "the key export is never offered to the agent",
+      !offeredNames.includes("export_encryption_keys"),
+    );
+
+    /*
       A read-only grant gets an assistant that can answer and cannot suggest,
       because `toolsForSession` never offered it a write in the first place and
       `agentTools` only ever narrows.
@@ -316,6 +385,56 @@ export async function runAgentChecks(check) {
     check(
       "a private note stays invisible to a team-tier agent",
       !toolAnswer.includes("PRIVATE-ONLY-MARKER"),
+    );
+
+    /* ------------ 4b. the narrowed list is not the control ----------------- */
+
+    /*
+      THE LIST HAS TO BE ENFORCED WHERE THE CALL IS MADE, NOT ONLY WHERE IT IS
+      ADVERTISED.
+
+      This file's header already claimed it — "a model that asks for it anyway
+      is refused by the tool layer rather than by a list the model was shown" —
+      and nothing drove it: every scripted reply above names a tool that was
+      offered. The claim was false. `agentTools` decided what the model is
+      *told about*; the name in its reply went straight to `callToolForSession`,
+      which is the client's whole dispatcher and holds this connection's whole
+      authority. So "writes are proposals" was a property of the prompt.
+
+      Which matters because the model's reply is not only the model's. A
+      personal context takes email into `0-inbox/`, so a sentence in a note the
+      agent reads is reachable by anyone who knows the address — and a turn that
+      acted on one had the act executed under the owner's own grant.
+
+      Two names in one reply: the write the design says is impossible, and the
+      key export, which is the same hole at its worst.
+    */
+    model.install([
+      {
+        toolCalls: [
+          {
+            name: "write_note",
+            args: { path: "1-projects/injected.md", content: "# owned\n" },
+          },
+          { name: "export_encryption_keys", args: {} },
+        ],
+      },
+      { text: "I could not do that." },
+    ]);
+    const invented = await ask(env, TOKEN_OWNER, { question: "tidy up my notes" });
+    check(
+      "a tool the agent was never offered writes nothing",
+      invented.status === 200 && !bucket.has("1-projects/injected.md"),
+    );
+    check(
+      "...and does not run at all, whatever the model named",
+      (invented.body?.steps ?? []).every(
+        (step) => step.tool !== "write_note" && step.tool !== "export_encryption_keys",
+      ),
+    );
+    check(
+      "...and the turn finishes rather than dying of it",
+      invented.body?.answer === "I could not do that.",
     );
 
     /* ---------------------- 5. the ambient place --------------------------- */
