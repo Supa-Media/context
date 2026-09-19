@@ -1,10 +1,11 @@
 import { describe, expect, test } from "@jest/globals";
 import {
-  LONG_PRESS_MS,
-  LONG_PRESS_SLOP,
+  TAP_MAX_MS,
+  TAP_SLOP,
   followChord,
   noteLinkAt,
   noteLinksIn,
+  opensBehind,
 } from "../features/console/files/noteLinks";
 import { knownNotePaths, mergeLinkPaths } from "../features/console/files/paths";
 
@@ -175,15 +176,50 @@ describe("the chord the tooltip names", () => {
   });
 });
 
-describe("the press is a press and not a tap or a scroll", () => {
+describe("a tap is a tap and not a long press or a scroll", () => {
   test("the thresholds are the ones a thumb produces", () => {
-    // Not arbitrary: below ~300ms is a tap and above ~600ms is a wait, and a
-    // thumb rolls several pixels on any press it holds. Pinned so a change to
-    // either is a decision rather than a typo.
-    expect(LONG_PRESS_MS).toBeGreaterThanOrEqual(350);
-    expect(LONG_PRESS_MS).toBeLessThanOrEqual(600);
-    expect(LONG_PRESS_SLOP).toBeGreaterThanOrEqual(6);
-    expect(LONG_PRESS_SLOP).toBeLessThanOrEqual(16);
+    // Not arbitrary: a deliberate tap is over well inside half a second, and a
+    // thumb rolls several pixels on the way down. Pinned so a change to either
+    // is a decision rather than a typo.
+    expect(TAP_MAX_MS).toBeGreaterThanOrEqual(300);
+    expect(TAP_MAX_MS).toBeLessThanOrEqual(700);
+    expect(TAP_SLOP).toBeGreaterThanOrEqual(6);
+    expect(TAP_SLOP).toBeLessThanOrEqual(16);
+  });
+});
+
+describe("which click opens a note behind the one on screen", () => {
+  const CLICK = { button: 0, metaKey: false, ctrlKey: false };
+  const APPLE = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)";
+  const WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)";
+
+  test("a plain click never does — it is the ordinary follow", () => {
+    expect(opensBehind(CLICK, APPLE)).toBe(false);
+    expect(opensBehind(CLICK, WINDOWS)).toBe(false);
+    expect(opensBehind(CLICK, undefined)).toBe(false);
+  });
+
+  test("⌘ on an Apple keyboard, Ctrl everywhere else", () => {
+    expect(opensBehind({ ...CLICK, metaKey: true }, APPLE)).toBe(true);
+    expect(opensBehind({ ...CLICK, ctrlKey: true }, WINDOWS)).toBe(true);
+    expect(opensBehind({ ...CLICK, ctrlKey: true }, undefined)).toBe(true);
+  });
+
+  test("Ctrl-click on a Mac is a RIGHT-click and is left to the context menu", () => {
+    /*
+      The asymmetry that decides the shape of this rule. macOS raises a context
+      menu from Ctrl-click, so honouring it here would take the note's own
+      right-click menu away over every link — while looking, on every other
+      platform, like the feature worked.
+    */
+    expect(opensBehind({ ...CLICK, ctrlKey: true }, APPLE)).toBe(false);
+  });
+
+  test("the middle button does, on any keyboard", () => {
+    // What it means in every browser, and the one modifier-free way to open a
+    // link behind the page.
+    expect(opensBehind({ button: 1, metaKey: false, ctrlKey: false }, APPLE)).toBe(true);
+    expect(opensBehind({ button: 1, metaKey: false, ctrlKey: false }, WINDOWS)).toBe(true);
   });
 });
 

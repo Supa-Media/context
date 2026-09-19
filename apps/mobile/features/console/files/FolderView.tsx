@@ -91,6 +91,7 @@ import { layout, radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import { densityFor, noteColumnWidth } from "../../app/frame";
 import type { DragModifier } from "./dnd";
+import { useListingOrder } from "./listingOrder";
 import { baseName, displayName, withoutSortPrefix } from "./paths";
 import type { SyncMark } from "./pendingMarks";
 import { useRightClick } from "./rightClick";
@@ -232,8 +233,18 @@ export function FolderView({
     agree about what is in a folder — including the folder placeholder, which
     neither of them draws. See `tree.ts`. No `keep` here: the open thing on
     this screen is the folder, so there is no note to hold visible.
+
+    `descending` is the *same* answer the tree is drawn with, and that is the
+    point of it coming from `listingOrder.ts` rather than from a prop nobody
+    passed. The sort control lives in the tree's header, and until this the
+    direction it set lived in that component — so sorting Z to A reordered the
+    sidebar and left the very same folder, drawn as a page beside it, still A
+    to Z. "It is the tree, in the other place" is this file's first claim about
+    itself, and the one screen where a person would check it was where it was
+    false.
   */
-  const rows = listedEntries(listing?.entries ?? []);
+  const descending = useListingOrder();
+  const rows = listedEntries(listing?.entries ?? [], { descending });
 
   /*
     The background gesture is on the **whole view**, not on a filler strip under

@@ -66,14 +66,14 @@ export function MeetingRefusal({
             {onClaimName === null ? null : (
               <Button
                 label="Claim your @name"
-                variant="white"
+                variant="dialogPrimary"
                 onPress={onClaimName}
                 testID="meeting-refusal-claim"
               />
             )}
             <Button
               label="Not now"
-              variant="ghost"
+              variant="dialog"
               onPress={onClose}
               testID="meeting-refusal-close"
             />

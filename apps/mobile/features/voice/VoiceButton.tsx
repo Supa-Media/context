@@ -49,15 +49,19 @@ import type { DictationEngine } from "./engine";
  * any pointer density either. Dictation is reached from the note's own context
  * menu — see `microphoneElsewhere`.
  *
- * The seventh key is the one that stays, and that was not decided here:
- * `docs/decisions/meetings.md` makes it the phone's only way into meeting
- * capture, and the only route to a *finished* meeting hangs off the sheet it
- * raises — a route that exists because somebody recorded a meeting on their
- * phone and could not find it afterwards. So `microphoneElsewhere` stands this
- * control down while that key is on the glass, which leaves dictation offered
- * at exactly the moment it has somewhere to type: the keyboard accessory bar
- * takes the toolbar away (`AppFrame`'s `toolbarHidden`), and the microphone
- * comes back with the caret. `NoteEditor` owns the condition; see
+ * The phone's bottom row is the same rule with the same shape. The key that
+ * stood this control down used to be a microphone of its own, which
+ * `docs/decisions/meetings.md` made the phone's only way into meeting capture —
+ * a route that exists because somebody recorded a meeting on their phone and
+ * could not find it afterwards. That key is gone (*"we no longer need a
+ * dedicated mic button on the bottom row, just a plus button that opens
+ * different options"*) and the route is not: recording is a row in the sheet the
+ * row's `+` raises, and the finished meeting still hangs off it. So
+ * `microphoneElsewhere` stands this control down while that row is on the glass
+ * — one control in the corner, whichever surface owns it — which leaves
+ * dictation offered at exactly the moment it has somewhere to type: the keyboard
+ * accessory bar takes the toolbar away (`AppFrame`'s `toolbarHidden`), and the
+ * microphone comes back with the caret. `NoteEditor` owns the condition; see
  * `oneMicrophone.test.ts` for both states driven through the real editor.
  *
  * **What never stands down is a microphone that is already open.** The live
@@ -127,9 +131,12 @@ export function VoiceButton({
    *
    * Two surfaces set it, for the same reason and not for the same control:
    *
-   *  - **A phone**, whenever the frame's bottom toolbar is showing, because its
-   *    seventh key *is* the microphone. Two mic glyphs 24pt apart is the defect
-   *    `oneMicrophone.test.ts` exists for.
+     *  - **A phone**, whenever the frame's bottom toolbar is showing, because that
+   *    row's `+` is the control in this corner. It was a microphone once — its
+   *    seventh key — and two mic glyphs 24pt apart is the defect
+   *    `oneMicrophone.test.ts` exists for; the key has since gone and the
+   *    condition has not, because what it protects is the corner rather than the
+   *    glyph.
    *  - **The console at every pointer density**, because the corner is the `+`
    *    now (`features/console/CreateButton.tsx`) and there is one corner. The
    *    microphone did not lose its door in the trade: "Dictate here" is on the

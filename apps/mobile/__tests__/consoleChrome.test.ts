@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 
-import { describe, expect, jest, test } from "@jest/globals";
+import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { EditorRegion } from "../features/console/EditorRegion";
@@ -32,6 +32,16 @@ import { NavBandProvider } from "../features/console/NavBand";
 // `mock`-prefixed so `jest.mock`'s hoisted factories may close over them.
 const mockInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 let mockPathname = "/console/@seyi";
+/**
+ * Whether this context has a model key, as `ConsoleData.modelConnected` says.
+ *
+ * Three values, and each is a state the console really has: `true` once the
+ * subscription answers with a key, `false` once it answers with none, and
+ * `undefined` for the moment before it answers at all.
+ */
+let mockModelConnected: boolean | undefined = true;
+/** What the `+` sheet asked the browser to make, as `<kind>:<folder>`. */
+const created: string[] = [];
 
 jest.mock("react-native-safe-area-context", () => ({
   useSafeAreaInsets: () => mockInsets,
@@ -148,6 +158,8 @@ function mockConsoleData(): never {
     paste: () => {},
     createNote: () => {},
     createFolder: () => {},
+    /* Recorded, so the `+` sheet's rows can be shown to reach the browser. */
+    createUntitled: (folder: string, kind: string) => created.push(`${kind}:${folder}`),
     rename: () => {},
     move: () => {},
     duplicate: () => {},
@@ -158,6 +170,7 @@ function mockConsoleData(): never {
 
   return {
     demo: false,
+    modelConnected: mockModelConnected,
     viewer: { name: "@seyi", detail: "seyi@context.lc", initial: "S" },
     /*
       Two, not one, and the second is the point of the pair.
@@ -224,6 +237,34 @@ const ConsoleLayout = (
 
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Consoles this file has mounted, so a failing assertion cannot hand the next
+ * test its DOM.
+ *
+ * Every test here reads `document.body` — the switcher's rows and the `+`'s
+ * menu are portals — and each one ends with `app.unmount()`. That line does not
+ * run when an assertion above it throws, so one red test used to leave a whole
+ * live console in the body and the *next* test would find its controls: five
+ * failures reported for one defect, four of them in tests about something else.
+ * Tracked and torn down here instead, which is the same thing
+ * `asidePanelRender.test.ts` does for the same reason.
+ */
+const mounted: (() => void)[] = [];
+
+afterEach(() => {
+  while (mounted.length > 0) mounted.pop()!();
+  document.body.replaceChildren();
+  /*
+    And the route, for the same reason: a test that sets `mockPathname` and
+    then fails never reaches the line that sets it back, so the next test
+    mounts a console on somebody else's route. Under a sabotage run that
+    reported `bottom-bar-meeting` missing on a phone — a true statement about
+    the Map route, and nothing to do with the defect being injected.
+  */
+  mockPathname = "/console/@seyi";
+  mockModelConnected = true;
+});
+
 function mountConsole(width = 1440) {
   // react-native-web measures `document.documentElement.clientWidth`, which
   // jsdom reports as 0 — see `appFrameRender.test.ts` for the full trap.
@@ -243,6 +284,11 @@ function mountConsole(width = 1440) {
 
   act(() => {
     root.render(createElement(ConsoleLayout as never));
+  });
+
+  mounted.push(() => {
+    act(() => root.unmount());
+    container.remove();
   });
 
   /*
@@ -377,9 +423,15 @@ describe("on a phone", () => {
     // The two things that replaced the panels, and neither is behind a control.
     expect(app.find("context-strip")).not.toBeNull();
     expect(app.find("bottom-bar")).not.toBeNull();
-    // The seventh key: the one destination on a row of note verbs.
-    expect(app.find("bottom-bar-meeting")).not.toBeNull();
-    expect(app.find("bottom-bar-separator")).not.toBeNull();
+    /*
+      The `+`, which is the row's one way into making anything and — since the
+      microphone key went — into recording a meeting too. It is unconditional,
+      so this holds for a read-only context as well as this one.
+    */
+    expect(app.find("bottom-bar-new")).not.toBeNull();
+    // And the key it replaced is gone, with the rule that separated it.
+    expect(app.find("bottom-bar-meeting")).toBeNull();
+    expect(app.find("bottom-bar-separator")).toBeNull();
     // And the account, pinned at the leading end of the top row.
     expect(app.find("account-menu")).not.toBeNull();
 
@@ -415,12 +467,12 @@ describe("on a phone", () => {
     );
     expect(labels).toContain("Search notes");
     /*
-      "New note or folder", not "New note". A phone has no explorer, so this one
-      key is the only way to create anything — and while it said "note" there
-      was no way to make a folder on a phone at all. It raises the chooser now;
-      see `CreatePrompt`.
+      "Create", not "New note" and not "New note or folder". A phone has no
+      explorer, so this one key is the only way to start anything — a note, a
+      drawing, a folder, and now a meeting, since the microphone beside it went.
+      It raises the sheet; see `CreatePrompt`.
     */
-    expect(labels).toContain("New note or folder");
+    expect(labels).toContain("Create");
     // The bar is really on the screen, and not merely a set of labels somewhere
     // in the tree. It used to be enough to assert the console had rendered
     // *any* text — and then it was not, because the top bar became a toggle and
@@ -753,30 +805,134 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
-  test("the app's other place is the last key, and pressing it records", () => {
+  test("the + is in the corner of a pointer console, on every route it has", () => {
     /*
-      THE SEVENTH KEY, AFTER THE SHEET WENT.
+      THE MOUNT, WHICH IS THE HALF NO UNIT TEST OF THE BUTTON CAN SEE.
 
-      It used to raise a destination sheet — two rows, an audience line, a
-      Start — and this test asserted the sheet, because
-      `docs/decisions/meetings.md` calls a control that silently starts
-      recording "the same product with the indicator removed". The owner
-      removed the question (*"no need to ask people it will just confuse
-      them"*), and what the decision actually protects moved rather than going
-      with it: the press records and lands on the meeting's own screen, which
-      is the indicator — a clock, a meter, a transport and the note it is
-      becoming.
+      `CreateButton` has its own tests for what it draws and what its menu
+      offers. Those pass just as happily if nothing in the product ever renders
+      it — which is exactly the defect being guarded here, and the one the
+      microphone it replaced actually shipped: the corner was drawn by
+      `NoteEditor`, so it existed on a note and nowhere else. The owner's words
+      are the requirement: *"it should show up all the time, even when on a
+      folder page, and not just show up when on a note."*
 
-      So what is asserted here is the *absence of the sheet* and the presence
-      of a recording. This fixture's console has no meetings controller
-      configured, so the press cannot reach a microphone; what it must do is
-      say so rather than doing nothing at all, which is `meetingsFlow.test.ts`'s
-      refusal arriving through the real bottom row.
+      So this asserts the *layout* draws it, at a context route with no note
+      selected — which is a folder page, and the state a console arrives in.
+    */
+    mockPathname = "/console/@seyi";
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    app.unmount();
+  });
+
+  test("...and on Map, which has no file tree and no note at all", () => {
+    // Restored by `afterEach`, not here: see the note there.
+    mockPathname = "/console/map";
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    app.unmount();
+  });
+
+  test("pressing it offers everything a console starts", () => {
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+
+    // The menu is a `Menu`, which react-native-web portals out of the tree.
+    for (const label of ["New meeting", "New note", "New drawing", "New folder", "New chat"]) {
+      expect([label, document.body.textContent?.includes(label)]).toEqual([label, true]);
+    }
+    app.unmount();
+  });
+
+  test("a context with no model key is not offered a conversation", () => {
+    /*
+      A key is what lets the agent answer at all, so the row without one opens
+      a composer whose first send errors — the control that appears to work and
+      does nothing. Everything else in the menu still makes a file, so the menu
+      is shorter rather than absent.
+    */
+    mockModelConnected = false;
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+
+    expect(document.body.textContent).not.toContain("New chat");
+    expect(document.body.textContent).toContain("New note");
+    expect(document.body.textContent).toContain("New meeting");
+    app.unmount();
+  });
+
+  test("...and neither is one whose answer has not landed yet", () => {
+    /*
+      `undefined` is "ask again in a moment", which is not "there is no key".
+      Absent then present is the honest direction: offered then withdrawn is an
+      offer somebody may already have pressed.
+    */
+    mockModelConnected = undefined;
+    const app = mountConsole(1280);
+    app.press(app.find("console-create"));
+    expect(document.body.textContent).not.toContain("New chat");
+    app.unmount();
+  });
+
+  test("and the corner holds no second control: the microphone is not drawn beside it", () => {
+    /*
+      One corner, one control. `oneMicrophone.test.ts` holds the editor's half
+      through the real editor; this is the one that can see both at once,
+      because it mounts the console that supplies the `+` and the note that
+      used to supply the microphone.
+    */
+    const app = mountConsole(1280);
+    expect(app.find("console-create")).not.toBeNull();
+    expect(app.find("voice-button")).toBeNull();
+    app.unmount();
+  });
+
+  test("a phone draws no floating + at all, because its bottom row carries one", () => {
+    /*
+      The row's own `+` is the phone's create surface — and since the microphone
+      key went, its meeting route too. A second floating control 24pt above that
+      row is the defect `oneMicrophone.test.ts` exists for, arriving again with a
+      different glyph on it.
+    */
+    const app = mountConsole(390);
+    expect(app.find("console-create")).toBeNull();
+    expect(app.find("bottom-bar-new")).not.toBeNull();
+    expect(app.find("bottom-bar-meeting")).toBeNull();
+    app.unmount();
+  });
+
+  test("the app's other place is a row in the + sheet, and choosing it records", () => {
+    /*
+      THE SEVENTH KEY, AFTER THE SHEET WENT — AND AFTER THE KEY WENT.
+
+      It used to be its own microphone at the end of the row, and before that it
+      raised a destination sheet with two rows, an audience line and a Start.
+      Both are gone, for the owner's reasons in order: *"no need to ask people it
+      will just confuse them"*, and then *"we no longer need a dedicated mic
+      button on the bottom row, just a plus button that opens different
+      options"*.
+
+      What `docs/decisions/meetings.md` actually protects survived both. It calls
+      a control that silently starts recording "the same product with the
+      indicator removed", and the indicator is where it went: the press records
+      and lands on the meeting's own screen — a clock, a meter, a transport and
+      the note it is becoming. What the phone must keep is a **route**, and this
+      is the route: one press for the `+`, one for Meeting.
+
+      So what is asserted is that the two presses reach a recording, and that
+      neither raises the retired destination sheet. This fixture's console has no
+      meetings controller configured, so the attempt cannot reach a microphone;
+      what it must do is say so rather than doing nothing at all, which is
+      `meetingsFlow.test.ts`'s refusal arriving through the real row.
     */
     const app = mountConsole(390);
     expect(sheetUp()).toBe(false);
 
-    app.press(app.find("bottom-bar-meeting"));
+    app.press(app.find("bottom-bar-new"));
+    const meeting = document.body.querySelector<HTMLElement>('[aria-label="New meeting"]');
+    expect(meeting).not.toBeNull();
+    app.press(meeting);
 
     expect(sheetUp()).toBe(false);
     expect(document.body.querySelector('[data-testid="meeting-refusal"]')).not.toBeNull();
@@ -785,6 +941,35 @@ describe("the phone reaches a destination with nothing opened first", () => {
     // sheet's `closeNav()` used to carry for the panel it replaced.
     app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-refusal-close"]'));
     expect(document.body.querySelector('[data-testid="meeting-refusal"]')).toBeNull();
+
+    app.unmount();
+  });
+
+  /**
+   * AND THE FILES ARE IN THE SAME SHEET, WITH NOTHING ASKING FOR A NAME.
+   *
+   * The `+` is the only route to creating anything on a phone, so what it offers
+   * is the whole of that capability — and the note is made on the press rather
+   * than after a text field, which is what the owner asked for: *"for new note,
+   * new drawing etc should not ask you to title it"*.
+   */
+  test("the + offers the three files, and Note writes one without asking", () => {
+    const app = mountConsole(390);
+    app.press(app.find("bottom-bar-new"));
+
+    const labelled = (label: string) =>
+      document.body.querySelector<HTMLElement>(`[aria-label="${label}"]`);
+    for (const row of ["New note", "New drawing", "New folder"]) {
+      expect(labelled(row)).not.toBeNull();
+    }
+
+    created.length = 0;
+    app.press(labelled("New note"));
+    // It reached the browser as an untitled note in the destination folder —
+    // and no field and no sheet were in the way.
+    expect(created).toEqual(["note:"]);
+    expect(document.body.querySelector("input, textarea")).toBeNull();
+    expect(labelled("New note")).toBeNull();
 
     app.unmount();
   });

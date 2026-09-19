@@ -151,6 +151,13 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       toggleFolder,
       collapseAll,
       selectedPath,
+      /*
+        Nothing reads it here: the demo has no URL to address and no console
+        layout above it, so there is no second history to keep in step. Fixed
+        rather than counted, so the stub cannot start looking like a source of
+        navigations it does not have.
+      */
+      navigations: 0,
       // Nothing is ever in flight here: the demo's notes are in the bundle.
       opening: null,
       select,
@@ -195,6 +202,7 @@ export function useDemoFileBrowser(contextId: string | null): FileBrowser {
       createNote: noop,
       createDrawing: noop,
       createFolder: noop,
+      createUntitled: noop,
       rename: noop,
       move: noop,
       /*

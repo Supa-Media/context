@@ -101,7 +101,6 @@ export function LiveEditor({
   onScrollBy,
   accessibilityLabel,
   onOpenNote,
-  onPressNote,
   notePath,
   notePaths,
   onSubmitForm,
@@ -169,7 +168,6 @@ export function LiveEditor({
     onBlur,
     onScrollBy,
     onOpenNote,
-    onPressNote,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -188,7 +186,6 @@ export function LiveEditor({
     onBlur,
     onScrollBy,
     onOpenNote,
-    onPressNote,
     onSubmitForm,
     onReadFormResponses,
     onVoteForm,
@@ -277,8 +274,7 @@ export function LiveEditor({
             navigating to a note relative to whichever note was open when the
             editor mounted.
           */
-          onOpenNote: (path) => handlers.current.onOpenNote?.(path),
-          onPressNote: (path) => handlers.current.onPressNote?.(path),
+          onOpenNote: (path, mode) => handlers.current.onOpenNote?.(path, mode),
           /*
             Also off the ref, and here the staleness would be worse than a
             mis-aimed navigation: the host resolves a submission against the

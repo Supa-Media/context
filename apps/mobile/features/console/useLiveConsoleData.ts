@@ -415,6 +415,16 @@ export function useLiveConsoleData(): ConsoleData {
         query: api.functions.googleConnect.listGoogleConnections,
         args: { workspaceId: workspace.workspaceId },
       };
+      /*
+        Whether a model key exists, for the one control that would otherwise
+        offer a conversation nothing can answer. It returns fingerprints and
+        connection times — never a key, and never a fragment of one — and this
+        projection keeps only whether the list is empty.
+      */
+      spec[`providers:${workspace.workspaceId}`] = {
+        query: api.functions.providers.listProviders,
+        args: { workspaceId: workspace.workspaceId },
+      };
     }
     return spec;
   }, [workspaces]);
@@ -678,6 +688,23 @@ export function useLiveConsoleData(): ConsoleData {
   */
   const membershipContextId: Id<"workspaces"> | null =
     selected?.pinned === true ? null : selectedContextId;
+  /**
+   * Whether the selected context has a model key. `undefined` until answered.
+   *
+   * `usable` answers `undefined` for a query that has not landed *and* for one
+   * that failed, which is the right reading for both here: a console that
+   * cannot ask offers no conversation rather than an offer that errors.
+   */
+  const modelConnected: boolean | undefined =
+    selectedContextId === null
+      ? undefined
+      : (() => {
+          const answer = usable<{ provider: string }[]>(
+            results[`providers:${selectedContextId}`],
+          );
+          return answer === undefined ? undefined : answer.length > 0;
+        })();
+
   const googleConnections: GoogleConnection[] =
     selectedContextId === null
       ? []
@@ -1175,6 +1202,7 @@ export function useLiveConsoleData(): ConsoleData {
     storage,
     storageActions,
     googleConnections,
+    modelConnected,
     googleActions:
       selectedContextId === null || !isOwner || selected?.kind !== "personal"
         ? undefined

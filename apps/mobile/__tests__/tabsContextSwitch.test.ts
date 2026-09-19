@@ -38,11 +38,17 @@ const roots: (() => void)[] = [];
 
 /** Every `deselect` the hook asked the browser for, in order. */
 let deselects = 0;
+/** Every `select` it asked for, so a test can see which ones it made. */
+let selects: string[] = [];
+/** What the unsaved-changes guard answers. `false` refuses the navigation. */
+let allowSelect = true;
 
 afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   deselects = 0;
+  selects = [];
+  allowSelect = true;
 });
 
 const noop = () => {};
@@ -84,9 +90,13 @@ function browser(
     collapseAll: noop,
     selectedPath: null,
   opening: null,
-    // `select` answers whether the unsaved-changes guard let go; these
-    // fixtures have no draft, so it always does.
-    select: () => true,
+    // `select` answers whether the unsaved-changes guard let go. These
+    // fixtures have no draft, so it does unless a test says otherwise.
+    select: (path: string) => {
+      selects.push(path);
+      return allowSelect;
+    },
+    navigations: 0,
     deselect: () => {
       deselects += 1;
       return true;
@@ -124,6 +134,7 @@ function browser(
     createNote: noop,
     createDrawing: noop,
     createFolder: noop,
+    createUntitled: noop,
     rename: noop,
     move: noop,
     moveDestinations: [],
@@ -162,6 +173,8 @@ function mountTabs(): {
     openPath?: string | null,
   ) => void;
   open: (path: string) => void;
+  follow: (path: string, mode?: "foreground" | "background") => void;
+  activePath: () => string | null;
   close: (path: string) => void;
   reopen: () => void;
   openPaths: () => string[];
@@ -197,6 +210,12 @@ function mountTabs(): {
       act(() => {
         live?.pin(path);
       }),
+    /** Follow a link in the open note, as the editor does. */
+    follow: (path: string, mode: "foreground" | "background" = "foreground") =>
+      act(() => {
+        live?.follow(path, mode);
+      }),
+    activePath: () => live?.state.activePath ?? null,
     close: (path: string) =>
       act(() => {
         live?.close(path);
@@ -250,6 +269,73 @@ describe("tabs do not survive a context switch", () => {
   });
 });
 
+
+describe("following a link, through the hook the editor calls", () => {
+  /**
+   * The reducer's half is `fileTabs.test.ts`; this is the half that decides
+   * whether anything ever *sends* those actions — which is where this file's
+   * own header says the console's guards go unheld.
+   *
+   * The editor used to follow a link with `files.select`, which opens a
+   * preview tab: following A → B → C left one tab and nothing to come back
+   * to. `follow` is what makes a followed link a destination.
+   */
+  test("a link opens a pinned tab beside the one it came from, and goes there", () => {
+    const listings = { "": listing("", ["a.md", "b.md", "link.md"]) };
+    const probe = mountTabs();
+    probe.render("workspace-a", listings);
+    probe.open("a.md");
+    probe.open("b.md");
+    probe.render("workspace-a", listings, "a.md");
+
+    probe.follow("link.md");
+    expect(probe.openPaths()).toEqual(["a.md", "link.md", "b.md"]);
+    expect(probe.activePath()).toBe("link.md");
+    // It moved the editor too, which is what stops the strip pointing at one
+    // note while the pane holds another.
+    expect(selects.at(-1)).toBe("link.md");
+  });
+
+  test("a ⌘-click opens the tab and does NOT move the editor", () => {
+    /*
+      "Open behind" means the note under the pointer keeps the caret, the
+      scroll and the selection. A `select` here is the whole failure: it would
+      navigate somebody who explicitly asked not to be navigated.
+    */
+    const listings = { "": listing("", ["a.md", "behind.md"]) };
+    const probe = mountTabs();
+    probe.render("workspace-a", listings);
+    probe.open("a.md");
+    probe.render("workspace-a", listings, "a.md");
+    selects.length = 0;
+
+    probe.follow("behind.md", "background");
+    expect(probe.openPaths()).toEqual(["a.md", "behind.md"]);
+    expect(probe.activePath()).toBe("a.md");
+    expect(selects).toEqual([]);
+  });
+
+  test("a refused navigation leaves no tab behind", () => {
+    /*
+      The unsaved-changes guard answers `false` and the editor does not move.
+      A tab opened anyway would be a strip naming a note the editor never
+      opened — the exact desync this hook's one-direction rule exists to
+      prevent, arriving through the one call that skipped it.
+
+      SABOTAGE: dispatch before checking `select`'s answer. Fails here.
+    */
+    const listings = { "": listing("", ["a.md", "link.md"]) };
+    const probe = mountTabs();
+    probe.render("workspace-a", listings);
+    probe.open("a.md");
+    probe.render("workspace-a", listings, "a.md");
+
+    allowSelect = false;
+    probe.follow("link.md");
+    expect(probe.openPaths()).toEqual(["a.md"]);
+    expect(probe.activePath()).toBe("a.md");
+  });
+});
 
 describe("the guards inside the switch", () => {
   /**

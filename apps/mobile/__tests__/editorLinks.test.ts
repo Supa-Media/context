@@ -6,68 +6,92 @@
  * FOLLOWING A LINK, AGAINST A REAL EDITOR.
  *
  * `noteLinks.test.ts` proves which text becomes a link. This proves the part
- * that cannot be proved without mounting one: that a ⌘-click on it navigates,
- * that a plain click still puts the caret where somebody aimed, and that a long
- * press is told apart from a tap and from a scroll.
+ * that cannot be proved without mounting one: that a **plain click** on it
+ * navigates, that the two gestures meaning "I am editing this link" still put
+ * the caret where somebody aimed, and that a tap is told apart from a long
+ * press and from a scroll.
  *
- * Every one of those is a *gesture*, and a gesture is exactly the kind of thing
- * a pure test asserts about a description of rather than about the behaviour.
- * The failure that made this file worth writing is the second one: an
- * implementation that follows a plain click reads as working — links open! —
- * and has quietly made the editor impossible to edit inside a link, which is
- * where a typo in a path lives.
+ * ## What this file used to assert, and why it is the reverse now
+ *
+ * It used to require that a plain click open nothing, and called that "the one
+ * that matters": this is an editor, a mistyped path lives *inside* a link, and
+ * an implementation that followed a plain click would read as working while
+ * making those characters unreachable.
+ *
+ * The premise was right and the conclusion was wrong. What made a modifier
+ * necessary was the belief that a click is the *only* way to reach a link's
+ * text — and it is not. ⌥-click reaches it, and so does clicking a link that
+ * is already showing its source. Both are tested below, and they are what buys
+ * the plain click: the gesture everybody already has follows the link, and the
+ * two that mean "edit" are unambiguous rather than merely unmodified.
  *
  * ## What jsdom can and cannot do here
  *
  * It lays nothing out, so `posAtCoords` cannot be driven by real coordinates.
  * The tests below therefore dispatch events at coordinates jsdom resolves to
  * position 0 and assert on the *decision* the extension made — which link it
- * found and whether it acted — rather than on pixels. The one thing that would
- * make that a false green is a document whose position 0 is not inside a link,
- * so each fixture starts with one.
+ * found, whether it acted, and how — rather than on pixels. The one thing that
+ * would make that a false green is a document whose position 0 is not inside a
+ * link, so each fixture starts with one.
  *
  * ## Sabotage record
  *
  * Run as temporary local edits and reverted. Counts are failing tests across
  * this file and `noteLinks.test.ts`.
  *
- *   the modifier check dropped, so a plain click follows a link      1
- *   the slop check dropped, so a scroll becomes a press              1
- *   a press navigating instead of asking                             1
- *   the span narrowed to the target, dropping the brackets           2
+ *   the ⌥ check dropped, so editing a path navigates instead        2
+ *   the `editing` check dropped, so a caret inside a link is lost   1
+ *   `hasFocus` dropped, so a note opening on a link eats its click  1
+ *   the mode always `foreground`, so ⌘-click moves you              2
+ *   Ctrl honoured on an Apple keyboard, taking the context menu     1
+ *   the tap's slop check dropped, so a scroll navigates             1
+ *   the tap's ceiling dropped, so a long press navigates            1
  */
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
-  LONG_PRESS_MS,
-  PRESS_CANCEL_FLOOR_MS,
+  TAP_MAX_MS,
   noteLinks,
   type NoteLinkContext,
+  type NoteLinkOpen,
 } from "../features/console/files/noteLinks";
 
 const NOTE = "1-projects/persistence/overview.md";
 const TARGET = "2-products/context-lc/overview.md";
 const DOC = "[[../../2-products/context-lc/overview]] trailing words";
+/** Past the link, and past the space after it. */
+const OUTSIDE = DOC.length - 3;
+
+interface Opened {
+  path: string;
+  mode: NoteLinkOpen;
+}
 
 interface Mounted {
   view: EditorView;
-  opened: string[];
-  pressed: string[];
+  opened: Opened[];
+  paths: () => string[];
   content: HTMLElement;
   destroy: () => void;
 }
 
-function mount(): Mounted {
-  const opened: string[] = [];
-  const pressed: string[] = [];
+/**
+ * A mounted editor over `DOC`.
+ *
+ * `caretAt` puts a caret in the document the way a person does, because two of
+ * the rules below are about what happens when there is one. jsdom will not
+ * focus a `contenteditable` on its own, so focusing it here is the only honest
+ * way to reach the state a click-then-click produces.
+ */
+function mount(options: { caretAt?: number } = {}): Mounted {
+  const opened: Opened[] = [];
   const ref = {
     current: {
       path: NOTE,
       paths: [NOTE, TARGET],
-      onOpen: (path: string) => opened.push(path),
-      onPress: (path: string) => pressed.push(path),
+      onOpen: (path: string, mode: NoteLinkOpen) => opened.push({ path, mode }),
     } satisfies NoteLinkContext,
   };
 
@@ -77,11 +101,15 @@ function mount(): Mounted {
     state: EditorState.create({ doc: DOC, extensions: [noteLinks(ref)] }),
     parent,
   });
+  if (options.caretAt !== undefined) {
+    view.contentDOM.focus();
+    view.dispatch({ selection: { anchor: options.caretAt } });
+  }
 
   return {
     view,
     opened,
-    pressed,
+    paths: () => opened.map((entry) => entry.path),
     content: view.contentDOM,
     destroy: () => {
       view.destroy();
@@ -99,7 +127,14 @@ afterEach(() => {
 
 /** A mouse event jsdom will resolve inside the first line. */
 function mouse(type: string, init: MouseEventInit = {}): MouseEvent {
-  return new MouseEvent(type, { bubbles: true, cancelable: true, clientX: 1, clientY: 1, ...init });
+  return new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX: 1,
+    clientY: 1,
+    button: 0,
+    ...init,
+  });
 }
 
 /**
@@ -121,46 +156,33 @@ function touch(type: string, points: { clientX: number; clientY: number }[]): Ev
   return event;
 }
 
-describe("a link is followed with the modifier and not without it", () => {
-  test("⌘-click opens the note the link names", () => {
-    mounted = mount();
-    mounted.content.dispatchEvent(mouse("mousedown", { metaKey: true }));
-    expect(mounted.opened).toEqual([TARGET]);
-  });
-
-  test("Ctrl-click does too, for everywhere that is not a Mac", () => {
-    mounted = mount();
-    mounted.content.dispatchEvent(mouse("mousedown", { ctrlKey: true }));
-    expect(mounted.opened).toEqual([TARGET]);
-  });
-
-  test("a plain click opens nothing", () => {
+describe("one click follows the link", () => {
+  test("a plain click opens the note the link names, and goes to it", () => {
     /*
-      The one that matters. This is an editor, and the text under the pointer is
-      text somebody may be about to fix — a mistyped path lives *inside* a link.
-      An implementation that followed a plain click would read as working and
-      would have made those characters unreachable.
+      THE ONE THAT MATTERS, and it is the inverse of what this file used to
+      require. The owner's words: "I should be able to go to a link just by
+      clicking it once, similar to Obsidian, shouldnt have to command click".
     */
     mounted = mount();
     mounted.content.dispatchEvent(mouse("mousedown"));
-    expect(mounted.opened).toEqual([]);
+    expect(mounted.opened).toEqual([{ path: TARGET, mode: "foreground" }]);
   });
 
-  test("and the modified click is claimed, so the browser does nothing else with it", () => {
-    // Not politeness: an unclaimed ⌘-click also moves the caret, and on macOS a
-    // Ctrl-click raises the context menu over the note.
+  test("and the click is claimed, so the caret does not move into the link", () => {
+    // Not politeness: an unclaimed click also places the caret, so the note
+    // you have just left would take a caret on its way out.
     mounted = mount();
-    const event = mouse("mousedown", { metaKey: true });
+    const event = mouse("mousedown");
     mounted.content.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
 
-  test("a modified click on text that is not a link is left alone", () => {
+  test("a click on text that is not a link is left alone", () => {
     mounted = mount();
     mounted.view.dispatch({
       changes: { from: 0, to: mounted.view.state.doc.length, insert: "plain words" },
     });
-    mounted.content.dispatchEvent(mouse("mousedown", { metaKey: true }));
+    mounted.content.dispatchEvent(mouse("mousedown"));
     /*
       Only that nothing was followed. `defaultPrevented` is deliberately not
       asserted here: CodeMirror's own mousedown handling claims the event for
@@ -170,32 +192,166 @@ describe("a link is followed with the modifier and not without it", () => {
     */
     expect(mounted.opened).toEqual([]);
   });
+
+  test("the secondary button is the context menu's, not this extension's", () => {
+    // `rightClick.web.ts` draws the note's own menu over a link like any other
+    // text. Claiming button 2 here would delete that menu over every link.
+    mounted = mount();
+    const event = mouse("mousedown", { button: 2 });
+    mounted.content.dispatchEvent(event);
+    expect(mounted.opened).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
 });
 
-describe("a long press asks, and a tap and a scroll do not", () => {
-  test("holding still for long enough is a press", () => {
-    jest.useFakeTimers();
+describe("⌘-click and middle-click open it behind", () => {
+  /**
+   * jsdom's user agent is not an Apple one, so `Ctrl` is this environment's
+   * "open behind" modifier and `⌘` is not. That is the rule under test rather
+   * than a quirk being worked around — see `opensBehind` in `noteLinks.ts` and
+   * the keyboard cases in `noteLinks.test.ts`, which drive it directly against
+   * all three agents.
+   */
+  test("Ctrl-click opens the note without moving anybody", () => {
     mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    expect(mounted.pressed).toEqual([TARGET]);
-    // It asks; it does not navigate. The host puts a confirmation up.
+    mounted.content.dispatchEvent(mouse("mousedown", { ctrlKey: true }));
+    expect(mounted.opened).toEqual([{ path: TARGET, mode: "background" }]);
+  });
+
+  test("the middle button does the same", () => {
+    mounted = mount();
+    mounted.content.dispatchEvent(mouse("mousedown", { button: 1 }));
+    expect(mounted.opened).toEqual([{ path: TARGET, mode: "background" }]);
+  });
+
+  test("and both are claimed, so no caret moves and nothing is pasted", () => {
+    // X11 pastes the primary selection on a middle click. Over a link that
+    // would be an edit nobody asked for, in a note they were not even reading.
+    mounted = mount();
+    const event = mouse("mousedown", { button: 1 });
+    mounted.content.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+  });
+});
+
+describe("the two ways to edit a link instead of following it", () => {
+  test("⌥-click never navigates — it belongs to the caret", () => {
+    /*
+      The deliberate "I am editing this path" gesture, and the whole of what
+      buys the plain click above. Without it, the characters inside a link are
+      unreachable, which is the argument that used to require a modifier to
+      *follow* rather than one to edit.
+    */
+    mounted = mount();
+    const event = mouse("mousedown", { altKey: true });
+    mounted.content.dispatchEvent(event);
     expect(mounted.opened).toEqual([]);
   });
 
-  test("letting go first is a tap", () => {
+  test("⌥ wins over the background modifier too, rather than racing it", () => {
+    mounted = mount();
+    mounted.content.dispatchEvent(mouse("mousedown", { altKey: true, ctrlKey: true }));
+    expect(mounted.opened).toEqual([]);
+  });
+
+  test("a click on a link that already holds the caret places the caret", () => {
+    /*
+      The second way in, and the one nobody has to be told about: live preview
+      unfolds the link the selection touches, so what is under the pointer is
+      `[[…]]` source rather than a rendered link — and clicking source puts a
+      caret in it, as clicking any other text does. So fixing a path is
+      click, then click, which is what somebody would try anyway.
+    */
+    mounted = mount({ caretAt: 4 });
+    mounted.content.dispatchEvent(mouse("mousedown"));
+    expect(mounted.opened).toEqual([]);
+  });
+
+  test("a tap on a link that already holds the caret places the caret too", () => {
+    /*
+      A touch screen has no ⌥, so this is the *only* one of the two escape
+      hatches it has. Without it the characters inside a link are unreachable
+      on a phone — which is exactly the objection the old ⌘-click rule was
+      built around, surviving on one platform.
+    */
+    mounted = mount({ caretAt: 4 });
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    mounted.content.dispatchEvent(touch("touchend", []));
+    expect(mounted.opened).toEqual([]);
+  });
+
+  test("but a caret elsewhere in the note does not make the link inert", () => {
+    // The control on the rule above. A note being typed into has a caret
+    // somewhere at all times; if any caret counted, links would stop working
+    // the moment somebody started writing.
+    mounted = mount({ caretAt: OUTSIDE });
+    mounted.content.dispatchEvent(mouse("mousedown"));
+    expect(mounted.opened).toEqual([{ path: TARGET, mode: "foreground" }]);
+  });
+
+  test("a note that OPENS on a link still follows the first click", () => {
+    /*
+      `hasFocus` is what makes this true, and without it this is the bug the
+      rule above would have shipped: an editor nobody has clicked into still
+      has a selection, at position 0 — so a note whose first characters are a
+      link would count as "the caret is in it" before anybody touched it, and
+      the first click on the first link would do nothing at all.
+
+      `mount()` with no caret is exactly that state: `DOC` starts with the
+      link and the view is unfocused.
+    */
+    mounted = mount();
+    expect(mounted.view.hasFocus).toBe(false);
+    mounted.content.dispatchEvent(mouse("mousedown"));
+    expect(mounted.paths()).toEqual([TARGET]);
+  });
+});
+
+describe("a tap follows, and a long press and a scroll do not", () => {
+  test("touch down and up on a link is a tap", () => {
     jest.useFakeTimers();
     mounted = mount();
     mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(LONG_PRESS_MS - 50);
+    jest.advanceTimersByTime(80);
     mounted.content.dispatchEvent(touch("touchend", []));
-    jest.advanceTimersByTime(500);
-    expect(mounted.pressed).toEqual([]);
+    expect(mounted.opened).toEqual([{ path: TARGET, mode: "foreground" }]);
+  });
+
+  test("the tap claims its `touchend`, so no caret lands in the note being left", () => {
+    // The synthetic click a browser sends after a touch would otherwise reach
+    // the arriving note, which has scrolled to wherever the finger was.
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    const end = touch("touchend", []);
+    mounted.content.dispatchEvent(end);
+    expect(end.defaultPrevented).toBe(true);
+  });
+
+  test("holding past the ceiling is a long press, and a long press is a selection", () => {
+    /*
+      **This replaced the feature, rather than merely bounding it.** A long
+      press used to be how a link was followed on a phone, behind a
+      confirmation dialog — because a press is also how a selection starts, so
+      acting on one would have thrown away the note being edited on an
+      ambiguous gesture. A tap is not ambiguous, so the dialog and the whole
+      `touchcancel`/`contextmenu` reading of WebKit's recogniser are gone, and
+      a long press belongs to the platform again.
+    */
+    jest.useFakeTimers();
+    mounted = mount();
+    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
+    jest.advanceTimersByTime(TAP_MAX_MS + 50);
+    const end = touch("touchend", []);
+    mounted.content.dispatchEvent(end);
+    expect(mounted.opened).toEqual([]);
+    // And it is not claimed, so the selection the platform started survives.
+    expect(end.defaultPrevented).toBe(false);
   });
 
   test("drifting past the slop is a scroll", () => {
     /*
-      A note is a scroller and most of them have links in them, so a press that
+      A note is a scroller and most of them have links in them, so a tap that
       survived a drag would fire on an ordinary flick down the page — the
       gesture people make most.
     */
@@ -203,167 +359,67 @@ describe("a long press asks, and a tap and a scroll do not", () => {
     mounted = mount();
     mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
     mounted.content.dispatchEvent(touch("touchmove", [{ clientX: 1, clientY: 60 }]));
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    expect(mounted.pressed).toEqual([]);
+    mounted.content.dispatchEvent(touch("touchend", []));
+    expect(mounted.opened).toEqual([]);
   });
 
-  test("a small wobble is still a press", () => {
-    // A thumb held on a phone rolls a few pixels. A zero-tolerance rule would
+  test("a small wobble is still a tap", () => {
+    // A thumb rolls a few pixels on the way down. A zero-tolerance rule would
     // make the gesture impossible to perform rather than hard.
     jest.useFakeTimers();
     mounted = mount();
-    // The same origin every other touch test uses: jsdom resolves only that
-    // coordinate to a position, so a different one would test the "found no
-    // link" branch while claiming to test the slop.
     mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
     mounted.content.dispatchEvent(touch("touchmove", [{ clientX: 4, clientY: 3 }]));
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    expect(mounted.pressed).toEqual([TARGET]);
+    mounted.content.dispatchEvent(touch("touchend", []));
+    expect(mounted.paths()).toEqual([TARGET]);
   });
 
-  test("a second finger cancels, rather than starting a second press", () => {
-    jest.useFakeTimers();
+  test("a second finger cancels, rather than starting a second tap", () => {
     mounted = mount();
     mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
     mounted.content.dispatchEvent(
       touch("touchstart", [{ clientX: 1, clientY: 1 }, { clientX: 40, clientY: 40 }]),
     );
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    expect(mounted.pressed).toEqual([]);
+    mounted.content.dispatchEvent(touch("touchend", []));
+    expect(mounted.opened).toEqual([]);
   });
 
-  test("a touch never claims the event, so the note still scrolls", () => {
+  test("a touch never claims its `touchstart`, so the note still scrolls", () => {
     // Claiming it would break scrolling over any note with a link in it, which
     // is most of them.
-    jest.useFakeTimers();
     mounted = mount();
     const event = touch("touchstart", [{ clientX: 1, clientY: 1 }]);
     mounted.content.dispatchEvent(event);
     expect(event.defaultPrevented).toBe(false);
   });
 
-  test("an editor destroyed mid-press does not fire into nothing", () => {
-    jest.useFakeTimers();
-    mounted = mount();
-    const held = mounted;
-    held.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    held.destroy();
-    mounted = null;
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    // The callback is the app's and outlives the view; what must not happen is
-    // a navigation somebody did not ask for after leaving the note.
-    expect(held.pressed).toEqual([TARGET]);
-  });
-});
-
-describe("the platform's own long press is the same press", () => {
-  /**
-   * **Reported from a phone: long pressing a link does nothing.**
-   *
-   * Driven as real touch events in a real browser, the timer above works. On
-   * iOS it fired approximately never, and the reason is that the page is not
-   * the only thing watching the finger: WebKit's own long-press recogniser —
-   * the one that raises the selection magnifier over editable text — claims a
-   * stationary touch and tells the page by sending `touchcancel`. The handler
-   * treated that as "give up", so the gesture was cancelled by the very thing
-   * that had recognised it.
-   *
-   * Reproduced before it was fixed, by dispatching the sequence WebKit
-   * dispatches — `touchstart`, then `touchcancel` at 300ms with the finger
-   * still on the link — against the built extension in headless Chromium under
-   * touch emulation: no press. The same sequence here.
-   */
-  test("a cancel over a finger that has not moved still becomes a press", () => {
-    jest.useFakeTimers();
-    mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(300);
-    mounted.content.dispatchEvent(touch("touchcancel", []));
-    jest.advanceTimersByTime(LONG_PRESS_MS);
-    expect(mounted.pressed).toEqual([TARGET]);
-  });
-
-  test("but one that arrives before the gesture was anything is dropped", () => {
+  test("a cancelled touch is not a tap, however still the finger was", () => {
     /*
-      The control on the rule above, and the reason it is a floor rather than
-      "never cancel": a call arriving twenty milliseconds after a finger lands
-      is an interruption, and turning every interruption into a dialog about a
-      link somebody happened to touch is its own bug.
+      An ordinary give-up, which it could not be while a long press lived here:
+      a cancel over a stationary finger was iOS *recognising* that gesture, so
+      the handler had to keep a timer running through it and tell a
+      recogniser's interruption from a phone call's. Nothing now reads a
+      cancel as anything but a touch that stopped being one.
     */
-    jest.useFakeTimers();
     mounted = mount();
     mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(PRESS_CANCEL_FLOOR_MS - 50);
     mounted.content.dispatchEvent(touch("touchcancel", []));
-    jest.advanceTimersByTime(LONG_PRESS_MS);
-    expect(mounted.pressed).toEqual([]);
+    mounted.content.dispatchEvent(touch("touchend", []));
+    expect(mounted.opened).toEqual([]);
   });
 
-  test("a drifting touch that is then cancelled is still a scroll", () => {
-    // Cancelling is not a second chance for a gesture already ruled out.
-    jest.useFakeTimers();
-    mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    mounted.content.dispatchEvent(touch("touchmove", [{ clientX: 1, clientY: 60 }]));
-    jest.advanceTimersByTime(300);
-    mounted.content.dispatchEvent(touch("touchcancel", []));
-    jest.advanceTimersByTime(LONG_PRESS_MS);
-    expect(mounted.pressed).toEqual([]);
-  });
-
-  test("`contextmenu` during a touch is the platform reporting the press", () => {
-    // The second signal: some browsers announce the long press rather than
-    // silently taking it. Both are the same gesture and both reach the host.
-    jest.useFakeTimers();
-    mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(300);
-    const event = mouse("contextmenu");
-    mounted.content.dispatchEvent(event);
-    expect(mounted.pressed).toEqual([TARGET]);
-    // The system menu would otherwise come up over the dialog.
-    expect(event.defaultPrevented).toBe(true);
-  });
-
-  test("a right-click with no touch behind it keeps the browser's menu", () => {
+  test("a right-click keeps the browser's menu, with no touch anywhere near it", () => {
     /*
-      The control that decides the shape of the rule. `contextmenu` is also a
-      right-click on a pointer device, and answering that with "open this
-      note?" would take the browser's menu away from every note on a desktop.
-      The handler reads whether one of *our* touch gestures is live, not the
-      event.
+      `contextmenu` used to be handled here as "the platform reporting a long
+      press", and the handler had to check whether one of our own touch
+      gestures was live so a desktop right-click kept its menu. No handler
+      remains; this is the test that the removal is complete.
     */
-    jest.useFakeTimers();
     mounted = mount();
     const event = mouse("contextmenu");
     mounted.content.dispatchEvent(event);
-    expect(mounted.pressed).toEqual([]);
+    expect(mounted.opened).toEqual([]);
     expect(event.defaultPrevented).toBe(false);
-  });
-
-  test("both signals for one gesture ask once", () => {
-    // Two dialogs for one press is the failure this pair invites.
-    jest.useFakeTimers();
-    mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(300);
-    mounted.content.dispatchEvent(mouse("contextmenu"));
-    jest.advanceTimersByTime(LONG_PRESS_MS);
-    mounted.content.dispatchEvent(touch("touchend", []));
-    expect(mounted.pressed).toEqual([TARGET]);
-  });
-
-  test("and a second gesture can still press", () => {
-    // The control on the deduplication: a flag that never reset would make the
-    // feature work exactly once per note.
-    jest.useFakeTimers();
-    mounted = mount();
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    mounted.content.dispatchEvent(touch("touchend", []));
-    mounted.content.dispatchEvent(touch("touchstart", [{ clientX: 1, clientY: 1 }]));
-    jest.advanceTimersByTime(LONG_PRESS_MS + 1);
-    expect(mounted.pressed).toEqual([TARGET, TARGET]);
   });
 });
 
@@ -385,8 +441,8 @@ describe("the link is drawn as one", () => {
 
   /**
    * L3 (`docs/decisions/app-and-console.md` and the editor-polish sweep): a
-   * touch screen has no hover and no modifier, so the tooltip that tells a
-   * pointer user "⌘-click to open" tells a phone nothing at all. The one
+   * touch screen has no hover and no modifier, so the tooltip that told a
+   * pointer user "⌘-click to open" told a phone nothing at all. The one
    * affordance that reaches every input device is the mark itself actually
    * *looking* clickable — and the class existing is not that: F5→F6→F7's own
    * lesson is that a control has to be **drawn**, not merely present in the
@@ -422,5 +478,26 @@ describe("the link is drawn as one", () => {
     const rule = sheets.find((text) => text.includes(".cm-note-link") && text.includes("underline"));
     expect(rule).toBeDefined();
     expect(rule).not.toMatch(/@media/);
+  });
+
+  test("the system's own long-press callout is no longer suppressed over a link", () => {
+    /*
+      It was off here because long press *was* this feature's gesture and the
+      callout was the other thing answering to it. A link is now the one piece
+      of text in the note with no reason left to behave differently from the
+      rest of it, so `-webkit-touch-callout: none` has to be gone rather than
+      merely unused.
+    */
+    mounted = mount();
+    const sheets = [...document.styleSheets].flatMap((sheet) => {
+      try {
+        return [...sheet.cssRules].map((rule) => rule.cssText);
+      } catch {
+        return [];
+      }
+    });
+    const rule = sheets.find((text) => text.includes(".cm-note-link") && text.includes("underline"));
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/touch-callout/i);
   });
 });

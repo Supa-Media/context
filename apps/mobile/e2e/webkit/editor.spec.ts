@@ -7,7 +7,7 @@ import { dispatchTouch, openWeeklyReview, tap } from "./helpers";
  * instead of jsdom simulating one. See that file and this directory's
  * `playwright.config.ts` for what a WebKit pass here proves and does not.
  *
- * All five open the same note — `2-areas/weekly-review.md` on the `@seyi`
+ * All of them open the same note — `2-areas/weekly-review.md` on the `@seyi`
  * fixture context, reached by `openWeeklyReview` exactly as a person would
  * reach it — because it is the one note carrying every construct these cases
  * need: a wikilink, a checked and an unchecked task, and a bullet long enough
@@ -19,46 +19,77 @@ test.beforeEach(async ({ page }) => {
   await openWeeklyReview(page);
 });
 
-test("a long press on a wikilink raises the go-there prompt", async ({ page }) => {
+test("a tap on a wikilink follows it", async ({ page }) => {
+  /*
+    The gesture this suite was written for, inverted — and the inversion is
+    the feature. A long press used to be how a link was followed here, behind
+    an "Open this note?" confirmation, because a press is also how a selection
+    starts. Getting that press to arrive at all took `noteLinks.ts`'s whole
+    `touchcancel`/`contextmenu` reading of WebKit's own recogniser. A tap is
+    over before any recogniser has an opinion, and it is not ambiguous.
+  */
+  const link = page.locator(".cm-note-link").first();
+  await expect(link).toBeVisible();
+  const box = await link.boundingBox();
+  if (box === null) throw new Error("the wikilink has no box to tap");
+  const before = await page.getByTestId("breadcrumb-leaf").textContent();
+
+  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+
+  // The note it names is open: the breadcrumb's leaf is the one thing on this
+  // screen that says which note that is once the document has scrolled.
+  await expect(page.getByTestId("breadcrumb-leaf")).not.toHaveText(before ?? "");
+  // And nothing asks first. The confirmation is gone with the press.
+  await expect(page.getByText("Open this note?")).toHaveCount(0);
+});
+
+test("a long press does not navigate — it is a selection again", async ({ page }) => {
+  /*
+    The control, and the case that used to be the feature. Driven as
+    `noteLinks.ts`'s old sequence drove it: touchstart, the finger not moving,
+    then WebKit's own `touchcancel` at 300ms. That window used to *be* the
+    press — the handler left its timer running through the cancel precisely
+    because a cancel over a stationary finger was the recogniser claiming the
+    touch. Nothing reads it that way now.
+
+    See `helpers.ts` for what dispatching this here proves and does not.
+  */
   const link = page.locator(".cm-note-link").first();
   await expect(link).toBeVisible();
   const box = await link.boundingBox();
   if (box === null) throw new Error("the wikilink has no box to press");
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const before = await page.getByTestId("breadcrumb-leaf").textContent();
 
-  /*
-    `noteLinks.ts`'s own sequence: touchstart, then — the finger not having
-    moved — a touchcancel at 300ms, which is inside `LONG_PRESS_MS` (450ms) and
-    past `PRESS_CANCEL_FLOOR_MS` (150ms). A cancel in that window is WebKit's
-    long-press recogniser claiming the touch, and the handler leaves the timer
-    running rather than treating it as an interruption. See `helpers.ts` for
-    what dispatching it here proves and does not.
-  */
   await dispatchTouch(page, "touchstart", point);
   await page.waitForTimeout(300);
   await dispatchTouch(page, "touchcancel", point);
+  await page.waitForTimeout(400);
 
-  await expect(page.getByText("Open this note?")).toBeVisible();
-});
-
-test("a plain tap places the caret and does not navigate", async ({ page }) => {
-  const link = page.locator(".cm-note-link").first();
-  const before = await page.getByTestId("breadcrumb-leaf").textContent();
-
-  const box = await link.boundingBox();
-  if (box === null) throw new Error("the wikilink has no box to tap");
-  await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
-
-  // No dialog, and the same note still open — a tap this quick has already
-  // fired `touchend`, which cancels the pending long-press timer.
   await expect(page.getByText("Open this note?")).toHaveCount(0);
   await expect(page.getByTestId("breadcrumb-leaf")).toHaveText(before ?? "");
+});
 
-  // And the caret actually moved: CodeMirror gives the focused content
-  // editable role the DOM selection, so the click is a real one rather than a
-  // tap the editor silently dropped.
-  const editor = page.getByRole("textbox");
-  await expect(editor).toBeFocused();
+test("a tap that drifts is a scroll, not a follow", async ({ page }) => {
+  /*
+    A note is a scroller and most notes have links in them, so a tap that
+    survived a drag would navigate on an ordinary flick down the page. This is
+    the one case in this file that `editorLinks.test.ts` also covers, and it is
+    here because the slop is measured in real CSS pixels against a real layout
+    rather than at jsdom's position 0.
+  */
+  const link = page.locator(".cm-note-link").first();
+  await expect(link).toBeVisible();
+  const box = await link.boundingBox();
+  if (box === null) throw new Error("the wikilink has no box to drag from");
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const before = await page.getByTestId("breadcrumb-leaf").textContent();
+
+  await dispatchTouch(page, "touchstart", point);
+  await dispatchTouch(page, "touchmove", { x: point.x, y: point.y + 60 });
+  await dispatchTouch(page, "touchend", { x: point.x, y: point.y + 60 });
+
+  await expect(page.getByTestId("breadcrumb-leaf")).toHaveText(before ?? "");
 });
 
 test("the checkbox control toggles on tap", async ({ page }) => {

@@ -233,19 +233,29 @@ own launch, which needs a real macOS process; a Linux-hosted WebKit engine is
 still the right trade for the editor's DOM event handling, and remains one.)
 
 **What a green run there proves:** the app's own touch-event handling — the
-long-press timer, the `touchcancel` interpretation, the checkbox toggle, the
-caret/reveal rule issue #254 was about — runs correctly inside a genuine
-WebKit JavaScript engine and DOM, against the real built web export, driven by
-real `page.touchscreen` taps wherever Playwright's API reaches that far.
+tap that follows a link, the long press that must *not*, the drift that is a
+scroll, the checkbox toggle, the caret/reveal rule issue #254 was about — runs
+correctly inside a genuine WebKit JavaScript engine and DOM, against the real
+built web export, driven by real `page.touchscreen` taps wherever Playwright's
+API reaches that far.
+
+*The link cases inverted on 2026-09-19* and the job is worth more for it, not
+less: a tap follows a link now and a long press is a selection again, so the
+whole `touchcancel`/`contextmenu` reading of WebKit's recogniser is deleted
+rather than merely re-tested. What the suite holds there now is that the
+deletion is complete — a held finger, cancelled the way WebKit cancels one,
+navigates nowhere. See `docs/decisions/app-and-console.md`, "Following a link
+is one click".
 **What it does not prove:** Linux WebKit is close to iOS Safari's DOM event
 handling and not identical, and Playwright's `Touchscreen` has exactly one
 method, `tap(x, y)` — there is no public, cross-browser way to ask a real OS
 input pipeline for a held touch, in either engine. So the one case that needs
 the WebKit long-press *recogniser* itself to claim a touch and raise
-`touchcancel` (`editor.spec.ts`'s first case) constructs and dispatches that
-`TouchEvent` directly rather than waiting for the engine to produce it — which
-proves the handler again, in WebKit's engine this time, but still does not
-reach the recogniser that inspired the fix. Closing that residue would cost a
+`touchcancel` (`editor.spec.ts`'s long-press case, which now asserts that
+nothing happens) constructs and dispatches that `TouchEvent` directly rather
+than waiting for the engine to produce it — which proves the handler again, in
+WebKit's engine this time, but still does not reach the recogniser that
+inspired the fix. Closing that residue would cost a
 macOS runner and a real device farm; this is the layer beneath "enough to fix"
 that is affordable in CI, not the whole of "enough to prove."
 
