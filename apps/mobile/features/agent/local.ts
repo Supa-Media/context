@@ -73,3 +73,61 @@ export function preferLocal(local: LocalRoute | null): boolean {
 
 /** What the panel calls the local road in its header. */
 export const LOCAL_PROVIDER = "claude-code";
+
+/**
+ * What one attempt at the local road means for the rest of the ask.
+ *
+ * `answer` and `stop` both end the turn; `gateway` is the only outcome that
+ * goes on to spend the customer's API key.
+ */
+export type AfterLocal =
+  | { road: "answer"; answer: string; provider: string }
+  | { road: "stop"; sentence: string }
+  | { road: "gateway" };
+
+/**
+ * Whether a local attempt ends the turn, and why.
+ *
+ * **This is a pure function because the rule inside it was a comment.** It
+ * lived in `useAgentEngine`'s `ask` as control flow, where nothing could reach
+ * it — and `features/console/capabilities.ts`'s rule applies here exactly as it
+ * does there: *every guard expressed inside a component in this app was held by
+ * nothing*. `docs/decisions/testing.md` puts it shorter: a guard nobody has
+ * checked is not a guard.
+ *
+ * ## A local refusal never falls through
+ *
+ * `ok: false` is a sentence naming a fix **on this machine** — sign in to the
+ * CLI, connect this Mac. Falling through to the gateway after showing somebody
+ * that would spend their API key silently, moments after telling them the free
+ * road needed a two-second fix. That is the single outcome this road exists to
+ * avoid, so a refusal stops the turn.
+ *
+ * ## A shell that vanished does
+ *
+ * `null` here means the bridge call *threw* — the shell went away mid-question.
+ * Nothing was spent, nothing was said, and the person is owed an answer rather
+ * than an explanation of our plumbing. So that one falls through, and it is the
+ * only thing that does.
+ *
+ * The distinction is the whole function: "the CLI said no" and "the CLI was not
+ * there" look equally like failure at the call site and mean opposite things.
+ */
+export function afterLocal(reply: LocalAgentReply | null): AfterLocal {
+  if (reply === null) return { road: "gateway" };
+  if (reply.ok && reply.answer.trim().length > 0) {
+    return { road: "answer", answer: reply.answer, provider: reply.provider };
+  }
+  if (reply.ok) {
+    /*
+      `ok: true` with nothing in it. The shell should not send this, and if it
+      does, falling through would spend a key on a turn that may well have
+      already spent a subscription — so it stops, like every other non-answer.
+    */
+    return { road: "stop", sentence: EMPTY_LOCAL_ANSWER };
+  }
+  return { road: "stop", sentence: reply.message };
+}
+
+/** Shown when the shell answers `ok` with no answer in it. */
+export const EMPTY_LOCAL_ANSWER = "Claude Code finished without an answer. Try asking again.";
