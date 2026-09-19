@@ -5988,6 +5988,83 @@ And there is no crop, which is the one on this list worth doing next: a crop tha
 writes a new object needs no new numbers in the file, which is what made every
 other item here expensive.
 
+## A status wears a chip; a band is for what you have not been told
+
+A `member` of a shared context read two full-width bands above every note,
+every folder and every listing of it, on every load, with no way to put either
+away:
+
+> Team access — notes marked private are not shown here.
+> This is Context's own workspace, not yours — read anything here, and use a
+> form to file a bug or a request. Your own notes are never in it.
+
+and two inches above both, the `team level only` chip the frame already draws
+on every route. Three statements of one relationship, on the pinned
+`@context-lc` — a workspace every account has in its rail and opens repeatedly.
+The owner reported them as useless.
+
+Each band arrived by a defensible step. The tier line moved from "the context
+root only" to "every screen" because a team link opens straight into a note, so
+the reader with the least context was the one nobody told — that argument is
+right and is kept. The pinned line exists because "ask an owner for editor
+access" is wrong for a workspace nobody invited you to. What neither argument
+licensed is the screen they added up to: **a status drawn as news, twice.**
+
+So the two are split by what they are.
+
+**The fact is a status and stays permanent, in the one place a status costs
+nothing.** `tierChipLabel` renders `team level only` in the pane head on every
+route of the context, for exactly these readers, and `tierExplanation` holds
+the paragraph on the members card for anybody who wonders what it means.
+Neither moved, and between them "this view is filtered" is still stated on
+every screen of the console.
+
+**The sentence is a band, so it is shown until it is answered** — once per
+context, with a *Got it* rather than a *Dismiss*, because it is read rather
+than deferred. A first-time reader still lands in a filtered listing with the
+line above it, which is the case the previous iteration existed for; that case
+is a first screen, not every screen for ever.
+
+**There is never more than one of it.** On the pinned context the pinned
+sentence replaces the tier line rather than stacking over it: it already states
+the whole relationship *and* the one thing a visitor can do, and "notes marked
+private are not shown here" under it is a smaller claim about the same fact.
+Elsewhere a `member` gets both halves in one paragraph, because what you cannot
+see and what you cannot write are genuinely two facts.
+
+**The demo keeps its line permanently**, and it is the one surface where that
+is right: on the landing page the band reads "This is a demo. Sign in to edit
+your own workspace", which is the page's call to action rather than an
+orientation somebody finishes with. It is drawn with no control on it.
+
+**The answer is a device flag, and here that is the right home** — the
+opposite of the storage-layout migration's, whose whole lesson was that a
+device flag was the wrong one. That answer was a fact about a *bucket*, which
+the bucket itself knew, so a flag on one browser nagged every other. This one
+is "has this person read a sentence about their own access": nothing else can
+observe it, no table holds it, and a new browser telling somebody once more is
+what a first-time reader gets anyway. The key carries the workspace *and* the
+kind, so a `member` promoted to `editor` is told once that write access arrived
+without the private notes coming with it.
+
+**What it costs, plainly.** The read tier survives on the chip; the write half
+has no equivalent, so a member who has answered and later tries to type gets an
+editor that refuses the keystroke and no sentence saying why — the status row's
+`Read-only` is about a file this console generates, not a context somebody
+cannot write to. Accepted rather than overlooked: they dismissed a line that
+had just said so, and the alternative was a band above every note for ever. If
+it bites, the fix is a word in that status row, not this band returning.
+
+**What a simplification costs.** Dropping the pinned rule stacks two bands
+again on the workspace where they were reported. Dropping the kind from the key
+answers a promotion in advance and silences the one conflation
+`functions/files.ts` exists to prevent. Dropping the workspace from it lets one
+context answer for every context somebody is ever shared into. Making the band
+permanent again is this section in reverse; deleting it instead would leave a
+stranger, landed by a team link in a listing with things absent from it, told
+nothing at all. `apps/mobile/__tests__/contextIntroNotice.test.ts` and the
+Browse cases in `consoleVisibilityRender.test.ts` fail.
+
 ## A workspace can wear a face, and the letter is what it falls back to
 
 **Built.** The mark was one letter derived from the slug, and `WorkspaceMark`'s
@@ -6131,3 +6208,47 @@ A **person** still has no picture. `AccountBlock`'s `Avatar` is a 26pt circle
 with initials in it and stays that way — this is a fact about a workspace, and
 the two are different objects, which is the same reason they were never one
 component.
+
+## The allowed-sender list stays beside the address it gates
+
+Integrations stopped being a page of settings on 2026-09-18 (#710): three
+Google panels became one list of connected things, and every control on it went
+— the per-service destination fields, the eighteen schedule buttons, the
+attachment policy, the target-folder picker. One stayed, and after the page
+shipped there was a real question about whether it belonged somewhere else, a
+Privacy or Security screen among them.
+
+**It stays on Integrations, directly under the ingestion address**, and the
+reasons are in this order:
+
+- **The list has no meaning apart from the address.** "Who may write into this
+  context by email" is unreadable on a page that does not show the address they
+  would write to. Beside it, it needs no explanation at all — the address, then
+  who may use it.
+- **Splitting a control from the thing it controls is a known defect in this
+  console, not a hypothetical.** The storage-update banner asked the same
+  question of every new workspace (#718) because a fact was rendered somewhere
+  that did not hold the fact it was about.
+- **Ingestion is a property of a personal workspace** — a shared context has no
+  capture address at all — and Integrations is already the page that knows
+  that, refuses in its own words, and says why. A privacy screen would have to
+  re-derive it.
+- **It is the one control that is not a convenience.** Everything else removed
+  was a preference with a good default; this one decides who can put notes into
+  somebody's bucket, and the alternative to a list is an open drop-box on a
+  semi-public address. A control of that weight is worth drawing where the
+  reader is already looking at what it protects.
+
+**Nothing about the security semantics rides on the placement**, and that is
+what makes this reversible rather than load-bearing: the boundary is enforced
+server-side in `functions/lib/ingestion.ts`, and the page draws what the policy
+row already says. Moving the row later is a one-screen change.
+
+The check is `the one control left on the page is the one that says who may
+write into the bucket`, in `settingsOverlayRender.test.ts` — asserted on the
+*page*, not on the panel, because a guard that mounts a component in isolation
+proves the component and not the call site. Its neighbour, `...and the accounts
+and the forwarding address are the other half of it`, exists for the same
+reason: `sourcesPanel.test.ts` stays green with `SourcesPanel` deleted from
+`SettingsPane` entirely, which is measured — removing that one line fails
+exactly these two checks and none of the eleven that mount the panel directly.

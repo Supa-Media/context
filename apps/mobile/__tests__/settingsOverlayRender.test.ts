@@ -230,6 +230,46 @@ describe("the account's own settings have a home", () => {
     expect(text).not.toContain("Your bucket, your credentials");
   });
 
+  /*
+    THE PAGE MOUNTS THE SOURCES HALF, which is a different claim from "the
+    panel renders".
+
+    `sourcesPanel.test.ts` mounts `SourcesPanel` directly and proves what it
+    draws. Nothing proved the *page* still drew it: delete the one line in
+    `SettingsPane` and that suite stays green while half of Integrations
+    quietly disappears — the accounts, the forwarding address, and the only
+    control left on the page. A guard that mounts a component in isolation
+    proves the component, not the call site.
+
+    Asserted on content only this half produces, rather than on a testID: a
+    testID can be moved onto anything, and what has to be true is that a
+    person opening Integrations can see what is connected.
+  */
+  test("...and the accounts and the forwarding address are the other half of it", () => {
+    const text = overlay("integrations").textContent ?? "";
+    expect(text).toContain("Accounts we read");
+    expect(text).toContain("Forwarding address");
+  });
+
+  /*
+    THE SENDER LIST IS ON THIS PAGE, UNDER THE ADDRESS IT GATES.
+
+    Every other control went when Integrations became a list of connected
+    things rather than a page of settings (#710). This one stayed, and where
+    it is drawn is the decision rather than a leftover — see
+    `docs/decisions/app-and-console.md`, "The allowed-sender list stays beside
+    the address it gates". "Who may write into this context by email" is
+    unreadable on a page that does not show the address they would write to;
+    beside it, it needs no explanation at all.
+  */
+  test("the one control left on the page is the one that says who may write into the bucket", () => {
+    const text = overlay("integrations").textContent ?? "";
+    expect(text).toContain("Who may send to it");
+    // Still a page with no folder picker and no schedule on it.
+    expect(text).not.toContain("Target folder");
+    expect(text).not.toContain("Sync schedule");
+  });
+
   test("both ways out of a session are controls at the foot of Profile", () => {
     let signedOut = 0;
     const host = overlay("profile", () => {}, () => {}, {

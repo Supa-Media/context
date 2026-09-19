@@ -42,7 +42,7 @@ import { noteHeading } from "../files/frontmatter";
 import { entryAt, findEntry, treeRowFor } from "../files/tree";
 import { atName } from "../format";
 import { selectedContext, type ConsoleData } from "../types";
-import { tierSentence } from "../visibility";
+import { contextIntro, useContextIntro } from "../contextIntro";
 import { ChannelDayView } from "../communications/ChannelDayView";
 import { ChannelView } from "../communications/ChannelView";
 import { ContactPageView } from "../communications/ContactPageView";
@@ -522,31 +522,23 @@ export function BrowsePane({
       : files.contextId,
   );
   /*
-    The one notice here that is not an event, and the one that is drawn **once
-    per context rather than once per file**.
+    WHAT THIS CONTEXT IS TO THE PERSON READING IT — ONE BAND, ANSWERED ONCE.
 
     Browse is the pane where an absence is invisible: a folder the owner keeps
-    private does not appear in the tree, so an editor reading a short list has
-    no way to tell a small context from a filtered one. That is why the line
-    exists, and why it is not dismissible — the condition it reports never stops
-    being true.
+    private does not appear in the tree, so somebody reading a short list has no
+    way to tell a small context from a filtered one. That is why a sentence
+    exists here at all, and why it is drawn wherever you are rather than only
+    where nothing is open — a team link opens straight into a note, so the
+    reader with the least context was the one nobody told.
 
-    It is a fact about the *context* rather than about the note in front of
-    you, and for a while that was read as "so draw it only where nothing is
-    open". The reading was wrong in the case that matters most: a team link
-    opens straight into a note or a folder, so the person who has never seen
-    this context — looking at a listing with things absent from it — was the one
-    person the notice never reached. What made that look safe was a comment
-    claiming the chip at the foot of the file tree carried the same claim
-    inside a note. **There is no such chip on a phone**, and a safeguard
-    asserted in a comment and missing from the screen is worse than none,
-    because it stops anybody looking for the real one.
-
-    So it is drawn wherever you are, and it is *one line*. The paragraph behind
-    it — `tierExplanation` — is not printed here: its own docstring says it
-    belongs where somebody has gone looking for it and not on every screen, and
-    the line now is on every screen. It lives on the members card, beside the
-    owner's half of the same fact.
+    What that argument never licensed is the screen it produced: two permanent
+    full-width bands, stacked, above every note of a context somebody visits
+    daily, under a `team level only` chip already saying the same thing. The
+    fact is a *status* and the status has a home — the chip, on every route of
+    this context, with `tierExplanation` on the members card for anybody who
+    wonders what it means. A band is for what this reader has not been told yet,
+    so it is shown until it is answered and the answer is written down per
+    context. `contextIntro.ts` holds both halves of that argument.
 
     Once per screen, still: this is the only place it is built, and it reaches a
     note through `notices` and a folder through the page scroller — the two
@@ -555,7 +547,47 @@ export function BrowsePane({
     `null` for an owner, and `null` while the role is still loading — by
     construction in `tierSentence` rather than by a check here; see its comment.
   */
-  const tierNote = tierSentence(current?.role);
+  const intro = contextIntro({
+    role: current?.role,
+    pinned: current?.pinned,
+    canEdit: files.canEdit,
+    readOnlyReason: files.readOnlyReason,
+  });
+  const introAnswer = useContextIntro(current?.id ?? null, intro === null ? null : intro.kind);
+  /*
+    The demo keeps its line permanently, and it is the one case where that is
+    right: on the landing page this band reads "This is a demo. Sign in to edit
+    your own workspace", which is the page's call to action rather than an
+    orientation somebody is finished with. Nothing is written down for it and
+    there is no control to press.
+  */
+  /*
+    AND A PHONE KEEPS ITS LINE, BECAUSE A PHONE HAS NO CHIP.
+
+    The whole argument for answering this band is that the fact it states does
+    not go anywhere: `team level only` is on the chip, on every route. That is
+    true at a pointer width and **false at `compact`** — `TierChip` has one call
+    site, `topTrailing={phone ? <note actions> : <TierChip …>}`, and `phone`
+    there is this same `densityFor(width) === "compact"`. At a phone's width the
+    frame draws no chip, so answering the band would leave a `member` reading a
+    filtered listing with nothing on screen saying things are missing from it.
+
+    This is the second time that has been reached. The comment this block
+    replaced recorded the first — *"a safeguard asserted in a comment and
+    missing from the screen is worse than none, because it stops anybody
+    looking for the real one"* — about the same chip and the same density.
+
+    Drawn without a control rather than with one that does nothing: a `Got it`
+    that comes back on the next load reads as broken. The phone still gains
+    #719's real win, which was one band instead of two stacked.
+
+    The other fix is to give the phone a chip. That is a change to what the
+    phone's trailing capsule holds, which the layout argues at length is
+    spoken for by the note's own actions — a design decision rather than this
+    one, and the conservative half is here.
+  */
+  const introVisible =
+    intro !== null && (data.demo === true || compact || introAnswer.visible);
 
   /*
     MOVES INTO ANOTHER CONTEXT, WHICH FINISH AFTER THE PRESS THAT STARTED THEM.
@@ -580,14 +612,13 @@ export function BrowsePane({
   );
 
   const hasNotice =
-    tierNote !== null ||
+    introVisible ||
     setupPromptVisible(setup) ||
     noBucket ||
     manifestBroken ||
     files.notice !== null ||
     moveNotices.length > 0 ||
-    storageMigration.visible ||
-    (files.readOnlyReason !== undefined && !files.canEdit);
+    storageMigration.visible;
 
   /**
    * What this pane has to say about the note, above it.
@@ -626,8 +657,8 @@ export function BrowsePane({
         />
       ) : null}
 
-      {tierNote !== null ? (
-        <View style={styles.notice} testID="browse-tier-notice">
+      {introVisible ? (
+        <View style={styles.notice} testID="browse-context-intro">
           {/*
             The sentence without the chip. The chip is in the top bar, on
             every route of this context — repeating it two inches below
@@ -636,13 +667,23 @@ export function BrowsePane({
             not dimmed, it is *absent*, so somebody reading a short list
             otherwise cannot tell a small context from a filtered one.
           */}
-          <Text variant="hint">{tierNote}</Text>
-        </View>
-      ) : null}
-
-      {files.readOnlyReason !== undefined && !files.canEdit ? (
-        <View style={styles.notice}>
-          <Text variant="hint">{files.readOnlyReason}</Text>
+          <Text variant="hint">{intro!.text}</Text>
+          {data.demo === true || compact ? null : (
+            <Button
+              /*
+                "Got it", not "Dismiss". Every other control in this band puts
+                aside a thing that needs somebody — a failed move, a warning, an
+                offer to run something. This one is read, and the word should
+                say that the reader is finished with it rather than that a
+                problem has been deferred. The fact itself does not go anywhere:
+                it is on the chip above, on every route of this context.
+              */
+              label="Got it"
+              onPress={introAnswer.dismiss}
+              style={styles.dismiss}
+              testID="browse-context-intro-dismiss"
+            />
+          )}
         </View>
       ) : null}
 
