@@ -173,6 +173,14 @@ export function ConflictResolver({
         </View>
 
         <View style={styles.choices}>
+          {review.retry === undefined ? null : (
+            <Choice
+              label="Try again now"
+              detail="Read the bucket version again without reloading this page."
+              onPress={review.retry}
+              testID="conflict-retry-read"
+            />
+          )}
           <Choice
             label={CHOICES.theirs.label}
             detail={CHOICES.theirs.detail}
@@ -191,6 +199,7 @@ export function ConflictResolver({
             label={CHOICES.mine.label}
             detail={CHOICES.mine.detail}
             onPress={() => onResolveWith(review.mine)}
+            disabled={review.theirs === null}
             testID="conflict-keep-mine"
           />
           {review.merge === null ? (

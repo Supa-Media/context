@@ -1118,9 +1118,11 @@ export function BrowsePane({
       />
     ) : commsRoute?.kind === "channel-day" ? (
       <ChannelDayView
+        key={selected.path}
         channel={commsRoute.channel}
         account={commsRoute.account}
         date={commsRoute.date}
+        path={selected.path}
         files={files}
         anchor={anchor}
       />

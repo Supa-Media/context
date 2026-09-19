@@ -53,6 +53,10 @@ jest.mock("convex/react", () => {
 });
 
 import { useFileBrowser } from "../features/console/files/useFileBrowser";
+import {
+  CONFLICT_READ_RETRY_MS,
+  CONFLICT_READ_TIMEOUT_MS,
+} from "../features/console/files/useConflictReview";
 
 const PATH = "1-projects/pilot.md";
 
@@ -197,6 +201,95 @@ describe("a conflict, and the decision it asks for", () => {
     expect(review!.mine).toBe(MINE);
     expect(review!.theirs).toBe(THEIRS);
     expect(review!.theirsEtag).toBe("e2");
+  });
+
+  test("a transient failure reading their version heals without a hard refresh", async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    actions[name("readNote")] = async () => {
+      reads += 1;
+      if (reads === 2) throw new TypeError("temporary transport failure");
+      return inBucket;
+    };
+
+    try {
+      await reachTheConflict();
+
+      expect(browser.conflict!.theirs).toBeNull();
+      expect(browser.conflict!.unreadable).toContain("could not be read just now");
+      expect(writes).toHaveLength(1);
+      browser.resolveWith(browser.conflict!.mine);
+      await settle();
+      expect(writes).toHaveLength(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(CONFLICT_READ_RETRY_MS);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+
+      expect(browser.conflict!.theirs).toBe(THEIRS);
+      expect(browser.conflict!.theirsEtag).toBe("e2");
+      expect(browser.conflict!.unreadable).toBeNull();
+      expect(writes).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a conflict read that never answers times out and heals in place", async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    actions[name("readNote")] = async () => {
+      reads += 1;
+      if (reads === 2) return new Promise<OpenNote>(() => {});
+      return inBucket;
+    };
+
+    try {
+      await reachTheConflict();
+      expect(browser.conflict!.reading).toBe(true);
+
+      await act(async () => {
+        jest.advanceTimersByTime(CONFLICT_READ_TIMEOUT_MS);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+      expect(browser.conflict!.unreadable).toContain("retry automatically");
+
+      await act(async () => {
+        jest.advanceTimersByTime(CONFLICT_READ_RETRY_MS);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+      expect(browser.conflict!.theirs).toBe(THEIRS);
+      expect(writes).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test("a server refusal is not retried in the background", async () => {
+    jest.useFakeTimers();
+    let reads = 0;
+    actions[name("readNote")] = async () => {
+      reads += 1;
+      if (reads > 1) {
+        throw new ConvexError({ code: "FORBIDDEN", message: "No access." });
+      }
+      return inBucket;
+    };
+
+    try {
+      await reachTheConflict();
+      expect(browser.conflict!.retry).toBeUndefined();
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+        for (let i = 0; i < 8; i += 1) await Promise.resolve();
+      });
+      expect(reads).toBe(2);
+      expect(writes).toHaveLength(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test("the merge is a three-way merge, and it keeps both edits", async () => {
@@ -519,11 +612,31 @@ describe("the resolver, drawn", () => {
         merge: null,
         mergeRefusal: { reason: "offline", sentence: "The version in your bucket has not been read yet." },
       },
-      { keepTheirs: () => (pressed += 1) },
+      {
+        keepTheirs: () => (pressed += 1),
+        resolveWith: () => (pressed += 1),
+      },
     );
     press(container, "conflict-keep-theirs");
+    press(container, "conflict-keep-mine");
     expect(pressed).toBe(0);
     expect(container.textContent).toContain("only your version is here");
+  });
+
+  test("a transient unread version can be retried without refreshing the app", () => {
+    let retried = 0;
+    const container = draw({
+      ...REVIEW,
+      theirs: null,
+      theirsEtag: null,
+      merge: null,
+      mergeRefusal: { reason: "offline", sentence: "The version has not been read yet." },
+      retry: () => (retried += 1),
+    });
+
+    press(container, "conflict-retry-read");
+    expect(retried).toBe(1);
+    expect(container.textContent).toContain("without reloading this page");
   });
 
   /**

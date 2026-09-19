@@ -742,6 +742,14 @@ third client writing in between comes back as a fresh conflict with fresh
 content, and this whole surface reappears — it is never forced through. There
 is no `force` flag anywhere in this feature.
 
+Reading the bucket side is self-healing. A Convex action can hang when a device
+still appears online, and a provider or gateway can fail one read while the next
+one succeeds, so the conflict review bounds each read, retries transient
+failures with backoff, and offers an immediate retry on the same screen. It does
+not retry server refusals. Until a bucket body and etag have actually been read,
+the choices that would discard or overwrite text are unavailable; a hard
+refresh is never part of resolving an ordinary transport failure.
+
 ##### The merge is real, and it is refused rather than faked
 
 A three-way merge needs a common ancestor, and this feature already keeps one:

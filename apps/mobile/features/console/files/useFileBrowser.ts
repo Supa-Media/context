@@ -1981,9 +1981,15 @@ export function useFileBrowser(options: {
     (text: string) => {
       const current = editorRef.current;
       if (current.path === null || current.status !== "conflict") return;
+      // A resolution replaces the bucket version, so it is not a resolution
+      // until that version has actually been read and shown. The resolver
+      // disables its controls while this is null; this guard keeps the write
+      // boundary safe if another caller invokes the callback directly.
+      const reviewedEtag = conflictRef.current?.theirsEtag;
+      if (reviewedEtag === null || reviewedEtag === undefined) return;
       const path = current.path;
       const offline = offlineRef.current;
-      const etag = conflictRef.current?.theirsEtag ?? current.conflictEtag ?? current.etag;
+      const etag = reviewedEtag;
 
       if (offline.reachability === "offline" || offline.serverPathOf(path) !== path) {
         /*

@@ -171,9 +171,16 @@ first — `apps/mcp/src/communications/dayPlacement.js`, and `flatDayPath` in th
 package — and **a day that already has a note keeps it**. The switch lands per
 day, not per deploy: a bucket synced yesterday has no seam at all.
 
+The console follows the same rule when reading: after `parseChannelDayPath`
+recognizes either shape, the day view reads part 1 and every sibling part from
+the selected note's actual folder. Reconstructing the newer dated path from the
+date would accept a legacy flat note as a route and then ask the bucket for a
+different key, falsely rendering a healthy note as unreadable.
+
 The checks are `a day already filed flat is written flat, not moved into the
 tree`, `...while a day the same bucket has NOT seen is filed under its month`,
-and `a date folder that disagrees with the filename is nobody's note`.
+`a date folder that disagrees with the filename is nobody's note`, and `a
+legacy flat day is read from the path that was selected`.
 
 ### The account level reaches Calendar and Chat
 
