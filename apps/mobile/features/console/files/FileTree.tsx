@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { PressRow } from "../../design/components/Button";
 import { Icon } from "../../design/components/Icon";
 import { Text } from "../../design/components/Text";
-import { radii } from "../../design/tokens";
+import { radii, space } from "../../design/tokens";
 import { useColors, useThemedStyles, type Colors } from "../../design/theme";
 import type { DragModifier } from "./dnd";
 import type { SyncMark } from "./pendingMarks";
@@ -87,6 +87,7 @@ export function FileTree({
   drag,
   dropTarget = null,
   pendingStateFor,
+  markedPaths,
 }: {
   rows: readonly TreeRow[];
   /**
@@ -110,6 +111,16 @@ export function FileTree({
    * Absent on a console with no offline layer, which marks nothing.
    */
   pendingStateFor?: (path: string) => SyncMark | null;
+  /**
+   * Rows with something new under them, from `activity.markedRows`.
+   *
+   * Paths rather than a predicate, because the rule that decides them is about
+   * the tree as a whole — a note gets the dot when every folder above it is
+   * open, and the nearest closed folder gets it otherwise — and a per-row
+   * question cannot see that. Absent on a console with no activity yet, which
+   * marks nothing.
+   */
+  markedPaths?: ReadonlySet<string>;
 }) {
   const styles = useThemedStyles(makeStyles);
   return (
@@ -138,6 +149,7 @@ export function FileTree({
             drag={drag}
             isDropTarget={dropTarget === row.path}
             sync={row.kind === "file" ? (pendingStateFor?.(row.path) ?? null) : null}
+            marked={markedPaths?.has(row.path) ?? false}
           />
         );
       })}
@@ -173,6 +185,7 @@ function FileRow({
   drag,
   isDropTarget,
   sync,
+  marked,
 }: {
   row: TreeRow;
   /**
@@ -190,6 +203,8 @@ function FileRow({
   isDropTarget: boolean;
   /** This note's edit is not in the bucket yet. `null` for one that is. */
   sync: SyncMark | null;
+  /** Something under this row changed since this person last caught up. */
+  marked: boolean;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -232,7 +247,11 @@ function FileRow({
       */}
       {row.selected ? <View style={styles.selectedBar} aria-hidden /> : null}
       <PressRow
-        accessibilityLabel={withSyncMark(describeRow(row), sync)}
+        accessibilityLabel={
+          marked
+            ? `${withSyncMark(describeRow(row), sync)}, new`
+            : withSyncMark(describeRow(row), sync)
+        }
         selected={row.selected}
         onPress={() => (row.kind === "folder" ? onToggle(row.path) : onSelect(row.path))}
         radius={radii.sm}
@@ -278,6 +297,17 @@ function FileRow({
           of the row. See `SyncMarkDot` for the shape.
         */}
         {sync === null ? null : <SyncMarkDot mark={sync} />}
+        {/*
+          The activity mark: 5pt of petrol at the trailing edge, and the whole
+          of what this feature adds to the tree.
+
+          Inside the pressable, like the sync dot and for the same reason: it
+          changes nothing and pressing it should open the row. After the sync
+          dot because the two answer different questions and the order is the
+          order of urgency — "your edit has not landed" is about you and now,
+          "somebody else changed this" is about them and earlier.
+        */}
+        {marked ? <View style={styles.newDot} aria-hidden /> : null}
       </PressRow>
 
       <VisibilityControl
@@ -474,6 +504,21 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
   chevron: { width: 10, alignItems: "center", justifyContent: "center" },
   /** Shrinks before the sync mark after it does — a long name ellipsises, the mark stays. */
   label: { flexShrink: 1, minWidth: 0 },
+
+  /**
+   * Something under this row is new to you.
+   *
+   * 5pt, petrol, and never a number. A count here would have to be a count of
+   * things the reader may not all be able to see, and the one honest number —
+   * the one in the foot line — is already one press away.
+   */
+  newDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginLeft: space.x2,
+    backgroundColor: colors.accent,
+  },
 
   /**
    * The trailing metadata's box.

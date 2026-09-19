@@ -165,6 +165,25 @@ const schema = defineSchema({
     role: v.union(v.literal("owner"), v.literal("editor"), v.literal("member")),
     invitedBy: v.optional(v.id("users")),
     joinedAt: v.number(),
+    /**
+     * When this person last looked at this context's activity.
+     *
+     * One timestamp per person per workspace, and deliberately not a per-note
+     * read state: the feature it serves is a line across a list and a dot on a
+     * row, and neither needs to know which of forty notes somebody's eye
+     * stopped on. A counter would need one row per note per member and would
+     * still be wrong the moment two devices disagreed.
+     *
+     * Here rather than in the bucket because it is **about the reader, not
+     * about the context**. The bucket holds what happened; who has caught up
+     * with it is control-plane metadata, and writing it into somebody's own
+     * Markdown would put one member's reading habits into a file every other
+     * member can export.
+     *
+     * Absent means "has never looked", which reads as everything being new —
+     * the correct answer for a member who just joined.
+     */
+    activitySeenAt: v.optional(v.number()),
   })
     .index("by_workspace", ["workspaceId"])
     .index("by_user", ["userId"])

@@ -146,6 +146,11 @@ beforeEach(() => {
   window.localStorage.clear();
   actions[name("listFiles")] = async () => LISTING;
   actions[name("readNote")] = async () => NOTE;
+  // The console reads `activity.md` on arrival like every other per-context
+  // subscription. Nothing here asserts on it; a stub that answers is what
+  // keeps this suite about clearance rather than about which hooks the
+  // console happens to call.
+  actions[name("listActivity")] = async () => [];
   queryResults[getFunctionName(api.functions.workspaces.listMyWorkspaces)] = [];
   queryResults[getFunctionName(api.functions.invitations.listMyInvitations)] = [];
   queryResults[getFunctionName(api.functions.invitations.listInvitations)] = [];

@@ -317,6 +317,15 @@ export async function resolveSession(token, slug, controlPlane) {
     scope: visibilityTierForGrant(scopes, workspace.role),
     actorUserId: session.actorUserId,
     actorClientId: session.clientId,
+    /*
+      Display text, not identity. The activity file is a document a person
+      opens, and "@sayo's Claude" is the sentence it has to be able to write;
+      every authorization decision reads `actorClientId`, which the control
+      plane issued, and never this, which the client asserted at registration.
+      Absent on a connection the control plane has no client row for.
+    */
+    actorClientName:
+      typeof session.clientName === "string" && session.clientName ? session.clientName : null,
     scopes,
     /**
      * The grant's own scopes, before this workspace's role clamped them, and
@@ -460,6 +469,13 @@ function normalizeSession(raw) {
     workspaces: normalized,
     defaultWorkspaceId,
     expiresAt: typeof raw.expiresAt === "number" ? raw.expiresAt : undefined,
+    /*
+      Optional, and unvalidated beyond its type: it is the name the client
+      asserted at registration, it decides nothing, and a control plane older
+      than the field simply omits it. Every other field here throws on a
+      surprise because every other field decides something.
+    */
+    clientName: typeof raw.clientName === "string" && raw.clientName ? raw.clientName : null,
   };
 }
 

@@ -35,6 +35,69 @@ export function useE2EFixtureConsoleData(): ConsoleData {
     ...demo,
     files: { ...demo.files, canEdit: true, canShare: true, canSetVisibility: true },
     /*
+      An activity view with something unread in it.
+
+      The feature this holds on to is the one a green suite cannot see: the
+      foot of the tree says how much is new, a row carries a dot, and the list
+      opens over the column. `activityRender.test.ts` proves the component
+      against a hand-made prop; this is the console, drawn, with the prop the
+      console actually passes — which is the difference the visual fixture's
+      own header is about ("a fixture that cannot show the thing under review
+      is reporting on itself").
+
+      Two entries rather than one, and one of them from a client, because the
+      row that has to read well is "@seyi's Claude added 3 notes" and a fixture
+      that only draws a person's own edit is not showing it.
+    */
+    activity: {
+      entries: [
+        {
+          at: new Date(Date.now() - 4 * 60_000).toISOString(),
+          kind: "added",
+          // One folder, because the merge rule only ever groups within one —
+          // a fixture drawing a group that spans two is drawing something the
+          // product cannot produce.
+          paths: ["2-areas/architecture-map.md", "2-areas/weekly-review.md"],
+          n: 2,
+          vis: "team",
+          by: "@sayo",
+          via: "Claude",
+          note: "screenshots of the editor bugs from the call",
+        },
+        {
+          at: new Date(Date.now() - 26 * 60 * 60_000).toISOString(),
+          kind: "meeting",
+          paths: ["0-inbox/meetings/2026-09-19-steering.md"],
+          n: 1,
+          vis: "team",
+          by: null,
+          via: null,
+          note: null,
+        },
+      ],
+      seenAt: Date.now() - 18 * 60 * 60_000,
+      unseen: 1,
+      /*
+        Two, and deliberately on opposite sides of the rule.
+
+        `1-projects` is open in this fixture, so its note carries the dot
+        itself; `2-areas` is closed, so the folder carries one for what is
+        under it. A fixture that only showed the first would be a fixture
+        that cannot show the half of the rule most likely to be got wrong —
+        and both are paths this demo tree actually has, which the first draft
+        of this data got wrong: it named three notes in a folder the demo has
+        never had, so the console drew no dot at all and the board reported
+        on itself.
+      */
+      unseenPaths: new Set([
+        "1-projects/dc-chapter.md",
+        "2-areas/architecture-map.md",
+      ]),
+      loaded: true,
+      refresh: () => {},
+      markSeen: () => {},
+    },
+    /*
       One managed install, and the vault scan left where a real first visit
       leaves it: `idle`, nobody having pressed anything.
 

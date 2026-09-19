@@ -120,6 +120,24 @@ import {
   PROPOSAL_PREFIX,
   legacyStorageKey,
 } from "../../../packages/shared/src/storageLayout.cjs";
+/**
+ * The activity file's format, shared with the control plane.
+ *
+ * The gateway records what an AI client does; the console records what a
+ * person does; both append to one file in the customer's bucket. Two copies of
+ * "what counts as a change worth mentioning" would drift within a month, so
+ * the rules live in `packages/shared` — the same arrangement `storageLayout`
+ * already has, and for the same reason. It is `.cjs` because this Worker
+ * cannot import the package's TypeScript (see `packages/shared/src/links.ts`).
+ */
+import {
+  ACTIVITY_PATH,
+  mayBeReportable as mayBeActivity,
+  nextFile as nextActivityFile,
+  parseFile as parseActivityFile,
+  describeEntry as describeActivityEntry,
+  visibleEntries as visibleActivityEntries,
+} from "../../../packages/shared/src/activity.cjs";
 import {
   deleteWithLegacyFallback,
   getWithLegacyFallback,
@@ -1833,6 +1851,17 @@ function actorFor(session) {
     // are ids and slugs — never a credential.
     role: session.role,
     name: personalNameFor(session),
+    /**
+     * The client's own name, for the one reader who is a person.
+     *
+     * `clientId` is an opaque registration id and says nothing to anybody; the
+     * activity file is a document somebody opens, and "@sayo's Claude added
+     * three notes" is the sentence the feature exists to produce. It is the
+     * name the client asserted at registration, so it is display text and
+     * never an identity — every authorization decision still reads
+     * `clientId`, which is the one the control plane issued.
+     */
+    client: typeof session.actorClientName === "string" ? session.actorClientName : null,
   };
 }
 
@@ -3092,6 +3121,15 @@ function baseToolDefinitions() {
             type: "boolean",
             description: "Required when personal access deliberately publishes a new or private note to team",
           },
+          summary: {
+            type: "string",
+            description:
+              "One short sentence saying what this write changed and why, for the people who share " +
+              "this context: it becomes the line they read in activity.md. Say what a colleague " +
+              "would want to know (\"recorded the folder rename and the paths it broke\"), never " +
+              "what the tool call already says (\"updated a note\"). Omit it for a change nobody " +
+              "else needs to hear about.",
+          },
         },
         required: ["path", "content"],
         additionalProperties: false,
@@ -3550,9 +3588,27 @@ function baseToolDefinitions() {
       annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     },
     {
+      name: "read_activity",
+      description:
+        "Read this context's activity: what people and AI clients have changed lately, newest " +
+        "first, in sentences rather than log lines. Backed by activity.md at the root of the " +
+        "bucket, filtered to what this connection may see. Use it to catch up before working, " +
+        "and to avoid redoing something a colleague's client already did.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: { type: "integer", minimum: 1, maximum: 200, description: "Default 30" },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    {
       name: "list_changes",
       description:
-        "List recent immutable context change records, filtered to paths visible to this connection. Records contain actions and paths, never note content.",
+        "List every recorded change, including ones activity.md judges too small to mention, as " +
+        "immutable records filtered to paths visible to this connection. Records contain actions " +
+        "and paths, never note content. Prefer read_activity for catching up; this is the trail.",
       inputSchema: {
         type: "object",
         properties: {
@@ -3669,6 +3725,8 @@ async function callTool(name, args, store, scope) {
       return toolSaveContext(store, scope, rules, overrides, args);
     case "list_changes":
       return toolListChanges(store, scope, rules, overrides, args.limit);
+    case "read_activity":
+      return toolReadActivity(store, scope, rules, overrides, args);
     case "migrate_storage_layout":
       if (toolExistenceMasked(name, scope)) return toolError(`unknown tool: ${name}`);
       return toolMigrateStorageLayout(store, scope, args);
@@ -4724,6 +4782,18 @@ async function mapInBatches(items, batchSize, mapper) {
   return results;
 }
 
+/**
+ * The size of what will actually be stored, in bytes.
+ *
+ * `String.length` counts UTF-16 units, so it undercounts every non-ASCII note
+ * by up to two thirds — and the activity file's substance test is a byte
+ * threshold. A note whose edit was entirely in Yoruba or in emoji must not be
+ * measured on a different ruler from one written in English.
+ */
+function byteSize(text) {
+  return new TextEncoder().encode(typeof text === "string" ? text : "").byteLength;
+}
+
 function timestampSlug(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
 }
@@ -4741,6 +4811,157 @@ async function recordChange(store, action, actorScope, paths, details = {}) {
     entry.workspace_id = store.actor.workspaceId;
   }
   await store.put(`${AUDIT_PREFIX}${timestampSlug(new Date(at))}-${id}.json`, JSON.stringify(entry));
+  await recordActivity(store, { action, paths, details, at });
+}
+
+/**
+ * The same change again, as a line in a note somebody reads.
+ *
+ * ## Why this is a second write and not a rendering of the first
+ *
+ * `.context/audit/` is one object per change, which is the right shape for a
+ * record that must never be rewritten and the wrong shape for a list somebody
+ * opens: answering "what happened this week" from it means listing and reading
+ * hundreds of small objects, which is what `list_changes` does and why it is
+ * slow enough to be an agent's tool rather than a screen's. `activity.md` is
+ * the same facts kept in the shape a reader wants, and it is a *note* — in the
+ * customer's bucket, in Markdown, openable in Obsidian, carried out by any
+ * export — because a feed that only exists inside our console is a feed we
+ * have taken custody of.
+ *
+ * It is a derivative, and it is allowed to be lossy: what falls off the end of
+ * the file is still in the audit trail, and the file can be rebuilt from it.
+ *
+ * ## It may never fail a change
+ *
+ * A note write that succeeded and then reported failure because its footnote
+ * did not land is a worse outcome than a missing line, every time. Everything
+ * here is inside a catch, and the only consequence of a failure is that the
+ * line is absent.
+ *
+ * ## Private at rest, whatever folder it sits in
+ *
+ * The file names paths from every corner of the context, so it is stored
+ * `private` on every write — the ACL is re-asserted rather than assumed,
+ * because a folder default that later turns `team` must not quietly hand a
+ * member the owner's index of private filenames. What a member gets instead is
+ * `read_activity`, which renders the lines they may see. Both halves are
+ * proven in `test/activity.test.mjs`.
+ */
+async function recordActivity(store, change) {
+  try {
+    // Before the read, not after it. Most changes are not reportable at all —
+    // a proposal, a sync job's arrival, a write under `.context/` — and the
+    // expensive half of recording one is the read that used to happen before
+    // this question was asked.
+    if (!mayBeActivity(change.action, change.paths)) return;
+    const actor = store.actor
+      ? { name: store.actor.name || null, client: store.actor.client || null }
+      : null;
+    // Two attempts, not a loop. The second is for the ordinary race — two
+    // clients writing notes in the same second — and a third would be a queue
+    // this file has no business growing.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const existing = await store.get(ACTIVITY_PATH);
+      const current = existing ? await existing.text() : "";
+      const next = nextActivityFile(current, { ...change, actor });
+      // The common answer: nothing substantial, or a line that already says it.
+      if (!next) return;
+      const conditional =
+        existing === null
+          ? store.capabilities?.conditionalCreate === true
+            ? { absent: true }
+            : null
+          : store.capabilities?.conditionalWrite === true
+            ? { etagMatches: existing.etag }
+            : null;
+      const put = conditional
+        ? await store.put(ACTIVITY_PATH, next.text, { onlyIf: conditional })
+        : await store.put(ACTIVITY_PATH, next.text);
+      if (put === null) continue;
+      /*
+        THE FILE IS PRIVATE, AND THAT IS CHECKED RATHER THAN ASSUMED.
+
+        `privacy.md`'s format requires `default_visibility: private`, so a file
+        at the root inherits private in every manifest that parses — which is
+        why this costs nothing in the ordinary case and reads as belt to that
+        brace. The case it is actually for is the one a person can create by
+        hand: an exact-note override publishing `activity.md` to the team,
+        typed into the manifest in Obsidian, which would hand every member an
+        index of every private filename in the context.
+
+        Re-asserted on any write that finds it published rather than only on
+        creation, because a file published after it existed is exactly the
+        shape a create-time check misses. The manifest is read only here, on a
+        write that is actually happening — never on the common path, where
+        `nextActivityFile` has already decided there is nothing to say.
+      */
+      const state = await loadPrivacyState(store);
+      if (
+        !state.error &&
+        effectiveVisibility(ACTIVITY_PATH, state.rules, state.overrides) !== "private"
+      ) {
+        await persistExactVisibility(store, ACTIVITY_PATH, "private", state.rules);
+      }
+      return;
+    }
+  } catch {
+    // See the header: a change is never failed by its own footnote.
+  }
+}
+
+/**
+ * The viewing layer, for a caller that is not the file's owner.
+ *
+ * The file is private, so this is the only way a team-tier connection reads
+ * any of it — and what it returns is built per caller: the event-time flag,
+ * then `canSee` re-derived through the live manifest, then the prose. A line
+ * somebody may not see is absent. It is never replaced by a placeholder and
+ * never counted, because a gap a reader can count is the disclosure the flag
+ * was there to prevent.
+ */
+async function toolReadActivity(store, scope, rules, overrides, args) {
+  const limit = Number.isInteger(args?.limit) ? args.limit : 30;
+  if (limit < 1 || limit > 200) return toolError("limit must be between 1 and 200");
+  const object = await getWithLegacyFallback(store, ACTIVITY_PATH);
+  if (!object) {
+    return toolText(
+      "(no activity recorded yet — this context's activity file appears once something changes)",
+    );
+  }
+  /*
+    A LINE POINTS AT A NOTE, NOT AT A PATH IT ONCE HAD.
+
+    An entry written on Tuesday names where the note was on Tuesday, and
+    tidying a context on Thursday makes every one of those lines point at
+    nothing. So each path is forwarded through the ledger `#735` added —
+    `.context/forwarding.json`, the same trail a share link follows — before
+    the line is drawn or filtered.
+
+    Two consequences, both wanted. Following a row lands on the note rather
+    than on a gone path; and `canSee` is asked about where the note *is*,
+    so one moved into a private folder drops out of the lines written while
+    it was shared, which is the direction that fails closed. The historical
+    path is not lost: `.context/audit/` keeps it, and `list_changes` prints it.
+  */
+  const forwarding = await readForwarding(store);
+  const forwarded = parseActivityFile(await object.text()).map((entry) => ({
+    ...entry,
+    paths: entry.paths.map((path) => forwardPath(forwarding, path)),
+  }));
+  const entries = visibleActivityEntries(forwarded, {
+    owner: scope === "private",
+    canSee: (path) => canSee(path, scope, rules, overrides),
+  }).slice(0, limit);
+  if (!entries.length) return toolText("(no visible activity)");
+  return toolText(
+    entries
+      .map((entry) => {
+        const summary = entry.note ? ` — ${entry.note}` : "";
+        return `${entry.at} — ${describeActivityEntry(entry)}${summary}`;
+      })
+      .join("\n"),
+  );
 }
 
 async function toolListChanges(store, scope, rules, overrides, limitArg) {
@@ -5914,6 +6135,18 @@ async function toolWriteNote(store, scope, rules, overrides, args) {
     etag: put.etag,
     visibility: desiredVisibility,
     team_visible: desiredVisibility === "team",
+    /*
+      What the activity file needs to tell an edit from a keystroke, measured
+      on the bytes that were STORED rather than on the text that was sent: for
+      an encrypted note the stored form is an envelope, and comparing new
+      plaintext against old ciphertext is a comparison of two different things
+      that would read as a large change on every save.
+    */
+    content_bytes: byteSize(body),
+    ...(storedBody === null ? {} : { previous_bytes: byteSize(storedBody) }),
+    ...(typeof args.summary === "string" && args.summary.trim()
+      ? { summary: args.summary }
+      : {}),
   });
   await projectWrittenNoteAfterResponse(store, {
     path,
@@ -8204,7 +8437,19 @@ async function searchVisibleNotes(store, scope, rules, overrides, query, prefix)
   // the tool layer never sees `env`, and a fresh store is built per request, so
   // nothing here survives into another tenant's call.
   const budget = createSearchBudget(store.searchSubrequestBudget ?? SEARCH_SUBREQUEST_BUDGET);
-  const isIndexable = (key) => key.endsWith(".md") && !isPlumbing(key);
+  /*
+    `activity.md` is not indexed, and that is not an oversight.
+
+    It is a *derivative*: every line in it restates a path and a name that are
+    already in the note the line is about. Indexing it would put a second copy
+    of the whole corpus's path vocabulary into the index, so a search for a
+    project name would return the project's note and then the twenty activity
+    lines that mention it — which is the feed burying the notes it exists to
+    point at. The file is still a note the owner can read, and `read_activity`
+    is how it is queried.
+  */
+  const isIndexable = (key) =>
+    key.endsWith(".md") && !isPlumbing(key) && key !== ACTIVITY_PATH;
   /**
    * Which of the two FTS tables a note's text may be copied into, for the
    * workspaces that have opted into the D1 projection.

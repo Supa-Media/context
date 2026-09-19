@@ -7,10 +7,18 @@ import { Text } from "../../design/components/Text";
 import { writeClipboard } from "../../design/clipboard";
 import { isApplePlatform } from "../../design/applePlatform";
 import { pointerType as t, radii, space } from "../../design/tokens";
-import { useColors, useThemedStyles, type Colors } from "../../design/theme";
+import { useColors, useThemedStyles, type Colors, type Shadows } from "../../design/theme";
 import { useFrame } from "../../app/AppFrame";
 import { loadedFolders, type FileBrowser } from "./browser";
 import { loadedCounts } from "./contextFoot";
+import { ActivityList } from "../activity/ActivityList";
+import {
+  ACTIVITY_PATH,
+  emptyLine,
+  footLabel,
+  markedRows,
+  type ActivityView,
+} from "../activity/activity";
 import {
   Confirm,
   CreatePrompt,
@@ -98,6 +106,7 @@ export function Explorer({
   onOverlayChange,
   access,
   workspaces,
+  activity,
 }: {
   files: FileBrowser;
   /**
@@ -165,6 +174,15 @@ export function Explorer({
    * open context menu.
    */
   onOverlayChange?: (open: boolean) => void;
+  /**
+   * What has changed in this context, and how much of it this person has seen.
+   *
+   * Absent on the demo console and on any console with no control plane behind
+   * it, and the column then ends at the counts line exactly as it did before —
+   * which is the whole shape of this feature: it rewrites one line that is
+   * already there and adds a dot to rows that are already drawn.
+   */
+  activity?: ActivityView;
 }) {
   const colors = useColors();
   const styles = useThemedStyles(makeStyles);
@@ -187,6 +205,14 @@ export function Explorer({
   const [drag, setDrag] = useState<DragSource | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
+  /**
+   * Whether the activity list is up, and the moment it was opened.
+   *
+   * The moment is state rather than a fresh `Date.now()` per render: every
+   * relative time in the list has to agree with the line that opened it, and a
+   * clock read during render makes "4 min" tick over mid-scroll.
+   */
+  const [activityOpen, setActivityOpen] = useState<number | null>(null);
 
   /*
     Tell the frame while this region owns something modal, so the keyboard goes
@@ -463,6 +489,29 @@ export function Explorer({
   }, [files, drag]);
 
   const counts = loadedCounts(files.listings);
+  /*
+    The foot line's words and the tree's dots, from one view of one file.
+
+    `now` is the moment the list was opened where there is one, and the
+    component's own clock otherwise: the line and the rows it opens must agree
+    about "4 min", and two `Date.now()` calls in one render do not.
+  */
+  const activityLabel =
+    activity === undefined
+      ? counts
+      : footLabel({
+          unseen: activity.unseen,
+          since: activity.seenAt,
+          counts,
+          now: activityOpen ?? Date.now(),
+        });
+  const markedPaths = useMemo(
+    () =>
+      activity === undefined
+        ? undefined
+        : markedRows(activity.unseenPaths, files.expanded),
+    [activity, files.expanded],
+  );
 
   /**
    * Putting the filter away, which must also clear it.
@@ -727,6 +776,7 @@ export function Explorer({
             drag={dragHandlers}
             dropTarget={dropTarget}
             pendingStateFor={files.pending?.stateFor}
+            markedPaths={markedPaths}
           />
         )}
 
@@ -771,11 +821,62 @@ export function Explorer({
         `loadedCounts` is shared with that page rather than computed here, so
         "how much of this context have I got" has one answer.
       */}
-      <View style={styles.foot}>
-        <Text variant="treeMeta" numberOfLines={1} testID="explorer-counts">
-          {counts}
-        </Text>
-      </View>
+      {/*
+        ONE LINE, TWO THINGS TO SAY, AND NEVER BOTH.
+
+        The counts line — "12 notes, 8 folders" — is what this row has always
+        said. When something has changed since this person last looked it says
+        that instead, and pressing it opens the list.
+
+        Instead, rather than beside: the meeting that asked for this asked for
+        "a number of updates at the bottom … in a nice sleek way, it doesn't
+        have to be in your face", and a second row at the foot of a column
+        whose rail was folded away to give its width to the note is exactly the
+        furniture that request was refusing. The counts come back the moment
+        the list is read, which is also what makes "caught up" visible without
+        a word for it.
+      */}
+      {activity !== undefined && activity.unseen > 0 ? (
+        <PressRow
+          accessibilityLabel={`${activityLabel}. Show what changed`}
+          onPress={() => {
+            const opening = activityOpen === null;
+            setActivityOpen(opening ? Date.now() : null);
+            // Re-read on the way in. The entries arrived when this console
+            // did, and everything that has happened since — including this
+            // person's own last hour of work — is in the file rather than in
+            // state. One small read, on a press, is the cheapest honest
+            // answer; the alternative is a subscription over a file.
+            if (opening) activity.refresh();
+            // Marked on close rather than on open: a list that clears its own
+            // marker the instant it appears is one you cannot look away from
+            // and come back to.
+            else activity.markSeen();
+          }}
+          ariaExpanded={activityOpen !== null}
+          ariaHasPopup="menu"
+          radius={radii.sm}
+          style={StyleSheet.flatten([styles.foot, styles.footPress])}
+          hoverStyle={styles.matchHover}
+          testID="explorer-activity"
+        >
+          <View style={styles.activityDot} aria-hidden />
+          <Text variant="treeMeta" numberOfLines={1} style={styles.footGrow}>
+            {activityLabel}
+          </Text>
+          <Icon
+            name={activityOpen === null ? "chevronUp" : "chevronDown"}
+            size={11}
+            color={colors.chromeMuted}
+          />
+        </PressRow>
+      ) : (
+        <View style={styles.foot}>
+          <Text variant="treeMeta" numberOfLines={1} testID="explorer-counts">
+            {counts}
+          </Text>
+        </View>
+      )}
 
       {/*
         Under the counts rather than over them, and that is the order of the two
@@ -802,6 +903,50 @@ export function Explorer({
             hoverStyle={styles.matchHover}
           >
             <Icon name="close" size={13} color={colors.warnText} />
+          </PressRow>
+        </View>
+      ) : null}
+
+      {/*
+        The list, over the tree rather than beside it.
+
+        A popover anchored to the line that opened it, inside this column,
+        because what it lists is what happened in the tree behind it — and
+        because the alternatives are a pane (a navigation destination for a
+        glance) or a panel (the right-hand one, which holds the two things that
+        happen beside a *note*). Pressing a row opens that note in the editor
+        this column already drives, and closes.
+      */}
+      {activity !== undefined && activityOpen !== null ? (
+        <View style={styles.activitySheet} testID="explorer-activity-list">
+          <ScrollView style={styles.activityScroll}>
+            <ActivityList
+              entries={activity.entries}
+              seenAt={activity.seenAt}
+              now={activityOpen}
+              empty={emptyLine(access !== undefined)}
+              onOpen={(path) => {
+                setActivityOpen(null);
+                activity.markSeen();
+                files.select(path);
+              }}
+            />
+          </ScrollView>
+          <PressRow
+            accessibilityLabel="Open the whole history as a note"
+            onPress={() => {
+              setActivityOpen(null);
+              activity.markSeen();
+              files.select(ACTIVITY_PATH);
+            }}
+            radius={radii.sm}
+            style={styles.activityFoot}
+            hoverStyle={styles.matchHover}
+          >
+            <Text variant="treeMeta" style={styles.footGrow}>
+              Open the whole history
+            </Text>
+            <Icon name="chevronRight" size={11} color={colors.chromeMuted} />
           </PressRow>
         </View>
       ) : null}
@@ -1184,7 +1329,7 @@ function inheritedOf(files: FileBrowser, path: string): Visibility {
   return "private";
 }
 
-const makeStyles = (colors: Colors) => StyleSheet.create({
+const makeStyles = (colors: Colors, shadows: Shadows) => StyleSheet.create({
   explorer: { flex: 1, minHeight: 0 },
 
   toolbar: {
@@ -1310,5 +1455,46 @@ const makeStyles = (colors: Colors) => StyleSheet.create({
     paddingHorizontal: space.x3,
     paddingVertical: 5,
     gap: space.x2,
+  },
+  /** The same box, as a control: a row rather than a stack of one. */
+  footPress: { flexDirection: "row", alignItems: "center" },
+  footGrow: { flexGrow: 1, flexShrink: 1, minWidth: 0 },
+  /** The one spot of petrol in the column, and only while something is new. */
+  activityDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
+  /**
+   * The list, floating over the tree and anchored to the line that opened it.
+   *
+   * Inset from the column's edges and shadowed rather than bordered, the way
+   * every other floating surface in this product is drawn
+   * (`4-resources/design/floating-chrome.md`). Capped at 60% of the column so
+   * it never becomes the column: what is under it is the thing it is about.
+   */
+  activitySheet: {
+    position: "absolute",
+    left: space.x2,
+    right: space.x2,
+    bottom: 76,
+    maxHeight: "60%",
+    borderRadius: radii.panel,
+    backgroundColor: colors.surface3,
+    borderWidth: 1,
+    borderColor: colors.lineStrong,
+    overflow: "hidden",
+    boxShadow: shadows.floating,
+  },
+  activityScroll: { flexGrow: 0, flexShrink: 1 },
+  activityFoot: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.x2,
+    paddingHorizontal: space.x3,
+    paddingVertical: space.x2,
+    borderTopWidth: 1,
+    borderTopColor: colors.line,
   },
 });

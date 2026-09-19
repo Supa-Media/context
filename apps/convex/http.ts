@@ -295,6 +295,9 @@ export const gatewaySession = gatewayRoute(async (ctx, body) => {
     session: {
       grantId: session.grantId,
       clientId: session.clientId,
+      // Display text only — see `resolveGrantByAccessToken`. The gateway puts
+      // it in `activity.md` and nowhere else.
+      clientName: session.clientName,
       actorUserId: session.actorUserId,
       scopes: session.scopes,
       expiresAt: session.expiresAt,

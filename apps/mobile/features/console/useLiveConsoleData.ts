@@ -19,6 +19,7 @@ import { capabilitiesForRole } from "./capabilities";
 import { visibilityTierForRole } from "./visibility";
 import { useIngestionSettings } from "./ingestion/useIngestionSettings";
 import { useMembers } from "./members/useMembers";
+import { useActivity } from "./activity/useActivity";
 import { useFastSearch } from "./search/useFastSearch";
 import { useGroups } from "./groups/useGroups";
 import { useShares } from "./shares/useShares";
@@ -782,6 +783,25 @@ export function useLiveConsoleData(): ConsoleData {
     role: selected?.role,
   });
 
+  /*
+    What has changed in this context, from `activity.md`.
+
+    The same `membershipContextId` every other per-context subscription here
+    takes, so switching contexts switches this with them rather than leaving
+    one surface a frame behind — the frame where the paths on screen belong to
+    the context somebody just left.
+  */
+  /** The viewer's own `@name`, or null for an account with no personal context. */
+  const ownSlug = ownPersonalContext(contexts)?.slug ?? null;
+  const ownName = ownSlug === null ? null : `@${ownSlug}`;
+  const activity = useActivity(
+    membershipContextId ?? null,
+    // The viewer's own name, from their own personal context — the same
+    // `@name` the gateway stamps on what their clients do, which is what makes
+    // "was this me?" answerable at all.
+    ownName,
+  );
+
   // Read for every member — how a context's search is served is not privileged
   // — and the switch attached only where the server said `canChange`. That is
   // the hook's own rule rather than this file's, so `isOwner` is deliberately
@@ -1117,6 +1137,7 @@ export function useLiveConsoleData(): ConsoleData {
     invitations,
     selectedContextId,
     selectContext,
+    activity,
     searchableContexts,
     graph,
     // Walking out of somebody else's context is the member's own move — the

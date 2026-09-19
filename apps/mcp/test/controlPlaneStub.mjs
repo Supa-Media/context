@@ -146,6 +146,7 @@ export function createControlPlaneStub(options = {}) {
     role = "owner",
     scopes = ["context:read", "context:write"],
     clientId = "mcp_test_client",
+    clientName = null,
     userId = "user_test",
     alsoMemberOf = [],
     expiresAt,
@@ -157,6 +158,7 @@ export function createControlPlaneStub(options = {}) {
       role,
       scopes,
       clientId,
+      clientName,
       userId,
       alsoMemberOf,
       status: "active",
@@ -237,6 +239,7 @@ export function createControlPlaneStub(options = {}) {
           session: {
             grantId: grant.grantId,
             clientId: grant.clientId,
+            clientName: grant.clientName ?? null,
             actorUserId: grant.userId,
             scopes: grant.scopes,
             expiresAt: grant.expiresAt,

@@ -226,6 +226,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - What the sidebar can do to a folder, the listing can do to it too
 - Nothing is named before it is written, and the phone's `+` is the only key
 - A phone can ask its context a question, and could not before
+- The feed is a file, and the console is a viewing layer over it
 
 ## [Meetings](./meetings.md)
 

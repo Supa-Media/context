@@ -6915,3 +6915,111 @@ The checks are `the + offers a chat, and choosing it opens the panel` and `and n
 chat row on a phone in a context with no model key`, in `consoleChrome.test.ts`,
 both driven through the real layout at 390pt. Four sabotages are recorded in that
 file's header.
+
+### The feed is a file, and the console is a viewing layer over it
+
+The ask, from the leadership meeting of 2026-09-19, in its own words: *"How
+does Shay even know that this meeting note is here? Is there any type of
+indication, especially in shared workspaces too?"*, *"there's logging, but it's
+not human readable"*, *"maybe even like on the bottom, just like a number of
+updates"*, and — the reason it matters — *"the workspace can feel dead
+otherwise. You're working in chat, you open context, and it feels like nothing
+happened, but really ChatGPT changed this and Claude changed this."*
+
+The first design answered a different question. It added a third context view
+at `/console/@name/activity`, with filters and a two-pane layout, and it was
+rejected the same day for being invasive. What was asked for is an indicator,
+and the version that shipped adds exactly three things to a console that had no
+room to spare: a 5pt dot on a tree row, the note-count line at the foot of the
+tree rewritten when something is new, and a dot on another workspace's mark.
+Everything else is one popover.
+
+**The thing underneath it is `activity.md`, a note at the root of the
+customer's bucket.** Not a table in Convex, and not a rendering of
+`.context/audit/` computed per request. That is non-negotiable #3 applied to a
+feature every other product would have put in a database: open it in Obsidian
+and it reads as a dated list; export the bucket and the history comes with it;
+cancel and it is still a file somebody owns. The console draws it as rows, and
+`NoteEditor` dispatches on the path exactly as it does for a drawing — so
+opening it in a new tab, linking to it, and reading it on a phone all work
+without a route of their own, and there is one answer to "which is the real
+thing": the file is.
+
+What a simplification of any of this costs, and the test that fails:
+
+- **Making it a table.** The feed stops being the customer's, the export
+  promise acquires an exception, and a person reading their bucket in Obsidian
+  sees a context with no history in it. `activity.md is a note in your own
+  storage` in `ActivityPage` says so on the screen itself.
+- **Deriving it from the audit trail on read.** `.context/audit/` is one object
+  per change — the shape that is right for a record that must never be
+  rewritten and wrong for a list somebody opens. That is what `list_changes`
+  does and why it is an agent's tool rather than a screen's.
+- **Letting it be team-readable.** It names paths from every corner of a
+  context, so it is stored `private` and re-asserted private on any write that
+  finds it otherwise; a member gets a *rendering* through `readActivity`, never
+  the file. `is refused to a member, and taken back if somebody publishes it`
+  fails, and the failure is an index of every private filename in the context.
+- **Filtering on the stored flag alone.** A note taken back into private must
+  drop out of lines written while it was shared, so `canSee` is re-derived per
+  reader at read time. `drops a note out of the member's view when it is taken
+  back` fails.
+- **Counting what is hidden.** A gap a reader can count is the disclosure the
+  flag was there to prevent. `and never sees the private one, nor a count of
+  what is missing` fails.
+- **Recording every write.** A revision under 80 stored bytes is not one, and
+  repeat saves by one hand inside half an hour are one line — without which the
+  console's own 2-second autosave writes a line per keystroke burst and the
+  list becomes the log the meeting already rejected. `does not write a line per
+  autosave` fails, and it asserts the file is *byte-identical* rather than
+  merely short, because the cheap path is "write nothing at all".
+- **Marking every ancestor with the dot.** The path to the root lights up
+  permanently and the mark comes to mean "this context has notes".
+  `markedRows` marking every ancestor fails four checks across the two app
+  suites.
+- **Clearing the marker on open.** A list that marks itself read the moment it
+  appears is one you cannot look away from and come back to. `opening the list
+  does not mark it read` fails.
+
+**A line points at a note, not at a path it once had.** An entry written on
+Tuesday names where the note was on Tuesday, so every path is forwarded through
+`.context/forwarding.json` — the ledger "A move leaves a forwarding address"
+added, the same trail a share link follows — before a row is drawn or filtered.
+Following a row then lands on the note rather than on a gone path, and `canSee`
+is asked about where the note *is*, so one moved into a private folder drops
+out of lines written while it was shared. The historical path is not lost:
+`.context/audit/` keeps it and `list_changes` prints it. `a line written before
+a move points at where the note is now` fails on both sides without it.
+
+**What an agent contributes to it is one optional sentence.** `write_note`
+takes a `summary` and the orientation text asks for one, so a row can read
+"recorded the 2-products rename" instead of a folder path. It is the second
+line and never the first: who, what and where come from the change record, so
+a client that says nothing costs a path, and a client that says something wrong
+costs a sentence rather than a false fact. This reverses the first design's
+"no agent summaries", which was wrong on the evidence — the meeting asked for
+exactly this and the owner's answer to whether a team might not want it was
+*"I think we should enforce it"*.
+
+**And then it was looked at in a browser, which found three things no test
+had.** `activityRender.test.ts` mounts `<Explorer>` with a prop it supplies
+itself, so the console's own slot — `activity={data.activity}` in the layout —
+was covered by nothing: delete that line and the suite stays green. The visual
+fixture now carries an activity view and `e2e/webkit/activityIndicator.spec.ts`
+drives it in a real engine, which is where these turned up:
+
+- **Rows spent their width on paths.** The shared module's sentence names the
+  full path, which is right for the file and wrong in a 240pt column: `A
+  meeting landed: 0-inbox/meetings/2026-0…` had said nothing by the time it ran
+  out. The console names the note and puts the folder underneath — and names it
+  the way the tree does, without the sort number or the `.md`, because two
+  names for one row is worse than either.
+- **The unread marker read `Before 18h`.** A relative age is not a heading. It
+  says `Earlier`; when you last looked is the foot line's sentence.
+- **`4 min` wrapped to two lines** and grew the row, because nothing in jsdom
+  lays anything out.
+
+The first draft of the fixture data also named three notes in a folder the demo
+tree has never had, so the console drew no dot and the board was reporting on
+itself — the failure that page's own header warns about, reproduced while
+guarding against it.

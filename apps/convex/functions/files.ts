@@ -242,6 +242,12 @@ import {
   requireWorkspaceRole,
 } from "./lib/workspaceAuth";
 import { reachesPinnedContext } from "./lib/pinnedContext";
+import {
+  readActivity,
+  recordActivity,
+  type ActivityActor,
+  type ActivityEntry,
+} from "./lib/activity";
 import type { GatewayCredential } from "./storage";
 
 /** Same deadline `functions/provisioning.ts` puts on the customer's endpoint. */
@@ -672,6 +678,8 @@ const writtenValidator = v.object({
   kind: v.literal("written"),
   path: v.string(),
   etag: v.string(),
+  /** What was stored, in bytes. See `WriteResult` — it is for `activity.md`. */
+  bytes: v.number(),
   conflictCheck: v.union(v.literal("conditional"), v.literal("read-compare")),
   forms: formSeedValidator,
 });
@@ -1008,6 +1016,29 @@ const formResultValidator = v.object({
   votes: v.optional(v.number()),
 });
 
+/**
+ * One activity entry, as the console draws it.
+ *
+ * Paths, names, a kind and a time. No note text, by construction — the file it
+ * comes from has none either, which is the point of recording paths rather
+ * than diffs.
+ */
+const activityEntryValidator = v.object({
+  at: v.string(),
+  kind: v.string(),
+  paths: v.array(v.string()),
+  n: v.number(),
+  vis: v.union(v.literal("team"), v.literal("private")),
+  by: v.union(v.string(), v.null()),
+  via: v.union(v.string(), v.null()),
+  note: v.union(v.string(), v.null()),
+});
+
+const activityValidator = v.object({
+  kind: v.literal("activity"),
+  entries: v.array(activityEntryValidator),
+});
+
 const operationResultValidator = v.union(
   listingValidator,
   fileValidator,
@@ -1044,6 +1075,7 @@ const operationResultValidator = v.union(
   googleSyncRunValidator,
   googleForwardSyncValidator,
   formResultValidator,
+  activityValidator,
 );
 
 const operationValidator = v.union(
@@ -1355,9 +1387,12 @@ const operationValidator = v.union(
    * `lib/storageLayout.ts`.
    */
   v.object({ kind: v.literal("readStorageLayout") }),
+  /** `activity.md`, filtered to what this caller may see. See `activity.ts`. */
+  v.object({ kind: v.literal("readActivity") }),
 );
 
 type FileOperation =
+  | { kind: "readActivity" }
   | { kind: "list"; path: string }
   | { kind: "read"; path: string; forward?: "never" | "onMiss" }
   | { kind: "forward"; paths: string[] }
@@ -1455,6 +1490,7 @@ type FileOperation =
  * `features/console/privacy/words.ts`.
  */
 type OperationResult =
+  | { kind: "activity"; entries: ActivityEntry[] }
   | ({ kind: "formApplied" } & FormResult)
   | {
       /**
@@ -1571,6 +1607,8 @@ type OperationResult =
       kind: "written";
       path: string;
       etag: string;
+      /** What was stored, in bytes. See `WriteResult` — it is for `activity.md`. */
+      bytes: number;
       conflictCheck: "conditional" | "read-compare";
       /**
        * Response files this write created for form blocks on the note, and
@@ -1784,6 +1822,17 @@ export const authorizeFileAccess = internalQuery({
      * `lib/clearance.ts`.
      */
     grantedNames: v.array(v.string()),
+    /**
+     * The caller's own `@name` — their personal workspace's slug — for the
+     * line `activity.md` writes about what they did.
+     *
+     * Display text and nothing else: every authorization decision above reads
+     * the membership row. `null` for an account with no personal context,
+     * which is not a state the product produces but is one a self-hosted
+     * deployment can, and a line reading "Someone revised" is better than one
+     * naming an id.
+     */
+    actorName: v.union(v.string(), v.null()),
   }),
   handler: async (ctx, args) => {
     if (args.minimum === "member") {
@@ -1807,6 +1856,9 @@ export const authorizeFileAccess = internalQuery({
           role: PINNED_CONTEXT_ROLE,
           scope: scopeForRole(PINNED_CONTEXT_ROLE),
           grantedNames: [],
+          // A pinned reader is read-only, so there is nothing for a name to
+          // appear beside. See `personalNameFor`.
+          actorName: null,
         };
       }
     }
@@ -1823,9 +1875,50 @@ export const authorizeFileAccess = internalQuery({
       role: access.membership.role,
       scope: scopeForRole(access.membership.role),
       grantedNames: await grantedNamesFor(ctx, args.workspaceId, args.actorUserId),
+      /*
+        Resolved only for a caller who can change something.
+
+        This query is on the path of every file read, and a name is used by
+        exactly one thing: the line `activity.md` writes about a change. The
+        five operations that record one all ask for `editor` or `owner`
+        (`writeNote`, `moveEntry`, `archiveEntry`, and the two visibility
+        actions), and every read asks for `member` — so the tier is already
+        the question "could this call write", and a second flag saying the
+        same thing would be a second thing to keep in step.
+      */
+      actorName:
+        args.minimum === "member" ? null : await personalNameFor(ctx, args.actorUserId),
     };
   },
 });
+
+/**
+ * A person's name across every context: their personal workspace's slug.
+ *
+ * Walked rather than indexed, and bounded by how many contexts somebody owns
+ * — one for almost everybody, and the first row is theirs. Called only from
+ * the write tiers above, never on a read.
+ *
+ * The same answer the gateway's `personalNameFor` gives an AI client, computed
+ * from the same two facts — a workspace they own, of kind `personal` — so one
+ * person reads as one name whichever hand made the change. Two different names
+ * for the same person in one list is the bug this shape exists to prevent.
+ */
+async function personalNameFor(
+  ctx: QueryCtx,
+  userId: Id<"users">,
+): Promise<string | null> {
+  const memberships = await ctx.db
+    .query("workspaceMembers")
+    .withIndex("by_user", (q) => q.eq("userId", userId))
+    .collect();
+  for (const membership of memberships) {
+    if (membership.role !== "owner") continue;
+    const workspace = await ctx.db.get(membership.workspaceId);
+    if (workspace?.kind === "personal" && workspace.slug) return `@${workspace.slug}`;
+  }
+  return null;
+}
 
 /* -------------------------------------------------------------------------- */
 /*                            the credential barrier                          */
@@ -1857,6 +1950,13 @@ export const runFileOperation = internalAction({
      * owner's `private`, so none of them loses anything by it.
      */
     grantedNames: v.optional(v.array(v.string())),
+    /**
+     * Who to name in `activity.md`, from `authorizeFileAccess`.
+     *
+     * Optional because a scheduled pass has no caller, and those record
+     * nothing anyway — see `executeOperation`'s `actor` parameter.
+     */
+    actorName: v.optional(v.union(v.string(), v.null())),
     operation: operationValidator,
   },
   returns: operationResultValidator,
@@ -2139,6 +2239,12 @@ export const runFileOperation = internalAction({
       args.operation as FileOperation,
       Date.now(),
       projection,
+      // A person acting in the console, for the activity file. `client` is
+      // null and stays null: the console is their own hand, and "@seyi's
+      // Context" would be the product claiming to be a third party.
+      args.actorName === undefined || args.actorName === null
+        ? null
+        : { name: args.actorName, client: null },
     );
 
     /*
@@ -3199,7 +3305,31 @@ export async function executeOperation(
    * projection whose row said there was nothing to do.
    */
   projection: ProjectionClient | null = null,
+  /**
+   * Who is doing this, for `activity.md`.
+   *
+   * Optional, and absent for every scheduled pass — a projection link, an
+   * index sweep, a sync job. Those write nothing to the activity file anyway:
+   * the actions they perform are not in the substance table, and an entry with
+   * nobody's name on it would be the feed reporting the product to itself.
+   */
+  actor: ActivityActor | null = null,
 ): Promise<OperationResult> {
+  /**
+   * One change, in the activity file, if it is one worth mentioning.
+   *
+   * Awaited rather than fired and forgotten, because a Convex action that
+   * returns with work in flight has no guarantee the work runs — and never
+   * raising, because the footnote must not fail the save. The cost of the
+   * common case is one small `GET`; see `lib/activity.ts`.
+   */
+  const noteActivity = async (
+    action: string,
+    paths: string[],
+    details: Record<string, string | number | boolean | null | undefined> = {},
+  ): Promise<void> => {
+    await recordActivity(store, { action, paths, details, actor });
+  };
   try {
     switch (operation.kind) {
       case "pluginInventory": {
@@ -3612,6 +3742,11 @@ export async function executeOperation(
           text: operation.text,
           notePath: written.path,
         }).catch(() => ({ created: [], occupied: [] }));
+        await noteActivity(
+          operation.expectedEtag === undefined ? "file.create" : "file.write",
+          [written.path],
+          { content_bytes: written.bytes },
+        );
         return { kind: "written", ...written, forms };
       }
       case "form": {
@@ -3664,11 +3799,24 @@ export async function executeOperation(
           now,
           ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
         });
+        await noteActivity("file.move", [moved.from, moved.to], {
+          count: moved.paths.length,
+        });
         return { kind: "moved", ...moved };
       }
       case "folderPaths": {
         const found = await listFolderPaths(store, { clearance });
         return { kind: "folderPaths", ...found };
+      }
+      case "readActivity": {
+        // The filter is `readActivity`'s, and it takes the caller's clearance
+        // rather than deciding anything here: one viewing layer, used by the
+        // console and the gateway alike.
+        const entries = await readActivity(store, {
+          scope: clearance.scope,
+          names: [...clearance.names],
+        });
+        return { kind: "activity", entries };
       }
       case "contextMoveExport": {
         const exported = await exportContextMoveBatch(store, {
@@ -3716,6 +3864,9 @@ export async function executeOperation(
           clearance,
           now,
           ...(operation.expectedEtag === undefined ? {} : { expectedEtag: operation.expectedEtag }),
+        });
+        await noteActivity("file.archive", [moved.from, moved.to], {
+          count: moved.paths.length,
         });
         return { kind: "moved", ...moved };
       }
@@ -3779,6 +3930,13 @@ export async function executeOperation(
           visibility: operation.visibility,
           clearance,
         });
+        // The widening only. `recordActivity` re-derives the flag from the
+        // manifest it has just changed, and the shared substance table drops
+        // the other direction: a line saying a note went private would be the
+        // disclosure the change was undoing.
+        await noteActivity("visibility.note", [operation.path], {
+          to: operation.visibility,
+        });
         return { kind: "visibility", ...result };
       }
       case "setFolderVisibility": {
@@ -3786,6 +3944,9 @@ export async function executeOperation(
           path: operation.path,
           visibility: operation.visibility,
           clearance,
+        });
+        await noteActivity("visibility.folder", [operation.path], {
+          to: operation.visibility,
         });
         return { kind: "visibility", ...result };
       }
@@ -3963,7 +4124,7 @@ async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | null> 
  * in the root error boundary with nothing to do about it — see the note at the
  * top of `lib/workspaceAuth.ts`.
  */
-async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> {
+export async function callerId(ctx: ActionCtx | QueryCtx): Promise<Id<"users">> {
   const userId = await getAuthUserId(ctx);
   if (userId === null) {
     throw new ConvexError({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
@@ -4632,7 +4793,7 @@ export const writeNote = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "written" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -4641,6 +4802,7 @@ export const writeNote = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
+      actorName,
       operation: {
         kind: "write",
         path: args.path,
@@ -5568,7 +5730,7 @@ export const moveEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -5577,6 +5739,7 @@ export const moveEntry = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
+      actorName,
       operation: {
         kind: "move",
         from: args.from,
@@ -5679,7 +5842,7 @@ export const archiveEntry = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "moved" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "editor",
@@ -5688,6 +5851,7 @@ export const archiveEntry = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
+      actorName,
       operation: {
         kind: "archive",
         path: args.path,
@@ -5845,7 +6009,7 @@ export const setNoteVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -5854,6 +6018,7 @@ export const setNoteVisibility = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
+      actorName,
       operation: {
         kind: "setVisibility",
         path: args.path,
@@ -6106,7 +6271,7 @@ export const setDirectoryVisibility = action({
       args,
     ): Promise<Extract<OperationResult, { kind: "visibility" }>> => {
     const actorUserId = await callerId(ctx);
-    const { scope, grantedNames } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
+    const { scope, grantedNames, actorName } = await ctx.runQuery(internal.functions.files.authorizeFileAccess, {
       actorUserId,
       workspaceId: args.workspaceId,
       minimum: "owner",
@@ -6115,6 +6280,7 @@ export const setDirectoryVisibility = action({
       workspaceId: args.workspaceId,
       scope,
       grantedNames,
+      actorName,
       operation: {
         kind: "setFolderVisibility",
         path: args.path,
@@ -6231,5 +6397,112 @@ export const updateStorageLayout = action({
       },
     });
     return result;
+  },
+});
+
+/* -------------------------------------------------------------------------- */
+/*                                  activity                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `activity.md`, read and marked as read.
+ *
+ * Here rather than in a `functions/activity.ts` of its own, for a reason worth
+ * writing down because it will come up again: the generated `api` type is at
+ * TypeScript's instantiation limit, and adding one more top-level function
+ * module pushes every inference in the repository's tests over it — 8
+ * pre-existing `implicitly any` errors become 151, none of them near the
+ * change. The feature is a view over a file, this is the file surface, and a
+ * section is cheaper than the alternative.
+ *
+ * The writing half is `lib/activity.ts`, called from `executeOperation`.
+ */
+/**
+ * When this person last looked at this context's activity.
+ *
+ * A query rather than part of the action below, because the unread line has to
+ * move the moment somebody marks it read — and an action's result does not
+ * re-run. The rows are fetched once; where the line sits among them is live.
+ */
+export const activityLastSeen = query({
+  args: { workspaceId: v.id("workspaces") },
+  returns: v.union(v.number(), v.null()),
+  handler: async (ctx, args): Promise<number | null> => {
+    const actorUserId = await callerId(ctx);
+    // Refused exactly as every other endpoint here refuses, rather than
+    // answering `null` for a context the caller is not in: the isolation
+    // census in `files.test.ts` compares the *whole* answer against the one a
+    // workspace that never existed gives, and "null" from both would pass that
+    // while still being a second shape of endpoint for anybody to reason about.
+    await requireWorkspaceAccess(ctx, args.workspaceId, actorUserId);
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", actorUserId),
+      )
+      .unique();
+    return membership?.activitySeenAt ?? null;
+  },
+});
+
+/**
+ * Catch up: everything recorded before now is read.
+ *
+ * Only ever moves forward. Two devices open at once, or a stale tab pressing
+ * this a minute late, must not walk the marker backwards and make a member
+ * see yesterday's work as new again.
+ */
+export const markActivitySeen = mutation({
+  args: { workspaceId: v.id("workspaces"), at: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const actorUserId = await callerId(ctx);
+    await requireWorkspaceAccess(ctx, args.workspaceId, actorUserId);
+    const membership = await ctx.db
+      .query("workspaceMembers")
+      .withIndex("by_workspace_user", (q) =>
+        q.eq("workspaceId", args.workspaceId).eq("userId", actorUserId),
+      )
+      .unique();
+    if (!membership) return null;
+    const at = Math.min(args.at ?? Date.now(), Date.now());
+    if ((membership.activitySeenAt ?? 0) >= at) return null;
+    await ctx.db.patch(membership._id, { activitySeenAt: at });
+    return null;
+  },
+});
+
+/**
+ * The activity this caller may see, newest first.
+ *
+ * An action because it reads the bucket, and the bucket is behind the
+ * credential barrier — the same one every other file read goes through. What
+ * comes back is already filtered: `runFileOperation` applies the caller's own
+ * scope and granted names, so a member never receives an entry about a note
+ * they cannot open, and never a count of the ones they cannot.
+ */
+export const listActivity = action({
+  args: { workspaceId: v.id("workspaces"), limit: v.optional(v.number()) },
+  returns: v.array(activityEntryValidator),
+  // Annotated rather than inferred, for the reason `runFileOperation` gives:
+  // this action calls another function in the same deployment, and leaving the
+  // return to inference makes the generated `api` type recurse through itself.
+  // Unannotated, it costs 143 `implicitly any` errors across tests that have
+  // nothing to do with it — the whole repository's inference, not this file's.
+  handler: async (ctx, args): Promise<ActivityEntry[]> => {
+    const actorUserId: Id<"users"> = await callerId(ctx);
+    const { scope, grantedNames } = await ctx.runQuery(
+      internal.functions.files.authorizeFileAccess,
+      { actorUserId, workspaceId: args.workspaceId, minimum: "member" },
+    );
+    const result = await ctx.runAction(internal.functions.files.runFileOperation, {
+      workspaceId: args.workspaceId,
+      scope,
+      grantedNames,
+      operation: { kind: "readActivity" },
+    });
+    if (result.kind !== "activity") return [];
+    const limit = Math.max(1, Math.min(args.limit ?? 50, 400));
+    return result.entries.slice(0, limit);
   },
 });
