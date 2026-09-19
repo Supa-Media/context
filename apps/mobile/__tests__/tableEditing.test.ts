@@ -256,12 +256,15 @@ describe("the keys that mean somewhere else in the table", () => {
     view.destroy();
   });
 
-  test("Enter on the last row adds one under it", () => {
+  test("Enter on the last row adds one under it, in the same column", () => {
+    // Enter is continuing down a column, so it stays in that column; Tab has
+    // just run off the end of a row and starts the next one at its first cell.
     const view = mount();
-    const cell = cellOf(view, 0, 0);
+    const cell = cellOf(view, 0, 1);
     cell.focus();
     press(cell, "Enter");
     expect(view.state.doc.toString()).toContain("| 1 | 2 |\n|  |  |");
+    expect(document.activeElement).toBe(cellOf(view, 1, 1));
     view.destroy();
   });
 

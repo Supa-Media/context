@@ -2086,11 +2086,16 @@ function makeCellEditable(
   const next = (): { row: number; column: number } | null => after(here());
   const previous = (): { row: number; column: number } | null => before(here());
 
-  const addRowBelow = (): void => {
+  /*
+    `into` is where the caret lands in the new row, and the two callers want
+    different columns: Enter is continuing down a column and stays in it, Tab
+    has just run off the end of the row and starts the next one.
+  */
+  const addRowBelow = (into: number): void => {
     const region = regionOf(view, wrap);
     if (region === null) return;
     if (!dispatchPlan(view, planAddRow(view.state, region, row))) return;
-    moveTo(row + 1, 0, "end");
+    moveTo(row + 1, into, "end");
   };
 
   cell.addEventListener("focus", () => {
@@ -2174,14 +2179,14 @@ function makeCellEditable(
         does nothing: there is no row above the header, and adding one would
         make somebody's header into data.
       */
-      if (!shift) addRowBelow();
+      if (!shift) addRowBelow(0);
       return;
     }
 
     if (key === "Enter") {
       event.preventDefault();
       if (row + 1 <= depth() - 1 && moveTo(row + 1, column, "end")) return;
-      addRowBelow();
+      addRowBelow(column);
       return;
     }
 
