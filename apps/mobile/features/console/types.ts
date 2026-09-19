@@ -52,6 +52,22 @@ export interface ConsoleContext {
   kind: string;
   status: StatusTone;
   /**
+   * What this workspace draws in its mark, when its owner chose something
+   * better than the first letter of its slug.
+   *
+   * A photo is its **leaf**, not its bytes: the picture is in the workspace's
+   * own bucket and `useWorkspaceIcons` fetches and caches it, once per leaf per
+   * session. Putting the bytes on this row would make every console poll carry
+   * a megabyte per workspace.
+   *
+   * Optional, and absent is the letter — which is what every mark drew before
+   * this existed, so the demo console and the landing page's picture of the
+   * rail keep rendering unchanged.
+   */
+  icon?:
+    | { kind: "photo"; leaf: string }
+    | { kind: "emoji"; emoji: string };
+  /**
    * The layout a setup flow recorded for this context, when one got that far.
    *
    * Read in exactly one place — `console/setup.ts`, to decide whether a
