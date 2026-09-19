@@ -227,7 +227,7 @@ export function ConsoleBottomBar({
           **It is also the only microphone a phone draws at rest**, which is a
           property of this row rather than of this key: the note editor's
           floating microphone stands down while this bar is on the glass
-          (`VoiceButton`'s `barMicrophone`), because the two sat 24pt apart
+          (`VoiceButton`'s `microphoneElsewhere`), because the two sat 24pt apart
           wearing the same glyph and raising different sheets. Anything added
           here that opens a microphone has to answer that first.
         */

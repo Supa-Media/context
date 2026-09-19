@@ -499,7 +499,7 @@ describe("when something else on the glass already carries the microphone", () =
   */
   test("the floating microphone is not drawn, and neither is its sheet", () => {
     const fake = fakeEngine();
-    render(button({ engine: fake.engine, barMicrophone: true }));
+    render(button({ engine: fake.engine, microphoneElsewhere: true }));
     expect(findByTestId("voice-button")).toBeNull();
     expect(findByTestId("voice-sheet")).toBeNull();
     expect(fake.calls).toEqual([]);
@@ -518,7 +518,7 @@ describe("when something else on the glass already carries the microphone", () =
     press("voice-button");
     press("voice-sheet-dictate");
 
-    render(button({ engine: fake.engine, barMicrophone: true }));
+    render(button({ engine: fake.engine, microphoneElsewhere: true }));
     expect(findByTestId("voice-capsule")).not.toBeNull();
     expect(findByTestId("voice-stop")).not.toBeNull();
     expect(fake.calls).toEqual(["open"]);
@@ -532,7 +532,7 @@ describe("when something else on the glass already carries the microphone", () =
     press("voice-button");
     press("voice-sheet-dictate");
 
-    render(button({ engine: fake.engine, barMicrophone: true }));
+    render(button({ engine: fake.engine, microphoneElsewhere: true }));
     expect(findByTestId("voice-failure")?.textContent).toContain("as you left it");
     expect(findByTestId("voice-button")).toBeNull();
   });

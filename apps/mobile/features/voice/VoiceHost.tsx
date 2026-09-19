@@ -49,6 +49,25 @@ export interface VoiceHost {
    * menu row is gone rather than inert there.
    */
   onAskAgent?: () => void;
+  /**
+   * Whether this console draws the `+` in the corner the microphone used to own.
+   *
+   * True in the real console at every pointer density — `CreateButton` is
+   * mounted by the layout there, and two floating controls in one corner is the
+   * defect `oneMicrophone.test.ts` exists for, with a different glyph on it.
+   *
+   * **It is a fact the host publishes rather than a density the editor
+   * derives**, and that distinction is load-bearing: `E2EFixtureScreen` and the
+   * landing page's demo console render `BrowsePane` at desktop width with *no*
+   * layout around them and therefore no `+`, so a rule keyed off the width
+   * would take the microphone off a surface that has nothing in its place. The
+   * fixture is where `e2e/webkit/voice.spec.ts` drives dictation in a real
+   * browser; it keeps the button because it genuinely is the only control there.
+   *
+   * Absent is false, which is the right answer for every surface that provides
+   * no host at all.
+   */
+  createButton?: boolean;
 }
 
 const VoiceHostContext = createContext<VoiceHost | null>(null);

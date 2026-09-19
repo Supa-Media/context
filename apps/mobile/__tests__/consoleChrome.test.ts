@@ -753,23 +753,38 @@ describe("the phone reaches a destination with nothing opened first", () => {
     app.unmount();
   });
 
-  test("the app's other place is the last key, and it raises the sheet that asks", () => {
+  test("the app's other place is the last key, and pressing it records", () => {
     /*
-      The seventh key. It opens a sheet and does **not** open the microphone —
-      `docs/decisions/meetings.md` calls a control that silently started
-      recording "the same product with the indicator removed" — and the sheet
-      is a `Modal`, which react-native-web portals outside this container.
+      THE SEVENTH KEY, AFTER THE SHEET WENT.
+
+      It used to raise a destination sheet — two rows, an audience line, a
+      Start — and this test asserted the sheet, because
+      `docs/decisions/meetings.md` calls a control that silently starts
+      recording "the same product with the indicator removed". The owner
+      removed the question (*"no need to ask people it will just confuse
+      them"*), and what the decision actually protects moved rather than going
+      with it: the press records and lands on the meeting's own screen, which
+      is the indicator — a clock, a meter, a transport and the note it is
+      becoming.
+
+      So what is asserted here is the *absence of the sheet* and the presence
+      of a recording. This fixture's console has no meetings controller
+      configured, so the press cannot reach a microphone; what it must do is
+      say so rather than doing nothing at all, which is `meetingsFlow.test.ts`'s
+      refusal arriving through the real bottom row.
     */
     const app = mountConsole(390);
     expect(sheetUp()).toBe(false);
 
     app.press(app.find("bottom-bar-meeting"));
-    expect(sheetUp()).toBe(true);
+
+    expect(sheetUp()).toBe(false);
+    expect(document.body.querySelector('[data-testid="meeting-refusal"]')).not.toBeNull();
 
     // And it is dismissible from inside itself, which is the property the rail
     // sheet's `closeNav()` used to carry for the panel it replaced.
-    app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-destination-cancel"]'));
-    expect(sheetUp()).toBe(false);
+    app.press(document.body.querySelector<HTMLElement>('[data-testid="meeting-refusal-close"]'));
+    expect(document.body.querySelector('[data-testid="meeting-refusal"]')).toBeNull();
 
     app.unmount();
   });
@@ -845,6 +860,14 @@ describe("the phone reaches a destination with nothing opened first", () => {
 });
 
 /** The meeting sheet is a `Modal`, so it portals outside the container. */
+/**
+ * Whether the destination sheet is on screen — which it now never is.
+ *
+ * Kept as an assertion rather than deleted with the component: "the key asks
+ * before it records" was a property of this product for a long time and its
+ * reversal is the kind of thing that should read as a decision in the suite
+ * rather than as a test that quietly disappeared.
+ */
 function sheetUp(): boolean {
   return document.body.querySelector('[data-testid="meeting-destination-sheet"]') !== null;
 }

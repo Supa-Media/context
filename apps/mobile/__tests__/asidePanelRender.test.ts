@@ -40,13 +40,48 @@
 
 import { afterEach, describe, expect, jest, test } from "@jest/globals";
 
-// `mock`-prefixed so `jest.mock`'s hoisted factory may close over it.
+// `mock`-prefixed so `jest.mock`'s hoisted factory may close over them.
 let mockLive: unknown = null;
+let mockRecords: unknown[] = [];
+const mockCalls: { name: string; args: unknown[] }[] = [];
 
 jest.mock("../features/meetings/useMeetings", () => ({
-  useMeetingsSnapshot: () => ({ live: mockLive }),
+  useMeetingsSnapshot: () => ({
+    live: mockLive,
+    records: mockRecords,
+    ending: null,
+    audio: {},
+    offline: false,
+  }),
   useTick: () => 0,
 }));
+
+/*
+  The controller, as a spy. The panel is now a place a meeting is *worked* —
+  renamed, noted in, stopped — so what these tests check is that each control
+  reaches the one controller call that owns that change, and never a second
+  store of its own.
+*/
+jest.mock("../features/meetings/controller", () => {
+  const actual = jest.requireActual("../features/meetings/controller") as {
+    recordElapsedMs: unknown;
+  };
+  const record = (name: string) => (...args: unknown[]) => {
+    mockCalls.push({ name, args });
+    return Promise.resolve();
+  };
+  return {
+    recordElapsedMs: actual.recordElapsedMs,
+    meetings: {
+      setTitle: record("setTitle"),
+      setNotes: record("setNotes"),
+      end: record("end"),
+      discard: record("discard"),
+      pause: record("pause"),
+      resume: record("resume"),
+    },
+  };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -68,9 +103,57 @@ const PLACE = {
 /** A running meeting, in the shape `MeetingsSnapshot.live` carries. */
 function recording(state: "recording" | "paused" = "recording") {
   return {
-    session: { id: "m1", title: "Pricing sync", state, startedAt: Date.now() - 60_000, log: [] },
-    runningSince: Date.now() - 60_000,
+    session: {
+      id: "m1",
+      title: "Pricing sync",
+      state,
+      startedAt: new Date(Date.now() - 60_000).toISOString(),
+      recordedMs: 0,
+      attendees: [],
+      source: { kind: "in-person" },
+      notes: "",
+      transcript: [],
+      notePath: null,
+      enhanced: null,
+      log: [],
+    },
+    runningSince: new Date(Date.now() - 60_000).toISOString(),
+    destination: { kind: "personalInbox", contextSlug: "seyi", folder: "0-inbox/meetings" },
   };
+}
+
+/** A meeting that has already been filed. */
+function filed() {
+  return {
+    session: {
+      id: "m0",
+      title: "Leads call",
+      state: "complete",
+      startedAt: new Date(Date.now() - 86_400_000).toISOString(),
+      recordedMs: 2_460_000,
+      attendees: [],
+      source: { kind: "in-person" },
+      notes: "- [0:12] LK owns the transparency page",
+      transcript: [],
+      notePath: "0-inbox/meetings/2026-09-18-leads-call.md",
+      enhanced: null,
+      log: [],
+    },
+    runningSince: null,
+    destination: { kind: "personalInbox", contextSlug: "seyi", folder: "0-inbox/meetings" },
+  };
+}
+
+/** react-native-web renders `TextInput` as an `input`; this is how one is typed in. */
+function type(field: HTMLElement, text: string): void {
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
+    setter?.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 }
 
 const roots: (() => void)[] = [];
@@ -79,6 +162,8 @@ afterEach(() => {
   while (roots.length > 0) roots.pop()!();
   document.body.innerHTML = "";
   mockLive = null;
+  mockRecords = [];
+  mockCalls.length = 0;
 });
 
 /** Let the stub engine's promise resolve and React commit the answer. */
@@ -91,8 +176,10 @@ async function settle(): Promise<void> {
 
 function mount(
   options: {
-    onOpenMeeting?: ((id: string) => void) | null;
+    onOpenNote?: ((href: string) => void) | null;
     asked?: { text: string; at: number } | null;
+    started?: number | null;
+    newChat?: number | null;
   } = {},
 ) {
   const container = document.createElement("div");
@@ -108,7 +195,9 @@ function mount(
         engine: createStubEngine(),
         place: PLACE,
         asked: options.asked ?? null,
-        onOpenMeeting: options.onOpenMeeting === undefined ? () => {} : options.onOpenMeeting,
+        started: options.started ?? null,
+        newChat: options.newChat ?? null,
+        onOpenNote: options.onOpenNote === undefined ? () => {} : options.onOpenNote,
       }),
     );
   });
@@ -239,50 +328,153 @@ describe("what a running meeting shows", () => {
     const panel = mount();
     panel.press("aside-tab-meetings");
 
-    expect(panel.text()).toContain("Pricing sync");
+    expect(panel.find("aside-meeting-title")).not.toBeNull();
     expect(panel.find("aside-live-clock")).not.toBeNull();
     expect(panel.find("aside-no-meeting")).toBeNull();
   });
 
-  test("a paused meeting says it is paused rather than recording", () => {
+  test("and where the note is going, without anybody having been asked", () => {
+    /*
+      The sheet used to name the folder before the microphone opened. It is
+      gone, so the card is the only place this is said — and it is said for the
+      whole length of the recording rather than once, in front of it.
+    */
+    mockLive = recording();
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    expect(panel.text()).toContain("0-inbox/meetings");
+  });
+
+  test("the name can be changed while it runs, and goes to the one store that owns it", () => {
+    mockLive = recording();
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+
+    const field = panel.find("aside-meeting-title");
+    expect(field).not.toBeNull();
+    type(field!, "Leads call");
+
+    expect(mockCalls).toContainEqual({ name: "setTitle", args: ["m1", "Leads call"] });
+  });
+
+  test("a typed note lands in the meeting's own notes, stamped with its clock", () => {
+    mockLive = recording();
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+
+    type(panel.find("aside-meeting-note-field")!, "ops goes async");
+    panel.press("aside-meeting-note-add");
+
+    const note = mockCalls.find((call) => call.name === "setNotes");
+    expect(note).toBeDefined();
+    expect(note!.args[0]).toBe("m1");
+    expect(String(note!.args[1])).toMatch(/^- \[\d+:\d\d\] ops goes async$/);
+  });
+
+  test("an empty composer writes nothing", () => {
+    mockLive = recording();
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-note-add");
+    expect(mockCalls.some((call) => call.name === "setNotes")).toBe(false);
+  });
+
+  test("stopping is one press, and it is the controller's own end", () => {
+    mockLive = recording();
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-stop");
+    expect(mockCalls).toContainEqual({ name: "end", args: [] });
+  });
+
+  test("discarding asks twice, because it is the one control that destroys a recording", () => {
+    mockLive = recording();
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+
+    panel.press("aside-meeting-discard");
+    expect(mockCalls.some((call) => call.name === "discard")).toBe(false);
+
+    panel.press("aside-meeting-discard-confirm");
+    expect(mockCalls).toContainEqual({ name: "discard", args: ["m1"] });
+  });
+
+  test("a paused meeting offers Resume rather than Pause", () => {
     mockLive = recording("paused");
     const panel = mount();
     panel.press("aside-tab-meetings");
-    expect(panel.text()).toContain("Paused");
-    expect(panel.text()).not.toContain("The note lands wherever");
+    expect(panel.find("aside-meeting-pause")?.getAttribute("aria-label")).toBe(
+      "Resume recording",
+    );
   });
+});
 
-  test("pressing it opens the meeting", () => {
-    mockLive = recording();
-    const opened: string[] = [];
-    const panel = mount({ onOpenMeeting: (id) => opened.push(id) });
-    panel.press("aside-tab-meetings");
-    panel.press("aside-live-meeting");
-    expect(opened).toEqual(["m1"]);
-  });
-
+describe("asking for a meeting is what takes the tab", () => {
   /**
-   * The transport is deliberately not here — Start, pause and End live on the
-   * bar and on the meeting's own screen, and a fourth place to press End is a
-   * fourth place to get "did that work?" wrong. Asserted as an absence,
-   * because a control that arrived later would arrive silently.
+   * `tabs.ts` refuses a *starting* meeting the tab, because a panel that swaps
+   * out from under a composer loses the question somebody was typing. Pressing
+   * New meeting is that person asking, in the menu's own words — the same trade
+   * the ⌘K handoff makes, pointed the other way.
    */
-  test("and offers no transport of its own", () => {
+  test("the + menu's New meeting opens the panel on Meetings", () => {
+    mockLive = recording();
+    const panel = mount({ started: 1 });
+    expect(panel.find("aside-meetings")).not.toBeNull();
+    expect(panel.find("aside-chat")).toBeNull();
+  });
+
+  test("and a meeting that merely starts still only marks the tab", () => {
     mockLive = recording();
     const panel = mount();
+    expect(panel.find("aside-chat")).not.toBeNull();
+    expect(panel.find("aside-tab-meetings-dot")).not.toBeNull();
+  });
+});
+
+describe("meetings that have already been recorded", () => {
+  test("they are listed when nothing is running", () => {
+    mockRecords = [filed()];
+    const panel = mount();
     panel.press("aside-tab-meetings");
-    for (const control of ["aside-end", "aside-pause", "aside-resume", "aside-stop"]) {
-      expect(panel.find(control)).toBeNull();
-    }
-    expect(panel.text()).not.toContain("End");
+    expect(panel.text()).toContain("Leads call");
   });
 
-  test("a surface with nowhere to navigate draws the card and no button", () => {
-    mockLive = recording();
-    const panel = mount({ onOpenMeeting: null });
+  test("and one opens in the panel rather than on a page", () => {
+    /*
+      The whole of the owner's first complaint: *"meetings should stop opening
+      up in the big ugly page and only open up in the side panel"*. Nothing in
+      this panel navigates.
+    */
+    mockRecords = [filed()];
+    const panel = mount();
     panel.press("aside-tab-meetings");
-    const card = panel.find("aside-live-meeting");
-    expect(card).not.toBeNull();
-    expect(card?.getAttribute("role")).not.toBe("button");
+    panel.press("aside-meeting-row-m0");
+
+    expect(panel.find("aside-meeting-back")).not.toBeNull();
+    expect(panel.text()).toContain("0-inbox/meetings/2026-09-18-leads-call.md");
+    expect(panel.text()).toContain("LK owns the transparency page");
+  });
+
+  test("its note opens in the editor behind the panel, which is where a file is edited", () => {
+    mockRecords = [filed()];
+    const opened: string[] = [];
+    const panel = mount({ onOpenNote: (href) => opened.push(href) });
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    panel.press("aside-meeting-open-note");
+
+    expect(opened).toHaveLength(1);
+    expect(opened[0]).toContain("2026-09-18-leads-call.md");
+  });
+
+  test("a filed meeting offers no second editor of its own", () => {
+    // By then it is a Markdown file, and the console has an editor for those.
+    // A rename here would write to a record whose note has already been filed.
+    mockRecords = [filed()];
+    const panel = mount();
+    panel.press("aside-tab-meetings");
+    panel.press("aside-meeting-row-m0");
+    expect(panel.find("aside-meeting-title")).toBeNull();
+    expect(panel.find("aside-meeting-note-field")).toBeNull();
   });
 });

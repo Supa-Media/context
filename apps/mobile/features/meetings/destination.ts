@@ -1,10 +1,6 @@
-import { capabilitiesForRole } from "../console/capabilities";
-import { parentPath } from "../console/files/paths";
 import { ownPersonalContext } from "../console/identity";
 import { DEFAULT_TARGET_FOLDER } from "../console/ingestion/settings";
 import { safeNotePath } from "../console/nav";
-import type { KeyValueStore } from "../offline/memory";
-import { destinationKey } from "./keys";
 
 /**
  * Where a meeting is going to land, decided **before** the microphone opens.
@@ -114,68 +110,31 @@ import { destinationKey } from "./keys";
  */
 export const INBOX_FOLDER = `${DEFAULT_TARGET_FOLDER.replace(/\/+$/, "")}/meetings`;
 
-/** What a person can see, and what they can see it in. `Only you` / warn. */
+/**
+ * Who can read a meeting written where this one is going.
+ *
+ * One value now, where there were two: a meeting lands in the person's own
+ * inbox and nowhere else (`automaticDestination`), so "visible to the team" is
+ * a sentence about a destination this product no longer has. It went with the
+ * sheet that offered one.
+ */
 export const ONLY_YOU = "Only you";
-export const VISIBLE_TO_TEAM = "Visible to the team";
-
-/** Said on the row rather than instead of it. See `resolveDestinations`. */
-export const READ_ONLY_REFUSAL =
-  "You can read this context but not write to it, so a meeting cannot land here.";
 
 /**
- * Said on the row when the page somebody is standing on is a context's root.
+ * Said under the folder field in settings, about a folder the gateway will not
+ * file a meeting into.
  *
- * **The root of a context is not a folder a meeting can be filed into, and the
- * gateway is the one that decides that** — `normalizeMeetingFolder` answers
- * `null` for `""` and `packages/meetings/test/paths.test.mjs` pins it by name:
- * "an empty folder is refused rather than filing a meeting at the bucket root".
- * Its reason is the on-bucket layout, which non-negotiable #3 calls a stable
- * format rather than an internal detail: `index.md` and `privacy.md` live at
- * the root, and a pile of meeting notes beside them is not a layout anybody's
- * vault expects.
+ * It was one of four refusals drawn on the destination sheet's rows. The sheet
+ * is gone and so are the other three — a row nobody is offered cannot be
+ * refused — and this one survives because the *setting* is still a place
+ * somebody can type a folder the gateway would reject.
  *
- * Until this refusal existed the sheet offered that root anyway. Standing at a
- * context root is the state a phone *arrives in* — nothing is selected, so the
- * console passes `path: ""` — so the second row was a live, pressable,
- * unrefused offer whose only possible outcome was the gateway filing the
- * meeting somewhere else and saying `folderRejected`. That is the defect this
- * whole branch has been closing, one layer up: a control that appears to work
- * and does nothing.
- *
- * **The row is refused, not removed**, for `DestinationOffer.refusal`'s reason
- * and CLAUDE.md's: an absent capability is reported rather than faked, and a
- * page that vanishes from the sheet leaves somebody hunting for the choice the
- * product told them they had.
- *
- * The alternative was to make the root expressible and have the gateway accept
- * it. That is a reversal of a decision with a stated reason, a test, and a
- * paragraph in [meetings](../../../../docs/decisions/meetings.md) — so it is a
- * `docs/decisions/` change and not a fix, and the two layers agree this way
- * round at no cost to anybody: `0-inbox` is one row above, already selected.
+ * It does not quote the folder, for the reason the ack does not: naming which
+ * rule it broke would be quoting the customer's own folder name back at them
+ * for no gain.
  */
-export const CONTEXT_ROOT_REFUSAL =
-  "A meeting cannot be filed at the root of a context. Open a folder and record from there, or use your inbox.";
-
-/**
- * Said on the row for every *other* folder the gateway will not file into.
- *
- * Separate from the root's sentence because the root is a place somebody
- * deliberately navigated to and can be told something useful about, while this
- * covers folders whose names happen to collide with the gateway's rules —
- * `a..b`, a dot-prefixed folder, a folder named like a note, one nested past
- * the length bound. There is nothing useful to say about *which* rule, and
- * naming it would be quoting the customer's own folder name back at them for
- * no gain.
- *
- * It does not quote the folder, for `FOLDER_REJECTED_NOTICE`'s reason one layer
- * down: the ack carries no copy of what was sent, and this row is looking at
- * the same fact before the request rather than after it.
- */
-export const UNFILEABLE_FOLDER_REFUSAL =
+export const UNFILEABLE_FOLDER =
   "Your context will not file a meeting into this folder. Choose another one, or use your inbox.";
-
-/** How the root of a context is named, matching the console's move picker. */
-export const CONTEXT_ROOT_LABEL = "the root of your context";
 
 export type MeetingDestination =
   | { kind: "personalInbox"; contextSlug: string; folder: string }
@@ -212,48 +171,6 @@ export interface DestinationContext {
   meetingsFolder?: string;
 }
 
-/** Where the viewer is standing, or `null` when that is nowhere in particular. */
-export interface CurrentPage {
-  contextSlug: string;
-  /** The bucket path on screen. `""` is the context's root. */
-  path: string;
-  /** True when `path` names a note rather than a folder. */
-  isNote: boolean;
-}
-
-export interface DestinationOffer {
-  destination: MeetingDestination;
-  /** Who will see a meeting written here, in words. */
-  audience: string;
-  /** `warn` is the design's warning tone for an audience that is not just you. */
-  tone: "quiet" | "warn";
-  /**
-   * Why this offer cannot be taken, or `null`.
-   *
-   * A refused offer is **still an offer**: it is drawn dimmed with this
-   * sentence beside it, never removed. CLAUDE.md's rule is that an absent
-   * capability is reported rather than faked, and the console draws every
-   * disabled control the same way — removing the row leaves somebody hunting
-   * for a choice the product told them they had.
-   */
-  refusal: string | null;
-}
-
-export type DestinationChoice =
-  | { kind: "choose"; offers: DestinationOffer[]; selectedIndex: number }
-  /**
-   * The viewer owns no workspace, so there is no inbox to default to and nothing
-   * to record into yet. The sheet offers to claim their @name instead.
-   */
-  | { kind: "claimName" };
-
-/**
- * What to offer, and which row is selected.
- *
- * The order is the design's and is not a preference: the personal inbox is
- * first because it is the default, and `selectedIndex` falls back to it for
- * every case a remembered choice cannot be honoured.
- */
 /**
  * Is this typing a folder a meeting could be filed into, and if not, why?
  *
@@ -275,7 +192,7 @@ export function meetingFolderProblem(value: string): string | null {
   const filed = collapseFolder(value);
   if (filed === "") return null;
   if (filed.length > MAX_FOLDER_LENGTH) return "That folder path is too long.";
-  if (!fileableFolder(filed)) return UNFILEABLE_FOLDER_REFUSAL;
+  if (!fileableFolder(filed)) return UNFILEABLE_FOLDER;
   return null;
 }
 
@@ -332,108 +249,66 @@ function inboxFolderOf(own: DestinationContext): string {
   return filed;
 }
 
-export function resolveDestinations(input: {
+/**
+ * What a press of New meeting records into, with nobody asked anything.
+ *
+ * ## The sheet is gone, and this is what replaced it
+ *
+ * `resolveDestinations` is the model for a *question*: two rows, an audience
+ * line on each, and a person choosing. The question was asked on every meeting
+ * anybody has ever recorded, and the owner's reading of it is that it confused
+ * people rather than protecting them — *"no need to ask people it will just
+ * confuse them"*. So the destination is a rule now: **the person's own inbox**,
+ * which is `0-inbox/meetings` unless they have named another folder for their
+ * own context (`inboxFolderOf`). Filing afterwards is what an inbox is for, and
+ * a meeting nobody has filed yet is exactly what lands in one.
+ *
+ * ## It is the *own* inbox, and that half is not a convenience
+ *
+ * This module's header argues it and `resolveDestinations` implements it for
+ * the sheet: somebody reading a note in a shared workspace who presses record
+ * is, on any "current context" default, dropping a transcript of a conversation
+ * into a folder their colleagues watch, before they have read a word of it.
+ * That was a privacy rule when there was a sheet in front of it with the
+ * audience named on the row. With no sheet there is nothing in front of it at
+ * all, so the rule matters *more* here, not less: the answer is the person's
+ * own workspace, wherever they are standing, exactly as `meetingWorkspaceId`
+ * answers for a meeting nobody addressed.
+ *
+ * A context somebody wants their meetings in is a setting on their own context
+ * (`meetingsFolder`), which is a decision taken once in a quiet moment rather
+ * than a question asked over a conversation that is already happening.
+ *
+ * ## Owning no workspace is the one thing it cannot answer
+ *
+ * `claimName`, rather than inventing a context: every fallback available here
+ * is somebody else's bucket. The press then raises the claim offer instead of
+ * opening a microphone — see `useMeetingFlow`.
+ */
+export type AutomaticDestination =
+  | { kind: "destination"; destination: MeetingDestination; audience: string }
+  | { kind: "claimName" };
+
+export function automaticDestination(input: {
   contexts: readonly DestinationContext[];
-  page: CurrentPage | null;
-  /** What this device chose last time, from `recallDestination`. */
-  remembered?: MeetingDestination | null;
-}): DestinationChoice {
+}): AutomaticDestination {
   const own = ownPersonalContext(input.contexts);
   if (own === null) return { kind: "claimName" };
-
-  const offers: DestinationOffer[] = [
-    {
-      destination: {
-        kind: "personalInbox",
-        contextSlug: own.slug,
-        folder: inboxFolderOf(own),
-      },
-      /*
-        NOTE: this is a statement about membership, not about `privacy.md`. A
-        personal workspace has exactly one member unless its owner has granted
-        somebody
-        access, and the context list this module is handed cannot see a grant.
-        Naming that case would need the member list, which is a round trip this
-        sheet must not wait on.
-      */
-      audience: ONLY_YOU,
-      tone: "quiet",
-      refusal: null,
-    },
-  ];
-
-  const page = pageOffer(input.page, input.contexts, own);
-  if (page !== null && !sameDestination(page.destination, offers[0]!.destination)) {
-    offers.push(page);
-  }
-
-  return { kind: "choose", offers, selectedIndex: preselect(offers, input.remembered ?? null) };
-}
-
-/**
- * The current page as a destination, or `null` when it is not one.
- *
- * Three ways it is not: there is no page, the page names a context this person
- * is not a member of — a stale URL, not a destination — or its path is not
- * something that could be a key in somebody's bucket. The last is
- * `safeNotePath`, which is the same gate the `?note=` query and the last-place
- * record go through, for the same reason: this string ends up in a write.
- *
- * A page that *is* a destination may still be one nobody may take, and those
- * come back as an offer carrying a `refusal` rather than as `null` — see
- * `refusalFor`.
- */
-function pageOffer(
-  page: CurrentPage | null,
-  contexts: readonly DestinationContext[],
-  own: DestinationContext,
-): DestinationOffer | null {
-  if (page === null) return null;
-
-  const context = contexts.find((candidate) => candidate.slug === page.contextSlug);
-  if (context === undefined) return null;
-
-  if (page.path !== "" && safeNotePath(page.path) === null) return null;
-  const folder = page.isNote ? parentPath(page.path) : page.path;
-
-  const yours = context.slug === own.slug;
   return {
+    kind: "destination",
     destination: {
-      kind: "currentPage",
-      contextSlug: context.slug,
-      folder,
-      label: folder === "" ? CONTEXT_ROOT_LABEL : folder,
+      kind: "personalInbox",
+      contextSlug: own.slug,
+      folder: inboxFolderOf(own),
     },
     /*
-      Anything that is not the viewer's own workspace has an audience the design
-      requires the row to name — a shared workspace's members, or the owner of
-      a personal context somebody granted them access to. Both are "not only
-      you", which is the fact that has to be in front of somebody before they
-      record a conversation into it.
+      `ONLY_YOU` is the truth about a personal workspace's own inbox, with the
+      same caveat `resolveDestinations` writes down beside its first offer: it
+      is a statement about membership, not about `privacy.md`, and a grant this
+      list cannot see is not visible from here.
     */
-    audience: yours ? ONLY_YOU : VISIBLE_TO_TEAM,
-    tone: yours ? "quiet" : "warn",
-    refusal: refusalFor(context, folder),
+    audience: ONLY_YOU,
   };
-}
-
-/**
- * Why the page cannot be recorded into, or `null`.
- *
- * Three reasons, widest first. A context somebody may only read refuses *every*
- * folder in it, so that sentence stays true at a folder the other two would
- * also have refused; telling somebody who cannot write to any of it that the
- * problem is the folder's name names the smaller problem.
- *
- * One function rather than a conditional inside the offer because a refusal is
- * the thing this module exists to get right, and a reason added inline is a
- * reason added without a test. Each arm has one.
- */
-function refusalFor(context: DestinationContext, folder: string): string | null {
-  if (!capabilitiesForRole(context.role).canEdit) return READ_ONLY_REFUSAL;
-  if (folder === "") return CONTEXT_ROOT_REFUSAL;
-  if (!fileableFolder(folder)) return UNFILEABLE_FOLDER_REFUSAL;
-  return null;
 }
 
 /**
@@ -530,67 +405,6 @@ function decodeSegment(segment: string): string {
 }
 
 /**
- * Which row starts selected.
- *
- * A remembered choice wins **only** when it is still on offer and still
- * takeable. A row that has gone read-only since it was last used falls back to
- * the inbox rather than starting on a control whose only outcome is a refusal.
- */
-function preselect(
-  offers: readonly DestinationOffer[],
-  remembered: MeetingDestination | null,
-): number {
-  if (remembered === null) return 0;
-  const index = offers.findIndex(
-    (offer) => offer.refusal === null && sameDestination(offer.destination, remembered),
-  );
-  return index === -1 ? 0 : index;
-}
-
-/**
- * The row a press on `index` leaves selected.
- *
- * A refused row cannot be chosen: the selection stays where it was. Here rather
- * than inside the sheet for the reason at the top of this file — a rule about
- * what somebody is allowed to pick, expressed inside a component, is the kind
- * this repo has measured as caught by nothing.
- *
- * An index the list does not have answers with the current selection rather
- * than throwing: the only caller is a list this module produced, so a bad index
- * is a bug in the caller and not a reason to take a screen down mid-meeting.
- */
-export function chooseOffer(
-  offers: readonly DestinationOffer[],
-  current: number,
-  index: number,
-): number {
-  const offer = offers[index];
-  if (offer === undefined || offer.refusal !== null) return current;
-  return index;
-}
-
-/**
- * Two destinations name the same folder in the same context.
- *
- * **`kind` is deliberately not compared, and neither is `label`.** Both are
- * facts about how somebody arrived at a folder, and the note cannot tell the
- * difference: a folder that is both the default and the page you are standing
- * on is one row, not the same row twice, and a choice remembered as one reads
- * as the other next time. Comparing the discriminator would make the sheet draw
- * a duplicate and make a remembered choice miss its own row.
- *
- * The example this used to give was standing in your own `0-inbox`, and the
- * default has moved out from under it: the inbox row is `0-inbox/meetings` now,
- * so that page and that default are genuinely two destinations and are drawn as
- * two rows. Standing in `0-inbox/meetings` is the same case the sentence always
- * described. What the move *does* strand is a device that remembered the old
- * default — see `forgetRetiredDefault`.
- */
-export function sameDestination(a: MeetingDestination, b: MeetingDestination): boolean {
-  return a.contextSlug === b.contextSlug && a.folder === b.folder;
-}
-
-/**
  * `@testagent1 / 0-inbox`, and just `@field-notes` for a context's root.
  *
  * The root has no folder to print, and `"@field-notes / "` reads as a value
@@ -663,29 +477,6 @@ export function meetingWorkspaceId(
 /* ----------------------------- on this device ---------------------------- */
 
 /**
- * Remember the choice, for the next time the sheet opens.
- *
- * Fire-and-forget, and failures are swallowed: not being able to write this
- * costs one preselection, and there is no screen it would be honest to
- * interrupt to say so. `lastPlace.ts` draws the same line, and for the same
- * reason it is not `offline/store.ts`'s writer — that one exists because a
- * silent failure there loses somebody's typing.
- *
- * **It is not a permission and it does not skip the question.** The sheet opens
- * whether or not this answers; see `useMeetingFlow`.
- */
-export async function rememberDestination(
-  store: KeyValueStore,
-  destination: MeetingDestination,
-): Promise<void> {
-  try {
-    await store.set(destinationKey(), JSON.stringify(destination));
-  } catch {
-    // See above.
-  }
-}
-
-/**
  * A destination read back off a device, or `null` for anything that is not one.
  *
  * **Every destination that has been to storage comes back through here** — the
@@ -713,65 +504,4 @@ export function parseDestination(value: unknown): MeetingDestination | null {
   if (kind === "personalInbox") return { kind, contextSlug, folder };
   if (typeof label !== "string") return null;
   return { kind, contextSlug, folder, label };
-}
-
-/**
- * The inbox folder this module offered until the default moved into
- * `0-inbox/meetings`, and which a device may still have written down.
- *
- * See `forgetRetiredDefault`. Named rather than inlined so the two things it
- * has to stay equal to — the old constant, and nothing else — are one string.
- */
-const RETIRED_INBOX_FOLDER = "0-inbox";
-
-/**
- * A remembered choice that is really the *old default* is not a choice.
- *
- * Moving the default from `0-inbox` to `0-inbox/meetings` would otherwise not
- * reach anybody who had already recorded a meeting, and would reach them in the
- * worst available way: the remembered `0-inbox` no longer matches the inbox
- * row, but it *does* match the current-page row for somebody standing in their
- * own `0-inbox` — so `preselect` opens the sheet on the row that files the
- * meeting loose in the inbox, selected, with nothing saying why. A default that
- * moves for new devices and silently persists on old ones is two products.
- *
- * **`personalInbox` only, and that is what makes this a default rather than a
- * decision.** Until this change the inbox row and the page row deduped whenever
- * they named the same folder (`sameDestination`), so standing in `0-inbox` and
- * pressing record offered exactly one row — this one. There was no separate,
- * deliberate "file it loose in the inbox" to preserve, because there was no
- * second row to press. A `currentPage` choice is a real decision about a folder
- * somebody navigated to and is kept, `0-inbox` included.
- *
- * Forgetting is a one-way door and it costs one press: a person who does want
- * the bare inbox picks it once and it is remembered again, this time as the
- * page they were standing on.
- */
-function forgetRetiredDefault(
-  destination: MeetingDestination | null,
-): MeetingDestination | null {
-  if (destination === null) return null;
-  if (destination.kind === "personalInbox" && destination.folder === RETIRED_INBOX_FOLDER) {
-    return null;
-  }
-  return destination;
-}
-
-/** What this device chose last, or `null`. Validated by `parseDestination`. */
-export async function recallDestination(
-  store: KeyValueStore,
-): Promise<MeetingDestination | null> {
-  let raw: string | null;
-  try {
-    raw = await store.get(destinationKey());
-  } catch {
-    return null;
-  }
-  if (raw === null) return null;
-
-  try {
-    return forgetRetiredDefault(parseDestination(JSON.parse(raw)));
-  } catch {
-    return null;
-  }
 }

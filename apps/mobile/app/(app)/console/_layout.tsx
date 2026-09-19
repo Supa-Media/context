@@ -56,7 +56,7 @@ import {
   type HistoryState,
   type Place,
 } from "../../../features/console/files/history";
-import { entryAt } from "../../../features/console/files/tree";
+import { entryAt, targetFolder } from "../../../features/console/files/tree";
 import {
   applyRowIntent,
   intentForRowCommand,
@@ -99,11 +99,14 @@ import { removalHandler } from "../../../features/console/files/access";
 import { audienceContextOf } from "../../../features/console/privacy/audience";
 import { capabilitiesForRole } from "../../../features/console/capabilities";
 import { useLiveConsoleData } from "../../../features/console/useLiveConsoleData";
-import { MEETINGS_ROUTE, meetingHref } from "../../../features/meetings/route";
+import { MEETINGS_ROUTE } from "../../../features/meetings/route";
 import { AsidePanel } from "../../../features/console/aside/AsidePanel";
 import { agentPage } from "../../../features/agent/page";
 import { useOpenNote } from "../../../features/agent/openNote";
 import { useMeetingsSnapshot } from "../../../features/meetings/useMeetings";
+import { useCarriesMeeting } from "../../../features/meetings/carried";
+import { CreateButton } from "../../../features/console/CreateButton";
+import { ConsoleLiveMeeting } from "../../../features/console/ConsoleLiveMeeting";
 import { WELCOME_ROUTE } from "../../../features/onboarding/route";
 import { NEW_WORKSPACE_ROUTE } from "../../../features/workspace/create";
 
@@ -565,21 +568,63 @@ export default function ConsoleLayout() {
   const readable = browsing && selectedEntry !== null && selectedEntry.kind === "file";
   const reading = useReadMode();
 
+  /**
+   * When something last asked for the panel's Meetings tab.
+   *
+   * The + menu's New meeting, and the title-bar pill that a folded panel
+   * leaves behind. A counter for `asked`'s reason — recording twice in a
+   * session is ordinary, and a boolean looks unchanged the second time.
+   */
+  const [meetingsAt, setMeetingsAt] = useState<number | null>(null);
+  /** When the + menu last asked for a fresh conversation. See `AsidePanel`. */
+  const [newChatAt, setNewChatAt] = useState<number | null>(null);
+  /*
+    Whether this console has a right panel at all. `regionsFor` answers
+    `hidden` at compact, and `asideToggleFor` is the question asked in the one
+    place that decides it — a phone's meeting goes to its own screen instead,
+    which is what `useMeetingFlow` does with no `onStarted`.
+  */
+  const hasAside = !phone;
+  /*
+    Open the panel on Meetings. Two counters because they are two facts — the
+    panel has to be open (`OpenAsideOn`, which is inside the frame) and the tab
+    has to be Meetings (`AsidePanel`, which is below it) — and nothing above
+    `AppFrame` can call either directly.
+  */
+  const showMeetings = useCallback(() => {
+    const at = Date.now();
+    setOpenAsideAt(at);
+    setMeetingsAt(at);
+  }, []);
+
+  /*
+    This console is showing the running meeting, so the floating `RecordingBar`
+    stands down. It is the *console* that claims it rather than the panel,
+    because a folded panel still carries it — in the title bar. See
+    `features/meetings/carried.ts`.
+  */
+  useCarriesMeeting(hasAside);
+
   const places = useContextPlaces();
   const contextHrefFrom = useContextHref(data.contexts);
+  /**
+   * Starting a meeting, and where it lands on this screen.
+   *
+   * **No `page`**, and that is the destination decision rather than a
+   * simplification: a meeting is written into the person's own inbox wherever
+   * they are standing (`automaticDestination`), which is the privacy rule the
+   * destination sheet used to hold with a row and an audience line. The sheet
+   * is gone; the rule is not.
+   *
+   * `onStarted` is what makes a meeting stop being a page. It opens the right
+   * panel and puts it on Meetings, so the note somebody was reading stays open
+   * behind the recording — `router.push(meetingHref(id))` is what this
+   * replaced, and the owner's words for that page were "the big ugly page".
+   */
   const { startMeetingFlow, sheet: meetingSheet } = useMeetingFlow({
     contexts: data.contexts,
-    page: insideContext && current
-      ? {
-          contextSlug: current.slug,
-          // The note when one is open, else the folder standing in for it —
-          // the same `targetFolder` rule the `+` key uses, so "this page" and
-          // "new note here" can never mean two different folders.
-          path: data.files.selectedPath ?? "",
-          isNote: selectedEntry?.kind === "file",
-        }
-      : null,
     onClaimName: data.demo ? undefined : () => router.push(WELCOME_ROUTE),
+    onStarted: hasAside ? showMeetings : undefined,
   });
 
   /**
@@ -669,8 +714,15 @@ export default function ConsoleLayout() {
         `BrowsePane` without this provider get the stub instead.
       */
       agent: agentEngine,
+      /*
+        The corner is the `+` at every pointer density, so the editor draws no
+        resting microphone there. Published rather than derived, because the
+        fixture and the demo console are desktop-width consoles with no `+` —
+        see `VoiceHost.createButton`.
+      */
+      createButton: !phone,
     }),
-    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo],
+    [insideContext, current, selectedEntry, startMeetingFlow, agentEngine, data.demo, phone],
   );
 
   /**
@@ -892,6 +944,13 @@ export default function ConsoleLayout() {
           ) : (
             <>
               {/*
+                A meeting that is running while the panel it lives in is folded
+                away. It draws nothing when the panel is open — the card is
+                right there — and nothing when nothing is recording, which is
+                almost always. See `ConsoleLiveMeeting`.
+              */}
+              <ConsoleLiveMeeting onOpen={showMeetings} />
+              {/*
                 Whether the last keystroke is in the bucket, leading the group —
                 see `SaveChip` for why this is a chip here rather than a Save
                 button over the note. Not gated on `insideContext` either: it is
@@ -970,6 +1029,15 @@ export default function ConsoleLayout() {
             touch
             onSignOut={requestSignOut}
             /*
+              The phone's only way to the meetings it has already recorded.
+
+              Its key records now — the sheet that used to carry a "Past
+              meetings" row is gone — and at every pointer density this row is
+              on the switcher instead, so there is exactly one of it per
+              surface. `data.demo` has no meetings behind it.
+            */
+            onOpenMeetings={data.demo ? undefined : () => router.push(MEETINGS_ROUTE)}
+            /*
               Present with no context too. The account scope is about the
               person, so "nothing selected" is a reason to open on an account
               section rather than a reason to withhold the only settings
@@ -1033,7 +1101,15 @@ export default function ConsoleLayout() {
                 query: null,
               })}
               asked={asked}
-              onOpenMeeting={data.demo ? null : (id) => router.push(meetingHref(id))}
+              started={meetingsAt}
+              newChat={newChatAt}
+              /*
+                A finished meeting's note, opened in the editor behind the
+                panel. `noteEditorHref` builds a console address out of the
+                record's own two halves, so this is the ordinary "open a note"
+                the console already does rather than a route of this feature's.
+              */
+              onOpenNote={data.demo ? null : (href) => router.push(href)}
             />
           )
         }
@@ -1463,6 +1539,56 @@ export default function ConsoleLayout() {
         />
 
         {/*
+          THE +, AND WHY IT IS MOUNTED HERE.
+
+          It is inside `AppFrame`'s editor region — the same corner the
+          microphone floated in — but it is passed by the *layout*, which is on
+          screen for every route under `/console`. That is the whole of the
+          owner's second complaint: the microphone was drawn by `NoteEditor`,
+          so it vanished on a folder page, on the map and on search. Nothing
+          here asks what is open.
+
+          `null` at compact from inside the component, where the phone's
+          seven-key row is the reason — see `CreateButton`. Absent altogether on
+          the demo console, which has no controller behind a recording and a
+          `createNote` that is a no-op: a menu of three things that do nothing
+          is worse than no menu.
+        */}
+        {data.demo ? null : (
+        <CreateButton
+          compact={phone}
+          onNewMeeting={startMeetingFlow}
+          /*
+            The same `targetFolder` rule the tree's own `+` and the phone's
+            bottom row both use: a selected folder is the destination, anything
+            else means its parent. It raises the naming dialog rather than
+            writing a file — `ExplorerDialogs` is already mounted below for the
+            toolbar's `+`, and this is that dialog rather than a second one.
+          */
+          onNewNote={() =>
+            setBarDialog({
+              kind: "newNote",
+              folder: targetFolder(data.files.listings, data.files.selectedPath),
+            })
+          }
+          /*
+            A fresh conversation in the right panel. `null` where there is no
+            panel to answer in (a phone) or no engine behind it (the demo
+            console) — absent rather than pressable and inert.
+          */
+          onNewChat={
+            hasAside
+              ? () => {
+                  setOpenAsideAt(Date.now());
+                  setAsked(null);
+                  setNewChatAt(Date.now());
+                }
+              : null
+          }
+        />
+        )}
+
+        {/*
           The panel, opened by anything above the frame that cannot reach
           `useFrame` — today the note's right-click menu. It renders nothing;
           it exists to be *inside* `AppFrame`, which is where the command is.
@@ -1866,12 +1992,14 @@ function Account({
   compact,
   touch = false,
   onOpenSettings,
+  onOpenMeetings,
   onSignOut,
 }: {
   data: ConsoleData;
   compact: boolean;
   touch?: boolean;
   onOpenSettings?: () => void;
+  onOpenMeetings?: () => void;
   onSignOut: () => void;
 }) {
   return (
@@ -1887,6 +2015,7 @@ function Account({
       compact={compact}
       touch={touch}
       onOpenSettings={onOpenSettings}
+      onOpenMeetings={onOpenMeetings}
       onSignOut={onSignOut}
     />
   );

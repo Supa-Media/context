@@ -1147,7 +1147,24 @@ export function NoteEditor({
             height the frame publishes. Two microphones 24pt apart is the defect
             this closes; see `VoiceButton` for which of them stays and why.
           */
-          barMicrophone={compact && !barUp}
+          /*
+            Nothing draws a resting microphone in this corner any more.
+
+            On a phone the seventh key is the microphone, and `barUp` is what
+            says the row is not on the glass — the accessory bar hides the
+            frame's toolbar, and the microphone comes back with the caret. At a
+            pointer density the corner is the console's `+`, which the *layout*
+            mounts rather than this editor — so the editor is told, through the
+            voice host, rather than deriving it from a width: the E2E fixture
+            and the demo console are desktop-width surfaces with no `+` in that
+            corner at all. See `VoiceHost.createButton`.
+
+            What this never stands down is a microphone that is already open.
+            The live capsule is the only way to stop a run and take back what
+            it typed, and the failure card is a sentence owed to whoever opened
+            one. `VoiceButton` draws both whatever this says.
+          */
+          microphoneElsewhere={compact ? !barUp : voice.createButton === true}
           /*
             Built here because this is the only place holding both halves: the
             console's voice host knows the context, and `state` is the editor

@@ -1,5 +1,7 @@
-import { StyleSheet } from "react-native";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
+import { Switch } from "../../../design/components/Switch";
 import { Text } from "../../../design/components/Text";
 import { useThemedStyles } from "../../../design/theme";
 import { atName } from "../../format";
@@ -11,7 +13,14 @@ import { selectedContext, type ConsoleData } from "../../types";
   `DestinationSheet.tsx` are both free of it.
 */
 import { ThisMachineCard } from "../../../meetings/components/ThisMachineCard";
-import { AUDIO_SENTENCE } from "../../../meetings/components/DestinationSheet";
+import { AUDIO_SENTENCE, MIC_ONLY_SENTENCE } from "../../../meetings/disclosure";
+import {
+  defaultMachineAudio,
+  recallMachineAudio,
+  rememberMachineAudio,
+} from "../../../meetings/machineAudio";
+import { useMeetingsSnapshot } from "../../../meetings/useMeetings";
+import { openStore } from "../../../offline/store";
 import { loadedFolders } from "../../files/browser";
 import { MeetingsDestination } from "./MeetingsDestination";
 import { PanelHead } from "./PanelHead";
@@ -35,11 +44,16 @@ import { PanelHead } from "./PanelHead";
  * exact failure `destination.ts` exists to prevent, arriving through a
  * settings panel instead of through a record button.
  *
- * There is no control on the "where they land" card, and that is honest rather
- * than unfinished: the destination is asked for **every time**, before the
- * microphone opens, precisely so that no remembered setting can answer it
- * silently. A switch here would be a fourth place that decision could be made
- * from.
+ * ## This pane is where the two questions live now
+ *
+ * There used to be a sheet in front of every recording that asked where the
+ * meeting should go and offered the whole-call switch. It is gone — pressing
+ * New meeting records — so both answers moved here, which is the trade the
+ * owner asked for: *"no need to ask people it will just confuse them"*. The
+ * folder is a per-context setting; the machine's own audio is a per-device one,
+ * because it is a fact about what this machine can hear rather than about a
+ * bucket. The sentence about what happens to the audio is said here too, once,
+ * instead of in front of every conversation.
  */
 export function MeetingsPanel({
   data,
@@ -62,8 +76,8 @@ export function MeetingsPanel({
           every runtime: the destination question is asked wherever you record.
         */}
         {personal
-          ? "In the desktop app, your Mac records with no window open. The notes land wherever you send them, and you are asked before the microphone opens."
-          : "A meeting can be filed here, and it never is by default — you are asked every time, before the microphone opens."}
+          ? "In the desktop app, your Mac records with no window open. New meeting starts recording straight away, and the note lands in the folder below."
+          : "Meetings are written into your own context, never into this one — a recording started while you are reading here still lands in your own inbox."}
       </PanelHead>
 
       {personal ? <ThisMachineCard focus="meetings" /> : null}
@@ -88,6 +102,8 @@ export function MeetingsPanel({
         folders={loadedFolders(data.files.listings)}
       />
 
+      <MachineAudio />
+
       <Text variant="foot" style={styles.audio}>
         {AUDIO_SENTENCE}
       </Text>
@@ -95,7 +111,75 @@ export function MeetingsPanel({
   );
 }
 
+/**
+ * Whether this machine records its own audio as well as the microphone.
+ *
+ * The destination sheet's switch, moved to the one surface that outlives the
+ * sheet. It is **per device**, not per meeting and not per context: what a
+ * machine can hear is a fact about the machine, and `machineAudio.ts` carries
+ * the default — on where a desktop shell can tap silently, off in a browser
+ * where it costs a source picker in front of every recording.
+ *
+ * Absent where a build cannot do it at all (a phone, a browser with nothing to
+ * mix into, a shell macOS will not hand a loopback tap): the mic-only sentence
+ * is drawn instead, which is the honest absence rather than a switch that
+ * cannot do what it says.
+ */
+function MachineAudio() {
+  const styles = useThemedStyles(makeStyles);
+  const capture = useMeetingsSnapshot().capture;
+  const store = useMemo(() => openStore(), []);
+  const [chosen, setChosen] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    void recallMachineAudio(store).then((answer) => {
+      if (live) setChosen(answer);
+    });
+    return () => {
+      live = false;
+    };
+  }, [store]);
+
+  const on = chosen ?? defaultMachineAudio(capture.systemAudioNeedsPicker);
+
+  const toggle = useCallback(
+    (next: boolean) => {
+      // Set here and written behind it: the switch answers the press, and a
+      // device that cannot store the answer still records the way it says.
+      setChosen(next);
+      void rememberMachineAudio(store, next);
+    },
+    [store],
+  );
+
+  if (!capture.systemAudio) {
+    return (
+      <Text variant="foot" style={styles.audio} testID="meetings-mic-only">
+        {MIC_ONLY_SENTENCE}
+      </Text>
+    );
+  }
+
+  return (
+    <View style={styles.machineAudio}>
+      <Switch
+        value={on}
+        onValueChange={toggle}
+        label="Record the whole call"
+        testID="meetings-machine-audio"
+      />
+      <Text variant="foot" style={styles.audio}>
+        {capture.systemAudioNeedsPicker
+          ? "Takes this machine's own audio as well as the microphone, so the far side of a call is in the note. Your browser asks which window or tab to take it from, every time."
+          : "Takes this machine's own audio as well as the microphone, so the far side of a call is in the note."}
+      </Text>
+    </View>
+  );
+}
+
 const makeStyles = () =>
   StyleSheet.create({
     audio: { marginTop: 12, maxWidth: 546 },
+    machineAudio: { marginTop: 16, gap: 2, maxWidth: 546 },
   });

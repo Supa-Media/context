@@ -146,8 +146,10 @@ const { memoryStore } =
   require("../features/offline/memory") as typeof import("../features/offline/memory");
 const { fakeGateway } =
   require("../features/meetings/fakeGateway") as typeof import("../features/meetings/fakeGateway");
-const { DestinationSheet, MIC_ONLY_SENTENCE, SYSTEM_AUDIO_SUB, SYSTEM_AUDIO_PICKER_SUB } =
-  require("../features/meetings/components/DestinationSheet") as typeof import("../features/meetings/components/DestinationSheet");
+const { MIC_ONLY_SENTENCE } =
+  require("../features/meetings/disclosure") as typeof import("../features/meetings/disclosure");
+const { defaultMachineAudio, recallMachineAudio, rememberMachineAudio, recallSystemAudio } =
+  require("../features/meetings/machineAudio") as typeof import("../features/meetings/machineAudio");
 const { ThisMachineCard } =
   require("../features/meetings/components/ThisMachineCard") as typeof import("../features/meetings/components/ThisMachineCard");
 const { describeMachine, machineTitle } =
@@ -627,85 +629,55 @@ describe("system audio is offered only where it exists", () => {
   });
 });
 
-describe("the sheet offers what the machine can do, and nothing else", () => {
-  const choice = {
-    kind: "choose" as const,
-    selectedIndex: 0,
-    offers: [
-      {
-        destination: { kind: "personalInbox" as const, contextSlug: "@you", folder: "0-inbox" },
-        audience: "Only you",
-        tone: "quiet" as const,
-        refusal: null,
-      },
-    ],
-  };
-
-  function sheet(
-    systemAudio: { on: boolean; onToggle: (on: boolean) => void; needsPicker?: boolean } | null,
-  ) {
-    return createElement(DestinationSheet, {
-      choice: choice as never,
-      selectedIndex: 0,
-      onSelect: () => {},
-      onStart: () => {},
-      onCancel: () => {},
-      // The shell's silent tap unless a case says otherwise: this block is the
-      // desktop's, and the browser's picker wording has its own suite.
-      systemAudio: systemAudio === null ? null : { needsPicker: false, ...systemAudio },
-    });
-  }
-
-  /*
-    Read off `document.body` rather than off the container: the sheet is a
-    `Modal`, and react-native-web renders one into a portal. Same reason
-    `meetingsFlow.test.ts` gives for doing it that way.
-  */
-  test("no capability, no switch — a sentence instead", () => {
-    const mounted = mount(sheet(null));
-    expect(has(document.body, "meeting-system-audio")).toBe(false);
-    expect(has(document.body, "meeting-mic-only")).toBe(true);
-    expect(document.body.textContent).toContain("far side of a call");
-    mounted.unmount();
-  });
-
-  test("a machine that can hear the call is offered the switch", () => {
-    const mounted = mount(sheet({ on: true, onToggle: () => {} }));
-    expect(has(document.body, "meeting-system-audio")).toBe(true);
-    expect(document.body.textContent).toContain("Record the whole call");
-    expect(document.body.textContent).toContain(SYSTEM_AUDIO_SUB);
-    mounted.unmount();
-  });
-
+describe("the whole-call switch, now that there is no sheet to put it on", () => {
   /**
-   * THE SHELL'S SWITCH AND THE BROWSER'S ARE THE SAME CAPABILITY AND NOT THE
-   * SAME OFFER.
+   * THE SWITCH OUTLIVED THE SHEET, AND IT HAD TO.
    *
-   * The shell's loopback tap is silent: on means on, and nothing is asked
-   * again. A browser has to put a picker in front of somebody every meeting,
-   * and the one control on it that matters is a checkbox most people have never
-   * read. Saying "this machine can hear the call" there would be a claim about
-   * something nobody has agreed to yet — and a picker that appears unexplained
-   * is a picker people cancel, which is the mic-only recording this whole
-   * feature exists to stop.
+   * It used to be a row on the destination sheet, answered per meeting. The
+   * sheet is gone — pressing New meeting records — and on a phone or inside the
+   * desktop shell that costs nothing: the shell's loopback tap is silent and a
+   * phone cannot do this at all. **In a browser it would have been a capability
+   * deleted**, because taking the far side of a call there needs
+   * `getDisplayMedia`, which costs a source picker, so it cannot be the default
+   * and there would have been nowhere left to turn it on.
+   *
+   * So the answer is a per-device setting (`machineAudio.ts`), read at the
+   * press, and these are its halves. What it does to a recording is
+   * `meetingsFlow.test.ts`'s; what the settings pane says about it is prose
+   * beside the switch.
    */
-  test("a browser says a picker is coming, and what to pick", () => {
-    const mounted = mount(sheet({ on: true, onToggle: () => {}, needsPicker: true }));
-    expect(has(document.body, "meeting-system-audio")).toBe(true);
-    expect(document.body.textContent).toContain(SYSTEM_AUDIO_PICKER_SUB);
-    expect(document.body.textContent).not.toContain(SYSTEM_AUDIO_SUB);
-    expect(SYSTEM_AUDIO_PICKER_SUB).toMatch(/share its audio/i);
-    // The picker hands over a video track whether anybody wants one or not, so
-    // what happens to it is said before somebody picks the tab their private
-    // conversation is in. `meetingsCaptureWeb.test.ts` is where it is kept true.
-    expect(SYSTEM_AUDIO_PICKER_SUB).toMatch(/never the picture/i);
-    mounted.unmount();
+  test("a machine that can tap silently defaults to on", () => {
+    expect(defaultMachineAudio(false)).toBe(true);
   });
 
-  test("...and turning it off says the mic-only sentence, picker or not", () => {
-    const mounted = mount(sheet({ on: false, onToggle: () => {}, needsPicker: true }));
-    expect(document.body.textContent).toContain(MIC_ONLY_SENTENCE);
-    mounted.unmount();
+  test("a browser that would show a picker defaults to off", () => {
+    // A picker in front of every meeting, including every in-person one, is how
+    // a feature gets switched off wholesale.
+    expect(defaultMachineAudio(true)).toBe(false);
+  });
+
+  test("a device that has never been asked says so, rather than guessing", async () => {
+    await expect(recallMachineAudio(memoryStore())).resolves.toBeNull();
+  });
+
+  test("an answer survives the device it was given on", async () => {
+    const store = memoryStore();
+    await rememberMachineAudio(store, true);
+    await expect(recallMachineAudio(store)).resolves.toBe(true);
+    await rememberMachineAudio(store, false);
+    await expect(recallMachineAudio(store)).resolves.toBe(false);
+  });
+
+  test("a stored answer beats the surface's default, in both directions", async () => {
+    const store = memoryStore();
+    await rememberMachineAudio(store, true);
+    await expect(recallSystemAudio(store, true)).resolves.toBe(true);
+    await rememberMachineAudio(store, false);
+    await expect(recallSystemAudio(store, false)).resolves.toBe(false);
+  });
+
+  test("and the sentence a mic-only build shows is still about the far side of a call", () => {
+    expect(MIC_ONLY_SENTENCE).toMatch(/far side of a call/i);
   });
 });
 

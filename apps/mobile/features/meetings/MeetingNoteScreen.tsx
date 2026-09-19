@@ -7,7 +7,7 @@ import { useColors, useThemedStyles, type Colors } from "../design/theme";
 import { Icon } from "../design/components/Icon";
 import { Text } from "../design/components/Text";
 import { writeClipboard } from "../design/clipboard";
-import { noteHref } from "../console/nav";
+import { noteEditorHref } from "./noteLink";
 import { NotesPad } from "./components/NotesPad";
 import { meetings } from "./controller";
 import { renderMeetingNote } from "./note";
@@ -374,29 +374,6 @@ export function MeetingNoteScreen({ meetingId }: { meetingId: string }) {
   );
 }
 
-/**
- * The console's own file page for this meeting's note, or `null`.
- *
- * Two facts and both come from somewhere that already knows them: the **path**
- * is the gateway's answer and is the only thing that says where a note is, and
- * the **context** is the destination the recording was started with — the one
- * this device pointed the finalize at. Neither is guessed.
- *
- * `null` where either is missing, which is not a defensive default but the two
- * real cases: a meeting that has not been written yet has no path, and a record
- * from a build before `MeetingRecord.destination` existed has no slug. A link
- * built on a guessed context would open the right path in the wrong workspace, and
- * the address bar would not say so.
- *
- * Exported for the suite, which is the only way to check a URL that is built
- * from two nullable halves without rendering a console.
- */
-export function noteEditorHref(record: MeetingRecord): string | null {
-  const slug = record.destination?.contextSlug ?? null;
-  const path = record.session.notePath;
-  if (slug === null || path === null) return null;
-  return noteHref(slug, path);
-}
 
 /** Audio of this meeting still on the phone, for a meeting past `finalizing`. */
 function KeptAudioNote({ record }: { record: MeetingRecord }) {

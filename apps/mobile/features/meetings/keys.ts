@@ -71,6 +71,14 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
 /**
  * The destination this device chose last time the sheet was opened.
  *
+ * **Nothing writes it any more, and nothing reads it.** The sheet that asked
+ * the question is gone (`useMeetingFlow`), so a meeting's destination is a rule
+ * rather than a remembered answer. The key builder stays because the *key*
+ * does: it is on devices now, holding a context slug and the name of one of
+ * somebody's folders, and `forgetLocalCopies` has to go on clearing it. A
+ * builder deleted here would leave that value on a shared device with nothing
+ * naming it.
+ *
  * Under this feature's namespace and this feature's separator, deliberately:
  * the value is a context slug and the name of one of somebody's folders, which
  * is exactly the kind of thing `console/lastPlace.ts` says must leave a device
@@ -106,6 +114,26 @@ export function meetingKey(workspaceId: string, meetingId: string): string {
  */
 export function destinationKey(): string {
   return `${PREFIX}destination`;
+}
+
+/**
+ * Whether this device takes the machine's own audio as well as the microphone.
+ *
+ * The switch used to live on the destination sheet and be answered per meeting.
+ * With the sheet gone the question would have gone with it — and in a browser
+ * that is a capability lost rather than a question saved, because taking the
+ * far side of a call there costs a source picker that nobody wants in front of
+ * an in-person meeting. So the answer moved to the meetings settings pane,
+ * where it is decided once in a quiet moment, and `useMeetingFlow` reads it at
+ * the press.
+ *
+ * No workspace segment, for `destinationKey`'s reason: it is a fact about the
+ * machine somebody is recording on, not about a context. Absent is the same
+ * default the sheet had — off where it costs a picker, on where the shell can
+ * tap silently — and that default lives in `machineAudio.ts` rather than here.
+ */
+export function machineAudioKey(): string {
+  return `${PREFIX}machine-audio`;
 }
 
 export interface ParsedMeetingKey {
