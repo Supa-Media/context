@@ -15,6 +15,7 @@ import {
   changedElements,
   decodeElements,
   encodeElements,
+  latestChangePoint,
   looksLikeElement,
   remember,
 } from "../src/collab.js";
@@ -139,6 +140,80 @@ check(
   const big = Array.from({ length: 4000 }, (_, i) => element({ id: `e${i}` }));
   const round = decodeElements(encodeElements(big));
   check("a large scene encodes without overflowing the argument limit", round.length === 4000);
+}
+
+/*
+  WHERE A TOOL'S WRITE LANDED ON THE CANVAS.
+
+  A tool writes a whole `.excalidraw.md`, so what arrives is a scene rather
+  than a keystroke, and there is no diff to read a position out of — the
+  console holds no second copy of the drawing to diff against. `updated` is
+  the element's own record of when it last changed, which is the one honest
+  answer available, and `null` is the other one: a pointer drawn at the origin
+  is a claim about where somebody is, and a wrong one.
+*/
+{
+  const scene = [
+    element({ id: "old", updated: 1_000, x: 0, y: 0, width: 10, height: 10 }),
+    element({ id: "new", updated: 2_000, x: 100, y: 200, width: 40, height: 20 }),
+  ];
+  const at = latestChangePoint(scene);
+  check("the pointer lands in the middle of the most recently changed element", at?.x === 120 && at?.y === 210);
+}
+
+{
+  // The one this replaced: `version` counts how many times an element has ever
+  // changed, so a shape somebody resized fifty times outranks the one the tool
+  // just drew. It is the tiebreak and never the answer.
+  const scene = [
+    element({ id: "veteran", version: 90, updated: 1_000, x: 0, y: 0, width: 10, height: 10 }),
+    element({ id: "fresh", version: 1, updated: 2_000, x: 500, y: 500, width: 0, height: 0 }),
+  ];
+  const at = latestChangePoint(scene);
+  check("a long-edited shape does not outrank the one that just changed", at?.x === 500 && at?.y === 500);
+}
+
+{
+  const scene = [
+    element({ id: "a", version: 2, updated: 5_000, x: 0, y: 0, width: 0, height: 0 }),
+    element({ id: "b", version: 7, updated: 5_000, x: 60, y: 0, width: 0, height: 0 }),
+  ];
+  check("two elements changed in the same millisecond tie-break on version", latestChangePoint(scene)?.x === 60);
+}
+
+{
+  // A deleted element is still where the change happened. Excalidraw deletes
+  // by flag, so skipping these would point the tool's cursor at whatever it
+  // did *not* just touch.
+  const scene = [
+    element({ id: "kept", updated: 1_000, x: 0, y: 0, width: 0, height: 0 }),
+    element({ id: "gone", updated: 9_000, isDeleted: true, x: 300, y: 300, width: 0, height: 0 }),
+  ];
+  check("an element the tool deleted is where the tool was", latestChangePoint(scene)?.x === 300);
+}
+
+{
+  check("a scene with no elements has no pointer", latestChangePoint([]) === null);
+  check(
+    "elements with no `updated` have no pointer rather than a guessed one",
+    latestChangePoint([element({ id: "a", x: 5, y: 5 })]) === null,
+  );
+  check(
+    "an element whose position is not two numbers has no pointer",
+    latestChangePoint([element({ id: "a", updated: 1, x: "left", y: 5 })]) === null,
+  );
+  check(
+    "a peer-shaped object that is not an element is not a position",
+    latestChangePoint([{ updated: 1, x: 5, y: 5 }]) === null,
+  );
+}
+
+{
+  // Width and height are optional on some element types; the origin is then
+  // the honest answer rather than `NaN`, which would decode as no pointer at
+  // all and lose the one thing this is for.
+  const at = latestChangePoint([element({ id: "a", updated: 1, x: 7, y: 9 })]);
+  check("an element with no size reports its own corner", at?.x === 7 && at?.y === 9);
 }
 
 function encodeElementsRaw(text) {

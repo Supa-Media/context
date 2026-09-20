@@ -30,6 +30,8 @@ import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import {
+  agentCursorFrame,
+  agentPointerFrame,
   askFrame,
   byeFrame,
   cursorFrame,
@@ -80,6 +82,15 @@ const CURSOR_THROTTLE_MS = 120;
  * with a thousand copies of one rectangle.
  */
 const DRAW_THROTTLE_MS = 60;
+
+/**
+ * How long a tool's caret stays after its write.
+ *
+ * The same clock the room uses to expire a member who stopped speaking, and
+ * for the same reason: past it, the caret is claiming somebody is here who is
+ * not. A tool holds no socket, so nothing else will ever take it down.
+ */
+const MEMBER_IDLE_MS = 45_000;
 
 /** Reconnect this long before the gateway would close the socket itself. */
 const REAUTH_MARGIN_MS = 15_000;
@@ -282,6 +293,8 @@ export function usePresence(options: {
   const pointers = useRef(new Map<string, { x: number; y: number; selected: string[] }>());
   const roster = useRef<PresenceMember[]>([]);
   const lastPointer = useRef(0);
+  /** When each agent's caret should be taken down, by member id. */
+  const agentTimers = useRef(new Map<string, number>());
   if (seed.current === null && typeof window !== "undefined") seed.current = tabSeed();
 
   const { workspaceId, endpoint, notePath, enabled } = options;
@@ -326,6 +339,16 @@ export function usePresence(options: {
     let cancelled = false;
     const path = notePath as string;
     dispatch({ type: "open", notePath: path });
+    /*
+      Read once, here, rather than off the ref in the cleanup below.
+
+      The map is created with the hook and never replaced, so the two are the
+      same object — but the lint rule that asks for this is right in general
+      and the cost of agreeing with it is one line: a cleanup that reads
+      `.current` is a cleanup that clears whatever is there when React gets
+      round to running it, not what this room put there.
+    */
+    const toolCarets = agentTimers.current;
 
     /*
       One document per note, created with the room and destroyed with it.
@@ -553,10 +576,53 @@ export function usePresence(options: {
             adoption rather than asked about it — there is no branch here to
             get wrong, which matters because no test reaches this handler.
           */
+          /*
+            Reporting back is best-effort, on the same socket the write came
+            down. A room that has already closed under this client costs the
+            tool's caret and nothing else — the write is in the bucket and the
+            merge has happened either way, so there is nothing here worth
+            failing over.
+          */
+          const tell = (outgoing: string) => {
+            try {
+              if (live.readyState === WebSocket.OPEN) live.send(outgoing);
+            } catch {
+              // See above.
+            }
+          };
           applyExternalWrite(
             { text: frame.text, path, shared: shared.current, drawing: mode === "drawing" },
-            (elements) => onDrawing.current?.(elements),
-            () => onExternalWrite.current?.({ path, etag: frame.etag }),
+            {
+              deliverElements: (elements) => onDrawing.current?.(elements),
+              /*
+                **And on to everybody else's canvas.**
+
+                A note's merge reaches the room by itself: it is an edit, and
+                edits travel. A drawing's does not — elements handed to this
+                browser's Excalidraw go nowhere — so the second person on the
+                canvas saw the tool's version land and none of its shapes.
+                Re-broadcast here, from the one client that was given them,
+                which is the same shape the room already trusts for a peer's
+                own drawing.
+              */
+              shareElements: (elements) => tell(drawFrame(encodeElements(elements))),
+              /*
+                **Where the tool's caret goes.** The offsets are in the text as
+                it now stands, so they are turned into relative positions the
+                same way this editor's own caret is — a position that survives
+                the next person's keystroke rather than an offset that does not.
+
+                No id on the frame: the client says the caret is the agent's
+                and the room says which agent. See `agentCursorFrame`.
+              */
+              reportCaret: (span) => {
+                const text = shared.current?.text;
+                if (!text) return;
+                tell(agentCursorFrame(cursorPosition(text, span.from), cursorPosition(text, span.to)));
+              },
+              reportPointer: (at) => tell(agentPointerFrame(at.x, at.y)),
+              adopt: () => onExternalWrite.current?.({ path, etag: frame.etag }),
+            },
           );
           return;
         }
@@ -608,6 +674,36 @@ export function usePresence(options: {
             void connect(0);
           }, due);
         }
+        if (frame.t === "join" && frame.member.isAgent) {
+          /*
+            **A tool is present while it is writing, and then it is not.**
+
+            It holds no socket, so nothing will ever send a `leave` for it —
+            the room cannot know when an agent has stopped, because there was
+            never a connection to close. A caret that stayed would be claiming
+            somebody is in the note who left minutes ago, which is exactly the
+            lie presence exists to remove. So this client drops it, on the same
+            clock the room uses to expire a member who stopped speaking.
+
+            Re-armed on every write: an agent making a series of edits stays
+            present throughout rather than flickering.
+          */
+          const id = frame.member.id;
+          const held = agentTimers.current.get(id);
+          if (held !== undefined) window.clearTimeout(held);
+          agentTimers.current.set(
+            id,
+            window.setTimeout(() => {
+              agentTimers.current.delete(id);
+              // Its pointer too, and by hand: a peer's goes down in the
+              // `leave` branch below, and this leave never comes off the wire.
+              pointers.current.delete(id);
+              onPeerPointers.current?.(peersFrom(roster.current, pointers.current));
+              dispatch({ type: "frame", notePath: path, frame: { t: "leave", id } });
+            }, MEMBER_IDLE_MS),
+          );
+        }
+
         if (frame.t === "leave") {
           // A peer that left takes its pointer with it, or Excalidraw goes on
           // drawing a cursor for somebody who has closed the tab.
@@ -637,6 +733,8 @@ export function usePresence(options: {
     return () => {
       cancelled = true;
       closeSocket(true);
+      for (const timer of toolCarets.values()) window.clearTimeout(timer);
+      toolCarets.clear();
       shared.current = null;
       document?.destroy();
     };

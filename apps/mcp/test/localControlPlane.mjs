@@ -54,6 +54,25 @@ const PEOPLE = [
     role: "member",
     scopes: ["context:read"],
   },
+  /*
+    A tool, holding its own grant and opening no socket.
+
+    Needed because the room deliberately does *not* announce a tool for a write
+    that came from a client already sitting in it — the console saves through
+    `write_note` like everything else, and a save must not put a robot wearing
+    your own name beside your own caret. A verification whose "agent" write came
+    from one of the browsers' own grants would be demonstrating that rule and
+    calling it the opposite.
+  */
+  {
+    token: "cat_local_verification_token_tool",
+    user: "user_bo",
+    slug: "bo",
+    role: "editor",
+    scopes: ["context:read", "context:write"],
+    client: "client_tool",
+    clientName: "A Coding Agent",
+  },
 ];
 
 const WORKSPACE_ID = "ws_local_verify";
@@ -94,8 +113,10 @@ export async function startLocalControlPlane({ port, gatewaySecret, bindingName 
         return send(200, {
           session: {
             grantId: `grant_${person.user}`,
-            clientId: `client_${person.user}`,
-            clientName: null,
+            // A client per person by default; a tool brings its own, which is
+            // what makes it a different client of the same account.
+            clientId: person.client ?? `client_${person.user}`,
+            clientName: person.clientName ?? null,
             actorUserId: person.user,
             scopes: person.scopes,
             expiresAt: Date.now() + 60 * 60 * 1000,

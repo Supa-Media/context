@@ -26,6 +26,7 @@ export {
   changedElements,
   decodeElements,
   encodeElements,
+  latestChangePoint,
   looksLikeElement,
   remember,
 } from "./collab.js";

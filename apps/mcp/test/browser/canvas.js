@@ -19,12 +19,13 @@
  *    Excalidraw's `reconcileElements`, and it lives in the page.
  */
 import {
+  agentPointerFrame,
   decodeServerFrame,
   drawFrame,
   pointerFrame,
 } from "../../../mobile/features/console/presence/protocol.ts";
+import { applyExternalWrite } from "../../../mobile/features/console/presence/externalWrite.ts";
 import { decodeElements, encodeElements } from "../../../../packages/drawings/src/collab.js";
-import { parseDrawing } from "../../../../packages/drawings/src/excalidraw.js";
 
 const CHANNEL = "context.drawing.v1";
 
@@ -42,6 +43,8 @@ window.joinCanvas = ({ gateway, token, note }) => {
     members: [],
     shared: 0,
     received: 0,
+    /** Elements this client put back on the wire on a tool's behalf. */
+    reshared: 0,
     /** Diagnostics for the verification, which has needed them. */
     frames: [],
     syncs: 0,
@@ -94,7 +97,7 @@ window.joinCanvas = ({ gateway, token, note }) => {
       return;
     }
     if (message.t === "join") {
-      state.members = [...state.members, message.member];
+      state.members = [...state.members.filter((one) => one.id !== message.member.id), message.member];
       byId.set(message.member.id, message.member);
       return;
     }
@@ -105,18 +108,34 @@ window.joinCanvas = ({ gateway, token, note }) => {
     }
     if (message.t === "external") {
       /*
-        A tool wrote this drawing. The console parses the file back into
-        elements — a tool writes a `.excalidraw.md` as a file, which is the
-        only shape `write_note` has — and hands them to the page exactly like a
-        peer's change. `usePresence` does the same; this stands in for it.
+        A tool wrote this drawing, and this is the one member the room asked to
+        merge it. The product's own function does it rather than this harness
+        repeating the branch — including the half that is only true for a
+        canvas: elements handed to one browser's Excalidraw go nowhere, so this
+        client re-broadcasts them and everybody else sees the tool draw.
       */
-      const parsed = parseDrawing(message.text, note);
-      const elements = parsed.elements ?? [];
-      state.externalEtag = message.etag;
-      if (elements.length > 0) {
-        state.received += elements.length;
-        toPage({ type: "remote", elements });
-      }
+      applyExternalWrite(
+        { text: message.text, path: note, shared: null, drawing: true },
+        {
+          deliverElements: (elements) => {
+            state.received += elements.length;
+            toPage({ type: "remote", elements });
+          },
+          shareElements: (elements) => {
+            if (socket.readyState !== WebSocket.OPEN) return;
+            state.reshared += elements.length;
+            socket.send(drawFrame(encodeElements(elements)));
+          },
+          reportCaret: () => {},
+          reportPointer: (at) => {
+            if (socket.readyState !== WebSocket.OPEN) return;
+            socket.send(agentPointerFrame(at.x, at.y));
+          },
+          adopt: () => {
+            state.externalEtag = message.etag;
+          },
+        },
+      );
       return;
     }
     if (message.t === "etag") {
@@ -191,6 +210,8 @@ window.joinCanvas = ({ gateway, token, note }) => {
     }
   });
 
+  /** The members the room says are tools rather than people. */
+  state.agents = () => state.members.filter((one) => one.isAgent);
   state.live = () => state.elements.filter((one) => !one.isDeleted);
   state.ids = () => state.live().map((one) => one.id).sort();
   window.canvas = state;

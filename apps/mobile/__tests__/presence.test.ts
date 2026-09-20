@@ -73,6 +73,7 @@ function member(over: Partial<PresenceMember> = {}): PresenceMember {
     anchor: "p:0",
     head: "p:0",
     canWrite: true,
+    isAgent: false,
     ...over,
   };
 }
@@ -354,6 +355,20 @@ describe("the caret decorations", () => {
     };
     expect(label(fresh)).toBe("@ana");
     expect(label(faded)).toBe("");
+
+    /*
+      Except for a tool's, which never fades.
+
+      A person's caret keeps moving, so its label comes back whenever they do
+      anything; a tool's lands once when its write does and then sits still
+      until it is taken down about a minute later. Fading it leaves an
+      unattributed caret in somebody's note for the rest of that minute, which
+      is precisely the question — *who is changing this?* — the feature exists
+      to answer.
+    */
+    const tool = member({ head: at(3), name: "Some Client", isAgent: true });
+    const long = buildCaretDecorations([tool], 10, 1_000 + CARET_LABEL_MS * 100, moved, resolve);
+    expect(label(long)).toBe("Some Client");
   });
 });
 
@@ -435,9 +450,34 @@ describe("the shared document", () => {
   });
 
   test("an external write identical to the document changes nothing", () => {
+    // And reports no span, because a caret is a claim that somebody is
+    // working at a position and an identical file is not an edit.
     const { a } = pair();
     seedSharedDoc(a, "same");
-    expect(mergeExternalText(a, "same")).toBe(false);
+    expect(mergeExternalText(a, "same")).toBeNull();
+  });
+
+  test("the span it reports is where the tool's text actually landed", () => {
+    /*
+      This is the position a tool's caret is drawn at, so it is asserted
+      against the merged text rather than against the arithmetic that produced
+      it: `slice(from, to)` has to be exactly what the tool wrote and nothing
+      of what was already there.
+    */
+    const { a } = pair();
+    seedSharedDoc(a, "# Notes\n\nfirst line\n");
+    const span = mergeExternalText(a, "# Notes\n\nfirst line\nsecond line\n");
+    expect(span).not.toBeNull();
+    expect(a.markdown().slice(span!.from, span!.to)).toBe("second line\n");
+  });
+
+  test("a tool that rewrote the middle reports the middle", () => {
+    // Not an append: the suffix is shared, so the span must stop before it
+    // rather than running to the end of the note.
+    const { a } = pair();
+    seedSharedDoc(a, "top\nMIDDLE\nbottom\n");
+    const span = mergeExternalText(a, "top\nchanged\nbottom\n");
+    expect(a.markdown().slice(span!.from, span!.to)).toBe("changed");
   });
 });
 
@@ -470,6 +510,34 @@ describe("a tool's write, and the version that comes with it", () => {
     return { a, b };
   }
 
+  /**
+   * Every sink, recorded.
+   *
+   * One recorder rather than a counter per test: the defects this describe
+   * exists for were all "the right thing happened and the wrong thing also
+   * did", and a test that counts only what it expects cannot see the second
+   * half of that.
+   */
+  function sinks() {
+    const seen = {
+      delivered: [] as unknown[][],
+      shared: [] as unknown[][],
+      carets: [] as { from: number; to: number }[],
+      pointers: [] as { x: number; y: number }[],
+      adopted: 0,
+    };
+    return {
+      seen,
+      deliverElements: (elements: unknown[]) => seen.delivered.push(elements),
+      shareElements: (elements: unknown[]) => seen.shared.push(elements),
+      reportCaret: (span: { from: number; to: number }) => seen.carets.push(span),
+      reportPointer: (at: { x: number; y: number }) => seen.pointers.push(at),
+      adopt: () => {
+        seen.adopted += 1;
+      },
+    };
+  }
+
   const DRAWING_PATH = "1-projects/plan.excalidraw.md";
   const blank = newDrawing() as string;
   const oneShape = serializeDrawing(blank, [
@@ -480,15 +548,12 @@ describe("a tool's write, and the version that comes with it", () => {
   test("a note adopts it, and holds the text that came with it", () => {
     const { a, b } = pair();
     seedSharedDoc(a, "# Notes\n\nfirst line\n");
-    let adopted = 0;
+    const out = sinks();
     applyExternalWrite(
       { text: "# Notes\n\nfirst line\nfrom a tool\n", path: "1-projects/n.md", shared: a, drawing: false },
-      () => {},
-      () => {
-        adopted += 1;
-      },
+      out,
     );
-    expect(adopted).toBe(1);
+    expect(out.seen.adopted).toBe(1);
     expect(a.markdown()).toBe("# Notes\n\nfirst line\nfrom a tool\n");
     // The peer bound to the same document has it too, which is what makes
     // adopting the version safe rather than only defensible.
@@ -513,31 +578,23 @@ describe("a tool's write, and the version that comes with it", () => {
         },
       },
     } as unknown as typeof a;
-    let adopted = 0;
+    const out = sinks();
     applyExternalWrite(
       { text: "something else", path: "1-projects/n.md", shared: exploding, drawing: false },
-      () => {},
-      () => {
-        adopted += 1;
-      },
+      out,
     );
-    expect(adopted).toBe(0);
+    // No version, and no caret either: a caret drawn for a merge that did not
+    // happen points at text nobody in this room can see.
+    expect([out.seen.adopted, out.seen.carets.length]).toEqual([0, 0]);
     expect(a.markdown()).toBe("intact");
   });
 
   test("a canvas adopts it only once the elements are delivered", () => {
-    const drawn: unknown[][] = [];
-    let adopted = 0;
-    applyExternalWrite(
-      { text: oneShape, path: DRAWING_PATH, shared: null, drawing: true },
-      (elements) => drawn.push(elements),
-      () => {
-        adopted += 1;
-      },
-    );
-    expect(drawn.length).toBe(1);
-    expect((drawn[0] as { id: string }[]).map((element) => element.id)).toEqual(["one"]);
-    expect(adopted).toBe(1);
+    const out = sinks();
+    applyExternalWrite({ text: oneShape, path: DRAWING_PATH, shared: null, drawing: true }, out);
+    expect(out.seen.delivered.length).toBe(1);
+    expect((out.seen.delivered[0] as { id: string }[]).map((element) => element.id)).toEqual(["one"]);
+    expect(out.seen.adopted).toBe(1);
   });
 
   test("a payload carrying no elements delivers nothing and moves nothing", () => {
@@ -547,16 +604,15 @@ describe("a tool's write, and the version that comes with it", () => {
       cannot be brought onto, and claiming its version would have the next save
       put the old shapes back over it.
     */
-    const drawn: unknown[][] = [];
-    let adopted = 0;
-    applyExternalWrite(
-      { text: emptyScene, path: DRAWING_PATH, shared: null, drawing: true },
-      (elements) => drawn.push(elements),
-      () => {
-        adopted += 1;
-      },
-    );
-    expect([drawn.length, adopted]).toEqual([0, 0]);
+    const out = sinks();
+    applyExternalWrite({ text: emptyScene, path: DRAWING_PATH, shared: null, drawing: true }, out);
+    // Nothing delivered, nothing re-broadcast, no pointer, no version.
+    expect([
+      out.seen.delivered.length,
+      out.seen.shared.length,
+      out.seen.pointers.length,
+      out.seen.adopted,
+    ]).toEqual([0, 0, 0, 0]);
   });
 
   test("a payload this console could not have opened delivers nothing either", () => {
@@ -570,31 +626,112 @@ describe("a tool's write, and the version that comes with it", () => {
       cannot happen is not a guard.
     */
     for (const text of ["# just a note", "", "```compressed-json\nnot-base64!!\n```"]) {
-      const drawn: unknown[][] = [];
-      let adopted = 0;
-      applyExternalWrite(
-        { text, path: DRAWING_PATH, shared: null, drawing: true },
-        (elements) => drawn.push(elements),
-        () => {
-          adopted += 1;
-        },
-      );
-      expect([text, drawn.length, adopted]).toEqual([text, 0, 0]);
+      const out = sinks();
+      applyExternalWrite({ text, path: DRAWING_PATH, shared: null, drawing: true }, out);
+      expect([text, out.seen.delivered.length, out.seen.shared.length, out.seen.adopted]).toEqual([
+        text,
+        0,
+        0,
+        0,
+      ]);
     }
   });
 
   test("a room that is neither receives nothing", () => {
     // No document and not a canvas: there is nothing here that could take the
     // write, so there is nothing that may take its version.
-    let adopted = 0;
+    const out = sinks();
+    applyExternalWrite({ text: "anything", path: "1-projects/n.md", shared: null, drawing: false }, out);
+    expect(out.seen.adopted).toBe(0);
+  });
+
+  /*
+    A TOOL IS SOMEBODY IN THE ROOM, NOT TEXT THAT APPEARS FROM NOWHERE.
+
+    Watching an agent work was the point of the whole feature, and the first
+    version of it delivered the agent's write to one browser and told nobody:
+    the second person on a note saw the paragraph (it is an edit, and edits
+    travel) and the second person on a *canvas* saw nothing at all, because
+    elements handed to one browser's Excalidraw go nowhere.
+
+    So the client the room asked to merge owes the room two things afterwards,
+    and they are the two halves below.
+  */
+  test("a tool's caret is reported where its text landed", () => {
+    const { a } = pair();
+    seedSharedDoc(a, "# Notes\n\nfirst line\n");
+    const out = sinks();
     applyExternalWrite(
-      { text: "anything", path: "1-projects/n.md", shared: null, drawing: false },
-      () => {},
-      () => {
-        adopted += 1;
-      },
+      { text: "# Notes\n\nfirst line\nfrom a tool\n", path: "1-projects/n.md", shared: a, drawing: false },
+      out,
     );
-    expect(adopted).toBe(0);
+    expect(out.seen.carets.length).toBe(1);
+    const span = out.seen.carets[0];
+    expect(a.markdown().slice(span.from, span.to)).toBe("from a tool\n");
+  });
+
+  test("a tool that changed nothing gets no caret", () => {
+    // A rewrite of identical content is not somebody working in the note, and
+    // a caret would say it was. The version still moves: the bucket did.
+    const { a } = pair();
+    seedSharedDoc(a, "unchanged");
+    const out = sinks();
+    applyExternalWrite(
+      { text: "unchanged", path: "1-projects/n.md", shared: a, drawing: false },
+      out,
+    );
+    expect([out.seen.carets.length, out.seen.adopted]).toEqual([0, 1]);
+  });
+
+  test("a tool's elements go to everybody else, not just to this browser", () => {
+    /*
+      The defect, exactly: the room hands a canvas write to one member because
+      the same *text* merged twice inserts it twice — but elements reconcile by
+      version, so the second person's canvas stayed empty for no reason at all.
+      Delivered here and re-broadcast, and the same elements in both.
+    */
+    const out = sinks();
+    applyExternalWrite({ text: oneShape, path: DRAWING_PATH, shared: null, drawing: true }, out);
+    expect(out.seen.shared.length).toBe(1);
+    expect((out.seen.shared[0] as { id: string }[]).map((one) => one.id)).toEqual(["one"]);
+    expect(out.seen.shared[0]).toEqual(out.seen.delivered[0]);
+  });
+
+  test("a note's merge is not re-broadcast, because it already travels", () => {
+    // The other half of the rule above, and the one that would be a duplicated
+    // paragraph rather than a redundant frame: text merged into the shared
+    // document reaches every peer down the ordinary update path.
+    const { a } = pair();
+    seedSharedDoc(a, "first\n");
+    const out = sinks();
+    applyExternalWrite(
+      { text: "first\nsecond\n", path: "1-projects/n.md", shared: a, drawing: false },
+      out,
+    );
+    expect([out.seen.shared.length, out.seen.delivered.length]).toEqual([0, 0]);
+  });
+
+  test("a tool's pointer lands on the shape it just drew", () => {
+    const recent = serializeDrawing(blank, [
+      { id: "old", type: "rectangle", version: 40, versionNonce: 1, updated: 1_000, x: 0, y: 0, width: 10, height: 10 },
+      { id: "new", type: "rectangle", version: 1, versionNonce: 2, updated: 2_000, x: 100, y: 100, width: 20, height: 20 },
+    ] as never[]) as string;
+    const out = sinks();
+    applyExternalWrite({ text: recent, path: DRAWING_PATH, shared: null, drawing: true }, out);
+    expect(out.seen.pointers).toEqual([{ x: 110, y: 110 }]);
+  });
+
+  test("a scene with no honest position gets no pointer, and still adopts", () => {
+    /*
+      `oneShape` carries no `updated` — it is hand-built above — which is the
+      case of a tool that wrote a file without going through Excalidraw. A
+      pointer at the origin would claim the tool is working in the top-left
+      corner of somebody's canvas. Withholding the *version* over it would be
+      the separate, worse bug: the shapes arrived, which is the whole test.
+    */
+    const out = sinks();
+    applyExternalWrite({ text: oneShape, path: DRAWING_PATH, shared: null, drawing: true }, out);
+    expect([out.seen.pointers.length, out.seen.adopted]).toEqual([0, 1]);
   });
 
   test("exactly one member is the writer, and it survives them leaving", () => {

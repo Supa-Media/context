@@ -130,8 +130,16 @@ export function buildCaretDecorations(
       });
     }
 
+    /*
+      A label fades because the caret keeps moving and the colour is enough to
+      tell two colleagues apart once you have read their names. A tool's caret
+      does neither: it appears once when a write lands, does not move again,
+      and is taken down about a minute later. Fading its label leaves an
+      unexplained caret sitting in somebody's note for the rest of that minute,
+      which is the question this feature exists to answer.
+    */
     const movedAt = lastMoved.get(member.id) ?? 0;
-    const labelled = now - movedAt < CARET_LABEL_MS;
+    const labelled = member.isAgent || now - movedAt < CARET_LABEL_MS;
     ranges.push({
       from: head,
       to: head,

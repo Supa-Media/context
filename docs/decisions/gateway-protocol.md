@@ -681,6 +681,56 @@ same on every screen. Before this the canvas adopted the version and showed
 none of it: the etag moved, the drawing did not, and the next save wrote the
 old shapes over the agent's.
 
+**The tool is a member of the room while it is writing, and then it is not.**
+Watching an agent work was the point: text appearing from nowhere is a
+notification, and a named caret moving through a paragraph is somebody
+working. A tool holds no socket and never will, so it is announced as an
+ordinary roster entry — join, cursor, leave all work unchanged — with an id
+the room mints by prefixing a digest of the caller's client id, never the
+control plane's own identifier, and a name off the caller's grant. It is
+never elected to save, because the election runs over members the room would
+accept an edit from and this one has no socket to accept anything from. It
+lives in the object's memory rather than its storage: this is who is typing
+*right now*, and a room that hibernates between the write and the caret
+losing the caret is the correct amount of wrong. Nothing will ever send a
+`leave` for it, so each client takes it down on the same idle clock the room
+uses for a member who stopped speaking.
+
+**Its caret is reported by the client that merged the write, and named by the
+room.** That client is the only party that knows where the change landed — the
+diff is its own — so it sends the position with one boolean saying *this one is
+the agent's*. It cannot say **which** member: the room supplies the id from the
+write it just relayed. A client able to name the member would be able to move
+any caret in the room, which is the spoof `admit` exists to prevent arriving
+through the back door. The same bargain carries a pointer on a canvas, where
+the position comes from the most recently `updated` element in the scene rather
+than from a diff, because a tool writes a whole file and there is nothing to
+diff against. **And it lapses with the write it described**: a client may
+report a tool's caret only while that write is recent, on the same idle clock
+a member gets, because a boolean with no id is otherwise a frame any client can
+send hours later to point a tool's name at text the tool never wrote.
+
+**A write from a client already sitting in the room is somebody saving, not a
+tool arriving.** The console has no private save path — it writes through
+`write_note` like everything else, because that is the only shape there is — so
+without this rule, pressing ⌘S puts a robot wearing your own name beside your
+own caret, and another for every client that ever saved, since nothing takes
+one down but time. The socket carries the same opaque client digest the write
+does, and a match suppresses the announcement *and clears whatever tool the
+room was holding*: the caret about to be reported belongs to this write, and a
+previous tool left in place would be drawn at text a person wrote. Matched on
+the client rather than the member, because two tabs are two members of one
+client and either of them saving is still the same person.
+
+**And a tool's shapes are re-broadcast by that client, because on a canvas
+nothing else carries them.** A note's merge reaches the room by itself: it is
+an edit, and edits travel. Elements handed to one browser's Excalidraw go
+nowhere, so the second person on a shared canvas watched the tool's version
+arrive and saw none of its shapes. The merger puts them back on the wire as an
+ordinary `draw`, which is safe here and would not be safe for text:
+reconciliation is by element version, so applying the same element twice is the
+same drawing, while merging the same text twice is the text twice.
+
 **Edits made outside the product — Obsidian, rclone, an S3 client — are
 deliberately not covered.** There is no event to hang a notice on, and inventing
 one would mean polling the bucket. Those land the way they always have: the next

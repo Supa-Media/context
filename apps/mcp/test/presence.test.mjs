@@ -85,6 +85,7 @@ import {
   MAX_CLIENT_FRAME_BYTES,
   MAX_MEMBERS_PER_ROOM,
   MAX_OFFSET,
+  MEMBER_IDLE_MS,
   admit,
   applyCursor,
   colorFor,
@@ -333,12 +334,24 @@ export async function runPresenceChecks(check) {
   const accepted = decodeClientFrame('{"t":"cursor","a":12,"h":18,"text":"the note body"}');
   check("a well-formed cursor frame is accepted", accepted.ok === true);
   check(
-    "a cursor frame carries offsets and nothing else",
+    "a cursor frame carries offsets, whose caret it is, and nothing else",
     // The property the whole feature rests on: a client that tries to put note
-    // text on this channel finds the field is simply not carried.
+    // text on this channel finds the field is simply not carried. `agent` is
+    // on the list deliberately — it is one boolean saying "this caret is the
+    // agent's", and the room decides *which* agent, so a client still cannot
+    // name a member.
     accepted.ok &&
-      Object.keys(accepted.msg).sort().join(",") === "a,h,t" &&
+      Object.keys(accepted.msg).sort().join(",") === "a,agent,h,t" &&
       accepted.msg.text === undefined,
+  );
+  check(
+    "...and a caret is nobody's agent unless it says so",
+    // Not truthy — exactly `true`. A frame that says nothing about this is a
+    // frame about the sender's own caret.
+    accepted.ok &&
+      accepted.msg.agent === false &&
+      decodeClientFrame('{"t":"cursor","a":1,"h":1,"agent":"yes"}').msg.agent === false &&
+      decodeClientFrame('{"t":"cursor","a":1,"h":1,"agent":true}').msg.agent === true,
   );
   check("a ping is accepted", decodeClientFrame('{"t":"ping"}').ok === true);
   check("a bye is accepted", decodeClientFrame('{"t":"bye"}').ok === true);
@@ -683,9 +696,34 @@ export async function runPresenceChecks(check) {
 
     /* ------------------ asking peers what you are missing ---------------- */
 
+    /** One notice from the gateway, as `announceWriteToPresence` sends it. */
+    const external = async (room, body) =>
+      room.fetch(
+        new Request("https://presence.invalid/external", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+
     const askingRuntime = fakeRoomRuntime();
     const askingRoom = new PresenceRoom(askingRuntime.state, {});
     const seatAt = (index) => askingRuntime.open[index];
+    const joinTo = async (room, name, canWrite, clientKey = null) => {
+      try {
+        await room.fetch(
+          new Request("https://gateway.invalid/presence", {
+            headers: {
+              Upgrade: "websocket",
+              "x-presence-member": JSON.stringify({ name, colorSeed: null, canWrite, clientKey }),
+            },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+      }
+    };
+
     const joinAsking = async (name, canWrite) => {
       try {
         await askingRoom.fetch(
@@ -742,6 +780,230 @@ export async function runPresenceChecks(check) {
       // it conveys no text to anybody replaying the room later and still counts
       // towards the compaction threshold.
       (await askingRoom.readLog()).length === 0,
+    );
+
+    /* --------------- the tool that wrote it is in the room --------------- */
+
+    const agentBefore = readerSocket.sent.length;
+    const agentWriterBefore = writerSocket.sent.length;
+    await external(askingRoom, {
+      text: "# From an agent\n",
+      etag: "e9",
+      actor: { id: "0123456789abcdef", name: "Somebody's Claude" },
+    });
+    const seated = readerSocket.frames().slice(agentBefore).find((frame) => frame.t === "join");
+    check(
+      "a tool that writes a note joins the room as a member",
+      /*
+        Somebody watching a note change should see *who* is changing it. A tool
+        holds no socket and never will, but a caret needs a roster entry and
+        the join frame already builds one — so it is announced as a member
+        rather than given a parallel concept the client would have to learn.
+      */
+      seated?.member?.name === "Somebody's Claude" && seated.member.g === true,
+    );
+    check(
+      "...with an id the room built, never the control plane's own",
+      // A digest arrives from the gateway; the room prefixes it so an agent id
+      // cannot collide with the uuid of a seated member.
+      typeof seated?.member?.id === "string" &&
+        seated.member.id.startsWith("a:") &&
+        seated.member.id.includes("0123456789abcdef"),
+    );
+    check(
+      "...and is never elected to save, because it has no socket to save from",
+      seated?.member?.w === false,
+    );
+    check(
+      "...and everybody in the room is told, not only the one that merges",
+      writerSocket.frames().slice(agentWriterBefore).some((frame) => frame.t === "join"),
+    );
+
+    const caretBefore = readerSocket.sent.length;
+    await askingRoom.webSocketMessage(
+      writerSocket,
+      JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
+    );
+    const stamped = readerSocket.frames().slice(caretBefore).find((frame) => frame.t === "cursor");
+    check(
+      "the agent's caret is reported by the client that merged its write",
+      // The tool cannot report its own: it has no socket. The one member the
+      // room asked to merge knows where the change landed and says so.
+      stamped?.id === seated?.member?.id,
+    );
+    check(
+      "...and a client saying 'this is the agent's' cannot say which member",
+      /*
+        The spoof `admit` exists to prevent, arriving through the back door. A
+        client sends one boolean; the room supplies the id from the write it
+        just relayed, so there is no frame a peer can send that moves somebody
+        else's caret.
+      */
+      (() => {
+        const decoded = decodeClientFrame(
+          JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true, id: "a:pick-me" }),
+        );
+        return decoded.ok && decoded.msg.id === undefined;
+      })(),
+    );
+
+    const noAgent = fakeRoomRuntime();
+    const noAgentRoom = new PresenceRoom(noAgent.state, {});
+    await joinTo(noAgentRoom, "@alone", true);
+    await joinTo(noAgentRoom, "@watcher", true);
+    const watcherBefore = noAgent.open[1].sent.length;
+    await noAgentRoom.webSocketMessage(
+      noAgent.open[0],
+      JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
+    );
+    check(
+      "a room no tool has written to draws no agent caret at all",
+      // Non-vacuity, and the honest failure mode: a room that hibernated
+      // between the write and the caret has forgotten whose it was, and draws
+      // nothing rather than guessing.
+      noAgent.open[1].frames().slice(watcherBefore).every((frame) => frame.t !== "cursor"),
+    );
+
+    /*
+      AND THE CARET IS ONLY EVER ABOUT THE WRITE THAT JUST LANDED.
+
+      An agent caret is reported by a *client*, with a boolean and no id — the
+      room supplies the id from the write it last relayed. Unbounded, that is a
+      frame a client can send at any later moment to move a tool's caret
+      anywhere it likes, hours after the tool finished: not a member it can
+      impersonate, but a name in the roster it can point at text the tool never
+      wrote. The honest claim was only ever about the write that had just
+      landed, so the room keeps it exactly that long.
+    */
+    const staleRuntime = fakeRoomRuntime();
+    const staleRoom = new PresenceRoom(staleRuntime.state, {});
+    await joinTo(staleRoom, "@ana", true);
+    await joinTo(staleRoom, "@bo", true);
+    await external(staleRoom, {
+      text: "# A tool wrote\n",
+      etag: "t1",
+      actor: { id: "fedcba9876543210", name: "A Coding Agent" },
+    });
+    const freshBefore = staleRuntime.open.map((ws) => ws.sent.length);
+    await staleRoom.webSocketMessage(
+      staleRuntime.open[0],
+      JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
+    );
+    check(
+      "a caret reported while the write is fresh is drawn",
+      // Non-vacuity for the check below: without this, moving the clock proves
+      // nothing, because nothing was being drawn in the first place.
+      staleRuntime.open
+        .map((ws, i) => ws.frames().slice(freshBefore[i]))
+        .flat()
+        .some((frame) => frame.t === "cursor"),
+    );
+
+    staleRoom.agent.at -= MEMBER_IDLE_MS + 1;
+    const staleBefore = staleRuntime.open.map((ws) => ws.sent.length);
+    await staleRoom.webSocketMessage(
+      staleRuntime.open[0],
+      JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
+    );
+    check(
+      "...and one reported after the tool has gone quiet is not",
+      staleRuntime.open
+        .map((ws, i) => ws.frames().slice(staleBefore[i]))
+        .flat()
+        .every((frame) => frame.t !== "cursor"),
+    );
+    check(
+      "...with the tool forgotten rather than merely ignored",
+      // Read back, because "ignored this time" and "gone" differ the moment
+      // anything else consults it.
+      staleRoom.agent === null,
+    );
+
+    /*
+      A WRITE FROM A CLIENT ALREADY IN THE ROOM IS SOMEBODY SAVING.
+
+      The console has no private save path: it writes through `write_note` like
+      any agent, because that is the only shape there is. So the rule above,
+      left alone, puts a robot wearing your own name in the room the moment you
+      press save — and another for every client that ever saved, since nothing
+      takes one down but time.
+
+      Matched on the *client*, not the member: two tabs are two members of one
+      client, and either of them saving is still the same person.
+    */
+    const savingRuntime = fakeRoomRuntime();
+    const savingRoom = new PresenceRoom(savingRuntime.state, {});
+    await joinTo(savingRoom, "@ana", true, "cafe0123cafe0123");
+    await joinTo(savingRoom, "@bo", true, "cafe0123cafe0123");
+    const savingBefore = savingRuntime.open.map((ws) => ws.sent.length);
+    await external(savingRoom, {
+      text: "# Ana pressed save\n",
+      etag: "s1",
+      actor: { id: "cafe0123cafe0123", name: "@ana's agent" },
+    });
+    const sinceSave = () => savingRuntime.open.map((ws, i) => ws.frames().slice(savingBefore[i])).flat();
+    check(
+      "a console save does not announce a tool, because its client is seated",
+      // Every socket, not one of them: a join is a broadcast, so checking the
+      // wrong end of a two-member room would pass on a room full of robots.
+      sinceSave().every((frame) => frame.t !== "join"),
+    );
+    check(
+      "...and the write still reaches the room, which is the part that matters",
+      // Non-vacuity: the rule above must not be "nothing happened at all".
+      sinceSave().some((frame) => frame.t === "external" && frame.etag === "s1"),
+    );
+
+    const spoofBefore = savingRuntime.open.map((ws) => ws.sent.length);
+    await savingRoom.webSocketMessage(
+      savingRuntime.open[0],
+      JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
+    );
+    check(
+      "...and no caret can be drawn for the tool the room did not admit",
+      savingRuntime.open
+        .map((ws, i) => ws.frames().slice(spoofBefore[i]))
+        .flat()
+        .every((frame) => frame.t !== "cursor"),
+    );
+
+    /*
+      And the clearing half, which is the subtle one: a room that already holds
+      a tool, then takes a save from somebody seated, must forget the tool. Its
+      caret would otherwise be stamped onto the position of the *save* — a
+      tool's name pointing at text a person wrote.
+    */
+    const mixedRuntime = fakeRoomRuntime();
+    const mixedRoom = new PresenceRoom(mixedRuntime.state, {});
+    await joinTo(mixedRoom, "@ana", true, "cafe0123cafe0123");
+    await joinTo(mixedRoom, "@bo", true, "cafe0123cafe0123");
+    await external(mixedRoom, {
+      text: "# A tool wrote\n",
+      etag: "m1",
+      actor: { id: "fedcba9876543210", name: "A Coding Agent" },
+    });
+    const toolSeated = mixedRuntime.open
+      .map((ws) => ws.frames())
+      .flat()
+      .some((frame) => frame.t === "join" && frame.member?.g === true);
+    await external(mixedRoom, {
+      text: "# then ana saved\n",
+      etag: "m2",
+      actor: { id: "cafe0123cafe0123", name: "@ana's agent" },
+    });
+    const afterSave = mixedRuntime.open.map((ws) => ws.sent.length);
+    await mixedRoom.webSocketMessage(
+      mixedRuntime.open[0],
+      JSON.stringify({ t: "cursor", a: "cG9z", h: "cG9z", agent: true }),
+    );
+    check(
+      "a save after a tool's write clears the tool, rather than moving its caret",
+      // Non-vacuous in both directions: the tool really was admitted first.
+      toolSeated &&
+        mixedRuntime.open
+          .map((ws, i) => ws.frames().slice(afterSave[i]))
+          .flat()
+          .every((frame) => frame.t !== "cursor"),
     );
 
     /* ------------- the bucket moved, and everybody has to know ----------- */
@@ -846,22 +1108,15 @@ export async function runPresenceChecks(check) {
         );
         return (
           decoded.ok &&
-          Object.keys(decoded.msg).sort().join(",") === "s,t,x,y" &&
+          // `agent` for the same reason as the caret above: one boolean, and
+          // the room decides whose pointer it is.
+          Object.keys(decoded.msg).sort().join(",") === "agent,s,t,x,y" &&
           decodeClientFrame(JSON.stringify({ t: "pointer", x: "left", y: 2 })).ok === false
         );
       })(),
     );
 
     /* ------------ a tool wrote the note somebody has open ---------------- */
-
-    const external = async (room, body) =>
-      room.fetch(
-        new Request("https://presence.invalid/external", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
 
     const writerBeforeNotice = writerSocket.sent.length;
     const readerBeforeNotice = readerSocket.sent.length;

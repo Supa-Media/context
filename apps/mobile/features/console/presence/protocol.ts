@@ -48,6 +48,16 @@ export interface PresenceMember {
    * grant at the gateway, never off the client.
    */
   canWrite: boolean;
+  /**
+   * Whether this member is a tool rather than a person.
+   *
+   * A tool that writes a note is editing it, and somebody watching should be
+   * able to tell which of the carets in their note is not a colleague. It
+   * holds no socket — the room announces it when a write arrives and the
+   * client drops it again shortly after, because "who is typing right now" is
+   * the only thing a caret can honestly claim.
+   */
+  isAgent: boolean;
 }
 
 export type ServerFrame =
@@ -174,6 +184,7 @@ function member(value: unknown): PresenceMember | null {
     // election that skips somebody costs a save nobody makes until the next
     // roster, and one that includes somebody the room refuses costs every save.
     canWrite: raw.w === true,
+    isAgent: raw.g === true,
   };
 }
 
@@ -274,6 +285,22 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
 /** Where this editor's caret is, as relative positions. */
 export function cursorFrame(anchor: string | null, head: string | null): string {
   return JSON.stringify({ t: "cursor", a: anchor, h: head });
+}
+
+/**
+ * Where the *agent's* caret is, reported by the client that merged its write.
+ *
+ * One boolean, and never an id: this says the caret belongs to the agent, and
+ * the room decides which agent from the write it just relayed. A client that
+ * could name the member would be a client that could move anybody's caret.
+ */
+export function agentCursorFrame(anchor: string | null, head: string | null): string {
+  return JSON.stringify({ t: "cursor", a: anchor, h: head, agent: true });
+}
+
+/** Where the agent's pointer is on a canvas. Same rule as above. */
+export function agentPointerFrame(x: number, y: number): string {
+  return JSON.stringify({ t: "pointer", x, y, s: [], agent: true });
 }
 
 /** One Yjs sync-protocol message on its way to the room. */
