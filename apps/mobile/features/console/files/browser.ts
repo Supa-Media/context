@@ -276,6 +276,15 @@ export interface FileBrowser {
    */
   onExternalWrite: (written: { path: string; etag: string | null }) => void;
   /**
+   * Listen for saves this console makes, and return an unsubscribe.
+   *
+   * A save goes through the control plane rather than the gateway, so a live
+   * room has no other way to learn that the bucket moved. A subscription
+   * rather than a callback passed in, because the socket is opened from this
+   * browser's own state and handing it back down would be a cycle.
+   */
+  onSaved: (handler: (written: { path: string; etag: string }) => void) => () => void;
+  /**
    * Reflect a plugin write only when the open editor is still the clean,
    * exact version that write replaced; a newer or dirty draft always wins the
    * screen and reaches the ordinary conflict flow on save.

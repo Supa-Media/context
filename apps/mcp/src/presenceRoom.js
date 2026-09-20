@@ -127,16 +127,21 @@ export class PresenceRoom {
       if (!notice || typeof notice.text !== "string") {
         return new Response(null, { status: 400 });
       }
+      const etag = typeof notice.etag === "string" ? notice.etag : null;
       const merger = this.mergerSocket();
+      /*
+        **The text goes to one member; the version goes to all of them.**
+
+        Only one client may merge, or the same characters are inserted once per
+        client. But every client's *next save* is checked against the bucket,
+        and the bucket has just moved — so a member who is told nothing keeps
+        the etag their editor opened with and conflicts the moment they become
+        the one saving. Two different facts, two different audiences.
+      */
+      if (etag !== null) this.broadcast({ t: "etag", v: etag }, merger);
       if (!merger) return json({ delivered: false });
       try {
-        merger.send(
-          JSON.stringify({
-            t: "external",
-            text: notice.text,
-            etag: typeof notice.etag === "string" ? notice.etag : null,
-          }),
-        );
+        merger.send(JSON.stringify({ t: "external", text: notice.text, etag }));
       } catch {
         return json({ delivered: false });
       }
@@ -313,9 +318,27 @@ export class PresenceRoom {
       (decoded.msg.t === "y" ||
         decoded.msg.t === "snap" ||
         decoded.msg.t === "draw" ||
-        decoded.msg.t === "drawsnap") &&
+        decoded.msg.t === "drawsnap" ||
+        decoded.msg.t === "saved") &&
       !attachment.canWrite
     ) {
+      return;
+    }
+
+    if (decoded.msg.t === "saved") {
+      /*
+        Somebody in this room wrote the note to the bucket. Everybody else
+        moves onto that version, so their next save is a conditional write
+        against what is actually there.
+
+        Relayed and dropped: an etag describes the bucket right now and is
+        meaningless to anybody replaying the room later, so it never reaches
+        the log. Gated on write authority above, because a member who cannot
+        write cannot have saved — and a peer that could announce an arbitrary
+        etag could make everybody else's next save overwrite a version they
+        never saw.
+      */
+      this.broadcast({ t: "etag", v: decoded.msg.v }, ws);
       return;
     }
 

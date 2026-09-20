@@ -652,6 +652,22 @@ The notice carries the new etag, and the merging client adopts it — otherwise
 its next save is a conflict raised about a change already present in the text
 being saved, which is the exact experience this feature exists to remove.
 
+**The text goes to one member; the version goes to all of them.** Two facts
+with two different audiences: only one client may merge, or the characters
+arrive once per client, but every client's *next* save is a conditional write
+against the bucket, and the bucket has just moved.
+
+**A save made in the console is announced by the client, because nothing else
+would.** A console save goes through the control plane's own file operation,
+not through the gateway's `write_note`, so the room never hears about it —
+every other member keeps the etag their editor opened with, and the moment the
+person who was saving leaves, the next one elected writes against a version two
+edits old and gets the conflict box. The `saved` frame carries an etag and
+nothing else, is gated on write authority (a member who cannot write cannot
+have saved, and a peer able to name an arbitrary version could make everybody
+else's next save overwrite one they never saw), and is never logged. It is the
+only frame that travels because of something the *control plane* did.
+
 None of it is a guarantee. A room nobody is in drops the notice; a room in
 which nobody may write has nobody who can merge and drops it too. Those clients
 see the write at their next reconnect, within the five-minute reauthorization

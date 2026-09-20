@@ -31,6 +31,7 @@ import {
   drawSnapshotFrame,
   pingFrame,
   pointerFrame,
+  savedFrame,
   snapshotFrame,
   syncFrame,
 } from "../features/console/presence/protocol";
@@ -350,6 +351,30 @@ describe("what the room sends, the client reads", () => {
       readSyncMessage(answer.payload, empty.doc, "remote");
       expect(empty.markdown()).toBe("somebody's real work");
     }
+  });
+
+  test("a save announces a version, and the version is what comes back", () => {
+    /*
+      The console saves through the control plane rather than through the
+      gateway's `write_note`, so this frame is the room's only way to learn the
+      bucket moved. Both halves are checked across the seam, because the frame
+      a client builds and the frame the room sends back are different shapes
+      and a rename of either is invisible to one side's suite.
+    */
+    const accepted = decodeClientFrame(savedFrame("abc123"));
+    expect(accepted.ok).toBe(true);
+    expect(accepted.msg?.t).toBe("saved");
+    // An etag and nothing else: this is not a second channel for note text.
+    expect(Object.keys(accepted.msg!).sort()).toEqual(["t", "v"]);
+
+    expect(decodeServerFrame(JSON.stringify({ t: "etag", v: "abc123" }))).toEqual({
+      t: "etag",
+      etag: "abc123",
+    });
+    // Absent or empty is not a version, and adopting one would point the next
+    // conditional write at nothing.
+    expect(decodeServerFrame(JSON.stringify({ t: "etag", v: "" }))).toBeNull();
+    expect(decodeServerFrame(JSON.stringify({ t: "etag" }))).toBeNull();
   });
 
   test("who seeds the document is the room's answer, and it survives the wire", () => {

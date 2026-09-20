@@ -356,6 +356,30 @@ export function decodeClientFrame(raw) {
       : [];
     return { ok: true, msg: { t: "pointer", x, y, s: selected } };
   }
+  if (parsed.t === "saved") {
+    /*
+      **"I just wrote this note to the bucket, and it is at this version now."**
+
+      The console does not save through the gateway's `write_note` — it goes
+      through the control plane's own file operation — so the room has no other
+      way to learn that the bucket moved. Without this, every other member of
+      the room keeps the etag their editor opened with, and the moment the
+      person who was saving leaves, the next one elected saves against a
+      version that is two edits old and gets the conflict box this whole
+      feature exists to delete.
+
+      An etag, and nothing else. Short, opaque, and never note text: the shape
+      check is what keeps this from becoming a channel for anything larger, and
+      the caret ceiling below is the second half of that.
+    */
+    if (typeof parsed.v !== "string" || parsed.v.length === 0 || parsed.v.length > 128) {
+      return { ok: false, reason: "bad_etag" };
+    }
+    // Printable ASCII without quotes or control characters: every store's etag
+    // is a hex digest or a quoted one, and a client is not writing prose here.
+    if (!/^[A-Za-z0-9._:+/=-]+$/.test(parsed.v)) return { ok: false, reason: "bad_etag" };
+    return { ok: true, msg: { t: "saved", v: parsed.v } };
+  }
   if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
   if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };
   return { ok: false, reason: "unknown_type" };

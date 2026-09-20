@@ -102,6 +102,15 @@ export type ServerFrame =
   /** Where a peer's pointer is on a canvas, and what they have selected. */
   | { t: "pointer"; id: string; x: number; y: number; selected: string[] }
   /**
+   * The bucket moved: somebody in this room saved, or a tool wrote the note.
+   *
+   * No text, because the text is already shared — this is the *version*, so
+   * this client's next conditional write is checked against what is actually
+   * in the bucket rather than against what it opened. Without it, the moment
+   * the person who was saving leaves, the next one elected conflicts.
+   */
+  | { t: "etag"; etag: string }
+  /**
    * A tool wrote this note, and this client is the one asked to merge it.
    *
    * Sent to exactly one member — see `presenceRoom.js` — because every client
@@ -244,6 +253,9 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
         : [],
     };
   }
+  if (frame.t === "etag") {
+    return typeof frame.v === "string" && frame.v.length > 0 ? { t: "etag", etag: frame.v } : null;
+  }
   if (frame.t === "compact") return { t: "compact" };
   if (frame.t === "external") {
     // A missing text is not an empty note: it is a frame this client does not
@@ -290,6 +302,11 @@ export function drawFrame(payload: string): string {
 /** The whole scene, when the room asks a canvas for a compaction. */
 export function drawSnapshotFrame(payload: string): string {
   return JSON.stringify({ t: "drawsnap", d: payload });
+}
+
+/** "I wrote this note to the bucket, and it is at this version now." */
+export function savedFrame(etag: string): string {
+  return JSON.stringify({ t: "saved", v: etag });
 }
 
 /** Where this person's pointer is on a canvas. */
