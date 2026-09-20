@@ -128,6 +128,7 @@ those citations still resolve; look for them here rather than in `CLAUDE.md`.
 - Presence is a read that happens to be a socket
 - Phase 2: the room carries the document, and what that spends
 - A drawing merges by element, and by Excalidraw's own rules
+- A new argument reaches a client that a new tool cannot
 
 ## [Markdown forms](./forms.md)
 
