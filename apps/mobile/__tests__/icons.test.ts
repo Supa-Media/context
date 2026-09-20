@@ -347,6 +347,107 @@ describe("one stroke weight for the whole set", () => {
 });
 
 /**
+ * SHARE IS A TRAY WITH AN ARROW COMING OUT OF IT.
+ *
+ * The mark was the share *graph* — three discs and two bars — and the owner
+ * asked for this one with a picture of it. That is a small enough change to
+ * make silently and a small enough change to *undo* silently, which is the
+ * reason for this block: the graph is what a set drawn from rectangles reaches
+ * for, and nothing else in this file would notice it coming back.
+ *
+ * The claims are the ones the drawing rests on rather than the coordinates. A
+ * nudge to the tray is a nudge; a tray that closed at the top, or an arrow that
+ * stopped on its rim, is the mark not being this mark any more.
+ */
+describe("share", () => {
+  const size = 24;
+
+  /**
+   * The strokes, by the key the drawing gave them.
+   *
+   * `strokeKeys` and the DOM children come out of the same `draw` call in the
+   * same order, so the index is the join — and it throws rather than handing
+   * back `undefined` for a key that is gone, because the alternative is three
+   * assertions below silently measuring the wrong box once somebody renames a
+   * part.
+   */
+  function partsOf() {
+    const icon = mount("share", size);
+    const keys = strokeKeys("share");
+    const at = (key: string): HTMLElement => {
+      const index = keys.indexOf(key);
+      if (index < 0) throw new Error(`share no longer draws a "${key}"`);
+      return icon.strokes[index];
+    };
+    return { ...icon, at };
+  }
+
+  test("three strokes — a tray, a stem and a head — and no discs", () => {
+    // The graph's signature is `dot`, and a dot is the one primitive here that
+    // is round on every corner. Reading it off the keys as well says which
+    // drawing this is rather than only how many parts it has.
+    expect(strokeKeys("share")).toEqual(["tray", "stem", "head"]);
+  });
+
+  test("the tray is open at the top, which is what the stem runs into", () => {
+    const icon = partsOf();
+    const tray = icon.at("tray");
+
+    // Three borders. A closed box would need a gap kept centred under the stem
+    // as the weight scales, and `cradle` exists precisely so there is none.
+    expect(px(tray, "border-top-width")).toBe(0);
+    expect(px(tray, "border-bottom-width")).toBe(strokeFor(size));
+    expect(px(tray, "border-left-width")).toBe(strokeFor(size));
+    expect(px(tray, "border-right-width")).toBe(strokeFor(size));
+
+    // And it is the lower half of the box: a tray you lift something out of.
+    expect(px(tray, "top")).toBeGreaterThan(size / 3);
+
+    icon.unmount();
+  });
+
+  test("the arrow reaches above the tray and down inside it", () => {
+    const icon = partsOf();
+    const trayTop = px(icon.at("tray"), "top");
+
+    /*
+      The stem is a `bar` turned 90°, so its declared box is the horizontal one
+      and its drawn extent is its centre ± half its declared *width*. That is
+      the same conversion the bounds check above exempts rotated strokes from,
+      done explicitly because here the rotation is the point.
+    */
+    const stem = icon.at("stem");
+    const middle = px(stem, "top") + px(stem, "height") / 2;
+    const reach = px(stem, "width") / 2;
+
+    // Into the tray, not onto its rim: the overlap is what makes the mark one
+    // object being taken out of another rather than a chevron parked on a box.
+    expect(middle + reach).toBeGreaterThan(trayTop + strokeFor(size));
+    // And out of the top of it.
+    expect(middle - reach).toBeLessThan(trayTop);
+
+    icon.unmount();
+  });
+
+  test("the head points up, so the mark is a share and not a download", () => {
+    const icon = partsOf();
+
+    /*
+      A `chevron` is a square carrying its top and right borders, turned. At
+      -45° the corner between those two borders is at the top, which is what
+      makes this an arrow out of the tray; at 135° the same square points down
+      and the mark reads as Save. The angle is in a `transform`, so it is read
+      back from there rather than assumed.
+    */
+    expect(window.getComputedStyle(icon.at("head")).transform).toContain("-45deg");
+    expect(px(icon.at("head"), "border-top-width")).toBe(strokeFor(size));
+    expect(px(icon.at("head"), "border-bottom-width")).toBe(0);
+
+    icon.unmount();
+  });
+});
+
+/**
  * THE EYE IS AN EYE.
  *
  * It has now been drawn wrong twice, the same way both times, and the reason
