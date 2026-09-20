@@ -143,6 +143,31 @@ export class PresenceRoom {
     });
     this.state.acceptWebSocket(server);
 
+    /*
+      **Who puts the note into the shared document, decided here.**
+
+      A note starts as text in a bucket and exactly one client has to seed it.
+      Two clients seeding means the note contains itself twice; none seeding
+      means the shared document starts empty, and the client elected to save
+      then writes that emptiness over the customer's note — the same shape as
+      the snapshot bug below, arrived at from the other direction.
+
+      The client used to decide this by asking whether the roster in its own
+      welcome was empty. It never is: `admit` seats the member before `roster`
+      reads the room, so the first person to open a note is told about
+      themselves and concludes somebody was already here. Every unit test
+      agreed, because every unit test built the frame the way the client
+      expected it; two browsers on a real socket disagreed inside a second.
+
+      So the room answers it, because the room is the only party that can. It
+      holds both halves: whether anybody else is seated, and whether the log
+      about to be replayed already carries the document. A client alone in a
+      room whose log survived the last person leaving must not seed either —
+      the replay is about to hand it the text.
+    */
+    const log = await this.readLog();
+    const seed = room.members.size === 1 && log.length === 0;
+
     server.send(
       JSON.stringify({
         t: "welcome",
@@ -152,6 +177,7 @@ export class PresenceRoom {
         idleMs: MEMBER_IDLE_MS,
         reconnectAfterMs: PRESENCE_SOCKET_MAX_MS,
         members: roster(room),
+        seed,
       }),
     );
     this.broadcast({ t: "join", member: publicMember(seated.member) }, server);
@@ -168,7 +194,6 @@ export class PresenceRoom {
       After the welcome, so a client has its own identity before any edit
       arrives, and in one frame rather than N so a join is one round trip.
     */
-    const log = await this.readLog();
     if (log.length > 0) server.send(JSON.stringify({ t: "sync", updates: log }));
 
     /*
@@ -231,6 +256,19 @@ export class PresenceRoom {
       Their own editor still shows their own typing; it simply reaches nobody.
     */
     if ((decoded.msg.t === "y" || decoded.msg.t === "snap") && !attachment.canWrite) {
+      return;
+    }
+
+    if (decoded.msg.t === "ask") {
+      /*
+        A joiner asking the room's peers what it is missing.
+
+        Relayed as an ordinary `y` frame, because on the receiving side it is
+        one: a sync-protocol message the peer's document answers. Not appended
+        to the log — see `decodeClientFrame` — and deliberately above the write
+        gate, because asking is a read.
+      */
+      this.broadcast({ t: "y", d: decoded.msg.d }, ws);
       return;
     }
 

@@ -30,6 +30,7 @@ import { useAction } from "convex/react";
 import { api } from "@context/convex/_generated/api";
 import { gatewayOriginFrom } from "../../meetings/gateway";
 import {
+  askFrame,
   byeFrame,
   cursorFrame,
   decodeServerFrame,
@@ -259,9 +260,13 @@ export function usePresence(options: {
 
           The same exchange runs on every reconnect with no special case, which
           also closes the dropped-frame gap the snapshot was patching.
+
+          On `ask` rather than `y`: the room relays it to peers without writing
+          it to the log, and a read-only member may send it, because asking
+          what a note says is a read.
         */
         try {
-          live.send(syncFrame(encodeSyncStep1(document.doc)));
+          live.send(askFrame(encodeSyncStep1(document.doc)));
         } catch {
           // The close handler reconnects, and the reconnect opens the same way.
         }
@@ -317,16 +322,24 @@ export function usePresence(options: {
 
         if (frame.t === "welcome") {
           /*
-            **Seeding, and why only one client may do it.**
+            **Seeding, and why the room is the one to decide it.**
 
             A note starts as text in a bucket and somebody has to put it into
-            the shared document. If two clients do, the note contains it twice.
-            The room admits members one at a time, so "was anybody already
-            here?" has exactly one answer per join: an empty roster and an empty
-            replay means this client is first, and it seeds. Everybody else
-            waits for the replay however fast they were.
+            the shared document. If two clients do, the note contains it twice;
+            if none does, the document starts empty and the client elected to
+            save writes that emptiness over the note.
+
+            This used to read `frame.members.length === 0`, and that is never
+            true: the roster in a welcome includes the member it was sent to.
+            So nobody ever seeded. It survived a full unit suite because the
+            fixtures were written from this line's own assumption, and died to
+            two browsers on a real socket in under a second.
+
+            `frame.seed` is the room's answer, and the room is the only party
+            that holds both halves of the question — who else is seated, and
+            whether the replay it is about to send already carries the text.
           */
-          if (frame.members.length === 0) seedSharedDoc(document, textForSeed.current());
+          if (frame.seed) seedSharedDoc(document, textForSeed.current());
 
           // Reconnect just before the gateway would close this socket, so the
           // roster never visibly drops. See the header.

@@ -245,6 +245,34 @@ export function decodeClientFrame(raw) {
     const head = relativePosition(parsed.h);
     return { ok: true, msg: { t: "cursor", a: anchor, h: head } };
   }
+  if (parsed.t === "ask") {
+    /*
+      **"Tell me what I am missing" — a read, and shaped like one.**
+
+      This carries a Yjs state vector: a summary of what this client already
+      has, which peers answer with the diff. It is a separate type from `y`
+      for two reasons, and both are load-bearing.
+
+      It is never logged. An `ask` describes one client's ignorance at one
+      moment and is meaningless to anybody replaying the room later, so
+      routing it through `y` filled the log with entries that convey no text
+      and counted them towards compaction.
+
+      And it does not need write authority. Asking a peer what a note says is
+      a read, and a read-only member holds exactly that — so gating it like an
+      edit left a reader unable to sync from anybody, dependent on whatever
+      the room's log happened to still hold.
+
+      Sized as an update rather than a snapshot: a state vector is a few bytes
+      per contributing client, never a document.
+    */
+    if (typeof parsed.d !== "string" || parsed.d.length === 0) {
+      return { ok: false, reason: "bad_update" };
+    }
+    if (!/^[A-Za-z0-9+/]+={0,2}$/.test(parsed.d)) return { ok: false, reason: "not_base64" };
+    if (frameBytes(parsed.d) > MAX_UPDATE_BYTES) return { ok: false, reason: "too_large" };
+    return { ok: true, msg: { t: "ask", d: parsed.d } };
+  }
   if (parsed.t === "y" || parsed.t === "snap") {
     // Base64 of an encoded document update. Checked for *shape* and *size*
     // only: the room does not decode it, cannot decode it, and must not start

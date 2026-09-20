@@ -196,6 +196,7 @@ describe("the presence state machine", () => {
           members: [member({ id: "me" }), member({ id: "m2" })],
           reconnectAfterMs: 300_000,
           heartbeatMs: 15_000,
+          seed: false,
         },
       },
     );

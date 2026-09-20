@@ -24,6 +24,7 @@ import {
   decodeClientFrame,
 } from "../../mcp/src/presence.js";
 import {
+  askFrame,
   cursorFrame,
   decodeServerFrame,
   pingFrame,
@@ -42,9 +43,11 @@ describe("what the client sends, the room accepts", () => {
     // The first thing any client sends, on every connect and reconnect. If the
     // room refused this shape, nobody would ever receive a document.
     const doc = createSharedDoc({});
-    const accepted = decodeClientFrame(syncFrame(encodeSyncStep1(doc.doc)));
+    const accepted = decodeClientFrame(askFrame(encodeSyncStep1(doc.doc)));
     expect(accepted.ok).toBe(true);
-    expect(accepted.msg.t).toBe("y");
+    // `ask`, not `y`: the room relays it without logging it, and lets a
+    // read-only member send it, because asking what a note says is a read.
+    expect(accepted.msg?.t).toBe("ask");
   });
 
   test("an edit", () => {
@@ -57,7 +60,7 @@ describe("what the client sends, the room accepts", () => {
 
     const accepted = decodeClientFrame(sent);
     expect(accepted.ok).toBe(true);
-    expect(accepted.msg.t).toBe("y");
+    expect(accepted.msg?.t).toBe("y");
   });
 
   test("a snapshot", () => {
@@ -65,7 +68,7 @@ describe("what the client sends, the room accepts", () => {
     seedSharedDoc(doc, "# A note\n\nwith some words in it\n");
     const accepted = decodeClientFrame(snapshotFrame(doc.snapshot()));
     expect(accepted.ok).toBe(true);
-    expect(accepted.msg.t).toBe("snap");
+    expect(accepted.msg?.t).toBe("snap");
   });
 
   test("a caret and a heartbeat", () => {
@@ -104,7 +107,7 @@ describe("what the room sends, the client reads", () => {
       const frame = from.pending.shift() as string;
       const atRoom = decodeClientFrame(frame);
       expect(atRoom.ok).toBe(true);
-      const atClient = decodeServerFrame(JSON.stringify({ t: "y", d: atRoom.msg.d }));
+      const atClient = decodeServerFrame(JSON.stringify({ t: "y", d: atRoom.msg?.d }));
       expect(atClient).not.toBeNull();
       if (atClient && atClient.t === "y") {
         const outcome = readSyncMessage(atClient.d, toDoc.doc, "remote");
@@ -164,7 +167,7 @@ describe("what the room sends, the client reads", () => {
     const author = createSharedDoc({
       onLocalUpdateBytes: (u) => {
         const atRoom = decodeClientFrame(syncFrame(encodeUpdate(u)));
-        if (atRoom.ok) log.push(atRoom.msg.d);
+        if (atRoom.ok && atRoom.msg) log.push(atRoom.msg.d);
       },
     });
     seedSharedDoc(author, "# Roadmap\n");
@@ -183,5 +186,43 @@ describe("what the room sends, the client reads", () => {
 
   test("the room's compaction request is one the client understands", () => {
     expect(decodeServerFrame(JSON.stringify({ t: "compact" }))).toEqual({ t: "compact" });
+  });
+
+  test("who seeds the document is the room's answer, and it survives the wire", () => {
+    /*
+      The bug two browsers found and fifty-two green checks did not.
+
+      The client used to decide this itself, by asking whether the roster in
+      its own welcome was empty. A welcome's roster always contains the member
+      it was sent to — the room seats you before it describes the room — so the
+      answer was "somebody is already here" for the very first person, nobody
+      ever seeded, and the note's text never entered the shared document.
+
+      So the roster is deliberately non-empty in both frames below. What
+      decides is `seed`, and only `seed`.
+    */
+    const me = { id: "m1", name: "@ana", color: "#3b82f6", a: null, h: null };
+
+    const first = decodeServerFrame(
+      JSON.stringify({ t: "welcome", v: 1, you: "m1", members: [me], seed: true }),
+    );
+    expect(first).not.toBeNull();
+    if (first && first.t === "welcome") {
+      expect(first.seed).toBe(true);
+      expect(first.members.length).toBe(1);
+    }
+
+    const second = decodeServerFrame(
+      JSON.stringify({ t: "welcome", v: 1, you: "m1", members: [me], seed: false }),
+    );
+    if (second && second.t === "welcome") expect(second.seed).toBe(false);
+
+    // An older gateway that does not send the field at all reads as "do not
+    // seed", which is the safe way to be wrong: an empty editor is recoverable
+    // and a note containing itself twice is not.
+    const older = decodeServerFrame(
+      JSON.stringify({ t: "welcome", v: 1, you: "m1", members: [me] }),
+    );
+    if (older && older.t === "welcome") expect(older.seed).toBe(false);
   });
 });

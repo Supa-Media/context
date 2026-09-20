@@ -41,7 +41,27 @@ export interface PresenceMember {
 }
 
 export type ServerFrame =
-  | { t: "welcome"; you: string; members: PresenceMember[]; reconnectAfterMs: number; heartbeatMs: number }
+  | {
+      t: "welcome";
+      you: string;
+      members: PresenceMember[];
+      reconnectAfterMs: number;
+      heartbeatMs: number;
+      /**
+       * Whether this client is the one to put the note's text into the shared
+       * document.
+       *
+       * **The room decides this and the client obeys it.** The client cannot:
+       * the roster it is handed includes the member it was handed to, so "was
+       * anybody already here" reads the same for the first person as for the
+       * tenth, and the room also knows something the client does not — whether
+       * the replay about to follow already carries the document. Absent from an
+       * older gateway, where it reads `false`, which is the safe way to be
+       * wrong: a note that fails to seed shows empty and is not saved over,
+       * while a note seeded twice contains itself twice.
+       */
+      seed: boolean;
+    }
   | { t: "join"; member: PresenceMember }
   | { t: "cursor"; id: string; anchor: string | null; head: string | null }
   | { t: "leave"; id: string }
@@ -131,6 +151,9 @@ export function decodeServerFrame(raw: unknown): ServerFrame | null {
       members,
       reconnectAfterMs: typeof frame.reconnectAfterMs === "number" ? frame.reconnectAfterMs : 300_000,
       heartbeatMs: typeof frame.heartbeatMs === "number" ? frame.heartbeatMs : 15_000,
+      // Exactly `true`, never truthy: this is the flag that decides whether a
+      // client writes the note's text into a document everybody shares.
+      seed: frame.seed === true,
     };
   }
   if (frame.t === "join") {
@@ -170,6 +193,19 @@ export function cursorFrame(anchor: string | null, head: string | null): string 
 /** One Yjs sync-protocol message on its way to the room. */
 export function syncFrame(payload: string): string {
   return JSON.stringify({ t: "y", d: payload });
+}
+
+/**
+ * "Here is what I already have; tell me the rest."
+ *
+ * A Yjs state vector, on its own frame type rather than on `y`. The room never
+ * writes one to its log — it describes one client's ignorance at one instant
+ * and means nothing to anybody replaying the room later — and it needs no write
+ * authority, because asking what a note says is a read. A read-only member
+ * sends this and peers answer it.
+ */
+export function askFrame(payload: string): string {
+  return JSON.stringify({ t: "ask", d: payload });
 }
 
 /** The whole document, when the room asks for a compaction. */

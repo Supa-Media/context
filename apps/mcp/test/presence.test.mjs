@@ -428,6 +428,200 @@ export async function runPresenceChecks(check) {
       PresenceRoom.prototype.dropLogBefore.length === 1,
   );
 
+  /* ------------- who puts the note into the shared document -------------- */
+
+  /*
+    **The seeding decision, tested against a real `welcome` frame.**
+
+    A note starts as text in a bucket and exactly one client has to put it into
+    the shared document; two clients doing it means the note contains itself
+    twice, and none doing it means the shared document starts empty and the
+    elected writer saves that emptiness over the customer's note.
+
+    The client used to decide this by asking whether the roster in its own
+    welcome was empty — and the roster *includes the member it was just sent
+    to*, so the answer was "no" for the first person as well as the last. Every
+    unit test agreed with the client because every unit test built the welcome
+    frame the way the client expected it, and two browsers on a real socket
+    disagreed within a second: nobody seeded, and the note's text never reached
+    the room.
+
+    So the decision moved to the room, which is the only party that knows both
+    halves of it, and these checks run the object's own `fetch` against a fake
+    of the Durable Object runtime rather than a fixture of what it might send.
+  */
+  const fakeSocket = () => {
+    const sent = [];
+    let attachment = null;
+    return {
+      sent,
+      frames: () => sent.map((text) => JSON.parse(text)),
+      send: (text) => sent.push(text),
+      close: () => {},
+      serializeAttachment: (value) => {
+        attachment = value;
+      },
+      deserializeAttachment: () => attachment,
+    };
+  };
+
+  const fakeRoomRuntime = () => {
+    const open = [];
+    const stored = new Map();
+    return {
+      open,
+      state: {
+        acceptWebSocket: (ws) => open.push(ws),
+        getWebSockets: () => [...open],
+        storage: {
+          async get(key) {
+            return stored.get(key);
+          },
+          async put(entries) {
+            for (const [key, value] of Object.entries(entries)) stored.set(key, value);
+          },
+          async list({ prefix = "", end } = {}) {
+            const hits = [...stored.entries()]
+              .filter(([key]) => key.startsWith(prefix) && (end === undefined || key < end))
+              .sort(([a], [b]) => a.localeCompare(b));
+            return new Map(hits);
+          },
+          async delete(keys) {
+            for (const key of keys) stored.delete(key);
+          },
+          async deleteAll() {
+            stored.clear();
+          },
+          async setAlarm() {},
+          async getAlarm() {
+            return null;
+          },
+        },
+      },
+    };
+  };
+
+  // `WebSocketPair` is a Workers global. The object under test only ever uses
+  // it to get two ends; the fake gives it two ends it can inspect.
+  const previousPair = globalThis.WebSocketPair;
+  const pairs = [];
+  globalThis.WebSocketPair = function FakePair() {
+    const client = fakeSocket();
+    const server = fakeSocket();
+    pairs.push({ client, server });
+    return [client, server];
+  };
+  try {
+    const runtime = fakeRoomRuntime();
+    const roomObject = new PresenceRoom(runtime.state, {});
+    // The object answers 101, which node's `Response` refuses to construct —
+    // a fact about undici, not about the room. Everything under test has
+    // already been sent to the socket by then, so the throw is swallowed and
+    // the frames are read off the fake.
+    const join = async (name) => {
+      try {
+        await roomObject.fetch(
+          new Request("https://gateway.invalid/presence", {
+            headers: {
+              Upgrade: "websocket",
+              "x-presence-member": JSON.stringify({ name, colorSeed: null, canWrite: true }),
+            },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+      }
+    };
+
+    await join("@first");
+    const firstWelcome = pairs[0].server.frames().find((frame) => frame.t === "welcome");
+    check(
+      "the room tells the first client to seed the document",
+      firstWelcome?.seed === true,
+    );
+    check(
+      "...and its roster contains the client it was sent to, which is why the client could not decide this itself",
+      firstWelcome?.members.length === 1 && firstWelcome.members[0].id === firstWelcome.you,
+    );
+
+    await join("@second");
+    const secondWelcome = pairs[1].server.frames().find((frame) => frame.t === "welcome");
+    check(
+      "the room tells a client joining an occupied room not to seed",
+      secondWelcome?.seed === false,
+    );
+
+    // A room whose members have all gone but whose log has not yet been swept:
+    // the next person to arrive is alone, and must still not seed, because the
+    // replay is about to hand them the document.
+    await roomObject.appendUpdate("QUJD");
+    runtime.open.length = 0;
+    await join("@afterwards");
+    const thirdWelcome = pairs[2].server.frames().find((frame) => frame.t === "welcome");
+    check(
+      "a client alone in a room that still holds a log is not told to seed",
+      thirdWelcome?.seed === false,
+    );
+
+    /* ------------------ asking peers what you are missing ---------------- */
+
+    const askingRuntime = fakeRoomRuntime();
+    const askingRoom = new PresenceRoom(askingRuntime.state, {});
+    const seatAt = (index) => askingRuntime.open[index];
+    const joinAsking = async (name, canWrite) => {
+      try {
+        await askingRoom.fetch(
+          new Request("https://gateway.invalid/presence", {
+            headers: {
+              Upgrade: "websocket",
+              "x-presence-member": JSON.stringify({ name, colorSeed: null, canWrite }),
+            },
+          }),
+        );
+      } catch (error) {
+        if (!(error instanceof RangeError)) throw error;
+      }
+    };
+
+    await joinAsking("@writer", true);
+    await joinAsking("@reader", false);
+    const writerSocket = seatAt(0);
+    const readerSocket = seatAt(1);
+    const before = writerSocket.sent.length;
+
+    // The reader asks. It holds no write authority at all.
+    await askingRoom.webSocketMessage(readerSocket, JSON.stringify({ t: "ask", d: "QUJD" }));
+    const relayed = writerSocket.frames().slice(before);
+    check(
+      "a read-only member may ask its peers what the note says",
+      // Asking is a read, and a member holds exactly that. Routing this through
+      // the edit frame — which it was — left a reader unable to sync from
+      // anybody, dependent on whatever the room's log happened to still hold.
+      relayed.some((frame) => frame.t === "y" && frame.d === "QUJD"),
+    );
+    check(
+      "...and the question is never written to the room's log",
+      // A state vector describes one client's ignorance at one instant. Logged,
+      // it conveys no text to anybody replaying the room later and still counts
+      // towards the compaction threshold.
+      (await askingRoom.readLog()).length === 0,
+    );
+
+    const writerFramesBeforeEdit = writerSocket.sent.length;
+    await askingRoom.webSocketMessage(readerSocket, JSON.stringify({ t: "y", d: "ZGVm" }));
+    check(
+      "...while an edit from the same read-only member still reaches nobody",
+      // The distinction the whole `ask` type rests on: the reader may ask, and
+      // may not answer. Non-vacuous — the writer's socket received the ask a
+      // moment ago, so "no new frame" is a fact about this frame.
+      writerSocket.sent.length === writerFramesBeforeEdit &&
+        (await askingRoom.readLog()).length === 0,
+    );
+  } finally {
+    if (previousPair === undefined) delete globalThis.WebSocketPair;
+    else globalThis.WebSocketPair = previousPair;
+  }
+
   /* ============================== the route ============================== */
 
   const controlPlane = createControlPlaneStub();
