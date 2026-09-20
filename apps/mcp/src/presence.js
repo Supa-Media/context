@@ -225,6 +225,9 @@ export function decodeClientFrame(raw) {
     return { ok: false, reason: "not_object" };
   }
   if (parsed.t === "cursor") {
+    // Same cap, checked before the branch returns. A caret is two integers; a
+    // cursor frame that is not caret-sized is not a caret frame.
+    if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
     const anchor = normalizeOffset(parsed.a);
     const head = normalizeOffset(parsed.h);
     if (anchor === null || head === null) return { ok: false, reason: "bad_offset" };
@@ -243,6 +246,16 @@ export function decodeClientFrame(raw) {
     if (frameBytes(parsed.d) > cap) return { ok: false, reason: "too_large" };
     return { ok: true, msg: { t: parsed.t, d: parsed.d } };
   }
+  /*
+    **Everything that is not a merge frame is still a caret-sized frame.**
+
+    Raising the outer ceiling to admit a snapshot is what let these through: a
+    padded cursor frame of half a megabyte was accepted, because the only
+    tight caps were on the two new types. The two checks that caught it exist
+    precisely to stop somebody streaming bulk down this channel, so the cap is
+    reapplied here rather than the tests being taught to expect less.
+  */
+  if (frameBytes(raw) > MAX_CLIENT_FRAME_BYTES) return { ok: false, reason: "too_large" };
   if (parsed.t === "ping") return { ok: true, msg: { t: "ping" } };
   if (parsed.t === "bye") return { ok: true, msg: { t: "bye" } };
   return { ok: false, reason: "unknown_type" };

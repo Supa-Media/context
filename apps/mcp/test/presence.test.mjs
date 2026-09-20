@@ -257,6 +257,31 @@ export async function runPresenceChecks(check) {
     astral.length < MAX_CLIENT_FRAME_BYTES * 2 && decodeClientFrame(astral).ok === false,
   );
 
+  check(
+    "raising the ceiling for a merge frame does not raise it for a caret",
+    // This is a regression check with a date on it: adding `u` and `snap` gave
+    // the outer gate a snapshot-sized ceiling, and for one commit a cursor
+    // frame padded to half a megabyte was accepted because the tight caps were
+    // only on the two new types. The two checks above caught it. This one says
+    // what they were protecting, so the next person widening this function has
+    // to read it.
+    decodeClientFrame(
+      JSON.stringify({ t: "cursor", a: 1, h: 1, pad: "x".repeat(MAX_CLIENT_FRAME_BYTES * 4) }),
+    ).ok === false,
+  );
+  check(
+    "a snapshot may be large, which is the whole reason the outer gate moved",
+    // Non-vacuity for the row above: if the merge frames were also capped at
+    // the caret's ceiling, that check would pass for the wrong reason and
+    // compaction would silently never work.
+    // Valid base64 all the way through: the first version of this check
+    // repeated a *padded* chunk, so `=` landed mid-string and the guard
+    // refused it — the check failed for a reason that had nothing to do with
+    // size, which is the sort of test that gets "fixed" by loosening the
+    // guard it was meant to defend.
+    decodeClientFrame(JSON.stringify({ t: "snap", d: "QUJD".repeat(4000) })).ok === true,
+  );
+
   const accepted = decodeClientFrame('{"t":"cursor","a":12,"h":18,"text":"the note body"}');
   check("a well-formed cursor frame is accepted", accepted.ok === true);
   check(
