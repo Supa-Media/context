@@ -220,12 +220,22 @@ export const ICON_NAMES = [
   /** The toolbar's filter, over the note list. */
   "filter",
   /**
-   * The note toolbar's Share, in the group at the top-right of a phone.
+   * The note toolbar's Share, in the group at the top-right of a phone, and
+   * the trailing action on the pointer layout's note header.
    *
-   * The share *graph* — three nodes and the two edges between them — rather
-   * than iOS's arrow out of a tray. That mark means "send this somewhere
-   * else"; a share here grants somebody a way in to a note that stays exactly
-   * where it is, which is a relationship rather than a departure.
+   * iOS's arrow out of a tray. This was the share *graph* — three nodes and
+   * two edges — on the argument that a share here grants somebody a way in to
+   * a note that stays where it is, which is a relationship rather than a
+   * departure. The argument is still true and it lost anyway, to the owner
+   * asking for this glyph with a picture of it: the graph is also Android's
+   * share mark, so the distinction it was drawing was never read as one, and
+   * at 17pt three discs and two bars read as a smudge — the finding at the top
+   * of this file, in a mark rather than a character.
+   *
+   * The landing page's third assurance panel — "Leaving is free, on both
+   * plans" — carries this too, and it got better out of the change rather than
+   * merely surviving it: an arrow lifting out of a tray is the export, which
+   * is what that panel is about.
    */
   "share",
   /**
@@ -672,14 +682,27 @@ function shackle(
  * a turned box lands somewhere else and the "stays inside its box" check in
  * `icons.test.ts` is then measuring a box the drawing has left. Three borders
  * and the two *bottom* radii, positioned where they are declared.
+ *
+ * `radius` defaults to half the width, which is the semicircle the microphone
+ * wants and was the only shape this could draw. `share`'s tray wants the same
+ * three borders with an ordinary corner on them — a U with a semicircular foot
+ * is a bowl, and the mark is a box you lift something out of — so the radius
+ * is a parameter rather than a second near-identical primitive.
  */
 function cradle(
   key: string,
   u: number,
   w: number,
   color: string,
-  { x0, y0, x1, y1 }: { x0: number; y0: number; x1: number; y1: number },
+  {
+    x0,
+    y0,
+    x1,
+    y1,
+    radius,
+  }: { x0: number; y0: number; x1: number; y1: number; radius?: number },
 ) {
+  const corner = (radius ?? (x1 - x0) / 2) * u;
   return (
     <View
       key={key}
@@ -692,8 +715,8 @@ function cradle(
         borderBottomWidth: w,
         borderLeftWidth: w,
         borderRightWidth: w,
-        borderBottomLeftRadius: ((x1 - x0) / 2) * u,
-        borderBottomRightRadius: ((x1 - x0) / 2) * u,
+        borderBottomLeftRadius: corner,
+        borderBottomRightRadius: corner,
         borderColor: color,
       }}
     />
@@ -1192,17 +1215,26 @@ function draw(name: IconName, u: number, c: string, w: number): ReactElement | R
 
     case "share":
       /*
-        Three nodes and two edges. The edges stop short of the discs rather
-        than running under them — at 20pt a bar that reaches a node's centre
-        turns the whole mark into a filled wedge — so each one is drawn a
-        little shorter than the distance it spans and the gap does the rest.
+        A tray with an arrow lifting out of it.
+
+        The arrow's stem runs *into* the tray rather than stopping on its rim:
+        the two overlap by a little under a seventh of the box, which is what
+        makes the mark read as one object being taken out of another instead of
+        as a chevron parked above a bowl. The tray's top edge is absent
+        entirely — `cradle` is three borders — so there is nothing for the stem
+        to cross, and no gap to keep centred as the weight scales.
+
+        The head is a `chevron`, which is a square turned to point: its apex
+        sits `side / √2` above the declared centre, so the centre is placed
+        that far *below* where the point is wanted rather than at it. Putting
+        the chevron's centre on the tip is how an arrow ends up drawn half out
+        of its box, which the set's bounds check would catch at 24 and the eye
+        would catch nowhere.
       */
       return [
-        bar("up", u, w, c, { cx: 0.5, cy: 0.34, length: 0.34, angle: -34 }),
-        bar("down", u, w, c, { cx: 0.5, cy: 0.66, length: 0.34, angle: 34 }),
-        dot("hub", u, c, { cx: 0.24, cy: 0.5, r: 0.13 }),
-        dot("top", u, c, { cx: 0.76, cy: 0.2, r: 0.13 }),
-        dot("bottom", u, c, { cx: 0.76, cy: 0.8, r: 0.13 }),
+        cradle("tray", u, w, c, { x0: 0.16, y0: 0.48, x1: 0.84, y1: 0.92, radius: 0.1 }),
+        bar("stem", u, w, c, { cx: 0.5, cy: 0.36, length: 0.52, angle: 90 }),
+        chevron("head", u, w, c, { cx: 0.5, cy: 0.312, side: 0.3, angle: -45 }),
       ];
 
     case "book":
