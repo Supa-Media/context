@@ -95,7 +95,11 @@ const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
   "<!-- BEGIN BRAIN PRIVACY RULES -->\n\n```yaml\ndefault_visibility: private\n\n" +
   "folder_defaults:\n  index.md: team\n  1-projects: team\n  3-resources: team\n\n" +
-  "note_overrides:\n  3-resources/private-notes.md: private\n```\n\n" +
+  "note_overrides:\n  3-resources/private-notes.md: private\n" +
+  // Held to a named group, and nothing else in this file touches it. A group's
+  // *name* is membership structure, so it is the sharpest thing a rule can
+  // carry and the one a refusal must not read back.
+  "  2-areas/leads-answers.md: @supa-leads\n```\n\n" +
   "<!-- END BRAIN PRIVACY RULES -->\n";
 
 const BUGS_NOTE = [
@@ -1326,6 +1330,74 @@ export async function runFormChecks(check) {
         fields: [{ name: "x", type: "line", max: 5 }],
       });
       check("and a read-only grant may not either", byReadOnly.isError);
+
+      /*
+        THE ANSWERS LINE IS A READ OF `privacy.md`, SO IT ANSWERS AT THE
+        CALLER'S TIER.
+
+        `create_form` closes by naming where answers land and who can read
+        them, which is right and is the reason the tool is safe to offer: an
+        agent that assumed "private because the form is private" would tell
+        somebody their client intake is confidential when the folder default
+        says otherwise.
+
+        But `responses` is a path the CALLER names, and the line is printed
+        whether or not the collection was permitted. `mayCollectResponsesAt`
+        already refuses a team connection every destination that is not
+        `team` — and the refusal was followed by a sentence stating the rule
+        that did the refusing. A team connection cannot read `privacy.md`
+        (`read_note` answers `not found`), and no other tool at that tier
+        names a folder's rule or a group: `scope_info`, `orient` and
+        `list_notes` were each checked and name neither.
+
+        So the line answered, one path per call, a question the manifest is
+        closed to — and in the third branch it read back the group's own name.
+        It is now printed only where the caller could have established it
+        anyway, which is exactly where the collection is allowed.
+      */
+      const intoPrivate = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/probe-private.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+        responses: "2-areas/answers.md",
+      });
+      check(
+        "a team connection is not told the privacy rule of a path it cannot collect into",
+        !intoPrivate.isError &&
+          !/\(private\)/.test(intoPrivate.text) &&
+          !/only this context's owner/i.test(intoPrivate.text)
+      );
+      check(
+        "...and is still told plainly that nothing is collecting",
+        /cannot collect responses there/.test(intoPrivate.text)
+      );
+
+      const intoGroup = await call(env, EDITOR_TOKEN, "create_form", {
+        path: "3-resources/probe-group.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+        responses: "2-areas/leads-answers.md",
+      });
+      check(
+        "...and never reads back the name of a group it cannot see",
+        !intoGroup.isError && !/@supa-leads/.test(intoGroup.text)
+      );
+
+      /*
+        Non-vacuity, and the half that must survive: the sentence exists for
+        the person who is about to collect answers somewhere, and an owner is
+        still told where that is and who can read it.
+      */
+      const ownerForm = await call(env, OWNER_TOKEN, "create_form", {
+        path: "2-areas/owner-form.md",
+        fields: [{ name: "x", type: "line", max: 5 }],
+        responses: "2-areas/owner-answers.md",
+        visibility: "private",
+      });
+      check(
+        "a personal connection is still told where the answers land and who reads them",
+        !ownerForm.isError &&
+          /answers go to: 2-areas\/owner-answers\.md \(private\)/.test(ownerForm.text) &&
+          /only this context's owner/i.test(ownerForm.text)
+      );
     }
 
     /* -- (10) a store that cannot do conditional writes ---------------------- */
