@@ -49,8 +49,9 @@ breaking one, stop and say so rather than working around it.
    editing one note need a shared place for characters that are seconds old,
    and there is no version of that feature without one. It is bounded, and the
    bounds are the reason it is allowed — one room per note, append-only,
-   deleted when the last person leaves, never the only copy of anything, and
-   the flush to the bucket is continuous. See
+   deleted when the last person leaves, replayed only to a socket that passed
+   `canSee` at join, never the only copy of anything, and the flush to the
+   bucket is continuous. See
    [storage-and-credentials](./docs/decisions/storage-and-credentials.md).
    A store's per-account resource
    ceiling is therefore a constraint on the product, not a detail: R2 allows a
