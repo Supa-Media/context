@@ -64,6 +64,42 @@ function check(label, condition) {
 }
 
 /**
+ * ONE SUITE, AND A THROW INSIDE IT REPORTED RATHER THAN FATAL.
+ *
+ * The gateway's own runner names this failure mode and answers it with a
+ * discipline — *"every `.result` access below is optional-chained on
+ * purpose"* — applied by hand, at every site, for ever. That discipline is
+ * not holdable and was broken here: a `check` in the `transcribeRequest`
+ * suite read `answer.speechEvidence.keptNoSpeechMax`, and the one edit it
+ * existed to catch made that `null`.
+ *
+ * **What a throw costs, measured rather than assumed.** It is not the exit
+ * code — the process does exit 1, and CI does go red. It is that the throw
+ * unwinds past every suite queued behind it: in `apps/desktop` one such throw
+ * took **1,129 of 1,780 checks** out of the run, and not one of them was
+ * reported as failed, skipped, or missing. A run that silently stops being
+ * 63% of itself, while showing red for one unrelated-looking reason, is the
+ * worst shape a suite can fail in — worse than a plain failure, because the
+ * number nobody reads is the one that moved.
+ *
+ * So a suite that throws is **one named failure**, and the suites behind it
+ * still run. `report` is injectable only so this wrapper can be checked by
+ * the suite it belongs to without printing a failure nobody should act on.
+ */
+function fail(label) {
+  failures += 1;
+  console.log(`FAIL  ${label}`);
+}
+
+async function suite(name, run, report = fail) {
+  try {
+    await run();
+  } catch (error) {
+    report(`${name} threw, so its remaining checks did not run — ${error?.message ?? error}`);
+  }
+}
+
+/**
  * A check that could not run, reported as itself.
  *
  * Used for exactly one thing today: the real detector is not in the tree yet.
@@ -76,47 +112,80 @@ function skip(label, why) {
   console.log(`SKIP  ${label}${why ? ` — ${why}` : ""}`);
 }
 
-runSettingsChecks(check);
-runBlocklistChecks(check);
-runConsentChecks(check);
-await runDetectionLoopChecks(check);
-runOutboxChecks(check);
-await runGatewayChecks(check);
-await runToolContractChecks(check);
-await runConnectionChecks(check);
-await runConnectChecks(check);
-await runApprovalChecks(check);
-await runAutoGrantChecks(check);
-await runTokenStoreChecks(check);
-await runCaptureWindowChecks(check);
-await runTranscriberChecks(check);
-runPlanChecks(check);
-await runLocalAgentChecks(check);
-await runTranscribeRequestChecks(check);
-await runControllerChecks(check);
-await runSessionOrderChecks(check);
-runTrayChecks(check);
-runPlatformChecks(check);
-runShellChecks(check);
-await runTrayOnlyChecks(check);
-await runMirrorChecks(check);
-runUpdatePolicyChecks(check);
-await runUpdaterBehaviorChecks(check);
-runUpdatePromptChecks(check);
-await runConsoleBridgeChecks(check);
-await runContractChecks(check, skip);
-await runPackagingChecks(check);
-runAppShellChecks(check);
-runImessageAppleTimeChecks(check);
-runImessageAttributedBodyChecks(check);
-runImessagePathsChecks(check);
-await runImessagePermissionChecks(check);
-runImessageCursorChecks(check);
-runImessageReaderChecks(check);
-await runImessageGatewayNotesChecks(check);
-await runImessageSyncChecks(check);
-await runImessageSqliteChecks(check, skip);
-await runImessageServiceChecks(check, skip);
+/*
+  AND THE WRAPPER'S OWN GUARD, BECAUSE A GUARD NOBODY HAS CHECKED IS NOT ONE.
+
+  Two things, and the second is the whole point: a throwing suite becomes one
+  named failure, **and the suite queued behind it still runs**. A wrapper that
+  caught and re-threw would pass the first of these and fail the second, which
+  is the shape that was already in the tree.
+
+  Its own `report` so the deliberate throws below are not counted or printed —
+  a FAIL line nobody should act on is how a suite teaches people to skim past
+  FAIL lines.
+*/
+{
+  const reported = [];
+  const collect = (label) => reported.push(label);
+  let secondRan = false;
+  await suite("a suite that throws", () => {
+    throw new Error("boom");
+  }, collect);
+  await suite("the one behind it", () => {
+    secondRan = true;
+  }, collect);
+  check(
+    "a suite that throws is one named failure, naming the suite and the reason",
+    reported.length === 1 && reported[0].includes("a suite that throws") && reported[0].includes("boom")
+  );
+  check("...and the suite queued behind it still runs", secondRan === true);
+  await suite("an async suite that rejects", async () => {
+    throw new Error("later");
+  }, collect);
+  check("...and a rejected promise is caught the same way", reported.length === 2 && reported[1].includes("later"));
+}
+
+await suite("runSettingsChecks", () => runSettingsChecks(check));
+await suite("runBlocklistChecks", () => runBlocklistChecks(check));
+await suite("runConsentChecks", () => runConsentChecks(check));
+await suite("runDetectionLoopChecks", () => runDetectionLoopChecks(check));
+await suite("runOutboxChecks", () => runOutboxChecks(check));
+await suite("runGatewayChecks", () => runGatewayChecks(check));
+await suite("runToolContractChecks", () => runToolContractChecks(check));
+await suite("runConnectionChecks", () => runConnectionChecks(check));
+await suite("runConnectChecks", () => runConnectChecks(check));
+await suite("runApprovalChecks", () => runApprovalChecks(check));
+await suite("runAutoGrantChecks", () => runAutoGrantChecks(check));
+await suite("runTokenStoreChecks", () => runTokenStoreChecks(check));
+await suite("runCaptureWindowChecks", () => runCaptureWindowChecks(check));
+await suite("runTranscriberChecks", () => runTranscriberChecks(check));
+await suite("runPlanChecks", () => runPlanChecks(check));
+await suite("runLocalAgentChecks", () => runLocalAgentChecks(check));
+await suite("runTranscribeRequestChecks", () => runTranscribeRequestChecks(check));
+await suite("runControllerChecks", () => runControllerChecks(check));
+await suite("runSessionOrderChecks", () => runSessionOrderChecks(check));
+await suite("runTrayChecks", () => runTrayChecks(check));
+await suite("runPlatformChecks", () => runPlatformChecks(check));
+await suite("runShellChecks", () => runShellChecks(check));
+await suite("runTrayOnlyChecks", () => runTrayOnlyChecks(check));
+await suite("runMirrorChecks", () => runMirrorChecks(check));
+await suite("runUpdatePolicyChecks", () => runUpdatePolicyChecks(check));
+await suite("runUpdaterBehaviorChecks", () => runUpdaterBehaviorChecks(check));
+await suite("runUpdatePromptChecks", () => runUpdatePromptChecks(check));
+await suite("runConsoleBridgeChecks", () => runConsoleBridgeChecks(check));
+await suite("runContractChecks", () => runContractChecks(check, skip));
+await suite("runPackagingChecks", () => runPackagingChecks(check));
+await suite("runAppShellChecks", () => runAppShellChecks(check));
+await suite("runImessageAppleTimeChecks", () => runImessageAppleTimeChecks(check));
+await suite("runImessageAttributedBodyChecks", () => runImessageAttributedBodyChecks(check));
+await suite("runImessagePathsChecks", () => runImessagePathsChecks(check));
+await suite("runImessagePermissionChecks", () => runImessagePermissionChecks(check));
+await suite("runImessageCursorChecks", () => runImessageCursorChecks(check));
+await suite("runImessageReaderChecks", () => runImessageReaderChecks(check));
+await suite("runImessageGatewayNotesChecks", () => runImessageGatewayNotesChecks(check));
+await suite("runImessageSyncChecks", () => runImessageSyncChecks(check));
+await suite("runImessageSqliteChecks", () => runImessageSqliteChecks(check, skip));
+await suite("runImessageServiceChecks", () => runImessageServiceChecks(check, skip));
 
 console.log(
   failures

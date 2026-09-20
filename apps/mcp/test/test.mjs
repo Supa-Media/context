@@ -340,6 +340,42 @@ function check(label, cond) {
   console.log(`${cond ? "PASS" : "FAIL"}  ${label}`);
 }
 
+/**
+ * ONE SUITE, AND A THROW INSIDE IT REPORTED RATHER THAN FATAL.
+ *
+ * The comment above already names this failure mode and answers it with a
+ * discipline — *"every `.result` access below is optional-chained on
+ * purpose"* — applied by hand, at every site, for ever. That discipline is
+ * not holdable and was already broken elsewhere: a `check` in the desktop's
+ * `transcribeRequest` suite read `answer.speechEvidence.keptNoSpeechMax`, and
+ * the one edit it existed to catch made that `null`.
+ *
+ * **What a throw costs, measured rather than assumed.** It is not the exit
+ * code — the process does exit 1, and CI does go red. It is that the throw
+ * unwinds past every suite queued behind it: in `apps/desktop` one such throw
+ * took **1,129 of 1,780 checks** out of the run, and not one of them was
+ * reported as failed, skipped, or missing. A run that silently stops being
+ * 63% of itself, while showing red for one unrelated-looking reason, is the
+ * worst shape a suite can fail in — worse than a plain failure, because the
+ * number nobody reads is the one that moved.
+ *
+ * So a suite that throws is **one named failure**, and the suites behind it
+ * still run. `report` is injectable only so this wrapper can be checked by
+ * the suite it belongs to without printing a failure nobody should act on.
+ */
+function fail(label) {
+  failures++;
+  console.log(`FAIL  ${label}`);
+}
+
+async function suite(name, run, report = fail) {
+  try {
+    await run();
+  } catch (error) {
+    report(`${name} threw, so its remaining checks did not run — ${error?.message ?? error}`);
+  }
+}
+
 // -- protocol basics
 //
 // Every `.result` access below is optional-chained on purpose.
@@ -352,6 +388,23 @@ function check(label, cond) {
 // silently becomes dead weight. A crash is a worse signal than a failure
 // because it takes the rest of the suite with it.
 const init = await rpc("priv-token", "initialize", { protocolVersion: "2025-06-18" });
+/*
+  The instructions as one line, or the empty string when there are none.
+
+  The comment above says every `.result` access here is optional-chained; six
+  of them were not, and `init.result.instructions.replace(...)` is the one that
+  throws first. This section runs **outside** any suite, so the `suite` wrapper
+  does not cover it — a throw here still takes the whole file, which is what
+  the comment is warning about. An absent value has to reach the checks as a
+  value they can fail on, and the empty string is that: every assertion below
+  is a `test()` that a `""` fails, which is the direction a missing field
+  should push a check.
+
+  A `.some()` on a missing list is compared to `true` or `false` explicitly for
+  the same reason and against a sharper trap: `!undefined` is `true`, so a
+  negated `?.some()` would have turned a broken response into a PASS.
+*/
+const instructionsText = () => String(init.result?.instructions ?? "").replace(/\s+/g, " ");
 check("initialize echoes protocol", init.result?.protocolVersion === "2025-06-18");
 check("initialize has instructions", typeof init.result?.instructions === "string" && init.result.instructions.length > 500);
 // PARA is the default scaffold, not the format. The instructions used to state
@@ -362,8 +415,7 @@ check("initialize has instructions", typeof init.result?.instructions === "strin
 // be asserted, and it must be paired with the instruction not to assume it.
 check(
   "the instructions do not assert a folder layout",
-  !/is organized by the PARA/i.test(init.result.instructions.replace(/\s+/g, " ")) &&
-    /Do not assume a layout/i.test(init.result.instructions.replace(/\s+/g, " "))
+  !/is organized by the PARA/i.test(instructionsText()) && /Do not assume a layout/i.test(instructionsText())
 );
 // A client asking for a revision from the future must get a counter-offer in a
 // normal result — never a JSON-RPC error, which is how servers actually fail to
@@ -401,7 +453,7 @@ check("initialize prompts proactive durable memory", init.result?.instructions.i
 // Compared on whitespace-normalized text: these are wrapped prose, so a phrase
 // that reads as one sentence is two lines in the string, and an `includes` on
 // the sentence fails for a reason that has nothing to do with the meaning.
-const instructionsFlat = init.result.instructions.replace(/\s+/g, " ");
+const instructionsFlat = instructionsText();
 check(
   "initialize prompts scoped session saving",
   instructionsFlat.includes("save_context") &&
@@ -462,7 +514,7 @@ const tools = await rpc("priv-token", "tools/list");
 check("42 tools listed", tools.result?.tools.length === 42);
 check(
   "storage migration is advertised only to an owner-tier connection",
-  tools.result.tools.some((tool) => tool.name === "migrate_storage_layout") &&
+  tools.result?.tools?.some((tool) => tool.name === "migrate_storage_layout") === true &&
     !(await rpc("pub-token", "tools/list"))?.result?.tools?.some(
       (tool) => tool.name === "migrate_storage_layout",
     ),
@@ -572,12 +624,12 @@ const listWithFormsOff = await rpc("priv-token", "tools/list");
 check(
   "a Context plugin turned off takes its tools out of the listing",
   listWithFormsOff.result?.tools.length === 37 &&
-    !listWithFormsOff.result.tools.some((tool) => tool.name === "submit_form")
+    listWithFormsOff.result?.tools?.some((tool) => tool.name === "submit_form") === false
 );
 check(
   "and leaves every tool no plugin owns exactly where it was",
   ["read_note", "write_note", "search", "list_plugins", "set_visibility"].every((name) =>
-    listWithFormsOff.result.tools.some((tool) => tool.name === name)
+    listWithFormsOff.result?.tools?.some((tool) => tool.name === name) === true
   )
 );
 const refusedForm = await call("priv-token", "vote_form", {
@@ -1882,7 +1934,7 @@ check(
 );
 check(
   "the dialect is read-only, so a read-only grant keeps it",
-  (await rpc("readonly-token", "tools/list"))?.result.tools.some((t) => t.name === "search") &&
+  (await rpc("readonly-token", "tools/list"))?.result?.tools?.some((t) => t.name === "search") === true &&
     succeeded(await call("readonly-token", "search", { query: "togather" }))
 );
 
@@ -4322,16 +4374,49 @@ check(
 // The cron checks above replaced globalThis.fetch wholesale to serve an ICS
 // feed. Everything below authenticates through the control plane again.
 controlPlane.install();
-await runStoreChecks(check, {
+/*
+  AND THE WRAPPER'S OWN GUARD, BECAUSE A GUARD NOBODY HAS CHECKED IS NOT ONE.
+
+  Two things, and the second is the whole point: a throwing suite becomes one
+  named failure, **and the suite queued behind it still runs**. A wrapper that
+  caught and re-threw would pass the first of these and fail the second, which
+  is the shape that was already in the tree.
+
+  Its own `report` so the deliberate throws below are not counted or printed —
+  a FAIL line nobody should act on is how a suite teaches people to skim past
+  FAIL lines.
+*/
+{
+  const reported = [];
+  const collect = (label) => reported.push(label);
+  let secondRan = false;
+  await suite("a suite that throws", () => {
+    throw new Error("boom");
+  }, collect);
+  await suite("the one behind it", () => {
+    secondRan = true;
+  }, collect);
+  check(
+    "a suite that throws is one named failure, naming the suite and the reason",
+    reported.length === 1 && reported[0].includes("a suite that throws") && reported[0].includes("boom")
+  );
+  check("...and the suite queued behind it still runs", secondRan === true);
+  await suite("an async suite that rejects", async () => {
+    throw new Error("later");
+  }, collect);
+  check("...and a rejected promise is caught the same way", reported.length === 2 && reported[1].includes("later"));
+}
+
+await suite("runStoreChecks", () => runStoreChecks(check, {
   // The hostile-backend checks need a real way in; there is only one.
   env,
   ownerToken: accessTokenFor("priv-token"),
-});
+}));
 
 // -- the binding → store table, and every way it refuses
 // Synchronous and network-free: it builds adapters and inspects them, so it
 // neither needs nor touches the control plane the checks above installed.
-runStoreFactoryChecks(check);
+await suite("runStoreFactoryChecks", () => runStoreFactoryChecks(check));
 
 // -- multi-tenancy, OAuth, and the ways both are supposed to fail
 //
@@ -4341,42 +4426,42 @@ runStoreFactoryChecks(check);
 // Orientation's budgeted walk and fail-soft handshake, against a bucket that
 // paginates and delimits honestly. Its own control plane, so it runs beside the
 // tenancy suite rather than against the shared fixture.
-await runOrientationChecks(check);
+await suite("runOrientationChecks", () => runOrientationChecks(check));
 
 // The model account the agent spends, across the control-plane wire. Its own
 // control plane, for the same reason the tenancy suite has one: it swaps
 // globalThis.fetch and restores it.
-await runProviderCredentialChecks(check);
+await suite("runProviderCredentialChecks", () => runProviderCredentialChecks(check));
 
 // The agent turn, end to end: a question in, tool calls through the same
 // dispatcher a client's go through, an answer out. Its own control plane, S3
 // backend and fake model, so — like the tenancy suite — it swaps globalThis.fetch
 // and restores it.
-await runAgentChecks(check);
+await suite("runAgentChecks", () => runAgentChecks(check));
 
 // A privacy rule that names a group: what the tools do when they meet one.
 // Its own control plane and bucket, like orientation, because the fixture is a
 // team folder with a group-scoped note inside it — the arrangement where a
 // guard that tests `=== "private"` instead of `!== "team"` actually leaks.
-await runPrivacyGroupChecks(check);
-await runFormChecks(check);
-await runLinkToolChecks(check);
+await suite("runPrivacyGroupChecks", () => runPrivacyGroupChecks(check));
+await suite("runFormChecks", () => runFormChecks(check));
+await suite("runLinkToolChecks", () => runLinkToolChecks(check));
 
 // A path is not a place to write privacy rules. Its own bucket, because the
 // fixture is one named private note and one forged path that tries to publish
 // it without ever naming it.
-await runPathInjectionChecks(check);
+await suite("runPathInjectionChecks", () => runPathInjectionChecks(check));
 
 // The two communications reads, against their own bucket for the same reason:
 // the fixture here is two mailboxes with different visibilities, which is the
 // arrangement the "a mailbox is a folder" decision exists for.
-await runCommunicationsChecks(check);
+await suite("runCommunicationsChecks", () => runCommunicationsChecks(check));
 // The two contact reads, in their own bucket for the same reason: the fixture
 // is one contact published, one held back, and a note of the user's own at a
 // key a sender could have picked — the arrangement that tells a lenient parse
 // apart from a positive identity marker.
-await runContactsChecks(check);
-await runCommsSearchIndexChecks(check);
+await suite("runContactsChecks", () => runContactsChecks(check));
+await suite("runCommsSearchIndexChecks", () => runCommsSearchIndexChecks(check));
 
 // The calendar sync: the Google-shaped adapter (calendarGoogle.test.mjs) and
 // the orchestrator against a fake, stateful Calendar API server
@@ -4385,47 +4470,47 @@ await runCommsSearchIndexChecks(check);
 // no-op, and two workspaces' connections never touching each other's store.
 // Neither file shares state with anything else in this suite: each stands up
 // its own fake server and store per check block.
-await runCalendarGoogleChecks(check);
-await runCalendarSyncChecks(check);
+await suite("runCalendarGoogleChecks", () => runCalendarGoogleChecks(check));
+await suite("runCalendarSyncChecks", () => runCalendarSyncChecks(check));
 
 // The search index. The two format halves are pure functions over their own
 // fixtures and touch no store or control plane, so they run anywhere; the
 // integration checks stand up their own instrumented bucket, like orientation,
 // because the properties that matter there are store-call counts.
-await runSearchIndexerChecks(check);
-await runSearchQueryChecks(check);
-await runSearchIntegrationChecks(check);
+await suite("runSearchIndexerChecks", () => runSearchIndexerChecks(check));
+await suite("runSearchQueryChecks", () => runSearchQueryChecks(check));
+await suite("runSearchIntegrationChecks", () => runSearchIntegrationChecks(check));
 // The sharded index (v2), in the same three layers: the storage half against
 // its own instrumented bucket, the query half as pure functions over fixtures,
 // and the gateway wired to both through the worker.
-await runSearchShardsChecks(check);
-await runSearchDocmapPathsChecks(check);
-await runSearchShardQueryChecks(check);
-await runSearchFilterChecks(check);
-await runSearchV2IntegrationChecks(check);
+await suite("runSearchShardsChecks", () => runSearchShardsChecks(check));
+await suite("runSearchDocmapPathsChecks", () => runSearchDocmapPathsChecks(check));
+await suite("runSearchShardQueryChecks", () => runSearchShardQueryChecks(check));
+await suite("runSearchFilterChecks", () => runSearchFilterChecks(check));
+await suite("runSearchV2IntegrationChecks", () => runSearchV2IntegrationChecks(check));
 // What a search *costs*: the ops it reserves for its own answer, the share of
 // the backfill it does while somebody waits, and the round trips it no longer
 // serializes.
-await runSearchPacingChecks(check);
+await suite("runSearchPacingChecks", () => runSearchPacingChecks(check));
 
 // The Obsidian plugin compatibility check: the scan as pure functions, the
 // inventory against its own bucket stubs, and the phrasing of the report. No
 // control plane and no shared fixture, so it runs anywhere in this file.
-await runPluginChecks(check);
-await runContextPluginChecks(check);
+await suite("runPluginChecks", () => runPluginChecks(check));
+await suite("runContextPluginChecks", () => runContextPluginChecks(check));
 
 // Links between notes, and the rewrite that keeps them pointing at what they
 // name after a move. Pure rules first, then the four move tools against a
 // worker of its own — see the file header for why it does not share this
 // fixture.
-await runLinkChecks(check);
-await runForwardingChecks(check);
+await suite("runLinkChecks", () => runLinkChecks(check));
+await suite("runForwardingChecks", () => runForwardingChecks(check));
 
 // `activity.md`: the feed as a file in the customer's bucket. Pure format and
 // substance rules first, then a worker of its own — it writes to the root of
 // the bucket on every call, so it cannot share this fixture either.
-await runActivityChecks(check);
-await runDrawingChecks(check);
+await suite("runActivityChecks", () => runActivityChecks(check));
+await suite("runDrawingChecks", () => runDrawingChecks(check));
 
 /*
   A MESSAGE DEEP LINK IS A KEY THE READ TOOLS ACCEPT.
@@ -4502,59 +4587,59 @@ await runDrawingChecks(check);
   );
 }
 
-await runTenancyChecks(check);
-await runCrossContextChecks(check);
-await runMoveWithoutConditionalDeleteChecks(check);
+await suite("runTenancyChecks", () => runTenancyChecks(check));
+await suite("runCrossContextChecks", () => runCrossContextChecks(check));
+await suite("runMoveWithoutConditionalDeleteChecks", () => runMoveWithoutConditionalDeleteChecks(check));
 // Its own control plane and S3 backend, so it swaps globalThis.fetch and
 // restores it — same rule as the tenancy suite above.
-await runBulkFolderMoveVisibilityChecks(check);
+await suite("runBulkFolderMoveVisibilityChecks", () => runBulkFolderMoveVisibilityChecks(check));
 // The arguments of a tool call, against the schema `tools/list` advertised for
 // it. Its own control plane and S3 backend, so — like the tenancy suite — it
 // swaps globalThis.fetch and restores it, and must not run while anything
 // above still owns that global.
-await runToolArgumentChecks(check);
-await runUsageReportingChecks(check);
-await runSearchD1Checks(check);
+await suite("runToolArgumentChecks", () => runToolArgumentChecks(check));
+await suite("runUsageReportingChecks", () => runUsageReportingChecks(check));
+await suite("runSearchD1Checks", () => runSearchD1Checks(check));
 // The copy itself: notes reaching the database fast search provisions. Its own
 // control plane, S3 backend and Cloudflare stub, so — like the tenancy suite —
 // it swaps globalThis.fetch and restores it, and must not run while anything
 // above still owns that global.
-await runSearchProjectionChecks(check);
-await runCredentialShapeChecks(check);
-await runEncryptionChecks(check);
-await runEncryptionGatewayChecks(check);
-await runEncryptionPassphraseChecks(check);
-await runEncryptionRotationChecks(check);
-await runRotationCursorAdversarialChecks(check);
-await runStorageLayoutChecks();
-await runStorageLayoutReadChecks();
+await suite("runSearchProjectionChecks", () => runSearchProjectionChecks(check));
+await suite("runCredentialShapeChecks", () => runCredentialShapeChecks(check));
+await suite("runEncryptionChecks", () => runEncryptionChecks(check));
+await suite("runEncryptionGatewayChecks", () => runEncryptionGatewayChecks(check));
+await suite("runEncryptionPassphraseChecks", () => runEncryptionPassphraseChecks(check));
+await suite("runEncryptionRotationChecks", () => runEncryptionRotationChecks(check));
+await suite("runRotationCursorAdversarialChecks", () => runRotationCursorAdversarialChecks(check));
+await suite("runStorageLayoutChecks", () => runStorageLayoutChecks());
+await suite("runStorageLayoutReadChecks", () => runStorageLayoutReadChecks());
 
 // Meeting ingestion: the routes a phone and a desktop app send a meeting to,
 // the one note it becomes, and the neighbour who knows its session id. Its own
 // control plane, its own S3 backend and its own fetch layer for failing a
 // single write, so — like the tenancy suite — it swaps globalThis.fetch and
 // restores it, and must not run while anything above still owns that global.
-await runMeetingChecks(check);
+await suite("runMeetingChecks", () => runMeetingChecks(check));
 
 // A connected Gmail mailbox's sync job: Gmail API response parsing, backfill
 // and incremental sync against a fake Gmail server, idempotent upserts,
 // gap detection and full reconcile, and the quota bound. No network and no
 // dependency: `gmailSync.js` takes its socket and its store as parameters.
-await runGmailSyncChecks(check);
-await runDayPlacementChecks(check);
+await suite("runGmailSyncChecks", () => runGmailSyncChecks(check));
+await suite("runDayPlacementChecks", () => runDayPlacementChecks(check));
 
 // Google Chat sync: no shared globals, no worker fetch — pure functions plus
 // a fixture Chat API over an injected fetchImpl, so it runs anywhere in this
 // order without the swap-and-restore discipline the block above needs.
-await runGoogleChatChecks(check);
-await runChatContributionStoreChecks(check);
+await suite("runGoogleChatChecks", () => runGoogleChatChecks(check));
+await suite("runChatContributionStoreChecks", () => runChatContributionStoreChecks(check));
 
 // Presence: the pure roster module in full, then `GET /presence` up to the
 // point it hands a socket to its Durable Object. Its own control-plane stub and
 // its own buckets, and it installs and restores the fetch global itself, so it
 // runs here rather than inside a block that owns that global.
-await runPresenceChecks(check);
-await runCalendarContributionStoreChecks(check);
+await suite("runPresenceChecks", () => runPresenceChecks(check));
+await suite("runCalendarContributionStoreChecks", () => runCalendarContributionStoreChecks(check));
 
 console.log(failures ? `\n${failures} FAILURES` : "\nALL PASS");
 process.exit(failures ? 1 : 0);
