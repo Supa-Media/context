@@ -533,25 +533,64 @@ pipeline — and the alternative is this paragraph, which is the option taken.
 Reversing *that* means deleting this section, at which point the harnesses look
 like dead code and get removed by the next person tidying up.
 
-### One thing an agent writes to a canvas still reaches one screen
+### An agent's write to a canvas reached one screen — closed
 
-Recorded here rather than deferred silently, because it is a known limitation
-with a known fix and no owner yet.
+**Kept rather than deleted, because the shape of the debt is the useful part.**
+This section used to say that when a tool writes a `.excalidraw.md`, the room
+hands the text to one member, which parses it into elements and reconciles
+them — and the editor page marks them as already-sent, so the drawing reached
+exactly that one screen and everybody else saw it at their next reload. #769
+had made that *safe* (the others keep their old etag and are asked rather than
+silently overwritten) and the note said plainly that it was not yet *good*.
 
-When a tool writes a `.excalidraw.md`, the room hands the text to one member,
-which parses it into elements and reconciles them — and the editor page marks
-them as already-sent so it does not echo them back, which is the loop guard
-that keeps two peers from trading the same shape forever. The consequence is
-that the agent's drawing reaches exactly that one screen. Everybody else sees
-it at their next reload.
+**#773 closed it.** The member the room asked to merge now re-broadcasts the
+elements as an ordinary `draw`, which is not a loop because they came from the
+gateway and no peer echoes them. Safe for a canvas and not for text:
+reconciliation is by element version, so applying the same element twice is
+the same drawing, while merging the same text twice is the text twice. It
+arrived with the rest of what that debt was really hiding — a tool nobody could
+see was editing — so the same change also made the tool a member of the room,
+with a caret in a note and a pointer on a canvas.
 
-That is now *safe* — #769 stopped the version travelling to members who never
-got the text, so the others keep their old etag and are asked rather than
-silently overwritten. It is not yet *good*: the better answer is for that
-member to re-share the elements, which is not a loop, because they came from
-the gateway and no peer will echo them. Two lines in the console's `external`
-handler, and the version could then travel to the whole room again.
+Verified the way this section asks for: both harnesses, by hand, 21/21 and
+19/19, every new check sabotaged individually. Removing the re-broadcast takes
+the drawing run to 16/19, which is this paragraph's own receipt.
 
-It is not built because it is a design change to a path that three defects have
-already come out of, and it wants a browser run of its own rather than a
-confident edit at the end of a long session.
+Nothing here is open. A future session reading this should not re-open it; if
+the behaviour regresses, the harnesses are what say so.
+
+
+### A bundle that builds for a browser need not build for a phone
+
+The failure this repository keeps meeting, in its third costume.
+
+Everything in CI resolved modules for **node** (jest) or for a **browser** (the
+web export, the WebKit suite). A phone is a third resolver: Metro picks the
+`react-native` export condition, and a dependency can have an entry point there
+that exists on npm and cannot be resolved in this tree.
+
+Live co-editing put Yjs in the console. Yjs reaches Web Crypto through
+`lib0/webcrypto`, whose `react-native` condition requires
+`isomorphic-webcrypto/src/react-native` — a package nothing here depends on. So
+every pull request was green, the gateway and Convex deployed on every merge,
+and `Deploy Mobile Update (OTA)` failed at `expo export` on **every merge from
+#752 onward** — seven in a row, over seven hours — without anybody noticing,
+because the only thing that builds a native bundle ran after the merge button.
+
+Two details worth keeping. The failure began on the exact merge that added the
+dependency, so it was never mysterious, only invisible. And one of the seven
+was a forms change that had nothing to do with any of this: a broken deploy
+step does not block the branch that broke it, it blocks **everybody's**.
+
+Two things came out of it, and the second is the one that matters:
+
+- `apps/mobile/shims/lib0-webcrypto.js`, wired in `metro.config.js` for `ios`
+  and `android` only — `getRandomValues` from `expo-crypto`, which is the
+  platform's own CSPRNG and already a native dependency, and a `subtle` that
+  throws with an explanation rather than being absent.
+- **`ci / The native bundle still builds`**, which runs the deploy's own export
+  for both platforms before merging rather than after. No EAS credential and
+  nothing published: it asks only whether the bundle builds, which is the one
+  question no other check in this repository could answer.
+
+A deploy step that runs only after the merge button is a check nobody has run.
