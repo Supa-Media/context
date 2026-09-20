@@ -93,7 +93,7 @@
 
 import { readFile } from "node:fs/promises";
 
-import worker from "../src/index.js";
+import worker, { EXISTENCE_MASKED_TOOLS } from "../src/index.js";
 import { META_PROTOCOL_VERSION, MODERN_PROTOCOLS } from "../src/protocol.js";
 import {
   describeName,
@@ -1018,12 +1018,31 @@ export async function runToolArgumentChecks(check) {
       site would have told nothing. An assertion written only on the no-argument
       case would have called this tool covered and been wrong.
     */
-    for (const masked of [
-      "export_encryption_keys",
-      "rotate_encryption_keys",
-      "materialize_move",
-      "migrate_storage_layout",
-    ]) {
+    /*
+      **Walked from the set itself, not from a copy of it.** This loop held a
+      hand-written literal of the same four names, and the drift that allowed
+      was measured rather than imagined: adding a fifth name to
+      `EXISTENCE_MASKED_TOOLS` and wiring it nowhere else reddened **nothing**
+      across the whole suite.
+
+      That silence is the dangerous kind, because membership of that set does
+      two opposite things. It *enables* the refusal at the dispatch site, and it
+      *disables* `toolArgumentRefusal`. A name added to the set and not to the
+      switch is therefore not an unguarded tool — it is a tool that is still
+      callable AND no longer argument-checked, which is strictly worse than
+      never having been listed. Deriving the loop is what makes the fifth name
+      arrive with its own failing checks instead of with silence.
+    */
+    const maskedNames = [...EXISTENCE_MASKED_TOOLS];
+    check(
+      "the masked set still holds every name it held when this loop was derived",
+      // Not `> 0`. A derived loop over an emptied set passes by running nothing,
+      // which is the failure mode deriving it was supposed to remove — and this
+      // set should only ever grow, so a shrink is a decision somebody has to
+      // come here and make rather than one a green run can hide.
+      maskedNames.length >= 4,
+    );
+    for (const masked of maskedNames) {
       const withJunk = await callTool(env, TOKEN_TEAM, masked, { workspaceId: WORKSPACE_OTHER });
       const inventedPeer = await callTool(env, TOKEN_TEAM, `${masked}_x`, {
         workspaceId: WORKSPACE_OTHER,
