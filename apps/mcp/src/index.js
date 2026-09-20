@@ -2513,8 +2513,19 @@ const PRIVATE_TIER_ONLY_TOOLS = new Set([
  * take an argument named `x`, when the same caller sending no arguments is
  * told the tool does not exist, is an existence oracle built out of the guard
  * that was supposed to close one. Two readers, one list, no drift.
+ *
+ * **Exported so the suite has no third copy.** `toolArguments.test.mjs` walks
+ * this set, and it walked a hand-copied literal of it — so a fifth name added
+ * here was covered by nothing. Measured before this line was written: adding
+ * one reddened **nothing** across the whole gateway suite.
+ *
+ * What that silence would hide is worse than an untested tool. Membership here
+ * *disables* `toolArgumentRefusal` as well as *enabling* the dispatch refusal,
+ * so a name wired into one reader and not the other is a tool that is still
+ * callable and no longer argument-checked — the two readers failing apart in
+ * the one direction this comment promises they cannot.
  */
-const EXISTENCE_MASKED_TOOLS = new Set([
+export const EXISTENCE_MASKED_TOOLS = new Set([
   "export_encryption_keys",
   "rotate_encryption_keys",
   "materialize_move",
