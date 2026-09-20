@@ -992,6 +992,11 @@ export async function runPresenceChecks(check) {
     bucket.seed("index.md", "# front page");
     bucket.seed("1-projects/roadmap.md", "the roadmap, for everyone here");
     bucket.seed("1-projects/rates.md", "RATESECRET what we charge");
+    // Plumbing that really is in the bucket. Seeded rather than assumed absent,
+    // because the question this answers is whether the route refuses a
+    // plumbing key *that exists* — a refusal that only happens because nothing
+    // is there is not the guard.
+    bucket.seed(".context/search/shard-0.md", "PLUMBINGSECRET derived, not a note");
     otherBucket.seed("privacy.md", MANIFEST);
     otherBucket.seed("1-projects/roadmap.md", "a different workspace's roadmap");
 
@@ -1127,6 +1132,47 @@ export async function runPresenceChecks(check) {
       // somebody, so 404 is the rule and not a broken manifest.
       ownerJoins.status === 200,
     );
+    /*
+      PLUMBING IS NOT A NOTE, AND THIS ROUTE HAS TO SAY SO TOO.
+
+      The route delegates to `canSee`, which opens with the two clauses that
+      hold `privacy.md` and every dot-prefixed segment back — so the guard is
+      correct, and until now nothing checked that the route still asks. Teaching
+      `handlePresence` to treat a plumbing path as visible failed **0** checks
+      in this suite, which is what a guard nobody has checked looks like.
+
+      What a regression would cost is an existence oracle rather than content:
+      the route reads no note, but it does call `objectExists` once a path is
+      visible, so a caller could tell a `.context/` key that is there from one
+      that is not by the status alone. The manifest is the sharper half —
+      `read_note` refuses it to every tier, and a team connection that could
+      read it would learn the exact path of every note held back by name.
+    */
+    const plumbingRoom = await presenceRequest(
+      env,
+      OWNER_TOKEN,
+      "?note=.context/search/shard-0.md",
+    );
+    check(
+      "a plumbing key that exists in the bucket opens no room, even for the owner",
+      plumbingRoom.status === 404,
+    );
+    check(
+      "...and refuses identically to a note that is not there",
+      plumbingRoom.status === missingNote.status && plumbingRoom.text === missingNote.text,
+    );
+    const manifestRoom = await presenceRequest(env, TEAM_TOKEN, "?note=privacy.md");
+    check(
+      "a team connection opens no room on the privacy manifest",
+      manifestRoom.status === 404 && manifestRoom.text === missingNote.text,
+    );
+    const callsBeforePlumbing = rooms.calls.length;
+    await presenceRequest(env, OWNER_TOKEN, "?note=.context/search/shard-0.md");
+    check(
+      "...and no room is addressed at all, so the refusal is before the room",
+      rooms.calls.length === callsBeforePlumbing,
+    );
+
     check(
       "the owner of a personal context is the one caret that carries its handle",
       // The other half of the guest check, and the reason it cannot be passed
