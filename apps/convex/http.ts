@@ -1512,6 +1512,89 @@ http.route({
   method: "POST",
   handler: gatewayIngestRecord,
 });
+/* -------------------------------------------------------------------------- */
+/* Links, for an agent that asked for one                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /gateway/links/create` — mint a link and answer with its URL.
+ *
+ * **The URL, never the token.** An agent that was handed a token would have to
+ * assemble the address itself, and a second builder is a second opinion about
+ * what a share link looks like — which is the whole complaint this answers.
+ * The control plane builds it from `@context/shared`, the same function the
+ * console's Copy link uses.
+ *
+ * The clearance is the ordinary two-factor one: this route's factory refuses
+ * without the gateway secret, and `ownerClearanceForGateway` then spends the
+ * *user's* access token against a live grant that has to be an owner's. One
+ * `null` covers every refusal, so an agent cannot tell "not yours" from "not a
+ * note" from "already encrypted".
+ */
+export const gatewayLinksCreate = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const path = stringField(body, "path");
+  const audience = body.audience === "members" ? "members" : "anyone";
+  const kind = body.kind === "folder" ? "folder" : body.kind === "note" ? "note" : undefined;
+  const short = stringField(body, "short");
+  if (accessToken === null || expected === null || path === null) {
+    return json({ link: null, shortRefused: null });
+  }
+
+  const result = await ctx.runAction(internal.functions.shares.gatewayCreateLink, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    path,
+    audience,
+    ...(kind === undefined ? {} : { kind }),
+    ...(short === null ? {} : { short }),
+    ...(typeof body.titleInPreview === "boolean"
+      ? { titleInPreview: body.titleInPreview }
+      : {}),
+  });
+  return json({
+    link: result?.link ?? null,
+    shortRefused: result?.shortRefused ?? null,
+  });
+});
+
+http.route({ path: "/gateway/links/create", method: "POST", handler: gatewayLinksCreate });
+
+/** `POST /gateway/links/list` — every live link in this context. */
+export const gatewayLinksList = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  if (accessToken === null || expected === null) return json({ links: null });
+
+  const links = await ctx.runQuery(internal.functions.shares.gatewayListLinks, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+  });
+  return json({ links });
+});
+
+http.route({ path: "/gateway/links/list", method: "POST", handler: gatewayLinksList });
+
+/** `POST /gateway/links/revoke` — take one back. */
+export const gatewayLinksRevoke = gatewayRoute(async (ctx, body) => {
+  const accessToken = stringField(body, "accessToken");
+  const expected = stringField(body, "expectedWorkspaceId");
+  const shareId = stringField(body, "shareId");
+  if (accessToken === null || expected === null || shareId === null) {
+    return json({ revoked: false });
+  }
+
+  const revoked = await ctx.runMutation(internal.functions.shares.gatewayRevokeLink, {
+    hashedAccessToken: await hashToken(accessToken),
+    expectedWorkspaceId: expected,
+    shareId,
+  });
+  return json({ revoked });
+});
+
+http.route({ path: "/gateway/links/revoke", method: "POST", handler: gatewayLinksRevoke });
+
 http.route({ path: "/gateway/usage", method: "POST", handler: gatewayUsage });
 
 export default http;

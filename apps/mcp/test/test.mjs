@@ -25,6 +25,7 @@ import { runPluginChecks } from "./plugins.test.mjs";
 import { runContextPluginChecks } from "./contextPlugins.test.mjs";
 import { runPrivacyGroupChecks } from "./privacyGroups.test.mjs";
 import { runFormChecks } from "./forms.test.mjs";
+import { runLinkToolChecks } from "./linkTools.test.mjs";
 import { runPathInjectionChecks } from "./pathInjection.test.mjs";
 import { runCrossContextChecks } from "./crossContext.test.mjs";
 import { runMoveWithoutConditionalDeleteChecks } from "./moveWithoutConditionalDelete.test.mjs";
@@ -455,7 +456,10 @@ const tools = await rpc("priv-token", "tools/list");
 // over, over the people those days were with rather than the days. 39 with
 // `create_form`: the four form tools answer a form and none of them made one,
 // so a form was a feature an agent had to already know the block syntax of.
-check("39 tools listed", tools.result?.tools.length === 39);
+// 42 with `create_link`, `list_links` and `revoke_link` — the console has had
+// share links since the beginning and nothing here could mint one, so an agent
+// asked for "a link to send them" wrote a URL out of the path it was holding.
+check("42 tools listed", tools.result?.tools.length === 42);
 check(
   "storage migration is advertised only to an owner-tier connection",
   tools.result.tools.some((tool) => tool.name === "migrate_storage_layout") &&
@@ -567,7 +571,7 @@ await contextStore.put(
 const listWithFormsOff = await rpc("priv-token", "tools/list");
 check(
   "a Context plugin turned off takes its tools out of the listing",
-  listWithFormsOff.result?.tools.length === 34 &&
+  listWithFormsOff.result?.tools.length === 37 &&
     !listWithFormsOff.result.tools.some((tool) => tool.name === "submit_form")
 );
 check(
@@ -613,12 +617,12 @@ check(
 await contextStore.put(enablementKey, "{ half a file");
 check(
   "a settings file that does not parse leaves every tool where it was",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 39
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 42
 );
 await contextStore.delete(enablementKey);
 check(
   "and removing the file restores the full listing",
-  (await rpc("priv-token", "tools/list")).result?.tools.length === 39
+  (await rpc("priv-token", "tools/list")).result?.tools.length === 42
 );
 check("set_visibility tool is discoverable", tools.result?.tools.some((tool) => tool.name === "set_visibility"));
 check(
@@ -1332,7 +1336,7 @@ check(
 );
 
 const modernList = await modernFetch({ method: "tools/list" });
-check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 39);
+check("modern tools/list works", modernList.status === 200 && modernList.body.result?.tools.length === 42);
 check(
   "modern tools/list carries the required freshness hints",
   typeof modernList.body.result?.ttlMs === "number" &&
@@ -1558,7 +1562,7 @@ for (const verb of ["GET", "DELETE"]) {
 // --- and now the half that must not have moved: legacy clients ---
 check(
   "a legacy client sending no version header still works",
-  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 39
+  (await rpc("priv-token", "tools/list"))?.result?.tools.length === 42
 );
 async function legacyWithVersionHeader(version) {
   return worker.fetch(
@@ -4356,6 +4360,7 @@ await runAgentChecks(check);
 // guard that tests `=== "private"` instead of `!== "team"` actually leaks.
 await runPrivacyGroupChecks(check);
 await runFormChecks(check);
+await runLinkToolChecks(check);
 
 // A path is not a place to write privacy rules. Its own bucket, because the
 // fixture is one named private note and one forged path that tries to publish
