@@ -110,6 +110,8 @@ const MEMBER_TOKEN = `cat_forms_member_${"0".repeat(15)}`;
 const READONLY_TOKEN = `cat_forms_readonly_${"0".repeat(13)}`;
 const OUTSIDER_TOKEN = `cat_forms_outsider_${"0".repeat(13)}`;
 const NAMELESS_TOKEN = `cat_forms_nameless_${"0".repeat(13)}`;
+/** A guest in somebody else's PERSONAL context. See `personalNameFor`. */
+const GUEST_TOKEN = `cat_forms_guest_${"0".repeat(16)}`;
 
 const MANIFEST =
   "---\nrole: privacy-manifest\nversion: 1\n---\n\n" +
@@ -785,6 +787,9 @@ export async function runFormChecks(check) {
       ["ws_dan", "dan"],
       ["ws_ro", "ro"],
       ["ws_out", "out"],
+      // A host's personal context, and a guest's own. See `GUEST_TOKEN`.
+      ["ws_host", "host"],
+      ["ws_guest", "guest"],
     ]) {
       controlPlane.addWorkspace(id, slug, {
         provider: "r2-binding",
@@ -857,6 +862,37 @@ export async function runFormChecks(check) {
       write gate's exemption lets it straight through to
       `mutateFormResponses`.
     */
+    /*
+      A GUEST IN SOMEBODY ELSE'S PERSONAL CONTEXT, WHICH IS THE SHAPE A REAL
+      DEFECT TOOK: a guest wore their host's handle, in the host's own note.
+
+      `alsoMemberOf` is ordered, and the host's personal context comes first
+      on purpose: the real control plane puts the context a grant was approved
+      against at the head of the covered set, so a guest connected to
+      `/@host/mcp` really does carry the host's personal context ahead of
+      their own. `personalNameFor` must still answer `@guest`, and it is the
+      `role === "owner"` clause that makes it — a personal context in the
+      covered set is not evidence that it is this person's.
+
+      This grant exists because that predicate decides more here than it does
+      on a caret: `actor.name` is written into the response file as `by`, in
+      the customer's bucket, permanently — and it is the same value the
+      ownership test compares when somebody edits or withdraws a response. A
+      predicate that named this guest `@host` would both misattribute their
+      answer and hand them the host's.
+    */
+    await controlPlane.addGrant({
+      accessToken: GUEST_TOKEN,
+      workspaceId: "ws_forms",
+      role: "member",
+      scopes: ["context:read", "context:write"],
+      clientId: "mcp_client_forms_guest",
+      userId: "user_guest",
+      alsoMemberOf: [
+        { workspaceId: "ws_host", role: "member" },
+        { workspaceId: "ws_guest", role: "owner" },
+      ],
+    });
     await controlPlane.addGrant({
       accessToken: NAMELESS_TOKEN,
       workspaceId: "ws_forms",
@@ -969,6 +1005,38 @@ export async function runFormChecks(check) {
     check(
       "...and nothing of theirs reaches the file",
       !(bucket.text("3-resources/bugs.responses.md") || "").includes("from a read-only client")
+    );
+
+    /*
+      AND THE SAME PREDICATE, FROM THE SIDE THAT WRITES IT DOWN FOR GOOD.
+
+      `personalNameFor`'s three clauses had exactly one set of guards, all of
+      them in `presence.test.mjs`: dropping `role === "owner"` reddens two
+      caret checks, dropping `kind === "personal"` two more, dropping the slug
+      check one — and **nothing on this side moved**, though this is where the
+      name stops being a label on a cursor and becomes `by` in a file in the
+      customer's bucket, and the value an ownership test compares when
+      somebody edits or withdraws a response.
+
+      One predicate with guards in one suite is one refactor away from having
+      none. So the clause the guest-wearing-the-host's-handle defect turned on
+      is checked here too, through the door that keeps what it writes.
+    */
+    const guestSubmit = await call(env, GUEST_TOKEN, "submit_form", {
+      // `requests`, not `bugs`: the checks below count `bugs`' responses, and a
+      // guard that shifts a neighbour's arithmetic is a guard somebody deletes.
+      path: "3-resources/requests.md",
+      values: pairs({ title: "a guest of the host answers", area: "mcp" }),
+    });
+    check("a guest in somebody's personal context can submit", !guestSubmit.isError);
+    check(
+      "...recorded under their OWN handle, not the host's",
+      /recorded as: @guest\b/.test(guestSubmit.text) && !/recorded as: @host\b/.test(guestSubmit.text)
+    );
+    check(
+      "...and the file keeps their handle rather than the host's",
+      (bucket.text("3-resources/requests.responses.md") || "").includes("@guest") &&
+        !(bucket.text("3-resources/requests.responses.md") || "").includes("@host")
     );
 
     /*
