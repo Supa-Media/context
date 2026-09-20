@@ -87,6 +87,31 @@ const FIELD_NAME_RE = /^[a-z][a-z0-9_]{0,31}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const RESPONSE_ID_RE = /^r-[0-9a-f]{8}$/;
 
+/**
+ * A response's header line in the `sections` layout: `## <id> · <by> · <at>`.
+ *
+ * One constant because there are two readers of it — the scan for the first
+ * header and the walk that builds the responses — and a header the first one
+ * finds but the second does not would silently drop a response.
+ *
+ * **`by` is the only field that may hold a space.** The id and the timestamp
+ * are shapes this module writes; `by` is a *stamp*, and a stamp is not always
+ * a handle. A username cannot hold a space — `names.ts` claims
+ * `[a-z0-9][a-z0-9-]{0,62}` — so `(\S+)` was a contract that held for as long
+ * as every answer came from somebody with an account. An answer that arrives
+ * through a published link is stamped with the link instead ("via @name/slug"),
+ * which `renderSections` writes into this line unescaped and this expression
+ * then could not read back. The file is rewritten in full on every submission,
+ * edit, retraction and vote, so one unreadable header is not one lost row: it
+ * is the next answer from anybody refused, with a message blaming prose the
+ * author never wrote.
+ *
+ * `·` is the delimiter and therefore the one character `by` may not hold.
+ * Nothing that reaches it can: a username is `[a-z0-9-]`, and a link stamp is
+ * built from a handle and a slug.
+ */
+const SECTION_HEADER_RE = /^##\s+(\S+)\s+·\s+([^·]+?)\s+·\s+(\S+)\s*$/;
+
 /* ------------------------------- the fence ------------------------------- */
 
 /**
@@ -841,12 +866,12 @@ function parseSections(lines, config) {
   // hold a line the renderer will not write back: before the first response.
   // Everything after a header belongs to a text field and round-trips.
   for (const line of lines) {
-    if (/^##\s+(\S+)\s+·\s+(\S+)\s+·\s+(\S+)\s*$/.test(line)) break;
+    if (SECTION_HEADER_RE.test(line)) break;
     if (line.trim() !== "") return { error: STRAY_SECTION_CONTENT };
   }
 
   for (const line of lines) {
-    const header = /^##\s+(\S+)\s+·\s+(\S+)\s+·\s+(\S+)\s*$/.exec(line);
+    const header = SECTION_HEADER_RE.exec(line);
     if (header && !isEscaped(line)) {
       flush();
       if (!RESPONSE_ID_RE.test(header[1])) return { error: `"${header[1]}" is not a response id` };

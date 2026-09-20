@@ -92,6 +92,34 @@ const EDITOR_ONLY_BODY = [
   "",
 ].join("\n");
 
+/*
+  THE SAME FORM IN THE OTHER LAYOUT.
+
+  Every fixture in this file is `layout: table`, which is the dimension it held
+  constant while it varied who the caller is. A stamp that is not a handle is
+  written into a table cell and into a section *header*, and only one of those
+  two is a line the parser has to read back field by field.
+*/
+const SECTIONS_NOTE = "1-projects/intake/brief.md";
+const SECTIONS_RESPONSES = "1-projects/intake/brief-responses.md";
+
+const SECTIONS_BODY = [
+  "# Tell me about the work",
+  "",
+  "```form",
+  "id: brief",
+  `responses: ${SECTIONS_RESPONSES}`,
+  "layout: sections",
+  "submit: member",
+  "edit_own: true",
+  "votes: off",
+  "fields:",
+  "  - { name: who, type: line, max: 120, required: true }",
+  "  - { name: brief, type: text, max: 2000 }",
+  "```",
+  "",
+].join("\n");
+
 interface Fixture {
   t: TestConvex;
   owner: Id<"users">;
@@ -192,6 +220,11 @@ async function fixture(options: { managed?: boolean } = {}): Promise<Fixture> {
     path: FORM_NOTE,
     text: FORM_BODY,
   });
+  await asUser(t, owner).action(api.functions.files.writeNote, {
+    workspaceId,
+    path: SECTIONS_NOTE,
+    text: SECTIONS_BODY,
+  });
 
   process.env[TURNSTILE_SECRET_ENV_VAR] = "test-secret-not-a-real-key";
   return { t, owner, member, workspaceId, backend, challenge };
@@ -233,6 +266,15 @@ async function responsesFile(f: Fixture): Promise<string> {
   const file = await asUser(f.t, f.owner).action(api.functions.files.readNote, {
     workspaceId: f.workspaceId,
     path: RESPONSES,
+  });
+  return (file as { text: string }).text;
+}
+
+/** The same, for the `sections` form. */
+async function sectionsResponsesFile(f: Fixture): Promise<string> {
+  const file = await asUser(f.t, f.owner).action(api.functions.files.readNote, {
+    workspaceId: f.workspaceId,
+    path: SECTIONS_RESPONSES,
   });
   return (file as { text: string }).text;
 }
@@ -662,6 +704,63 @@ describe("what an answer through a link is stamped with", () => {
       answer(f, token, [{ field: "not_a_field", value: "x" }]),
     );
     expect(failure).not.toBeNull();
+  });
+
+  /**
+   * AND THE STAMP HAS TO BE READABLE AGAIN, IN BOTH LAYOUTS.
+   *
+   * A response file is rewritten in full on every submission, edit, retraction
+   * and vote, so what the renderer writes is what the parser has to read back.
+   * The `sections` layout puts `by` in a heading — `## id · by · at` — and that
+   * line was matched with `(\S+)` for each of the three, which held for as
+   * long as every `by` was a handle. A stamp is a sentence.
+   *
+   * The cost is not one unreadable row. The file stops parsing, so the SECOND
+   * answer is refused — and not only through the link: a member's
+   * `submitSubmission`, the owner's own console, a vote, a retraction, all of
+   * them go through the same parse. One stranger, one answer, and an intake
+   * form is shut for everybody, with a refusal that blames prose the author
+   * never wrote.
+   *
+   * Two answers rather than one, because one lands either way. That is the
+   * whole reason this survived: every test in this file sends a single answer,
+   * to a form that is `layout: table`.
+   */
+  test("a second answer lands on a sections form, not only the first", async () => {
+    const f = await fixture();
+    const { token } = await link(f, "collect", SECTIONS_NOTE);
+
+    await answer(f, token, [
+      { field: "who", value: "Jordan" },
+      { field: "brief", value: "the first one" },
+    ]);
+    await answer(f, token, [
+      { field: "who", value: "Robin" },
+      { field: "brief", value: "the second one" },
+    ]);
+
+    const file = await sectionsResponsesFile(f);
+    expect(file).toContain("Jordan");
+    expect(file).toContain("Robin");
+    expect((file.match(/^## r-[0-9a-f]{8} /gm) ?? []).length).toBe(2);
+  });
+
+  test("...and a member of the context can still answer it afterwards", async () => {
+    // The blast radius, stated as the thing it actually breaks: the jam is in
+    // the FILE, so it is not the link that stops working. Everybody who shares
+    // that response file stops too.
+    const f = await fixture();
+    const { token } = await link(f, "collect", SECTIONS_NOTE);
+    await answer(f, token, [{ field: "who", value: "Jordan" }]);
+
+    await asUser(f.t, f.member).action(api.functions.forms.submitForm, {
+      workspaceId: f.workspaceId,
+      path: SECTIONS_NOTE,
+      values: [{ field: "who", value: "Dan" }],
+    });
+    const file = await sectionsResponsesFile(f);
+    expect(file).toContain("Jordan");
+    expect(file).toContain("Dan");
   });
 });
 

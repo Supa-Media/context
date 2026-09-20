@@ -64,6 +64,26 @@
  * 8. **`escapeBlock` returns its argument unchanged** — 6 checks failed,
  *    including a submitted paragraph forging a third response under another
  *    person's username.
+ * 9. **`SECTION_HEADER_RE` narrowed back to `(\S+)` for `by`** — 7 checks
+ *    failed: every sections response carrying a stamp that is not a handle,
+ *    and the id check that only runs once such a header is recognised at all.
+ * 10. **One of the two readers of that constant inlines its own copy** — 7
+ *    checks failed, the same set. Two readers of one line is why it is a
+ *    constant: a header the scan finds and the walk does not silently drops
+ *    the response under it.
+ * 11. **`by` widened to `(.+?)` — any character, delimiter included** — 1
+ *    check failed. First attempt: **0**, and the reason is the finding: the
+ *    bound was prose. Nothing this module writes can put a `·` in `by`, so
+ *    nothing exercised it, and a header carrying one would have been re-split
+ *    with the timestamp read out of the middle of a name. There is now a
+ *    fixture with one, and a positive control beside it.
+ * 12. **A `/g` flag on that same shared constant** — **0**, and left at 0
+ *    deliberately. One regex object used by both a `.test` and an `.exec`
+ *    carrying `lastIndex` between them is the classic bug, so it was worth
+ *    measuring; it is inert here because the expression is anchored with no
+ *    `m` flag, so an `exec` resuming past position 0 cannot match and resets
+ *    `lastIndex` itself. Measured rather than argued, and recorded so the next
+ *    person does not have to measure it again.
  *
  * One test-quality finding came out of the same pass: sabotage 1 originally
  * took the whole suite down rather than failing one check, because the
@@ -421,6 +441,12 @@ export async function runFormChecks(check) {
     const hostile = [
       "first line",
       "## r-deadbeef · @owner · 2026-01-01T00:00Z",
+      // The same forgery wearing the shape `by` was widened for. A submitted
+      // paragraph is escaped on the way in and read as content on the way out,
+      // and that — not the narrowness of the header expression — is what stops
+      // it; widening `by` must not quietly have made the escape the only thing
+      // between a stranger's answer and a forged row under somebody's name.
+      "## r-deadbeef · via @maya/intake · 2026-01-01T00:00Z",
       "**Votes:** @owner, @owner",
       "- **summary:** forged",
       "trailing \\",
@@ -441,6 +467,102 @@ export async function runFormChecks(check) {
     check("...preserving a paragraph that mimics the structure around it", back.responses?.[0]?.values.steps === hostile);
     check("...without forging a second response", back.responses?.length === 1);
     check("...or a vote for anybody", back.responses?.[0]?.votes.length === 0);
+  }
+
+  {
+    /*
+      A STAMP IS NOT A HANDLE, AND THE SECTION HEADER HAS TO READ ONE BACK.
+
+      Every `by` this suite had ever rendered was a handle: `@dan`, `@maya`,
+      `@owner`. Usernames cannot hold a space, so `(\S+)` in the section
+      header was a contract nothing violated — until the control plane began
+      stamping an answer that arrived through a published link, which is a
+      sentence rather than a name ("via @maya/intake"). The renderer writes it
+      into the header unescaped; the parser then reads the file as having text
+      before its first response, and refuses.
+
+      What that costs is the whole file rather than one row: the response file
+      is rewritten in full on every submission, edit, retraction and vote, so
+      a single answer stamped this way stops the NEXT one from anybody —
+      members and the owner's own console included — and the refusal blames
+      prose the author never wrote.
+
+      The layout is the dimension this held constant, which is why one answer
+      through a link landed in every test there was and the second never got
+      tried. So both layouts are checked here, on the same stamps.
+    */
+    const sections = parseFormBlocks(BUGS_NOTE)[0].config;
+    const table = parseFormBlocks(REQUESTS_NOTE)[0].config;
+    const stamps = ["via @maya/intake", "via a link to @maya", "@maya"];
+
+    for (const by of stamps) {
+      const response = {
+        id: "r-0000000c",
+        by,
+        at: "2026-09-11T10:02Z",
+        values: { summary: "a", severity: "minor", steps: "b" },
+        votes: [],
+      };
+      const file = renderResponsesFile(sections, [response]);
+      const back = parseResponsesFile(file, sections);
+      check(`a sections response stamped ${by} parses back`, !back.error);
+      check(
+        `...carrying the stamp it was written with, not a prefix of it`,
+        back.responses?.[0]?.by === by
+      );
+      check(
+        `...and re-renders byte for byte`,
+        !back.error && renderResponsesFile(sections, back.responses) === file
+      );
+
+      const tableFile = renderResponsesFile(table, [
+        { ...response, values: { title: "a", area: "mcp" } },
+      ]);
+      const tableBack = parseResponsesFile(tableFile, table);
+      check(`a table response stamped ${by} parses back`, !tableBack.error);
+      check(`...carrying the same stamp`, tableBack.responses?.[0]?.by === by);
+    }
+
+    // The control: a header whose id is not one is still refused, so the
+    // widened field has not turned every `## a · b · c` line into a response.
+    const forged = [
+      renderResponsesFile(sections, []).split("\n")[0],
+      "",
+      "## notanid · via @maya/intake · 2026-09-11T10:02Z",
+      "",
+      "- **summary:** forged",
+    ].join("\n");
+    check(
+      "a section header whose id is not a response id is still refused, widened `by` or not",
+      /is not a response id/.test(parseResponsesFile(forged, sections).error || "")
+    );
+
+    /*
+      `·` IS THE DELIMITER, SO IT IS THE ONE CHARACTER `by` MAY NOT HOLD.
+
+      Nothing this module writes can put one there — a handle is `[a-z0-9-]`
+      and a link stamp is built from a handle and a slug — which is exactly why
+      the bound needs a check rather than a sentence. Widen `by` to any
+      character and this header still parses, silently, with the *timestamp*
+      read out of the middle of somebody's name; the file then re-renders
+      differently from how it arrived, which is the round-trip law broken
+      quietly rather than loudly.
+    */
+    const ambiguous = [
+      renderResponsesFile(sections, []).split("\n")[0],
+      "",
+      "## r-0000000c · a · b · 2026-09-11T10:02Z",
+      "",
+      "- **summary:** ambiguous",
+    ].join("\n");
+    check(
+      "a section header with a delimiter inside `by` is refused, not re-split",
+      parseResponsesFile(ambiguous, sections).error !== undefined
+    );
+    check(
+      "...while the same header without one parses",
+      parseResponsesFile(ambiguous.replace(" · a · b · ", " · a b · "), sections).error === undefined
+    );
   }
 
   {
