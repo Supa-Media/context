@@ -61,7 +61,9 @@
 
 import { ConvexError } from "convex/values";
 
-import { SHARE_ROUTE, shareSegment, shareSlug } from "@context/shared";
+// `SHARE_ROUTE` is called below; the two builders are re-exported rather than
+// used here, so they are not pulled into this module's own scope.
+import { SHARE_ROUTE } from "@context/shared";
 
 import { loginHref } from "../auth/redirect";
 
