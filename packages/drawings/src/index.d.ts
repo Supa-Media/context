@@ -216,3 +216,12 @@ export declare function encodeElements(elements: readonly unknown[]): string;
 
 /** Base64 JSON back to elements; `[]` for anything that is not a list of them. */
 export declare function decodeElements(payload: string): DrawingElement[];
+
+/**
+ * Where the most recently changed element sits, or `null` when the scene
+ * carries no honest answer. `unknown[]` for the same reason `encodeElements`
+ * takes one: the console relays elements it deliberately does not model.
+ */
+export declare function latestChangePoint(
+  elements: readonly unknown[]
+): { x: number; y: number } | null;

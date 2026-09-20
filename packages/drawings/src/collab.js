@@ -138,3 +138,56 @@ export function decodeElements(payload) {
   if (!Array.isArray(json)) return [];
   return json.filter(looksLikeElement);
 }
+
+/**
+ * Where a tool's write landed on the canvas, so its cursor can be drawn there.
+ *
+ * ## Why this is not a diff
+ *
+ * A person drawing sends the elements they changed, because their editor knows
+ * which ones those are. A tool writes a whole `.excalidraw.md` — the only
+ * shape `write_note` has — so what arrives is the entire scene, and the
+ * console that merges it deliberately holds no second copy to compare against:
+ * it is a relay for drawings, and the scene lives in the editor page.
+ *
+ * So the position comes out of the elements themselves. `updated` is
+ * Excalidraw's own record of when an element last changed, which is exactly
+ * the question, and `version` — how many times it has *ever* changed — is only
+ * the tiebreak. Ranking by `version` instead was the first version of this and
+ * it points at the shape somebody has been fiddling with all afternoon rather
+ * than the one the tool just drew.
+ *
+ * ## `null` is a real answer
+ *
+ * An element hand-authored by a tool that never went through Excalidraw has no
+ * `updated`, and a scene of those has no honest position in it. Returning the
+ * origin would put a tool's cursor in the top-left corner of somebody's canvas
+ * and claim it is working there. The caller draws nothing instead — the same
+ * rule a peer's missing pointer already follows.
+ *
+ * Deleted elements count. Excalidraw deletes by flag, so the element a tool
+ * just removed is both the most recently changed thing in the scene and
+ * exactly where the tool was.
+ */
+export function latestChangePoint(elements) {
+  let best = null;
+  for (const element of elements) {
+    if (!looksLikeElement(element)) continue;
+    if (typeof element.updated !== "number" || !Number.isFinite(element.updated)) continue;
+    const version = typeof element.version === "number" ? element.version : 0;
+    if (best && (element.updated < best.updated || (element.updated === best.updated && version <= best.version))) {
+      continue;
+    }
+    best = { element, updated: element.updated, version };
+  }
+  if (!best) return null;
+
+  const { x, y, width, height } = best.element;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  // The middle of the shape, or its corner when it has no size — a line and a
+  // freedraw stroke both report dimensions, but not every element type does,
+  // and half of `undefined` is `NaN` rather than a position.
+  const w = Number.isFinite(width) ? width : 0;
+  const h = Number.isFinite(height) ? height : 0;
+  return { x: x + w / 2, y: y + h / 2 };
+}

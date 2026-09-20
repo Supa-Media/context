@@ -44,6 +44,8 @@ const NOTE = "1-projects/verify.excalidraw.md";
 const ANA = "cat_local_verification_token_ana";
 const BO = "cat_local_verification_token_bo";
 const READER = "cat_local_verification_token_reader";
+/** A tool with its own grant, which is what an agent writing a note actually is. */
+const TOOL = "cat_local_verification_token_tool";
 
 const PRIVACY_MANIFEST = [
   "---",
@@ -366,6 +368,10 @@ async function main() {
         await page.mouse.up();
       },
       received: () => page.evaluate(() => window.canvas.received),
+      /** Elements this browser put back on the wire on a tool's behalf. */
+      reshared: () => page.evaluate(() => window.canvas.reshared),
+      /** The members the room says are tools rather than people. */
+      agents: () => page.evaluate(() => window.canvas.agents()),
       frames: () => page.evaluate(() => window.canvas.frames),
       syncs: () => page.evaluate(() => window.canvas.syncs),
       selectAll: async () => {
@@ -539,13 +545,19 @@ async function main() {
       id: "drawn-by-an-agent",
       x: 400,
       y: 400,
+      width: 120,
+      height: 80,
       version: 2,
       versionNonce: 909,
+      // Excalidraw stamps this on every change, and it is what says *which*
+      // element a tool just touched — the scene arrives whole, so there is no
+      // diff to read a position out of. See `latestChangePoint`.
+      updated: Date.now(),
       index: "a5",
     },
   ];
   const agentBody = serializeDrawing(nextBody ?? body, agentElements, { files: ATTACHMENT });
-  const agentWrote = await callTool(BO, "write_note", {
+  const agentWrote = await callTool(TOOL, "write_note", {
     path: NOTE,
     content: agentBody ?? "",
     summary: "an agent drawing on a canvas three people have open",
@@ -559,6 +571,84 @@ async function main() {
     agentBody !== null && !agentWrote?.isError && agentLanded,
     agentLanded ? "" : `${textOf(agentWrote).slice(0, 100)} ids ${JSON.stringify(await ana.ids())}`,
   );
+
+  /*
+    **And on everybody else's, which is a separate fact and was the defect.**
+
+    A note's merge reaches the room by itself: it is an edit, and edits travel.
+    A drawing's does not. The room hands the write to one member — because the
+    same *text* merged twice inserts it twice — and elements handed to one
+    browser's Excalidraw go nowhere at all. So the second person on a shared
+    canvas watched the tool's version arrive and saw none of its shapes, until
+    the merger started putting them back on the wire.
+
+    Checked in the window that did *not* merge, which is the only place the
+    difference shows.
+  */
+  /*
+    Both editors, not "the other one": which of them the room picks to merge is
+    the lowest of two server-minted uuids and flips between runs. A check
+    naming `bo` passed under a deliberate sabotage of exactly this, on a run
+    where `bo` happened to be the merger — so it asserts what is actually
+    claimed, that the shape is on **every** open canvas.
+  */
+  const everywhere = await until(
+    async () => (await bo.ids()).includes("drawn-by-an-agent") && (await ana.ids()).includes("drawn-by-an-agent"),
+    { timeout: 25_000 },
+  );
+  check(
+    "...and on every open canvas, not only the one the room asked to merge it",
+    everywhere,
+    everywhere ? "" : JSON.stringify({ ana: await ana.ids(), bo: await bo.ids() }),
+  );
+
+  const rebroadcast = await Promise.all([ana, bo, reader].map((one) => one.reshared()));
+  check(
+    "exactly one browser put the tool's elements back on the wire",
+    // The other one received them as an ordinary `draw`, which is the whole
+    // mechanism: one merge, one broadcast, reconciliation by element version.
+    rebroadcast.filter((count) => count > 0).length === 1,
+    JSON.stringify(rebroadcast),
+  );
+
+  const canvasAgents = await Promise.all([ana, bo, reader].map((one) => one.agents()));
+  check(
+    "every browser on the canvas is told the tool joined",
+    canvasAgents.every((list) => list.length === 1 && list[0]?.isAgent === true && list[0]?.canWrite === false),
+    JSON.stringify(canvasAgents.map((list) => list.length)),
+  );
+
+  /*
+    And the tool's cursor, at the middle of the shape it just drew — reported
+    by the merger, named by the room, and drawn by everybody. The scene arrives
+    whole, so the position comes from the element's own `updated` stamp rather
+    than from a diff nobody here can compute.
+  */
+  const toolId = canvasAgents[0][0]?.id;
+  // Every window again, for the reason above: whichever one merged reports the
+  // pointer, and the room sends it back to the reporter as well because —
+  // unlike its own — this is a cursor it should be drawing.
+  const pointed = await until(async () => {
+    const all = await Promise.all([ana, bo, reader].map((one) => one.peers()));
+    return all.every((peers) => peers.some((who) => who.id === toolId));
+  }, { timeout: 25_000 });
+  check(
+    "the tool's pointer reaches every browser, the merger included",
+    pointed,
+    pointed ? "" : JSON.stringify(await bo.peers()),
+  );
+  if (pointed) {
+    const seen = await Promise.all(
+      [ana, bo, reader].map(async (one) =>
+        (await one.peers()).find((who) => who.id === toolId),
+      ),
+    );
+    check(
+      "...in the middle of the shape it drew, rather than at the origin",
+      seen.every((at) => at.x === 460 && at.y === 440),
+      JSON.stringify(seen.map((at) => ({ x: at.x, y: at.y }))),
+    );
+  }
 
   /* ---------------------------------------------------------------- 7 ---- */
   const seenPeers = await until(async () => (await bo.peers()).length > 0, { timeout: 25_000 });

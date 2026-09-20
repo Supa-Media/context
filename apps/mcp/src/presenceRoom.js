@@ -46,10 +46,12 @@ import {
   PRESENCE_PROTOCOL_VERSION,
   admit,
   applyCursor,
+  colorFor,
   createRoom,
   decodeClientFrame,
   expire,
   forget,
+  normalizeDisplayName,
   roster,
   touch,
 } from "./presence.js";
@@ -129,6 +131,72 @@ export class PresenceRoom {
       }
       const etag = typeof notice.etag === "string" ? notice.etag : null;
       const merger = this.mergerSocket();
+
+      /*
+        **The tool joins the room as a member, and leaves when it stops typing.**
+
+        Somebody watching a note change should see *who* is changing it. A tool
+        holds no socket, so it is not in `roomFromSockets()` and never will be
+        — but everything a caret needs is already built around a roster entry,
+        so it is announced as one rather than given a parallel concept: the
+        join frame, the cursor frame, and the leave frame all work unchanged.
+
+        Identity is the room's, from what the gateway resolved. The name came
+        off the caller's grant and the id is opaque — never the control plane's
+        own client id, which is nobody else's business even inside a shared
+        workspace.
+
+        In memory rather than in storage, and deliberately: this is who is
+        typing *right now*. A room that hibernates between the write and the
+        caret loses the caret, which is the correct amount of wrong.
+      */
+      const actor = notice.actor && typeof notice.actor === "object" ? notice.actor : null;
+      const agentId = typeof actor?.id === "string" && actor.id ? `a:${actor.id}` : null;
+      /*
+        **A write from a client already sitting here is somebody saving.**
+
+        The console has no private save path: it writes through `write_note`
+        like any agent, because that is the only shape there is. So without
+        this, pressing save in a note you have open announces a tool joining
+        the room, wearing your own name, next to your own caret — and a second
+        one for every other client that ever saved, since nothing takes them
+        down but time.
+
+        Matched on the client rather than the member, because two tabs are two
+        members of one client and either of them saving is still the same
+        person. The key is a digest the gateway computes identically for the
+        socket and for the write; see `presenceClientKey`.
+
+        The agent is *cleared* rather than merely not replaced. It names who
+        the last write belonged to, and the caret the merger is about to report
+        is that write's — so leaving a previous tool in place would draw its
+        caret at text somebody else wrote.
+      */
+      const seatedClients = new Set();
+      for (const ws of this.state.getWebSockets()) {
+        const held = ws.deserializeAttachment();
+        if (typeof held?.clientKey === "string" && held.clientKey) seatedClients.add(held.clientKey);
+      }
+      if (agentId && seatedClients.has(actor.id)) {
+        this.agent = null;
+      } else if (agentId) {
+        this.agent = { id: agentId, at: Date.now() };
+        this.broadcast({
+          t: "join",
+          member: {
+            id: agentId,
+            name: normalizeDisplayName(actor.name),
+            color: colorFor(agentId),
+            // A tool's caret is drawn, and a tool is never elected to save:
+            // the election runs over members the room accepts edits from, and
+            // this one has no socket to accept anything from.
+            w: false,
+            g: true,
+            a: null,
+            h: null,
+          },
+        });
+      }
       /*
         **The version goes to the one member that is given the text, and to
         nobody else.**
@@ -206,7 +274,14 @@ export class PresenceRoom {
     // Hibernation: the runtime may evict this object while the socket stays
     // open, so everything needed to rebuild this member lives on the socket
     // rather than on `this`.
-    server.serializeAttachment({
+    /*
+      Built once and written twice — plain, not clever, and the reason is a
+      bug this file has already had: the second write below rebuilt the object
+      from `seated.member` and quietly dropped whatever the first one added.
+      A field that exists in one of two identical-looking literals is a field
+      that is there until somebody joins a room with a log in it.
+    */
+    const attachment = {
       ...seated.member,
       /*
         Write authority, decided by the route from the caller's grant and role
@@ -214,9 +289,16 @@ export class PresenceRoom {
         assert its own write access would make the scope check theatre.
       */
       canWrite: intent.canWrite === true,
+      /*
+        Which client this socket belongs to, so that a write arriving from the
+        same one is read as this person saving rather than as a tool joining.
+        Opaque and stable; see `presenceClientKey` in the gateway.
+      */
+      clientKey: typeof intent.clientKey === "string" ? intent.clientKey : null,
       eligibleToCompact: false,
       deadline: now + PRESENCE_SOCKET_MAX_MS,
-    });
+    };
+    server.serializeAttachment(attachment);
     this.state.acceptWebSocket(server);
 
     /*
@@ -278,12 +360,7 @@ export class PresenceRoom {
       A socket that joined before some entry cannot vouch for the entries it
       never saw, and the room will not delete anything on its word.
     */
-    server.serializeAttachment({
-      ...seated.member,
-      canWrite: intent.canWrite === true,
-      eligibleToCompact: true,
-      deadline: now + PRESENCE_SOCKET_MAX_MS,
-    });
+    server.serializeAttachment({ ...attachment, eligibleToCompact: true });
 
     await this.ensureAlarm();
 
@@ -457,6 +534,20 @@ export class PresenceRoom {
       */
       touch(room, attachment.id, now);
       ws.serializeAttachment({ ...attachment, seen: now });
+      if (decoded.msg.agent === true) {
+        // The agent's pointer on a canvas, reported by the client that merged
+        // its write. Same rule as the caret above: the room owns the id, and
+        // only for as long as the write it came from is recent.
+        if (!this.currentAgent(now)) return;
+        this.broadcast({
+          t: "pointer",
+          id: this.agent.id,
+          x: decoded.msg.x,
+          y: decoded.msg.y,
+          s: decoded.msg.s,
+        });
+        return;
+      }
       this.broadcast(
         { t: "pointer", id: attachment.id, x: decoded.msg.x, y: decoded.msg.y, s: decoded.msg.s },
         ws,
@@ -468,6 +559,20 @@ export class PresenceRoom {
       touch(room, attachment.id, now);
       ws.serializeAttachment({ ...attachment, seen: now });
       ws.send(JSON.stringify({ t: "pong" }));
+      return;
+    }
+
+    if (decoded.msg.agent === true) {
+      /*
+        A caret reported on the agent's behalf by the client that merged its
+        write. The room supplies the id — see `decodeClientFrame` — so a client
+        can say "this one is the agent's" and cannot say *which* member any
+        caret belongs to. Sent to the reporter too, because unlike its own
+        caret this is one it should be drawing.
+      */
+      if (!this.currentAgent(now)) return;
+      touch(room, attachment.id, now);
+      this.broadcast({ t: "cursor", id: this.agent.id, a: decoded.msg.a, h: decoded.msg.h });
       return;
     }
 
@@ -618,6 +723,29 @@ export class PresenceRoom {
    * Null when nobody in the room may write, which is a real state and not an
    * error: those clients see the change at their next reconnect.
    */
+  /**
+   * The tool this room is currently drawing a caret for, if there still is one.
+   *
+   * Bounded by the same idle window a member gets, and for a sharper reason
+   * than tidiness. An agent caret is reported by a *client* — with a boolean
+   * that says "this one is the tool's" and no id, so the room supplies the id
+   * from the write it last relayed. Without a bound, a client could send that
+   * frame at any later moment and move a tool's caret anywhere it liked, hours
+   * after that tool had finished: not a member it could impersonate, but a
+   * name in the roster it could point at text the tool never wrote.
+   *
+   * The honest claim was only ever about the write that had just landed, so
+   * that is exactly how long the room will make it.
+   */
+  currentAgent(now) {
+    if (!this.agent) return null;
+    if (now - this.agent.at > MEMBER_IDLE_MS) {
+      this.agent = null;
+      return null;
+    }
+    return this.agent;
+  }
+
   mergerSocket() {
     let best = null;
     let bestId = null;

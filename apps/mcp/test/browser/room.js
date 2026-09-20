@@ -13,16 +13,19 @@
 import {
   createSharedDoc,
   isWriter,
-  mergeExternalText,
   seedSharedDoc,
 } from "../../../mobile/features/console/presence/sharedDoc.ts";
+import { applyExternalWrite } from "../../../mobile/features/console/presence/externalWrite.ts";
 import {
   answerStateVector,
+  cursorOffset,
+  cursorPosition,
   encodeSyncStep1,
   encodeUpdate,
   readSyncMessage,
 } from "../../../mobile/features/console/presence/sync.ts";
 import {
+  agentCursorFrame,
   askFrame,
   decodeServerFrame,
   savedFrame,
@@ -41,6 +44,23 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
     externalEtag: null,
     /** The version the room last said the bucket is at. */
     etag: null,
+    /**
+     * Where each member's caret is, as an offset in *this* document.
+     *
+     * Resolved through `cursorOffset` rather than kept as the encoded relative
+     * position, because what the verification asks is "is the tool's caret at
+     * the text the tool wrote", and only this document can answer that.
+     */
+    carets: () => {
+      const out = {};
+      for (const [id, at] of positions) {
+        const offset = at.head === null ? null : cursorOffset(at.head, doc.doc);
+        if (offset !== null) out[id] = offset;
+      }
+      return out;
+    },
+    /** The members the room says are tools rather than people. */
+    agents: () => state.members.filter((m) => m.isAgent),
     /** Whether this client is the one elected to save. */
     saver: () => Boolean(state.you) &&
       state.members.some((m) => m.id === state.you && m.canWrite) &&
@@ -48,6 +68,8 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
   };
   /** The last edit this client made, kept so the reader can try to smuggle it. */
   let lastUpdate = null;
+  /** Every member's caret as it arrived, encoded, by member id. */
+  const positions = new Map();
   const doc = createSharedDoc({
     onLocalUpdateBytes: (update) => {
       lastUpdate = update;
@@ -76,10 +98,37 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
       return;
     }
     if (frame.t === "external") {
-      // The room asked this client, and only this client, to merge a write
-      // that came from a tool. See `presenceRoom.js`.
-      mergeExternalText(doc, frame.text);
-      state.externalEtag = frame.etag;
+      /*
+        The room asked this client, and only this client, to merge a write that
+        came from a tool — and the product's own function does it, rather than
+        this harness doing its own version of the same branch. That is the
+        whole point of the file: the two defects it was extracted for both
+        lived in a branch no test reached, and a harness that reimplements it
+        would reach a reimplementation.
+      */
+      applyExternalWrite(
+        { text: frame.text, path: note, shared: doc, drawing: false },
+        {
+          deliverElements: () => {},
+          shareElements: () => {},
+          reportCaret: (span) => {
+            socket.send(
+              agentCursorFrame(
+                cursorPosition(doc.text, span.from),
+                cursorPosition(doc.text, span.to),
+              ),
+            );
+          },
+          reportPointer: () => {},
+          adopt: () => {
+            state.externalEtag = frame.etag;
+          },
+        },
+      );
+      return;
+    }
+    if (frame.t === "cursor") {
+      positions.set(frame.id, { anchor: frame.anchor, head: frame.head });
       return;
     }
     if (frame.t === "etag") {
@@ -89,7 +138,9 @@ window.joinRoom = ({ gateway, token, note, seedWith }) => {
       state.etag = frame.etag;
       return;
     }
-    if (frame.t === "join") state.members = [...state.members, frame.member];
+    if (frame.t === "join") {
+      state.members = [...state.members.filter((m) => m.id !== frame.member.id), frame.member];
+    }
     if (frame.t === "leave") state.members = state.members.filter((m) => m.id !== frame.id);
     if (frame.t === "ask") {
       // Answered, never applied. See `answerStateVector`.

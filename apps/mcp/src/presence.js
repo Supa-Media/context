@@ -255,7 +255,21 @@ export function decodeClientFrame(raw) {
     */
     const anchor = relativePosition(parsed.a);
     const head = relativePosition(parsed.h);
-    return { ok: true, msg: { t: "cursor", a: anchor, h: head } };
+    /*
+      **"This caret is the agent's, not mine."**
+
+      A tool that writes a note is editing it, and somebody watching should see
+      that happen rather than watch text appear from nowhere. The tool holds no
+      socket, so the one client the room asked to merge its write reports where
+      the change landed on its behalf.
+
+      A boolean, never an id: the client says *that* the caret belongs to the
+      agent and the room decides *which* agent, from the write it just relayed.
+      Letting a client name the id would be letting it move any caret in the
+      room, which is the spoof `admit` exists to prevent, arriving through the
+      back door.
+    */
+    return { ok: true, msg: { t: "cursor", a: anchor, h: head, agent: parsed.agent === true } };
   }
   if (parsed.t === "ask") {
     /*
@@ -354,7 +368,8 @@ export function decodeClientFrame(raw) {
     const selected = Array.isArray(parsed.s)
       ? parsed.s.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, 64)
       : [];
-    return { ok: true, msg: { t: "pointer", x, y, s: selected } };
+    // `agent` as above: whose pointer this is, decided by the room.
+    return { ok: true, msg: { t: "pointer", x, y, s: selected, agent: parsed.agent === true } };
   }
   if (parsed.t === "saved") {
     /*

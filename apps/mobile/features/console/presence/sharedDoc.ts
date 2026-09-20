@@ -150,9 +150,13 @@ export function seedSharedDoc(shared: SharedDoc, markdown: string): boolean {
  * paragraph that is an insert at the end, which is what it looks like on
  * screen: the paragraph appears, and nobody's cursor moves.
  */
-export function mergeExternalText(shared: SharedDoc, incoming: string): boolean {
+export function mergeExternalText(
+  shared: SharedDoc,
+  incoming: string,
+): { from: number; to: number } | null {
   const current = shared.text.toString();
-  if (current === incoming) return false;
+  // Nothing changed, so there is nowhere for a caret to be.
+  if (current === incoming) return null;
 
   let prefix = 0;
   const max = Math.min(current.length, incoming.length);
@@ -174,7 +178,15 @@ export function mergeExternalText(shared: SharedDoc, incoming: string): boolean 
     if (removeLength > 0) shared.text.delete(removeFrom, removeLength);
     if (insert.length > 0) shared.text.insert(removeFrom, insert);
   });
-  return true;
+  /*
+    Where the change landed, so a caret can be drawn there.
+
+    The end of what was written is where a person typing would have left their
+    cursor, and it is the only position in the note that means anything about
+    the write. Returned rather than recomputed by the caller, because the
+    caller would have to diff the same two strings again to find it.
+  */
+  return { from: removeFrom, to: removeFrom + insert.length };
 }
 
 /**

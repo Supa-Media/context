@@ -24,6 +24,8 @@ import {
   decodeClientFrame,
 } from "../../mcp/src/presence.js";
 import {
+  agentCursorFrame,
+  agentPointerFrame,
   askFrame,
   cursorFrame,
   decodeServerFrame,
@@ -257,8 +259,14 @@ describe("what the room sends, the client reads", () => {
     const accepted = decodeClientFrame(pointerFrame(12.5, -3, ["el1", "el2"]));
     expect(accepted.ok).toBe(true);
     expect(accepted.msg?.t).toBe("pointer");
-    // Nothing else rides along: this is not a second channel for scene data.
-    expect(Object.keys(accepted.msg!).sort()).toEqual(["s", "t", "x", "y"]);
+    /*
+      Nothing else rides along: this is not a second channel for scene data.
+      `agent` is on the list and is *false* here — the room reads it to decide
+      whose pointer this is, and a frame that did not claim to be the tool's
+      must never be able to arrive as one by leaving the field off.
+    */
+    expect(Object.keys(accepted.msg!).sort()).toEqual(["agent", "s", "t", "x", "y"]);
+    expect(accepted.msg!.agent).toBe(false);
 
     const relayed = decodeServerFrame(
       JSON.stringify({ t: "pointer", id: "m1", x: 12.5, y: -3, s: ["el1"] }),
@@ -413,5 +421,82 @@ describe("what the room sends, the client reads", () => {
       JSON.stringify({ t: "welcome", v: 1, you: "m1", members: [me] }),
     );
     if (older && older.t === "welcome") expect(older.seed).toBe(false);
+  });
+
+  /*
+    A TOOL'S CARET IS REPORTED BY A CLIENT AND NAMED BY THE ROOM.
+
+    A tool holds no socket, so somebody has to say where its caret went, and
+    the only party that knows is the client the room asked to merge its write.
+    That client says **that** the caret is the tool's; it must never be able to
+    say **which** member any caret belongs to, or presence stops being a
+    server-vouched identity and becomes a claim — which is the spoof `admit`
+    exists to prevent, arriving through the back door.
+
+    The boolean is the whole security argument, so it is asserted from both
+    sides: the client cannot put an id on the frame, and the room reads the
+    flag it actually sent.
+  */
+  test("a caret reported on the tool's behalf carries a flag and no id", () => {
+    const accepted = decodeClientFrame(agentCursorFrame("QUJD", "QUJE"));
+    expect(accepted.ok).toBe(true);
+    expect(accepted.msg?.t).toBe("cursor");
+    expect(accepted.msg!.agent).toBe(true);
+    // No `id`, and no room for one: the field the room stamps is not on the
+    // list of fields a client can fill in.
+    expect(Object.keys(accepted.msg!).sort()).toEqual(["a", "agent", "h", "t"]);
+  });
+
+  test("a client's own caret is not the tool's, and cannot become one", () => {
+    // The ordinary caret frame reads as `agent: false`, so the room's branch
+    // is taken only by a frame that asked for it.
+    expect(decodeClientFrame(cursorFrame("QUJD", "QUJD")).msg!.agent).toBe(false);
+    // And a client that puts something *truthy* there is still not the tool:
+    // the gateway compares against `true` and nothing else.
+    for (const forged of ["true", 1, {}, ["yes"]]) {
+      const sneaky = decodeClientFrame(JSON.stringify({ t: "cursor", a: null, h: null, agent: forged }));
+      expect([JSON.stringify(forged), sneaky.msg!.agent]).toEqual([JSON.stringify(forged), false]);
+    }
+  });
+
+  test("a pointer reported on the tool's behalf is the same bargain", () => {
+    const accepted = decodeClientFrame(agentPointerFrame(110, -4.5));
+    expect(accepted.ok).toBe(true);
+    expect(accepted.msg?.t).toBe("pointer");
+    expect([accepted.msg!.agent, accepted.msg!.x, accepted.msg!.y]).toEqual([true, 110, -4.5]);
+    expect(Object.keys(accepted.msg!).sort()).toEqual(["agent", "s", "t", "x", "y"]);
+  });
+
+  test("the roster tells a tool apart from a colleague", () => {
+    /*
+      `g` on the wire, `isAgent` in the app. A person watching their note
+      change should be able to tell which of the carets in it is not a
+      colleague — and the flag is the room's, never a name a client asserted.
+
+      Absent reads as a person, which is the safe way to be wrong: a tool drawn
+      as a colleague is a cosmetic error, and a colleague drawn as a tool is
+      the app telling somebody their teammate is a robot.
+    */
+    const tool = { id: "a:9f", name: "Some Client", color: "#3b82f6", a: null, h: null, w: false, g: true };
+    const person = { id: "m1", name: "@ana", color: "#3b82f6", a: null, h: null, w: true };
+
+    const joined = decodeServerFrame(JSON.stringify({ t: "join", member: tool }));
+    expect(joined).not.toBeNull();
+    if (joined && joined.t === "join") {
+      expect(joined.member.isAgent).toBe(true);
+      // And never elected to save: it has no socket to accept an edit from.
+      expect(joined.member.canWrite).toBe(false);
+    }
+
+    const welcome = decodeServerFrame(
+      JSON.stringify({ t: "welcome", v: 1, you: "m1", members: [person, tool], seed: false }),
+    );
+    if (welcome && welcome.t === "welcome") {
+      expect(welcome.members.map((one) => one.isAgent)).toEqual([false, true]);
+    }
+
+    // Truthy is not `true`, here as everywhere else on this wire.
+    const fuzzy = decodeServerFrame(JSON.stringify({ t: "join", member: { ...tool, g: "yes" } }));
+    if (fuzzy && fuzzy.t === "join") expect(fuzzy.member.isAgent).toBe(false);
   });
 });

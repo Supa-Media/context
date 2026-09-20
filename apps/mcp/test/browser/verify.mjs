@@ -32,6 +32,8 @@ const NOTE = "1-projects/verify.md";
 const ANA = "cat_local_verification_token_ana";
 const BO = "cat_local_verification_token_bo";
 const READER = "cat_local_verification_token_reader";
+/** A tool with its own grant, which is what an agent writing a note actually is. */
+const TOOL = "cat_local_verification_token_tool";
 const MCP_DIR = join(HERE, "..", "..");
 // A bucket of this run's own, thrown away first, so a second run is not a
 // different test from the first one.
@@ -304,6 +306,10 @@ async function main() {
       announceSaved: (etag) => page.evaluate((v) => window.room.announceSaved(v), etag),
       externalEtag: () => page.evaluate(() => window.room.externalEtag),
       saver: () => page.evaluate(() => window.room.saver()),
+      /** The members the room says are tools rather than people. */
+      agents: () => page.evaluate(() => window.room.agents()),
+      /** Every caret this browser holds, as an offset in its own document. */
+      carets: () => page.evaluate(() => window.room.carets()),
     };
   };
 
@@ -388,7 +394,7 @@ async function main() {
   // the case the product is for: the agent that saves what a session decided,
   // into a note somebody is reading.
   const agentText = `${await ana.text()}written by an agent, not a browser\n`;
-  const agentWrote = await callTool(BO, "write_note", {
+  const agentWrote = await callTool(TOOL, "write_note", {
     path: NOTE,
     content: agentText,
     summary: "an agent writing a note three people have open",
@@ -414,6 +420,81 @@ async function main() {
     merger.filter((etag) => etag !== null).length === 1 &&
       merger[3] === null &&
       merger.some((etag) => etag === agentEtag),
+  );
+
+  /*
+    THE AGENT IS SOMEBODY IN THE ROOM, AND EVERY BROWSER CAN SEE IT.
+
+    Up to here the verification has proved the agent's *text* arrives. What it
+    could not prove, and what a person actually asked for, is that they can
+    watch it happen: a name in the room and a caret where the writing landed,
+    in every window rather than only in the one the room picked to merge.
+
+    The distinction matters because the merge is deliberately given to one
+    member. Everything else about the tool's presence has to be broadcast, and
+    "broadcast" is precisely the thing a single-browser test cannot check.
+  */
+  const rosters = await Promise.all([ana, reconnected, late, reader].map((one) => one.agents()));
+  check(
+    "every browser is told the tool joined, including the read-only one",
+    rosters.every((list) => list.length === 1),
+    JSON.stringify(rosters.map((list) => list.length)),
+  );
+  check(
+    "the tool is named, coloured, and never elected to save",
+    rosters.every(
+      (list) =>
+        typeof list[0]?.name === "string" &&
+        list[0].name.length > 0 &&
+        /^#[0-9a-f]{6}$/i.test(list[0]?.color ?? "") &&
+        list[0]?.canWrite === false &&
+        list[0]?.isAgent === true,
+    ),
+    JSON.stringify(rosters[0]?.[0] ?? null),
+  );
+
+  /*
+    And its caret, resolved inside each browser's own document.
+
+    Reported by the one client that merged the write and relayed by the room to
+    everybody — including back to the reporter, which is the one caret a client
+    does draw for itself. The position is checked against the text rather than
+    against a number: `head` must land at the end of what the tool wrote, which
+    is where a person typing it would have left their cursor.
+  */
+  const agentId = rosters[0][0].id;
+  const windows = [ana, reconnected, late, reader];
+  const WROTE = "written by an agent, not a browser\n";
+  /*
+    Polled on the *whole* claim rather than on the caret's arrival, because the
+    two halves do not arrive together: the caret is one small frame and the
+    text it points at is an edit travelling the ordinary way, so a window can
+    hold the position a moment before it holds the characters. Yjs maps such a
+    position to somewhere in the document it does have rather than refusing —
+    which is the right behaviour and converges on the next update, and is also
+    exactly the window in which a check that read the caret first and the text
+    second would read a true failure that is not one.
+  */
+  const settled = await until(async () => {
+    const all = await Promise.all(
+      windows.map(async (one) => {
+        const [carets, text] = await Promise.all([one.carets(), one.text()]);
+        const at = carets[agentId];
+        return typeof at === "number" && text.slice(0, at).endsWith(WROTE);
+      }),
+    );
+    return all.every(Boolean);
+  });
+  const held = await Promise.all(windows.map((one) => one.carets()));
+  check(
+    "the tool's caret reaches every browser, the read-only one included",
+    held.every((carets) => typeof carets[agentId] === "number"),
+    JSON.stringify(held.map((carets) => carets[agentId] ?? null)),
+  );
+  check(
+    "...at the end of the text the tool wrote, in each of their documents",
+    settled,
+    settled ? "" : JSON.stringify(held.map((carets) => carets[agentId] ?? null)),
   );
 
   /* ---------------------------------------------------------------- 7 ---- */

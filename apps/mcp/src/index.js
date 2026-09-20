@@ -1388,6 +1388,22 @@ async function handlePresence(request, env, { slug, pathToken, origin }) {
         from the client.
       */
       canWrite: hasScope(session, SCOPE_WRITE),
+      /*
+        **Which client this socket belongs to, so a save is not mistaken for a
+        tool.**
+
+        The room announces the client behind a write as a member, so that
+        somebody watching a note change can see who is changing it. The console
+        writes through the same tool as any agent does — `write_note` is the
+        only shape there is — so without this, saving your own note puts a
+        robot wearing your name in the room beside you.
+
+        The same digest the write carries, and never the client id itself. It
+        identifies a *client*, not a person: two browser tabs are two members
+        of one client and a tool holding its own grant is a different one,
+        which is exactly the distinction that has to be drawn.
+      */
+      clientKey: await presenceClientKey(session.actorClientId),
     }),
   );
   return await room.fetch(new Request(request.url, { method: "GET", headers }));
@@ -6704,7 +6720,12 @@ async function toolWriteNote(store, scope, rules, overrides, args, options = {})
   });
   // And anybody who has this note open right now, so an agent's write appears
   // in their editor as it lands rather than as a conflict later.
-  await announceWriteToPresence(store, { path, content, etag: put.etag });
+  await announceWriteToPresence(store, {
+    path,
+    content,
+    etag: put.etag,
+    actor: await presenceActor(store.actor),
+  });
   // After the note is safely stored, never before: a response file for a note
   // whose own write then failed is a file referring to a form that does not
   // exist.
@@ -7571,7 +7592,63 @@ async function ensureFormResponseFiles(store, scope, rules, overrides, blocks, n
  * way — this is a live view catching up faster, never the only path by which a
  * change is recorded, and it cannot fail the write that triggered it.
  */
-async function announceWriteToPresence(store, { path, content, etag }) {
+/**
+ * Who a tool's write shows up as, to the people watching the note change.
+ *
+ * A name and an opaque id, and no more than that. The name is the one the
+ * route already trusts for a caret — the caller's own handle where there is
+ * one, the client's registered name otherwise — and it is display text that
+ * decides nothing.
+ *
+ * **The id is a digest of the client id, never the client id.** A caret needs
+ * something stable so the same agent writing twice is one agent rather than
+ * two, and the control plane's own identifier is nobody else's business even
+ * among people who share a workspace. Sixteen hex characters is far more than
+ * enough to keep two agents in one note apart and far too few to be worth
+ * anything to somebody who collects it.
+ */
+/**
+ * The opaque, stable id a client is known by inside a presence room.
+ *
+ * A digest of the control plane's client id, never the client id itself: a
+ * caret needs something stable so the same agent writing twice is one agent
+ * rather than two, and the control plane's own identifier is nobody else's
+ * business even among people who share a workspace. Sixteen hex characters is
+ * far more than enough to keep two agents in one note apart and far too few to
+ * be worth anything to somebody who collects it.
+ *
+ * The same value is computed for a socket (so the room can tell that a write
+ * came from somebody already sitting in it) and for a write (so the room can
+ * announce the tool that made it). They have to be the same function or the
+ * comparison is always false and every console save announces a robot.
+ */
+export async function presenceClientKey(clientId) {
+  if (typeof clientId !== "string" || !clientId) return null;
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(clientId));
+    return [...new Uint8Array(digest).slice(0, 8)]
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    // No caret rather than a guessed identity. The write still lands and the
+    // text still reaches the room.
+    return null;
+  }
+}
+
+async function presenceActor(actor) {
+  /*
+    The client's own name first, which is the reverse of a caret's rule and is
+    the point: a person watching their note change wants to know *an agent* did
+    it, and "@seyi" on a caret they are also holding reads as themselves in two
+    places. `actorFor` already carries both — the handle for the audit line,
+    the client name for the sentence a person reads.
+  */
+  const name = actor?.client || (actor?.name ? `${actor.name}'s agent` : "An agent");
+  return { id: await presenceClientKey(actor?.clientId), name };
+}
+
+async function announceWriteToPresence(store, { path, content, etag, actor }) {
   const rooms = store.presenceRooms;
   if (!rooms) return "off";
   const workspaceId = store.actor?.workspaceId;
@@ -7583,7 +7660,7 @@ async function announceWriteToPresence(store, { path, content, etag }) {
       await room.fetch("https://presence.invalid/external", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: content, etag: etag ?? null }),
+        body: JSON.stringify({ text: content, etag: etag ?? null, actor: actor ?? null }),
       });
     } catch {
       // A room that cannot be reached is a live view that refreshes a little
