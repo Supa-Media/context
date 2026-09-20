@@ -270,10 +270,22 @@ export async function callerHash(userId: string, workerSecret: string): Promise<
  * arrives from a client, and every downstream consumer would otherwise have to
  * distrust a value we handed it.
  *
- * 128 is enormously generous against the real thing. The recorders mint
- * `<Date.now()>-<index>` (`apps/mobile/features/meetings/capture/segments.ts`),
- * which is around seventeen characters, and a UUID-shaped session key with an
- * index still fits in half of this.
+ * 128 is enormously generous against the real thing. Every recorder mints
+ * `<meetingId>-<index>` through `chunkIdFor` (`packages/meetings/src/chunks.js`)
+ * — twenty-six characters, since a meeting id is `mtg_` plus twenty, and still
+ * under forty for the desktop's channel-qualified key.
+ *
+ * **The shape matters here as well as the length, and it did not always.** The
+ * phone used to key its chunks on `String(Date.now())`, which named no meeting;
+ * since it does not, the `${chunkId}-${index}` this action mints is what lets
+ * `segmentSessionId` read a segment's own meeting back out of its id, which is
+ * the whole of the gateway's and the app's identity guard against one meeting's
+ * words reaching another's note (`docs/decisions/meetings.md`, *A segment id
+ * names its own meeting, and both sides check it*). This action neither parses
+ * that shape nor requires it — `CHUNK_ID_PATTERN` below is a charset, and an id
+ * that names nothing is still a legitimate id from a client this contract has
+ * not met — but it does have to carry it through unaltered, which is why the
+ * ids are derived from the argument rather than minted here.
  *
  * **This is no longer the only bound, and the other one is coupled to it.**
  * `normalizeSegment` used to accept an unbounded segment id — this comment said
